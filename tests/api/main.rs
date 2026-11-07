@@ -20,7 +20,7 @@
 // the one a contributor runs still police every unused import. Dead
 // *items* are not relaxed: unlike the two library roots this test crate
 // carries no `allow(dead_code)`, so every helper, `const`, macro and
-// test here still needs its own gate. See `.claude/rules/testing.md`,
+// test here still needs its own gate. See `docs/development/testing.md`,
 // "Why the import lint is off on a partial build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 mod ast_seam_test;

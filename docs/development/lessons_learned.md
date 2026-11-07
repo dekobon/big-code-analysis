@@ -14,13 +14,13 @@ that a bug class is real; a rule is what you follow without re-reading
 the evidence. Three rule files carry the checklists these lessons
 produced, and entries below point at them rather than restating them:
 
-- [`.claude/rules/grammar-dispatch.md`](../../.claude/rules/grammar-dispatch.md)
+- [`docs/development/grammar_dispatch.md`](grammar_dispatch.md)
   — per-language `match node.kind_id()` arms, aliased variants, child
   addressing, cross-predicate parity.
-- [`.claude/rules/testing.md`](../../.claude/rules/testing.md) —
+- [`docs/development/testing.md`](testing.md) —
   test-via-revert, perturbation, coverage-vs-protection, harness
   normalisation, assertion shapes that are wrong by construction.
-- [`.claude/rules/formatting.md`](../../.claude/rules/formatting.md) —
+- [`docs/development/formatting.md`](formatting.md) —
   rustfmt's silent bail on in-pattern comments.
 
 Project policy lives in [`AGENTS.md`](../../AGENTS.md). Where a lesson's
@@ -160,7 +160,6 @@ number and the higher number stays as a redirect.
 | [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
 | [115](#115-sharing-the-rule-left-the-list-at-every-caller-sharing-the-list-leaves-the-judgement) | Sharing the rule left the list at every caller; sharing the list leaves the judgement |
 | [116](#116-a-dead-code-census-describes-the-target-it-was-taken-on) | A dead-code census describes the target it was taken on |
-| [117](#117-a-spaces-own-value-is-everything-the-walk-folds-into-it) | A space's own value is everything the walk folds into it |
 
 ---
 
@@ -205,7 +204,7 @@ no-ops — they inherit a working trait default; only the named-trait arms
 ## 2. Tree-sitter aliases one rule across many kind_ids — match every variant
 
 **Lesson:** Follow
-[`grammar-dispatch.md` §1](../../.claude/rules/grammar-dispatch.md) —
+[`grammar-dispatch.md` §1](../../docs/development/grammar_dispatch.md) —
 after any grammar bump, regenerate the enum *first* (both manifests in
 lockstep), then confirm every numeric-suffix variant of every matched
 rule is listed or excluded with a comment. Named-node stability is not
@@ -466,7 +465,7 @@ regression.
 never `is_ok()` or "the section rendered". When fixing a bug, write the
 test against the function whose contract is wrong, not against a wrapper
 that may filter the bug-triggering input.
-[`testing.md`](../../.claude/rules/testing.md) carries the mechanical
+[`testing.md`](../../docs/development/testing.md) carries the mechanical
 form: the harness-normalisation map, the assertion shapes that are wrong
 by construction, and the perturbation procedure that proves a test can
 fail.
@@ -575,7 +574,7 @@ not `Unit`, anchored to the parser's full input range.
 *structure* rather than node kind, examine the grammar's
 `node-types.json` or parse a representative snippet to confirm how the
 construct is actually represented. The per-family table is in
-[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md).
+[`grammar-dispatch.md` §4](../../docs/development/grammar_dispatch.md).
 Treat a stub returning a constant as a to-do, not a finished
 implementation, and add a test that would fail if it were a no-op — an
 `else if` chain must score lower than the same chain with independent
@@ -597,7 +596,7 @@ increment inflated the penalty for everything nested inside. The fix
 adopted Kotlin's strategy (`previous_sibling().kind_id() == Else`), and
 the post-fix audit of the 16 implementations then in the tree produced
 the first strategy table. That table is now maintained in
-[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md) with
+[`grammar-dispatch.md` §4](../../docs/development/grammar_dispatch.md) with
 the command to re-derive it — the #115 version went stale within a few
 language additions, which is lesson 84 in miniature.
 
@@ -1349,7 +1348,7 @@ reverting the `InterfaceDeclaration` arm would pass them vacuously too.
 
 **Lesson:** Never string-match the codebase's own source in a test. The
 rule and its three ranked alternatives are in
-[`testing.md`](../../.claude/rules/testing.md) — construct a parseable
+[`testing.md`](../../docs/development/testing.md) — construct a parseable
 input and assert the parse-tree consequence; failing that, document the
 contract at every production call site; failing that, design a
 compile-time check (an exhaustive `match`, a `const`-evaluated
@@ -1491,7 +1490,7 @@ only aliases unobserved under every context probed.
 **Lesson:** When refactoring or extending a per-language classification
 predicate, walk the *other* predicates that classify the same nodes. The
 minimum cross-walk is in
-[`grammar-dispatch.md` §7](../../.claude/rules/grammar-dispatch.md). The
+[`grammar-dispatch.md` §7](../../docs/development/grammar_dispatch.md). The
 reusable diagnostic is a parsed fixture asserting **both** predicates
 agree: parse a source containing the node, locate every occurrence by
 kind_id, and assert each predicate's verdict per occurrence.
@@ -1656,7 +1655,7 @@ removing the wildcard, which does not compile.
 
 **Lesson:** Gate the entire `fn`, never an inner block — the rule and its
 inverse trap are in
-[`testing.md`](../../.claude/rules/testing.md). An inner-block `#[cfg]`
+[`testing.md`](../../docs/development/testing.md). An inner-block `#[cfg]`
 compiles to an empty body off-target, and an empty `#[test]` is a
 *passing* test: the harness reports green with zero assertions run. The
 function-level form hides the test instead.
@@ -1955,7 +1954,7 @@ capture, so the syntax matches the semantics; or wire it through the
 body, so the syntax becomes load-bearing and disagreement is a compile
 error. Pick the easier one. When the macro is hand-rolled because
 variants need bespoke per-arm logic, drop the capture and lean on
-[`macro-comments.md`](../../.claude/rules/macro-comments.md) to preserve
+[`formatting.md`](formatting.md) to preserve
 the per-call narrative at the call site.
 
 Decorative is not neutral: a call site reading `(Cpp, tree_sitter_cpp)`
@@ -2155,7 +2154,7 @@ languages now classify the `=` from its parent chain.
 `node.child(idx)` for any slot whose grammar permits an optional
 preamble. The full rule, including the preamble inventory and the
 fallback when no field is exposed, is in [`grammar-dispatch.md`
-§3](../../.claude/rules/grammar-dispatch.md). The minimum new-test bar
+§3](../../docs/development/grammar_dispatch.md). The minimum new-test bar
 for a dispatcher arm is **one fixture per optional preamble the grammar
 permits** — not just the form the corpus already has. When migrating a
 slot from positional to field addressing, dump the AST for *each*
@@ -2396,7 +2395,7 @@ percent of the wall, and
 operator wrapping reusable leaves, classify the compound and
 parent-guard the leaves to `Unknown` under that compound only — a
 blanket suppression drops every legitimate standalone use. See
-[`grammar-dispatch.md` §5](../../.claude/rules/grammar-dispatch.md).
+[`grammar-dispatch.md` §5](../../docs/development/grammar_dispatch.md).
 
 This is the mirror image of lesson 50: there two independent paths
 summing one field *masked* a zero; here one arm listing two aliases of
@@ -2523,7 +2522,7 @@ failed on the branch, which is the definition of a regression.
 another language, dump the AST for the construct in the *target* grammar
 and confirm the gating kind appears there — the semantic role transfers,
 the node kind does not. The per-family table is in
-[`grammar-dispatch.md` §4](../../.claude/rules/grammar-dispatch.md). Add
+[`grammar-dispatch.md` §4](../../docs/development/grammar_dispatch.md). Add
 a fixture exercising the gated branch (a labeled jump, not a plain one)
 and test-via-revert that branch alone; a suite of only unlabeled inputs
 proves nothing.
@@ -2615,17 +2614,6 @@ same shape, fixed the same way (#1356) — there the predicate keys on the
 node's own kind, because a method is always a `method_definition` and no
 parent-kind list can be completed.
 
-**Opening a space re-parents what is counted inside it** (#1828). A
-Kotlin `val` parameter property was counted at its own `class_parameter`
-visit and landed on the class because nothing between them opened a
-space; the day the primary constructor opened one, the same count landed
-on the constructor and left the class's own `npa` short by every
-parameter property — 0 for a data class with no body properties. Count
-a child's contribution where its owner is on the stack — Kotlin's
-class-declaration visit; TypeScript scans a constructor's parameter
-properties from the class body for the same reason — not where the
-child happens to be visited.
-
 ---
 
 ## 64. A default/fallback-arm exclusion is per-construct
@@ -2635,7 +2623,7 @@ kind. Confirm the construct's own node pays the nesting/decision
 increment — so its default really is redundant — before suppressing, and
 confirm the shared node kind is not also serving a chain construct where
 the arm is a legitimate +1. See
-[`grammar-dispatch.md` §8](../../.claude/rules/grammar-dispatch.md) and
+[`grammar-dispatch.md` §8](../../docs/development/grammar_dispatch.md) and
 lesson 11 for the cross-metric agreement rule. A construct can offer two
 candidate defaults; exactly one is free. Decide by counting reachable
 paths, and write the fixture that carries both arms — one that carries
@@ -2721,7 +2709,7 @@ the arm fires, and add it in every layout the grammar splits
 differently — a construct with no node of its own has no fixed shape
 either, so the same source can reach the recogniser as one command or
 as several depending on where the newlines fall. See
-[`grammar-dispatch.md` §9](../../.claude/rules/grammar-dispatch.md).
+[`grammar-dispatch.md` §9](../../docs/development/grammar_dispatch.md).
 
 The gap is not a missing enum arm — the *kind* the dispatcher would need
 does not exist for that construct in that grammar at all. Cousin of
@@ -3376,7 +3364,7 @@ over the whole suite
 a firing probe fails its target and cargo stops at the first one that
 fails), enumerates which grammars really reach a
 supposedly-unreachable branch, once a direct test has shown the probe
-can fire ([`testing.md`](../../.claude/rules/testing.md), "Prove a
+can fire ([`testing.md`](../../docs/development/testing.md), "Prove a
 reachability probe can fire"). Treat "this per-part value exceeds the
 whole" as a hard invariant worth asserting outright.
 
@@ -3403,7 +3391,7 @@ tree-sitter-bash reaches the same shape.
 
 The input class was unreachable from every in-tree harness, which is why
 it survived — see the normalisation map in
-[`testing.md`](../../.claude/rules/testing.md). The documented rustdoc
+[`testing.md`](../../docs/development/testing.md). The documented rustdoc
 example at `src/spaces.rs` was itself demonstrating the bug in the
 published docs.
 
@@ -3448,11 +3436,8 @@ gates the build, so anyone budgeting from the comment got it wrong. The
 rest were a test's exclusion rationale, a changelog's two scope claims
 and a benchmarking doc's count. Later instances: a Go ABC test citing
 "the Rust/Java rule" for a number backwards in all three languages
-(#1278), three docs-sweep issues each prescribing a fix that was wrong
-by the time it ran (#1711, #1712, #1713), and a review finding that a
-`sealed` class may write `public constructor` — a fixture pinned that
-invalid program until the compiler source said `private` or
-`protected` only (#1828).
+(#1278), and three docs-sweep issues each prescribing a fix that was
+wrong by the time it ran (#1711, #1712, #1713).
 
 **A hedge survived two reviews because it admitted uncertainty**
 (#1417). One of the three sets `Stats::settle_excluded_rows` subtracts
@@ -3500,7 +3485,7 @@ no test can see a read that changes no answer.
 **Lesson:** Never accept a coverage percentage as evidence a line is
 tested — it is evidence the line is *reached*. The full procedure, and
 the covered-count-not-percentage rule, are in
-[`testing.md`](../../.claude/rules/testing.md). The general shape is that
+[`testing.md`](../../docs/development/testing.md). The general shape is that
 **any scalar summary of a set** — coverage percent, test count, file
 count, snapshot count — can hold steady or improve while the set
 underneath it changes; compare the sets themselves whenever the
@@ -3574,7 +3559,7 @@ reaches it; the pin moved to the row, asked with the inner node's chain.
 
 **Lesson:** In a test helper, normalise the **expectation**, never the
 **observation** — the rule and the removal check are in
-[`testing.md`](../../.claude/rules/testing.md). Where a helper already
+[`testing.md`](../../docs/development/testing.md). Where a helper already
 normalises, remove the normalisation and count the failures: none means
 the dimension is untested, and a large number means you just recovered a
 guard across the whole caller list for free.
@@ -3611,7 +3596,7 @@ tests under `ops` and `output::dump_ops`.
 
 **Lesson:** Review the selector as carefully as the assertion, and treat
 "how many rows did this match" as part of the test — see
-[`testing.md`](../../.claude/rules/testing.md) for the assertion shapes.
+[`testing.md`](../../docs/development/testing.md) for the assertion shapes.
 When a test's name states a property, check that the rows it selected are
 *capable of violating* that property; if they are not, the test is
 decoration regardless of how specific its assertion looks.
@@ -3663,7 +3648,7 @@ and re-running it is exactly what a careful person does before quoting
 it.
 
 **A `=>` regex over raw Rust counted other languages' lambdas** (#1136).
-The probe in `.claude/rules/formatting.md` matched match-arm headers by
+The first hand-rolled probe (since replaced by `utils/check-rustfmt-bail.py`) matched match-arm headers by
 regex, so every JS, C# and TypeScript fixture embedded in a Rust string
 literal registered as a match arm. `src/metrics/nom.rs` reports **16**
 arm lines to the raw regex and **0** once string spans are excluded; it
@@ -3755,11 +3740,7 @@ invalid source `^(int a,,)` went 1 → 2 and `^({ int x; })` went 0 → 1.
 Both were kept, because the function channel already reported the same
 through the same helper; the block arm had been the one caller answering
 differently. Recording that in the arm's comment is what stops the next
-reader filing it as a regression. The same open filter counted C#'s
-`params int[] xs` as 3 — the hidden `_parameter_array` lands its pieces
-beside the `parameter` nodes — from the day C# joined it until a
-positive `parameter | params` count pinned the rule hidden (#1828,
-lesson 34).
+reader filing it as a regression.
 
 **One token, several grammatical roles — a denylist admits the role
 nobody listed** (#1274, #1280, #1297, #1383). A bare `<` is a
@@ -3895,7 +3876,7 @@ with or without the memo** (#1602, #1697 cost audit). The probe's
 comments sat inside the list; the scan walked the siblings after it;
 the probe read 1.0 with the memo and 1.0 without. The proof the probe
 discriminates is the same as this lesson's: remove the memo and watch
-the exponent leave the bound (`.claude/rules/testing.md`, "Validate a
+the exponent leave the bound (`docs/development/testing.md`, "Validate a
 scaling probe by removing what it prices").
 
 **Production readers were classified as tests** (#1777). PR #1780
@@ -4075,11 +4056,11 @@ already listed `go` among the helper's needs (#1528).
 rustfmt re-indent, so the sweep ran the unperturbed code and reported
 `0 -> []` for arms that had each failed a test an hour earlier. The
 predicate it answered was "does *this file* fail a test", and the file
-was the original; `.claude/rules/testing.md` now asks for `old != new`.
+was the original; `docs/development/testing.md` now asks for `old != new`.
 A dump read for the parent you came looking for answers an equally
 narrow question: #1706's `catch (var e)` showed its parent only once
 dumped alone, and #1720's fourth `for` parent, `abstract_type`, only in
-the review's one-line dump (`.claude/rules/grammar-dispatch.md` §6).
+the review's one-line dump (`docs/development/grammar_dispatch.md` §6).
 
 **"No helper was over the raised limit" measured who offends, not who
 is no longer guarded** (#1747). A path-scoped `cyclomatic = 40` over
@@ -4442,7 +4423,7 @@ either way) and, for a seam that reaches the predicate through a
 derivation, perturb the derivation as well as the walk.
 
 The failure hides in the way the forwarding-default trap in
-`.claude/rules/grammar-dispatch.md` section 7 does: the predicate reads
+`docs/development/grammar_dispatch.md` section 7 does: the predicate reads
 as memoised at its definition, the walk reads as lending at its
 construction, and the drop sits in a third place neither reader opens.
 Until a counter test exists on the seam that reaches the predicate
@@ -4601,7 +4582,7 @@ hands each child `[conditional]`; `loc/c-conditional-per-struct-depth`
 prices the independent-at-depth axis. At the default depths the copy
 read 1.50 — *on* the `<=` bound, not past it, so the probe as first
 shipped would not have gone red — and at the next doubling 1.81 against
-0.94 fixed, which is where its sizes now sit (`.claude/rules/testing.md`,
+0.94 fixed, which is where its sizes now sit (`docs/development/testing.md`,
 "Validate a scaling probe by removing what it prices"): a probe is
 validated at the sizes it ships with. It nests structs because nested
 C++ namespaces are quadratic under `loc` on `main` (#1767, found by
@@ -4976,7 +4957,7 @@ Run the suite with CI's explicit artifacts as well as its defaults.
 After production changes a routed call's path or arguments, repeat the
 mutation check: the assertion can still pass after the double stops
 recording the call. See the perturbation procedure in
-[`testing.md`](../../.claude/rules/testing.md).
+[`testing.md`](../../docs/development/testing.md).
 
 An overly broad match can apply a fake's handling to a real artifact.
 A stale match can let a call bypass the double and its recording logic.
@@ -5155,7 +5136,7 @@ from the row.
 **What stays manual, and where it is written.** The one list is the
 "What the mechanism cannot see" section of
 `big-code-analysis-ast/src/roles/mod.rs`'s module doc; AGENTS.md, the
-rules under `.claude/rules/` and the book link to it, and so does this
+guides under `docs/development/` and the book link to it, and so does this
 lesson. Each of its items had been a separate gate's "cannot see"
 header before #1701; consolidating them found two of the bypass
 lint's items missing from the first draft of the list, which is why
@@ -5213,44 +5194,5 @@ by an attribute you did not notice — the crate root's
 `cfg_attr(not(feature = "all-languages"), allow(dead_code))` here
 silences every partial-feature build — and "no warnings" cannot tell
 a live lint from a muted one (lesson 80's shape).
-
----
-
-## 117. A space's own value is everything the walk folds into it
-
-**Lesson:** Before a gate, a threshold or a report admits a new space
-kind, measure that kind's *own* value on inputs that hold none of the
-construct the admission is for. An "own" accessor sums whatever the
-walk bills to the innermost open space — `own_args()` is
-`function_args() + closure_args()`, so it holds the parameters of every
-lambda the language leaves spaceless inside that space — and a
-container's own value can therefore be non-zero with no constructor
-written. Decide where a new count lands on the measured population,
-not on what the number is named. If the construct warrants a space of
-its own, the gate, the report and the suppression binding select
-Function rows and follow; the metrics that count, attribute or divide
-still need auditing one by one.
-
-The number is plausible either way, which is what hides it. A class
-that reads `nargs 6` from three two-parameter comparator fields and no
-constructor is not a finding any per-function test asks about — the function tests
-read function rows — and a plan that says "a container's own count can
-only be its constructor's" reads as reasoning rather than as the
-assumption it is. Nothing in the per-space tests contradicts it until
-one is written against the kind being admitted.
-
-**The container route for primary constructors** (#1828). A Kotlin or
-C# primary constructor opened no space, so its parameters counted
-nowhere. The first design billed them to the class and widened the
-`nargs` gate to containers, on the premise above. Measured before
-implementation: a Kotlin class with one six-parameter field lambda and
-a Java class with three two-parameter comparator fields both read
-`nargs.value 6` with no constructor at all, so a gate at `nargs=5` would
-have flagged that constructor-free class, and any class whose folded
-lambda parameters sum past the limit. The averages were wrong the same
-way — `function_args_average` divides by `nom`'s callables, which the
-constructor was not. The constructor became a `Function` space: the
-gate, the report and the Python binding followed unchanged, while
-`nargs`, `npm` and `npa` each needed their own change (lesson 63).
 
 ---

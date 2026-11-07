@@ -18,10 +18,7 @@ const MANIFEST_COMMENT_WIDTH: usize = 72;
 /// of the numbers, and a second copy drifts, so each is pinned by
 /// `doc_summary_tables_match_the_default_table`. Paths are relative to
 /// the CLI crate directory.
-const DOCS_REPEATING_THE_TABLE: &[&str] = &[
-    "/../AGENTS.md",
-    "/../big-code-analysis-book/src/recipes/thresholds.md",
-];
+const DOCS_REPEATING_THE_TABLE: &[&str] = &["/../big-code-analysis-book/src/recipes/thresholds.md"];
 
 #[test]
 fn every_default_name_is_a_known_metric() {
@@ -187,10 +184,9 @@ fn scope_word(name: &str) -> &'static str {
 /// Metric names appearing as threshold-summary rows in a Markdown doc.
 ///
 /// A row is recognized only by its full shape — backticked name, integer
-/// limit, then one of the three scope words — because both documents
-/// carry unrelated tables whose first cell is also backticked (AGENTS.md
-/// lists the workspace crates that way, and the book's per-language table
-/// backticks metric names in its header row).
+/// limit, then one of the three scope words — because the document
+/// carries unrelated tables whose first cell is also backticked (the
+/// book's per-language table backticks metric names in its header row).
 fn documented_threshold_rows(text: &str) -> BTreeSet<String> {
     text.lines()
         .filter_map(|line| {

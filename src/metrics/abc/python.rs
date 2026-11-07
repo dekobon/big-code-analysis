@@ -113,7 +113,7 @@ fn python_count_condition(condition: &Node, code: &[u8], conditions: &mut f64) {
 // `seq(expression, 'if', expression, 'else', expression)` carrying no
 // grammar fields at all, so the slot cannot be named the way Ruby's and
 // the C family's can. It is located by ROLE rather than by a bare index
-// (`.claude/rules/grammar-dispatch.md` item 3): the first child after
+// (`docs/development/grammar_dispatch.md` item 3): the first child after
 // the `if` keyword that is not a comment.
 //
 // Both halves of that are load-bearing, and neither is theoretical.
@@ -155,7 +155,7 @@ fn python_count_ternary_condition(node: &Node, code: &[u8], conditions: &mut f64
 // exactly one, and a compound guard (`case n if a > 1 and b:`) keeps its
 // sub-structure rather than collapsing to one.
 //
-// By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
+// By grammar FIELD, not index (`docs/development/grammar_dispatch.md` §3):
 // `case_clause` names its guard `guard`, which is what keeps a
 // comprehension's `if_clause` — the same kind, in a wholly different
 // role — out of this slot. The clause itself carries no field for its

@@ -4,6 +4,10 @@ enums/target
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+# Personal Claude Code overrides. A CLAUDE.local.md (or CLAUDE.md) in the
+# tree stops Claude Code reading AGENTS.md natively; put `@AGENTS.md` on
+# its first line, or set Project instructions to claude-md-and-agents-md.
+CLAUDE.local.md
 .mcp.json
 .serena/
 *.pending-snap

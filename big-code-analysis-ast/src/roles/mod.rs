@@ -18,7 +18,7 @@
 //!
 //! This doc is the contributor reference for the tables. Read it before
 //! adding a language, a row, or a consumer; the rules under
-//! `.claude/rules/` and the book's new-language chapter link here rather
+//! `docs/development/grammar_dispatch.md` and the book's new-language chapter link here rather
 //! than restating it.
 //!
 //! # The role set
@@ -415,8 +415,7 @@
 //!   `block` under a stabby lambda) answers exactly and only a byte
 //!   gate is dropped. The chain-less pair disagrees with the walk
 //!   wherever a gate reads what it drops — Elixir's text-gated `call`
-//!   openers, Ruby's `block`, C#'s `parameter_list` under a type
-//!   declaration (#1828) — and the derived parity suite pins each
+//!   openers, Ruby's `block` — and the derived parity suite pins each
 //!   such disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
 //!   language's pair asserts `!TEXT_GATED && !CHAIN_GATED` on its
 //!   `FuncOpener` and `Container` rows at build time (#1793).
@@ -461,7 +460,7 @@
 //! serves), since the reader deciding whether a row is right needs to
 //! know who reads it; the decision itself stays at the consumer, and
 //! nothing a row *emits* names a metric (#1690). The row-comment
-//! placement rule is `.claude/rules/macro-comments.md`.
+//! placement rule is `docs/development/formatting.md`.
 //!
 //! # The gates and the derived suite
 //!
@@ -520,7 +519,7 @@
 //! those). The check is review of the row against the grammar — `bca
 //! dump` on a one-line fixture per construct, every `(kind, parent)`
 //! pair the dump shows given a row or a stated exclusion
-//! (`.claude/rules/grammar-dispatch.md` §6) — and a per-language
+//! (`docs/development/grammar_dispatch.md` §6) — and a per-language
 //! spelling test for a kind no corpus file spells.
 //!
 //! **An incomplete entry.** A *missing cell* — a language with no row,

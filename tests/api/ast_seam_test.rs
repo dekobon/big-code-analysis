@@ -760,7 +760,7 @@ fn preprocess_harvest_feeds_the_macro_masking_pass() {
 /// The quoted word sits **inside** the body deliberately. With it
 /// outside, deleting the whole `proc` line left the expected list
 /// unchanged and the fixture could lose its entire subject with no test
-/// failing (`.claude/rules/testing.md`, "Perturb the fixture as well as
+/// failing (`docs/development/testing.md`, "Perturb the fixture as well as
 /// the production line"). Inside, the `proc` is load-bearing for the
 /// expected sequence.
 #[cfg(feature = "tcl")]
@@ -805,7 +805,7 @@ fn strings_found(lang: LANG, code: &str) -> Vec<String> {
 /// on the exact reported list rather than on the body's absence: an
 /// absence assertion also passes when the whole filter stops matching,
 /// which is the over-correction this rule invites
-/// (`.claude/rules/testing.md`).
+/// (`docs/development/testing.md`).
 #[cfg(any(feature = "tcl", feature = "irules"))]
 #[test]
 fn find_string_reports_tcl_family_literals_and_not_script_bodies() {

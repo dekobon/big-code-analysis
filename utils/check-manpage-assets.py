@@ -26,7 +26,7 @@ differ (deb uses ``["src", "dest", "mode"]`` arrays; rpm uses
 basename of the asset source path, which is robust against
 formatting drift and dest-path style differences.
 
-See AGENTS.md "Validation gates" for the policy this enforces.
+See CONTRIBUTING.md "Local validation gate" for the policy this enforces.
 """
 
 from __future__ import annotations

@@ -56,7 +56,7 @@ macro_rules! impl_doc_comment_rows_in_bodies {
 // the two disagree — a known-empty chain would not do here, since the
 // Tcl gate reads "no parent" as a script body. Per-row rationale —
 // which alias is hidden, which keyword alias is excluded — sits on the
-// rows (`.claude/rules/macro-comments.md`).
+// rows (`docs/development/formatting.md`).
 macro_rules! impl_row_predicates {
     ($roles:ident, $row:ident, $byteless:ident, $with_code:ident) => {
         fn $byteless(node: &Node) -> bool {
@@ -121,9 +121,7 @@ macro_rules! impl_byte_gated_row_predicate {
 // a known-empty chain, which is exact only while neither row reads
 // either — the build asserts both flags of both rows (#1793). Ruby's
 // opener is chain-gated by design and keeps a hand-written forward
-// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`),
-// as C#'s is since #1828
-// (`csharp_byte_less_spellings_omit_the_primary_constructor`);
+// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`);
 // Elixir overrides both spellings. Per-language rationale — which
 // rows, why they read nothing — sits above the invocation.
 macro_rules! impl_byte_less_func_space {
@@ -191,7 +189,7 @@ macro_rules! impl_doc_target_from_row {
 // it: its row also owns the `elif_clause`, and the Checker answers
 // `Branch ∧ ElseIf` so that clause stays `false` as every caller has had
 // it. Per-language rationale — which strategy the row spells and why —
-// sits above each invocation (`.claude/rules/macro-comments.md`).
+// sits above each invocation (`docs/development/formatting.md`).
 macro_rules! impl_else_if_from_row {
     ($roles:ident) => {
         #[inline]
@@ -617,7 +615,7 @@ pub trait Checker {
     /// `parameter_declaration` holding a bare `primitive_type` and no
     /// declarator is *also* how an unnamed parameter is spelled, and
     /// `void f(int)` really does take one. Only the bytes tell them
-    /// apart — `.claude/rules/grammar-dispatch.md` §10.
+    /// apart — `docs/development/grammar_dispatch.md` §10.
     #[inline]
     #[must_use]
     fn is_empty_param_marker(_param: &Node, _code: &[u8]) -> bool {
@@ -671,7 +669,7 @@ pub trait Checker {
     /// **A call site reaching for the byte-less spelling reads as
     /// correct against every language without an override, and is wrong
     /// only on the one that has one** —
-    /// `.claude/rules/grammar-dispatch.md` §7. There is one call site,
+    /// `docs/development/grammar_dispatch.md` §7. There is one call site,
     /// the `"string"` arm of [`ParserTrait::filters`], and it takes this
     /// spelling; `tcl_script_body_is_a_string_only_to_the_byteless_spelling`
     /// pins that the two really do disagree, so a future call site that
@@ -857,7 +855,7 @@ pub trait Checker {
     /// Deliberately one method rather than a byte-less / `_with_code`
     /// pair: the pair forwards by default, so a call site reaching for
     /// the wrong spelling reads as correct against every language
-    /// without an override (`.claude/rules/grammar-dispatch.md` §7).
+    /// without an override (`docs/development/grammar_dispatch.md` §7).
     /// One spelling has nothing to disagree with.
     #[inline]
     #[must_use]
@@ -1190,7 +1188,7 @@ fn rust_attribute_run_verdict<'a>(
 /// fusing this lookahead and the run reading into one pass is
 /// deliberate. A fused scan would be a third reading of the same run,
 /// free to drift from the other two — the failure mode
-/// `.claude/rules/grammar-dispatch.md` §7 is about. What was quadratic
+/// `docs/development/grammar_dispatch.md` §7 is about. What was quadratic
 /// in #1446 was asking `run` times, which
 /// [`rust_attribute_run_verdict`]'s reach removes without adding a
 /// reading.
@@ -3597,7 +3595,7 @@ mod tests {
     /// right. Asserting the disagreement directly is what makes a future
     /// call site that reaches for the byte-less spelling a wrong answer
     /// rather than an indistinguishable one
-    /// (`.claude/rules/grammar-dispatch.md` §7).
+    /// (`docs/development/grammar_dispatch.md` §7).
     ///
     /// Each fixture holds a braced value, a script body reached through
     /// a *modelled* construct, a script body reached through the

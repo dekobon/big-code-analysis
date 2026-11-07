@@ -3,7 +3,7 @@
 //!
 //! Reads each input file verbatim — no newline normalisation, unlike
 //! the CLI's reader, so this is the one path that reaches a node ending
-//! at EOF (`.claude/rules/testing.md`, "Know what the harness normalises
+//! at EOF (`docs/development/testing.md`, "Know what the harness normalises
 //! away") — and emits, per file, the serialised `metrics`, `ops`, the
 //! `Alterator`-built AST export under both span/comment settings, the
 //! `find` results for `call` / `string` / `function`, and the `count`

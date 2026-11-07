@@ -23,7 +23,7 @@ bump was the entire previous mechanism.
 **The ``requirements/dev.txt`` ``ruff==`` pin must equal the locked
 version.** CI installs its ruff with ``pip install --require-hashes -r
 requirements/dev.txt`` rather than through uv, so a stale export is a
-ruff CI runs that the lockfile never resolved. AGENTS.md requires a
+ruff CI runs that the lockfile never resolved. CONTRIBUTING.md requires a
 ``uv.lock`` change and its regenerated exports to land in the same
 commit; this is that rule as a check.
 
@@ -47,7 +47,7 @@ hard-errors on a shape it does not recognise rather than returning a
 default — a version gate that silently passes on malformed input is the
 bug being fixed, not a lenient version of the fix.
 
-See `#1230` and AGENTS.md "Validation gates".
+See `#1230` and CONTRIBUTING.md "Local validation gate".
 """
 
 from __future__ import annotations

@@ -136,7 +136,7 @@ existing settings:
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
@@ -155,12 +155,8 @@ The [exec form](https://code.claude.com/docs/en/hooks#exec-form-and-shell-form)
 passes the script path as one argument, including spaces and shell
 metacharacters. The hook requires Node on `PATH`; its JSON handling
 uses no [npm](https://www.npmjs.com/) packages or
-[`jq`](https://jqlang.github.io/jq/). For an existing `bca-check.sh`
-registration, replace the old script with the
-[current wrapper](https://github.com/dekobon/big-code-analysis/blob/main/.claude/hooks/bca-check.sh)
-and copy the `.mjs` files alongside it, or replace that registration
-with the Node configuration above. Keep only one registration to avoid
-duplicate checks.
+[`jq`](https://jqlang.github.io/jq/). Keep only one registration to
+avoid duplicate checks.
 
 How the hook finds its configuration and analyzer:
 
@@ -208,9 +204,8 @@ offender can reappear on a later edit. It checks the whole file:
 `[new]` and `[regr]` compare against the configured baseline, not the
 preceding edit. Use the
 [standing guidance](#agent-guidance-ship-this-verbatim) to keep any
-response within the task's scope. This matcher covers Edit, Write and
-MultiEdit; shell commands and external editors need separate
-integration.
+response within the task's scope. This matcher covers Edit and Write;
+shell commands and external editors need separate integration.
 
 **Verify model delivery after installation.** Using Claude's Write
 tool, create a disposable supported source file that breaches a
@@ -240,8 +235,9 @@ integration the repository runs on itself, verified with OpenCode
 Prerequisites:
 
 - OpenCode 2.x. The plugin uses the
-  [V2 server plugin API](https://opencode.ai/v2/docs/build/plugins/server);
-  for OpenCode 1.x see the [legacy section](#opencode-v1-legacy).
+  [V2 server plugin API](https://opencode.ai/v2/docs/build/plugins/server).
+  For a 1.x plugin, port it with the
+  [migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1).
 - `bca`, and a nonempty `[thresholds]` table in
   [`bca.toml`](local-gates.md#zero-config-the-bcatoml-manifest), as
   for Claude Code above.
@@ -298,131 +294,6 @@ storage (`health/<directory>`) with the last outcome and the analyzer
 chosen. Configuration changes under `.opencode/` reload without a
 restart; if a freshly copied plugin does not load, `opencode service
 restart` is the fallback.
-
-## OpenCode V1 (legacy) {#opencode-v1-legacy}
-
-The example in this section uses the V1 plugin API and is an
-alternative to the V2 plugin above, not an addition to it: both are
-`.opencode/plugins/bca-check.js`. Use the
-[migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1)
-when porting a V1 plugin.
-
-**Mechanism:** implement a [plugin](https://opencode.ai/docs/plugins/):
-a JavaScript or TypeScript module that exports an async function
-returning a hooks object. Register **`tool.execute.after`**, which
-runs after a tool completes, including the `write` and `edit` tools.
-
-**Feedback channel:** the after-hook surfaces a problem to the agent by
-**throwing**. opencode's public plugins page documents the
-throw-to-signal pattern but not an advisory return value for the
-after-hook, so this recipe defaults to throwing. A thrown `Error`
-carries its message back to the agent as the tool's failure.
-
-**Mind the argument shape; it differs from the `before` hook.** The
-published `@opencode-ai/plugin` types give `tool.execute.after` the
-signature `(input, output)` where the tool name is `input.tool` and the
-**tool arguments are on `input.args`** (the file path is
-`input.args.filePath`). This is the trap: the docs' only worked example
-is for `tool.execute.before`, where args live on `output.args` (mutable,
-pre-execution). Copy that into an *after* hook and `output.args` is
-`undefined`, the guard below always trips, and the plugin silently never
-runs: a no-op that looks installed. Read `input.args.filePath` in the
-after hook.
-
-Drop this file in `.opencode/plugins/`. It is project-level and
-auto-loaded; no `opencode.json` entry is needed, and in V2 a
-single-file entry under `plugins` is skipped with a warning (see
-above). The plugin below is plain JavaScript. For a
-TypeScript plugin, `import type { Plugin } from "@opencode-ai/plugin"`
-and annotate the export, and declare any extra deps in
-`.opencode/package.json` (opencode installs it with
-[Bun](https://bun.sh/)):
-
-```javascript
-// .opencode/plugins/bca-check.js
-// The same text as .claude/hooks/bca-guidance.txt.
-const GUIDANCE = `
-[new] and [regr] compare with the configured baseline, not this edit;
-without a baseline, every offender is new. <file> rows are file-level
-findings, not necessarily a problem in the function you changed.
-Review findings relevant to your task: simplify where it genuinely
-clarifies, or justify essential complexity with a narrow suppression.
-For example, inside a Rust function: // bca: suppress(cognitive) -- reason.
-Use the language's comment syntax; use nexits, never exit, and halstead
-for halstead.* metrics. tokens is not suppressible. Leave unrelated code
-alone and mention relevant remaining findings. Do not move complexity
-around just to lower a number. Finish the coherent edit before reacting;
-make self-scan and make pre-commit remain this repository's final gates.
-`.trim()
-
-export const BcaCheck = async ({ $ }) => {
-  return {
-    // Note: the after-hook's args are on `input.args`, NOT `output.args`
-    // (output carries the tool's result: title/output/metadata).
-    "tool.execute.after": async (input, _output) => {
-      // React only to the file-writing tools. (Patch-style edit tools
-      // carry no single filePath and are intentionally not covered.)
-      if (input.tool !== "write" && input.tool !== "edit") return
-      const filePath = input.args?.filePath
-      if (!filePath) return
-
-      // `bca check` exits 0 clean, 2 on offenders, 1 on tool error.
-      // Bun's $ throws on non-zero by default; capture instead so we
-      // can branch on the exact code.
-      const res = await $`bca check ${filePath} --no-summary --no-remediation`
-        .quiet()
-        .nothrow()
-      // 0 clean, 1 tool error: not a complexity issue. `< 2` rather than
-      // `=== 2` so the tiered exit codes (3-5, from `--exit-codes=tiered`
-      // / `exit_codes = "tiered"`) still report.
-      if (res.exitCode < 2) return
-
-      // Surface the offenders to the agent by throwing. The rows are on
-      // stdout; stderr is the fallback for a run whose only output is a
-      // diagnostic.
-      const offenders = res.stdout.toString().trim() || res.stderr.toString().trim()
-      throw new Error(`bca flagged complexity in ${filePath}:\n\n${offenders}\n\n${GUIDANCE}`)
-    },
-  }
-}
-```
-
-`GUIDANCE` is the short runtime reminder from `bca-guidance.txt`, not
-the standing policy block below; keep it in step with that file (the
-repository's hook tests pin the two equal). Because the channel is a
-thrown error,
-opencode reports it as a failed post-edit step, which is the intended
-"address this before continuing" framing. The edit itself still lands:
-`tool.execute.after` runs once the `write` or `edit` tool has already
-written the file, so the throw frames the next step without undoing the
-change.
-
-**Restart opencode after adding the plugin.** OpenCode 1.x loads
-plugins once at startup and does not hot-reload them, so a freshly
-dropped `.opencode/plugins/bca-check.js` does nothing in the running
-session. Quit and relaunch opencode, then confirm by editing a file you
-know is over threshold and checking that the `edit`/`write` tool
-reports the `bca` failure. An installed-but-inert plugin is the most
-likely symptom, and a stale session is the most likely cause.
-
-The [V2 plugin](#opencode-v2) uses a different plugin API and adds
-guards worth porting to a V1 setup:
-
-- **Repo-scope guard.** Resolve the path and skip anything outside the
-  project root, so the hook never runs `bca` on a file the agent edits
-  elsewhere on disk.
-- **Local-build resolution.** Prefer `$BCA`; then the candidate among
-  the checkout's `target/debug/bca`, `target/release/bca` and `bca` on
-  `PATH` whose `build inputs:` digest matches the checkout; then the
-  newest local build; then `bca` on `PATH`. A project that builds
-  `bca` itself then gates against a binary built from the tree it is
-  editing whenever one exists, rather than a stale one or whatever is
-  installed globally; with no match it falls back to the newest build
-  it can find.
-- **Shared guidance.** Read the guidance text from one file that both
-  this plugin and the Claude Code hook cite, so the two never drift.
-  The V1 example above inlines it instead, to stay a single-file
-  install.
 
 ## Agent guidance (ship this verbatim) {#agent-guidance-ship-this-verbatim}
 

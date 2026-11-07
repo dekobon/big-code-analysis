@@ -126,7 +126,7 @@ fn rust_count_slot(slot: Option<Node>, code: &[u8], conditions: &mut f64) {
 // and a compound guard (`n if a > 1 && b`) keeps its sub-structure
 // rather than collapsing to one.
 //
-// By grammar FIELD, not index (`.claude/rules/grammar-dispatch.md` §3):
+// By grammar FIELD, not index (`docs/development/grammar_dispatch.md` §3):
 // `match_pattern` names its guard `condition`, so a comment between the
 // pattern and the `if` cannot shift the read the way it does for the
 // positional sibling slots. The field is absent on an unguarded arm,

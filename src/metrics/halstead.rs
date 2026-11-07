@@ -11423,8 +11423,8 @@ f() {
 
     /// The #1318 rows both dialects share. Every independent path
     /// through the role test gets a row of its own
-    /// (`.claude/rules/testing.md`, "give one input to each independent
-    /// path"): the value default, the script-command list, a modelled
+    /// (`docs/development/grammar_dispatch.md` §11, "Give one input to each
+    /// independent path"): the value default, the script-command list, a modelled
     /// construct reached through a `word_list`, the two modelled slots
     /// that hold values, an unresolvable command name, and both
     /// nesting directions.

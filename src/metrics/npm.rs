@@ -1698,108 +1698,6 @@ mod tests {
         );
     }
 
-    /// A C# 12 primary constructor and a positional record's constructor
-    /// are public methods of their type (#1828): the list hangs off the
-    /// declaration, not its body, so the body scan never saw one. The
-    /// primary constructor takes no accessibility modifier — it is
-    /// public by the language rule — so an internal class's is still
-    /// counted public here, as the class's `public` members are. Each
-    /// type is pinned alone, so the sum cannot hide one shape's miss
-    /// behind another's; `N` is the control with no constructor.
-    #[cfg(feature = "csharp")]
-    #[test]
-    fn csharp_primary_constructor_is_a_public_method() {
-        check_func_space::<CsharpParser, _>(
-            "public class C(int a) { public void M() { } }
-             public record R(int A, int B);
-             public record struct RS(int A);
-             public struct S(int x) { }
-             internal class I(int a) { }
-             public class N { public void M() { } }",
-            "primary.cs",
-            |space| {
-                let rows: Vec<(Option<&str>, u64, u64)> = space
-                    .spaces
-                    .iter()
-                    .map(|s| {
-                        (
-                            s.name.as_deref(),
-                            s.metrics.npm.class_nm_sum(),
-                            s.metrics.npm.class_npm_sum(),
-                        )
-                    })
-                    .collect();
-                assert_eq!(
-                    rows,
-                    [
-                        (Some("C"), 2, 2),
-                        (Some("R"), 1, 1),
-                        (Some("RS"), 1, 1),
-                        (Some("S"), 1, 1),
-                        (Some("I"), 1, 1),
-                        (Some("N"), 1, 1),
-                    ]
-                );
-            },
-        );
-    }
-
-    /// A Kotlin primary constructor is a method of its class (#1828),
-    /// public by default like a secondary one, non-public under its own
-    /// `private` / `internal` / `protected`, and — with nothing written —
-    /// under two class modifiers that cap it: a `sealed` class's
-    /// constructors are `protected` by default and may be written only
-    /// `private` or `protected`, an `enum class`'s are `private`.
-    /// `data` is a class modifier that changes nothing. Each class is
-    /// pinned alone.
-    #[cfg(feature = "kotlin")]
-    #[test]
-    fn kotlin_primary_constructor_visibility() {
-        check_func_space::<KotlinParser, _>(
-            "class A(x: Int)
-             class B private constructor(x: Int)
-             class C internal constructor(x: Int)
-             class D protected constructor(x: Int)
-             class E public constructor(x: Int)
-             sealed class F(x: Int)
-             enum class G(val v: Int) { A(1) }
-             data class H(val x: Int)
-             sealed class I protected constructor(x: Int)
-             sealed class J private constructor(x: Int)
-             class N",
-            "ctors.kt",
-            |space| {
-                let rows: Vec<(Option<&str>, u64, u64)> = space
-                    .spaces
-                    .iter()
-                    .map(|s| {
-                        (
-                            s.name.as_deref(),
-                            s.metrics.npm.class_nm_sum(),
-                            s.metrics.npm.class_npm_sum(),
-                        )
-                    })
-                    .collect();
-                assert_eq!(
-                    rows,
-                    [
-                        (Some("A"), 1, 1),
-                        (Some("B"), 1, 0),
-                        (Some("C"), 1, 0),
-                        (Some("D"), 1, 0),
-                        (Some("E"), 1, 1),
-                        (Some("F"), 1, 0),
-                        (Some("G"), 1, 0),
-                        (Some("H"), 1, 1),
-                        (Some("I"), 1, 0),
-                        (Some("J"), 1, 0),
-                        (Some("N"), 0, 0),
-                    ]
-                );
-            },
-        );
-    }
-
     #[cfg(feature = "php")]
     #[test]
     fn php_no_class_methods() {
@@ -2063,8 +1961,7 @@ mod tests {
     #[test]
     fn kotlin_data_class_methods() {
         // `data class` compiler-generated members are NOT counted —
-        // only user-written `fun` declarations, and the written primary
-        // constructor, a public method as a secondary one is (#1828).
+        // only user-written `fun` declarations.
         check_metrics::<KotlinParser>(
             "data class Point(val x: Int, val y: Int) {
                 fun manhattan(): Int = x + y
@@ -2072,8 +1969,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2);
-                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2302,8 +2199,7 @@ class C {
     #[test]
     fn kotlin_init_block_not_a_method() {
         // `init` blocks are anonymous initializers — they are not
-        // function declarations and don't count toward `nm`/`npm`. The
-        // primary constructor `(val n: Int)` and `get` are the two.
+        // function declarations and don't count toward `nm`/`npm`.
         check_metrics::<KotlinParser>(
             "class C(val n: Int) {
                 init { require(n >= 0) }
@@ -2311,8 +2207,8 @@ class C {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2);
-                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

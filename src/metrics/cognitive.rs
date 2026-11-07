@@ -9074,7 +9074,7 @@ end",
         // (`list.forEach(item -> { if (a) { while (b) {} } })`) also
         // reports cognitive sum 5.0.
         //
-        // Test-via-revert (.claude/rules/testing.md): removing the
+        // Test-via-revert (docs/development/testing.md): removing the
         // `Closure => { lambda += 1; }` arm drops this to 3.0 — the
         // missing +2 lambda surcharge on the nested `if`/`while`.
         check_metrics::<GroovyParser>(
@@ -12194,7 +12194,7 @@ template<class T> bool h(T a) requires (A<T> || B<T>) { return a && a; }
 /// moving both equally still fails.
 // Gated on the union of the three languages `cases()` has a row for, so
 // a build enabling none of them drops the module rather than tripping
-// its `checked > 0` guard (`.claude/rules/testing.md`, #1286).
+// its `checked > 0` guard (`docs/development/testing.md`, #1286).
 #[cfg(test)]
 #[cfg(any(feature = "java", feature = "javascript", feature = "kotlin"))]
 mod nameless_construct_boundaries {

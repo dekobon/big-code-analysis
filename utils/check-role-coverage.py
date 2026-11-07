@@ -112,7 +112,7 @@ SCOPE_NOTE = (
 
 HEADER = """\
 # Role-coverage baseline: runtime kinds no role declares (#1692).
-# Maintained by check-role-coverage.py; see AGENTS.md "Validation gates".
+# Maintained by check-role-coverage.py; see CONTRIBUTING.md "Local validation gate".
 #
 # An entry is one (language, kind id) that no row of any role names in
 # `owns`, `pays` or `wraps` and no row excludes with a reason. Identity

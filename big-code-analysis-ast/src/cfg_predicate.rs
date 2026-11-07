@@ -589,7 +589,7 @@ mod tests {
         // Seeded with a depth-0 comma *before* the stray `)` so the
         // assertion distinguishes "dropped the negative-depth comma"
         // from "recorded no commas at all"; against an empty index both
-        // readings look identical (.claude/rules/testing.md).
+        // readings look identical (docs/development/testing.md).
         let stray = CommaIndex::build("x,y),z");
         assert_eq!(
             stray.entries,

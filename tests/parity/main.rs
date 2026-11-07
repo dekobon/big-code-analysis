@@ -10,7 +10,7 @@
 // the one a contributor runs still police every unused import. Dead
 // *items* are not relaxed: unlike the two library roots this test crate
 // carries no `allow(dead_code)`, so every helper, `const`, macro and
-// test here still needs its own gate. See `.claude/rules/testing.md`,
+// test here still needs its own gate. See `docs/development/testing.md`,
 // "Why the import lint is off on a partial build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 
@@ -23,7 +23,7 @@ mod support;
 // Gated on the union of the languages whose fixture rows are `Some`, so
 // a build enabling only languages with no non-comparison bracket
 // construct drops the module rather than failing its non-vacuity guard
-// (`.claude/rules/testing.md`). TSX rides `feature = "typescript"`.
+// (`docs/development/testing.md`). TSX rides `feature = "typescript"`.
 #[cfg(any(
     feature = "csharp",
     feature = "javascript",
@@ -76,7 +76,7 @@ mod nargs_cross_language_parity;
 // configuration — would fail their guards rather than skipping them.
 // Gated as a group so that build drops them together, which is also
 // required: the others read `fixture` out of the middle one
-// (`.claude/rules/testing.md`, #1286).
+// (`docs/development/testing.md`, #1286).
 #[cfg(any(
     feature = "bash",
     feature = "c",
@@ -158,7 +158,7 @@ mod space_span_containment;
 
 // Gated on the union of the languages whose fixture rows are `Some`, so
 // a build enabling only self-reference-free languages drops the module
-// rather than failing its non-vacuity guard (`.claude/rules/testing.md`).
+// rather than failing its non-vacuity guard (`docs/development/testing.md`).
 #[cfg(any(
     feature = "cpp",
     feature = "csharp",

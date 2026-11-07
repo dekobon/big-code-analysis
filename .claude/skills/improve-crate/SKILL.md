@@ -82,20 +82,20 @@ continue.
 
 ### 0d: Detect isolation mode
 
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
+Choose the mode per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+**worktree mode** when the runtime can start each child agent in a
+worktree you allocate (parallel, at most six in flight), otherwise
+**branch mode** (sequential, feature branches off the integration
+branch). Record `ISOLATION_MODE` and tell every child which mode it is
+in, with the absolute path and branch it must verify.
 
 ---
 
 ## Step 1: Load prior state
 
-Read Serena memories via `serena:read_memory`:
+If a persistent-memory tool (such as the Serena MCP server) is
+available, read these memories; otherwise start from no prior state:
 
 1. `audit-state-<crate-name>` — prior audit findings
 2. `code-improvement/<crate-name>` — prior improvement runs
@@ -190,7 +190,9 @@ to apply."
 
 #### Worktree mode
 
-**CRITICAL**: every agent MUST be launched with `isolation: "worktree"`.
+Start every child agent in its own worktree (allocated per
+`docs/development/agent_isolation.md`; in Claude Code, `isolation:
+worktree` on the Agent call does this).
 Launch change area agents in parallel, at most six at a time — each one
 clones the workspace, and a crate with a dozen change areas will fill
 the disk with scratch clones if they all start at once. Queue the rest
@@ -210,7 +212,7 @@ fi
 git checkout -b "$BRANCH" "improve/${CRATE_NAME}"
 ```
 
-2. Launch ONE Agent (NO `isolation: "worktree"`).
+2. Launch ONE child agent in this directory, on that branch.
 
 3. On **SUCCESS**:
 
@@ -241,19 +243,32 @@ You are improving code in crate `<CRATE>`. Your change area:
 <CHANGE_AREA>
 ```
 
+Your checkout, as allocated by the orchestrator (`runtime` where the
+runtime allocated it):
+
+```
+ISOLATION_MODE: <ISOLATION_MODE>
+PROJECT_ROOT:   <PROJECT_ROOT or "runtime-allocated">
+BRANCH:         <BRANCH or branch pattern>
+BASE_COMMIT:    <BASE_COMMIT>
+```
+
 ### 3a: Setup — Environment Verification (MANDATORY)
 
+Compare the checkout you are in against the block above before touching
+anything, per `docs/development/agent_isolation.md`, and abort on any
+mismatch:
+
 ```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
+ROOT="$(git rev-parse --show-toplevel)"
+BASE="$(git rev-parse HEAD)"
+# Orchestrator-allocated: ROOT must equal PROJECT_ROOT exactly.
+# Runtime-allocated: ROOT must not be the orchestrator's directory, and
+# BASE must equal BASE_COMMIT.
+echo "ROOT=$ROOT BASE=$BASE"
 
 AGENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-echo "AGENT_BRANCH=$AGENT_BRANCH"
+echo "AGENT_BRANCH=$AGENT_BRANCH"   # must equal BRANCH, or match the branch pattern
 ```
 
 **HARD GATE**: If `AGENT_BRANCH` is `master`, `main`, or `HEAD` (detached),
@@ -267,7 +282,8 @@ SKIPPED: Agent is on disallowed branch. AGENT_BRANCH=<branch>
 
 In worktree mode: ALL file operations within `PROJECT_ROOT`.
 
-If Serena MCP available, call `serena:activate_project`. Otherwise use
+Use a code-intelligence tool for symbol-level navigation when one is
+available. Otherwise use
 Read, Edit, Grep, Glob.
 
 ### 3b: Apply improvements
@@ -302,7 +318,7 @@ full. Apply fixes directly:
 - Identical match arms that can be consolidated
 - Helpers duplicated across `language_*.rs` that could move to
   `big-code-analysis-ast/src/macros/` / `big-code-analysis-ast/src/c_langs_macros/` / a shared module (follow
-  `.claude/rules/macro-comments.md` when consolidating into macros)
+  `docs/development/formatting.md` when consolidating into macros)
 
 **Clarity**:
 
@@ -395,8 +411,9 @@ For snapshot test changes: run `cargo insta test --review` and accept or
 reject each snapshot deliberately. Do NOT blindly accept. If a change
 shifts snapshots under `tests/repositories/big-code-analysis-output/`
 (the integration-snapshot submodule), it is behaviour-changing: follow
-the submodule discipline in `AGENTS.md` (accepted snapshots pushed to
-the submodule remote, new submodule SHA recorded in the same commit) —
+the submodule discipline in `CONTRIBUTING.md` "Integration snapshots" (accepted snapshots committed in
+the submodule, its new SHA recorded in the same commit, the submodule
+commit reported for the user to push) —
 or treat the change as out of scope for this skill and SKIP, since
 improvements here must stay behavior-neutral.
 
@@ -442,8 +459,8 @@ git merge <worktree-branch-name> --no-edit
 If conflict: `git merge --abort` and log.
 
 After all merges (or directly, in branch mode), run `make pre-commit` on
-the integration branch — the canonical validation gate (see "Validation
-gates" in `AGENTS.md`; it adds udeps, doc warnings, the lint families,
+the integration branch — the canonical validation gate (see "Local validation
+gate" in `CONTRIBUTING.md`; it adds udeps, doc warnings, the lint families,
 the self-scan threshold gates, and `make snapshot-anchors` on top of the
 cargo trio run in 3e). If `make` is unavailable, fall back to the raw
 cargo gates from 3e. If it fails, bisect:
@@ -454,7 +471,7 @@ git revert -m 1 <merge-commit>
 
 ---
 
-## Step 5: Update Serena memories
+## Step 5: Update memories (when a persistent-memory tool is available)
 
 ### 5a: Update improvement progress
 
@@ -494,6 +511,13 @@ Branch: improve/<crate-name>
 
 ### Skipped
 | # | Change Area | Reason |
+
+### Worktrees left behind
+| Path | Branch | State (merged / unmerged / dirty) |
+|------|--------|-----------------------------------|
+(Each worktree this run allocated; `git worktree remove` is denied to
+agents, so the user removes them. Runtime-allocated ones are the
+runtime's to sweep.)
 
 ### Statistics
 - Change areas: N

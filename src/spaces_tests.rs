@@ -2649,7 +2649,7 @@ int helper(int y) {
 ///
 /// These inputs are unreachable through `check_metrics` and the
 /// integration harnesses, both of which append a trailing newline (see
-/// `.claude/rules/testing.md`), so they go through `space_verbatim`.
+/// `docs/development/testing.md`), so they go through `space_verbatim`.
 #[cfg(all(test, feature = "rust"))]
 mod childless_root_span {
     use crate::test_support::space_verbatim;
@@ -3177,7 +3177,7 @@ fn walk_frees_every_cognitive_nesting_slot() {
 // The sweep below covers every `LANG` variant, so its row set is every
 // language feature there is and its non-vacuity guard is only reachable
 // in a build that compiled none of them. Gated so that build drops the
-// test rather than failing it (`.claude/rules/testing.md`, #1286).
+// test rather than failing it (`docs/development/testing.md`, #1286).
 #[cfg(test)]
 #[cfg(any(
     feature = "bash",

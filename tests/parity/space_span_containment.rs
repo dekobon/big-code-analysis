@@ -304,7 +304,7 @@ fn degenerate_sources_still_span_their_lines_in_every_language() {
 ///
 /// These reach `analyze(Source::new(..))` directly, so the source is
 /// analysed byte-for-byte. Do not route them through a helper that
-/// regularises the trailing newline (`.claude/rules/testing.md`): the
+/// regularises the trailing newline (`docs/development/testing.md`): the
 /// third fixture *is* the missing-newline case, and appending one turns
 /// it into the first.
 #[test]

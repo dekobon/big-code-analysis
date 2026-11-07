@@ -99,7 +99,7 @@ are most likely to contain lesson-worthy material.
 ### 3d: Documentation changes (skip when hint provided)
 
 ```bash
-git log --since="$BOUNDARY" --name-only --format="" -- docs/ big-code-analysis-book/ README.md CLAUDE.md
+git log --since="$BOUNDARY" --name-only --format="" -- docs/ big-code-analysis-book/ README.md AGENTS.md
 ```
 
 Look for new or substantially updated documentation that may reflect
@@ -113,7 +113,7 @@ For items from Step 3 showing hard-lesson signals:
 
 1. Read full issue threads and linked PRs
 2. Examine diffs: `git show <commit>`
-3. Use Serena LSP tools or code reading for surrounding context
+3. Use a code-intelligence tool or code reading for surrounding context
 4. Look for pattern repetition — did the same mistake happen more than once
    (e.g., across multiple language modules)?
 
@@ -160,10 +160,11 @@ case-by-case reasoning:
 |--------|-----------------|
 | One-off debugging trick | Code comment at the relevant site |
 | Architectural decision | Module-level `//!` doc or design doc |
-| Testing pattern | [`.claude/rules/testing.md`](../../rules/testing.md) |
-| Per-language dispatch / grammar shape | [`.claude/rules/grammar-dispatch.md`](../../rules/grammar-dispatch.md) |
-| Formatting or gate quirk | [`.claude/rules/formatting.md`](../../rules/formatting.md) |
-| Project convention or standing policy | `AGENTS.md` |
+| Testing pattern | [`docs/development/testing.md`](../../../docs/development/testing.md) |
+| Per-language dispatch / grammar shape | [`docs/development/grammar_dispatch.md`](../../../docs/development/grammar_dispatch.md) |
+| Formatting or gate quirk | [`docs/development/formatting.md`](../../../docs/development/formatting.md) |
+| Standing obligation every session needs | `AGENTS.md`, only if it cannot be derived from the code and applies to most tasks |
+| Standing procedure for one kind of task | the guide under `docs/development/` that task routes to, or `CONTRIBUTING.md` for the gate |
 | Already covered by existing lesson | Merge into existing lesson #N |
 | Too specific to one issue | Issue comment or PR description |
 
@@ -171,12 +172,14 @@ case-by-case reasoning:
 obligation.** A lesson is evidence that a bug class is real; a rule is
 the instruction you follow without re-reading the evidence. If the
 `**Lesson:**` paragraph you are about to write is an imperative that
-applies every time someone touches a given surface — not a warning
-about one recurring trap — it belongs in `.claude/rules/` or
-`AGENTS.md`, and the lessons entry should shrink to the incident plus a
-pointer. Do not restate a policy that already lives in `AGENTS.md`:
-duplicated policy drifts, and the copy in the lessons file is the one
-nothing enforces.
+applies every time someone touches a given surface, it belongs in the
+guide that surface routes to, and the lessons entry should shrink to
+the incident plus a pointer. `AGENTS.md` loads into every session and
+takes only what most tasks need and the code cannot say; a rule for
+one kind of task goes in its guide, stated as the mechanism and the
+check, not the incident. Do not restate a policy that already has a
+home: duplicated policy drifts, and the copy in the lessons file is
+the one nothing enforces.
 
 Push-back language must be explicit. **"No candidates qualify" is a valid
 success state.** Do not force entries to justify the workflow.
@@ -225,9 +228,8 @@ awk '/^## [0-9]+\./{if(n)print len" "n; n=$0; len=0; next} {if(n)len++}
      END{if(n)print len" "n}' docs/development/lessons_learned.md | sort -rn | head
 ```
 
-The file is reference material read under time pressure, and
-`CLAUDE.md`'s length rule applies to it: no filler, no summary that
-restates the section above it.
+The file is reference material read under time pressure: no filler,
+no summary that restates the section above it.
 
 ### Cite issues and PRs, never commit hashes
 

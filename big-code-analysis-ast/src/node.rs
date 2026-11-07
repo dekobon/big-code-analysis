@@ -232,7 +232,7 @@ impl<'a> Node<'a> {
     /// crate already runs passes that parse one buffer and read another
     /// (`preproc`, `comment_rm`), and `panic!` is banned in non-test code
     /// whether or not the branch is currently reachable. `data.get(..)`
-    /// is also what `.claude/rules/grammar-dispatch.md` §10 prescribes
+    /// is also what `docs/development/grammar_dispatch.md` §10 prescribes
     /// for reading a node's bytes.
     #[inline]
     #[must_use]

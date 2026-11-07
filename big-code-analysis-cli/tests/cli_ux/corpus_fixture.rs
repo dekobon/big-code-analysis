@@ -9,7 +9,7 @@
 //! The guard is tested against synthetic trees rather than the real
 //! corpus: the corpus is present in every tree where this suite runs,
 //! so a test that waited for its absence would never execute (see
-//! `.claude/rules/testing.md`).
+//! `docs/development/testing.md`).
 
 use std::fs;
 

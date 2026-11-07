@@ -1,5 +1,5 @@
 # Match arms rustfmt declines to format, per file.
-# Maintained by check-rustfmt-bail.py; see AGENTS.md "Validation gates".
+# Maintained by check-rustfmt-bail.py; see CONTRIBUTING.md "Local validation gate".
 # Lower-or-equal current counts pass; any increase fails CI.
 # Regenerate with: ./utils/check-rustfmt-bail.py --update
 #
@@ -10,7 +10,7 @@
 #   1. A comment inside a match *pattern* (between the pattern and its
 #      `=>`, or between `|` alternatives). Fix by hoisting the comment
 #      above the arm, outside the pattern — never by deleting it. See
-#      .claude/rules/formatting.md.
+#      docs/development/formatting.md.
 #   2. A `macro_rules!` body rustfmt cannot parse, typically a
 #      metavariable in a non-Rust position such as `mk_langs!`'s
 #      `LANG::$camel => …` arms. No comment is involved; hoisting

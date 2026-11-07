@@ -60,7 +60,7 @@ impl Checker for ObjcCode {
     // - `implementation_definition` wraps `function_definition` and
     //   `method_definition` alike, so a parent check alone answers
     //   `true` for every real method and zeroes the class's WMC
-    //   (`.claude/rules/grammar-dispatch.md` §6).
+    //   (`docs/development/grammar_dispatch.md` §6).
     // - A parent-kind *list* cannot be completed. `@interface` and
     //   `@protocol` take `function_definition` as a direct child with no
     //   wrapper, and both also admit `preproc_if` — so a helper inside

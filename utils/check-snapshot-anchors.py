@@ -18,7 +18,7 @@ in a checked-in baseline file. Any *increase* over the baseline fails;
 *decreases* are silent (the baseline can be regenerated with
 ``--update`` after intentional cleanups).
 
-See AGENTS.md "Validation gates" for the policy this enforces.
+See CONTRIBUTING.md "Local validation gate" for the policy this enforces.
 """
 
 from __future__ import annotations
@@ -408,7 +408,7 @@ def load_baseline(path: pathlib.Path) -> dict[str, int]:
 def write_baseline(path: pathlib.Path, counts: dict[str, int]) -> None:
     body = [
         "# Bare insta::assert_json_snapshot! call counts per metric file.",
-        "# Maintained by check-snapshot-anchors.py; see AGENTS.md.",
+        "# Maintained by check-snapshot-anchors.py; see CONTRIBUTING.md \"Snapshot anchors\".",
         "# Lower-or-equal current counts pass; any increase fails CI.",
         "# Regenerate with: ./utils/check-snapshot-anchors.py --update",
         "#",
@@ -564,7 +564,7 @@ def main() -> int:
             "  - inline expected block: insta::assert_json_snapshot!(metric.X, @r###\"…\"###)\n"
             "  - adjacent assert_eq! on a headline accessor (within 5 non-blank lines)\n"
             "  - // expected: <derivation> comment (within 5 non-blank lines)\n"
-            "See AGENTS.md \"Validation gates\". If the increase is intentional\n"
+            "See CONTRIBUTING.md \"Snapshot anchors\". If the increase is intentional\n"
             "(e.g. new tests already anchored differently), regenerate the\n"
             "baseline with: ./utils/check-snapshot-anchors.py --update\n"
         )

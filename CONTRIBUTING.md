@@ -2,8 +2,9 @@
 
 Thanks for considering a contribution. This document covers what a
 contributor needs to set up a checkout, run the validation gate, and
-open a pull request. The deeper conventions live in
-[`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), and the
+open a pull request. The conventions coding agents and contributors
+share live in [`AGENTS.md`](AGENTS.md); the per-topic guides it routes
+to are under [`docs/development/`](docs/development/) and the
 [developer guide under `big-code-analysis-book/`](big-code-analysis-book/src/developers/).
 
 ## Ground rules
@@ -91,9 +92,11 @@ user-level `~/.cargo/config.toml` instead.
 ## Local validation gate
 
 `make pre-commit` is the canonical entry point for the full validation
-gate. In one parallel pass it runs, among other stages:
+gate. In one parallel pass it runs:
 
-- `cargo fmt --check` ([rustfmt](https://github.com/rust-lang/rustfmt)).
+- `cargo fmt --check` ([rustfmt](https://github.com/rust-lang/rustfmt))
+  over the workspace and, by manifest path, the excluded `enums/` and
+  `fuzz/` crates.
 - `cargo clippy --workspace --all-targets -- -D warnings`
   ([Clippy](https://doc.rust-lang.org/clippy/)) in both
   default-features and `--all-features` flavours.
@@ -110,17 +113,57 @@ gate. In one parallel pass it runs, among other stages:
   [`shellcheck`](https://www.shellcheck.net/),
   [`shfmt`](https://github.com/mvdan/sh),
   [`checkmake`](https://github.com/checkmake/checkmake),
-  [`actionlint`](https://github.com/rhysd/actionlint)).
-- The man-page drift gate and the `bca` self-scan threshold gates.
+  [`actionlint`](https://github.com/rhysd/actionlint)). Any edit
+  under `.github/workflows/` must pass `make actionlint`; suppress a
+  shellcheck false positive with a scoped `# shellcheck disable=`
+  directive, not by loosening the configuration.
+- The man-page drift gate (`cargo xtask` plus
+  `utils/check-manpage-drift.py`, which also catches newly added
+  pages).
+- The `bca` self-scan threshold gates at both tiers: `make self-scan`
+  (the CI limits) and `make self-scan-headroom` (every limit scaled by
+  `BCA_HEADROOM`, default `0.95`).
 - `./utils/check-snapshot-anchors.py` (see "Snapshot anchors" below).
-- The Python lint / type-check / test stages (see below), skipped
-  per stage when a tool is absent.
-
-The authoritative stage list lives in the "Validation gates" section
-of [`AGENTS.md`](AGENTS.md).
+- `make rustfmt-bail` (see
+  [`docs/development/formatting.md`](docs/development/formatting.md)).
+- The role-table gates `make role-census`, `make role-coverage` and
+  `make role-bypass`, whose baselines are exact record sets that
+  `--update` can only shrink; the module doc of
+  `big-code-analysis-ast/src/roles/mod.rs` describes what each cannot
+  see.
+- `make check-test-lang-gates` (every test carries the `#[cfg(feature)]`
+  gate of the grammars it names; see
+  [`docs/development/testing.md`](docs/development/testing.md)).
+- The diagnostic-prefix, safety-doc-pin, grammar-build-watch,
+  excluded-manifests, ruff-lockstep, rumdl-lockstep and
+  publish-metadata gates, each a `utils/check-*.py` with a `*-test.py`
+  self-test that runs beside it.
+- The Python lint / type-check / test / stubtest stages (see below),
+  skipped per stage when a tool is absent.
 
 `make ci` runs the same checks without auto-fix, mirroring the GitHub
 Actions behaviour.
+
+Checks that run out of band, each with its own trigger:
+
+- `make check-test-lang-gates-compare COMPARE_REF=origin/main` after
+  changing a test's feature gate; it needs a base revision.
+- `make chain-audit` after changing a walk's truncate/push
+  bookkeeping (`src/spaces/compute.rs`, `src/ops.rs`,
+  `src/suppression.rs`, `comment_rm.rs`, `Search::act_on_node`, the
+  dump walk in `ast.rs`); see
+  [Benchmarking](docs/development/benchmarking.md#chain-audit).
+- `make bench-scaling` after changing AST traversal, a `Checker`,
+  `Getter` or a metric's `compute`: a reintroduced quadratic walk makes
+  the unit tests slow rather than red. See
+  [Benchmarking](docs/development/benchmarking.md).
+- `make fuzz-check` after editing `fuzz/`, which `cargo clippy
+  --workspace` cannot see. See [Fuzzing](docs/development/fuzzing.md).
+- `utils/check-deny-manifests.sh` (cargo-deny over every tracked
+  lockfile) runs in CI and `make release-check`; it needs the network.
+- Mutation testing, benchmarking, fuzzing, baseline freshness and the
+  advisory audit run on quarterly or weekly schedules; see
+  [`docs/development/`](docs/development/).
 
 ### Reading the verdict
 
@@ -164,17 +207,19 @@ grep '^BCA_GATE:' "$log"
 Two habits that idiom encodes:
 
 - **Give every run its own log path.** A fixed `/tmp/pc.log` is shared
-  by every checkout, worktree, and tool on the host. During one batch a
-  concurrent run's log was read as this one's, and a `fmt-check` failure
-  was diagnosed against code that had never been touched. The same
-  rule covers every scratch file; the tiers — and where a file that
-  must outlive a reboot goes instead — are in
-  [`.claude/rules/temp-files.md`](.claude/rules/temp-files.md).
+  by every checkout, worktree, and tool on the host, and a concurrent
+  run's log has been read as this one's before.
 - **Read the verdict from the log, not from a reported exit status.**
   Some tooling reports the status of the last command on the line, so
   `make pre-commit >log 2>&1; echo "EXIT=$?"` announces `echo`'s
   success. That is a property of the caller, not of make; the log is
   the thing that is true either way.
+
+A `fail` naming several stages with no code in common is usually the
+host (a concurrent build slowing a fixture past its timeout), not the
+change. The check is the same either way: does the failing stage's
+output name something the diff touched? Re-run on a quiet host before
+reading it as a finding.
 
 If GNU Make 4 or any optional tool is unavailable, fall back to the
 raw cargo trio:
@@ -183,6 +228,7 @@ raw cargo trio:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --all-features
 ```
 
 If [`pre-commit`](https://pre-commit.com/) is installed, also run
@@ -277,6 +323,15 @@ Linux / macOS / Windows on every supported Python version,
 gated by a `dorny/paths-filter` job so Rust-only PRs skip it
 entirely.
 
+The hand-written stubs `python/big_code_analysis/_native.pyi` and
+`vcs.pyi` are checked against the built extension by `make py-stubtest`
+(`mypy.stubtest`), which diffs names, signatures and defaults. After
+changing a PyO3 signature or default, update the stub and re-run it.
+PyO3 exposes a `#[new]` constructor as `__new__` and renders a computed
+default as `...`, so the stub mirrors those shapes. The allowlist in
+`big-code-analysis-py/stubtest-allowlist.txt` holds only deliberate
+facade differences; keep it minimal.
+
 To remove Python build artifacts (`.venv`, compiled extension,
 per-tool caches, `__pycache__` trees), run `make py-clean`. For a
 full wipe of both cargo `target/` and Python state, run
@@ -286,9 +341,23 @@ full wipe of both cargo `target/` and Python state, run
 
 - **Rust style**: `cargo fmt`, clippy clean with
   `--workspace --all-targets -- -D warnings`. No `unsafe` code (one
-  narrow PyO3 FFI exception; see `AGENTS.md`). Avoid
+  narrow PyO3 FFI exception, documented in
+  `big-code-analysis-py/src/node.rs` and gated by
+  `make check-safety-doc-pin`). Avoid
   `unwrap` / `expect` / `panic!` / `assert!` in non-test code;
   propagate errors with `?`.
+- **Lints**: `[workspace.lints]` carries `clippy::pedantic` and
+  `missing_docs`; a workspace-excluded crate needs its own copy
+  (`utils/check-excluded-manifests.py` gates it), except the five
+  vendored `tree-sitter-*` grammars, whose generated sources a
+  regeneration replaces wholesale (`LINTS_EXEMPT_CRATES` in that
+  gate carries the rationale; their `bindings/rust/build.rs` header
+  watch is the one hand-maintained part, gated by
+  `make check-grammar-build-watch`). Put additional `allow`s at file
+  or function level.
+- **Diagnostics**: stderr messages go through the lowercase `warn` /
+  `die` / `note` helpers in each crate's `diag.rs`; never spell
+  `warning:` / `error:` in a literal.
 - **Visibility**: prefer `pub(crate)` over `pub`; widen visibility
   only when an item is re-exported from `lib.rs`.
 - **Edition**: 2024; `let-else`, let-chains, and other 2024 features
@@ -352,8 +421,6 @@ fails on any *increase* against that baseline.
 
 Background reading:
 
-- [`AGENTS.md`](AGENTS.md), section "Validation gates": the full
-  policy and the bulk-acceptance rules around grammar bumps.
 - [`docs/development/lessons_learned.md`](docs/development/lessons_learned.md),
   lesson 2 ("Tree-sitter aliases one rule across many kind_ids") and
   lesson 6 ("Snapshot tests pin behaviour, not correctness"): the
@@ -362,7 +429,44 @@ Background reading:
 For bulk snapshot refresh after a grammar bump or a deliberate
 metric-computation change, use `cargo insta test --accept` per test
 file. Accepting snapshots one at a time via `mv *.snap.new` shifts
-`assertion_line` fields and cascades stale-snapshot churn.
+`assertion_line` fields and cascades stale-snapshot churn. Three traps
+in that loop:
+
+- The corpus runner aborts after its first panics, so collect with
+  `INSTA_FORCE_PASS=1 cargo test --no-fail-fast` before counting what
+  moved.
+- A forced pass leaves an inline snapshot that moved as a
+  `src/**/.*.pending-snap` file, not a `.snap.new`; review both kinds.
+- `cargo insta test --accept` accepts every pending snapshot in the
+  workspace, including ones an earlier run left behind. Review
+  everything pending, or accept a filtered set with
+  `cargo insta accept --snapshot <file>`.
+
+## Metric baseline
+
+`make self-scan` reads `.bca-baseline.toml`, which suppresses a known
+offender only while its measurement stays at or below the record. A
+change that moves a baselined metric past its record, or below it (the
+`--baseline` run warns on stderr), refreshes the file in the same
+commit with `make self-scan-write-baseline-headroom`; the bare
+`write-baseline` recipe drops the soft-tier entries. The file is
+`-merge` in `.gitattributes`: on a conflict, regenerate rather than
+hand-resolve. For a change split into several commits, regenerate at
+each step, since the refresh measures the working tree:
+
+```bash
+git rebase --exec 'make self-scan-write-baseline-headroom && (git diff --quiet .bca-baseline.toml || git commit -q --amend --no-edit .bca-baseline.toml)' <base>
+```
+
+The scan builds `bca` under the dev profile (a few seconds after a
+Rust edit, near-instant otherwise); `BCA_SELF_SCAN_PROFILE=release`
+restores CI's exact profile and `make self-scan-profile-parity` checks
+the two agree. Before tightening a limit, run `bca check
+--explain-threshold <metric>=<limit>`, which reports both tiers and
+how many new baseline entries the change would buy; a limit set on a
+cluster of existing values maximises soft-tier breach by construction.
+See [Baseline freshness](docs/development/baseline_freshness.md) and
+the book's [Choosing thresholds](big-code-analysis-book/src/recipes/thresholds.md).
 
 ## Integration snapshots and the submodule
 
@@ -381,6 +485,10 @@ the following have happened in the same parent commit:
    parent commit** as the metric/alterator fix.
 4. After any rebase, force-push, or long-running batch fix, re-run
    the integration tests before declaring done.
+5. `make role-coverage-observe` regenerates
+   `.role-coverage-observed.txt`, which records the submodule SHA as
+   provenance; commit it in the same parent commit, or
+   `make role-coverage` fails on the stale file.
 
 See lesson 8 in
 [`docs/development/lessons_learned.md`](docs/development/lessons_learned.md)
@@ -395,9 +503,16 @@ guides under `big-code-analysis-book/src/developers/`:
 - [Updating tree-sitter grammars](big-code-analysis-book/src/developers/update-grammars.md).
 
 External grammar crates are version-pinned (`=0.23.5`, `=0.25.1`, and
-so on) in the root `Cargo.toml`. Do not loosen those pins without
-explicit approval; a grammar bump is a deliberate, separate change and
-snapshot tests shift accordingly.
+so on) in the root `Cargo.toml` and in each workspace-excluded crate's
+own manifest; `utils/check-excluded-manifests.py` enforces both.
+`tree-sitter-language`, the shared trait shim, is the one deliberate
+exception and stays caret-ranged. Do not loosen a pin without explicit
+approval; a grammar bump is a deliberate, separate change that moves
+snapshots and, for the `tree-sitter` runtime, the `unsafe` soundness
+argument in `big-code-analysis-py/src/node.rs`. If a bug is in the
+grammar rather than our wrapper, document it as upstream and work
+around it visibly. The per-language checklist is
+[`docs/development/grammar_dispatch.md`](docs/development/grammar_dispatch.md).
 
 ## Code review
 

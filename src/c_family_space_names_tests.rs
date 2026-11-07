@@ -152,8 +152,7 @@ fn pad(source: &str) -> String {
 /// assertion cannot read `root.spaces[0]`; collecting the whole
 /// subtree also lets each row assert that the fixture opened
 /// *exactly one* function space, which is `get_space_kind` and
-/// `is_func_space` agreeing with the name — `.claude/rules/
-/// grammar-dispatch.md` §6.
+/// `is_func_space` agreeing with the name — `docs/development/grammar_dispatch.md` §6.
 #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 fn function_spaces(space: &FuncSpace, found: &mut Vec<(Option<String>, usize, usize)>) {
     if space.kind == SpaceKind::Function {
@@ -234,7 +233,7 @@ fn the_declarator_walk_names_the_function_space() {
 /// would notice if `function_spaces` selected no space at all — the
 /// comparison would just find two empty expectations equal, and
 /// every row would pass vacuously
-/// (`.claude/rules/testing.md`, "Review the selector as carefully as
+/// (`docs/development/testing.md`, "Review the selector as carefully as
 /// the assertion"). Feeding it a name that is deliberately wrong is
 /// the cheapest proof that the selector reaches a real space and the
 /// comparison discriminates.
@@ -290,7 +289,7 @@ fn the_table_reports_a_name_that_does_not_match() {
 /// mozcpp siding with C rather than with the upstream `tree-sitter-cpp`
 /// it forked from is the finding worth keeping here: it owns no file
 /// extension, so nothing routes to it and only a unit test can see
-/// it at all (`.claude/rules/grammar-dispatch.md`, "when you fix one
+/// it at all (`docs/development/grammar_dispatch.md`, "when you fix one
 /// language, sweep the rest").
 ///
 /// Recovery trees are outside the walk's contract — see

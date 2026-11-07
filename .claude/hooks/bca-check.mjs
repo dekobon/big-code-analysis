@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { advisory, analyzer, checkout, checkContext, checkArgs, guidance, inside, run, unchanged } from "./bca-common.mjs"
 
 const MAX_INPUT = 8 * 1024 * 1024
-const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit"])
+const EDIT_TOOLS = new Set(["Edit", "Write"])
 
 // One invocation per successful tool call. No persistent dedup state can outlive a clean edit.
 export async function checkHook(input, signal) {

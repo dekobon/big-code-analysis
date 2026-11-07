@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 /// Stand-in digests, deliberately neither `0` nor equal to each other, so
 /// an assertion here cannot pass because two default values coincide
-/// (`.claude/rules/testing.md`). No real digest is computed in this
+/// (`docs/development/testing.md`). No real digest is computed in this
 /// module — `WalkContext::mailmap_digest`, `diff_config_digest`,
 /// `diff_attributes_digest` and `shallow_boundary_digest` live in the
 /// git backend, whose `history_tests` pin that the walk resolves

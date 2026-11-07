@@ -28,8 +28,9 @@ checklist), this skill:
 
 - **NEVER commit code.** No `git commit`, no `git add`, no staging. Zero commits.
 - **NEVER leave uncommitted files.** No new files, no modified files, no temp files
-  in the worktree. If you accidentally create or modify a file, revert it
-  immediately with `git checkout -- .`.
+  in the worktree. If you accidentally create or modify a file, undo
+  your own edit with the exact inverse edit; never `git checkout -- .`
+  in a shared checkout.
 - **NEVER modify source files.** Not even "harmless" formatting or comment fixes.
 - **NEVER push branches.**
 - The ONLY side effects of this skill are: GitHub issues filed, Serena memories
@@ -45,79 +46,24 @@ the scan.
 
 ---
 
-## Step 0: Launch isolated agent
+## Step 0: Isolate
 
-**This step is MANDATORY and must be the very first action.**
-
-### Environment detection
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
-
-- **Worktree mode**: Already inside a worktree. Keep existing behavior.
-- **Branch mode**: Main project directory. Agents run without worktree isolation.
-  Serena LSP works correctly in this mode.
-
-### Branch mode prerequisites
-
-```bash
-if [[ "$ISOLATION_MODE" == "branch" ]]; then
-  DIRTY="$(git status --porcelain)"
-  if [[ -n "$DIRTY" ]]; then
-    echo "Error: branch mode requires a clean repository." >&2
-    echo "$DIRTY" >&2
-    exit 1
-  fi
-fi
-```
-
-### Launch the orchestrating agent
-
-If you are the top-level orchestrator (invoked by the user), immediately launch
-a single Agent that executes Steps 1-10. Pass the full workspace root path.
-
-- **Worktree mode**: Launch the Agent with `isolation: "worktree"`.
-- **Branch mode**: Launch the Agent WITHOUT `isolation: "worktree"`.
-
-Sub-agents launched in Step 3 inherit the parent context (read-only) and do
-NOT need their own `isolation: "worktree"`.
-
-### Agent verification (MANDATORY)
-
-Every agent must verify its environment before doing any work:
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
-```
-
-In branch mode, also confirm the working tree is clean:
-
-```bash
-git status --porcelain
-```
-
-If any output appears, abort: "ABORTED: Branch mode requires a clean working
-tree."
+This skill writes nothing, so it runs in **shared read-only mode** per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+verify `git status --porcelain` is empty before starting, run the
+audit (and any parallel read-only sub-agents) in the current checkout
+without switching branches, cleaning or resetting, and verify the tree
+is still clean at the end (Step 10). If the user asked for a separate
+checkout, allocate a worktree per that document and start the audit
+there instead. Children never remove or prune worktrees.
 
 ---
 
 ## Step 1: Load scan history
 
-Invoke the Serena MCP tool `serena:read_memory` with
-`memory_name: "scan-project-state"`. If the Serena MCP server is not active,
-call `serena:activate_project` first.
+If a persistent-memory tool (such as the Serena MCP server) is
+available, read the memory `scan-project-state`; otherwise treat the
+project as unscanned.
 
 The memory key is a fixed token (no `$ARGUMENTS` interpolation) because
 scope is workspace-wide. This sidesteps the slash-sanitization rule
@@ -179,7 +125,7 @@ path**: Step 8 reads these files from a different tool call, and a
 shell variable does not survive that boundary, so the summary needs
 the literal path. A fixed `/tmp/scan-metrics.json` is shared with
 every other scan on the host (see
-[`.claude/rules/temp-files.md`](../../rules/temp-files.md)).
+`AGENTS.md`, "Temporary files").
 
 ```bash
 SCAN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bca-scan.XXXXXX") && echo "SCAN_DIR=$SCAN_DIR"
@@ -216,12 +162,10 @@ FD=$(command -v fd 2>/dev/null || command -v fdfind 2>/dev/null)
 
 ## Step 3: Partition scope and launch sub-agents
 
-Launch all six sub-agents **in parallel**. Use the `Agent` tool with
-`subagent_type: "general-purpose"`, one call per partition, all six in a
-single message so they run concurrently. Do **not** pass
-`isolation: "worktree"` to the sub-agents — Step 0 already arranged
-isolation at the orchestrator level, and sub-agents inherit the
-parent's read-only context.
+Launch all six sub-agents **in parallel**. Launch one general-purpose
+sub-agent per partition, all six together so they run concurrently.
+They need no worktree of their own: Step 0 already isolated the
+orchestrator, and the scan is read-only.
 
 Each agent receives:
 
@@ -850,7 +794,8 @@ A degraded run must not be confused with a clean one in
 
 ## Step 9: Save scan state
 
-Invoke `serena:write_memory` with `memory_name: "scan-project-state"` and the
+If a persistent-memory tool is available, write the memory
+`scan-project-state` with the
 merged content as `content`.
 
 Build the memory by **merging** prior state (from Step 1) with the current
@@ -895,9 +840,9 @@ git status --porcelain
 
 If any output appears:
 
-- For **modified tracked files** (`M` lines): revert with
-  `git checkout -- <path>`. Do NOT use a blanket `git checkout -- .` in
-  worktree mode.
+- For **modified tracked files** (`M` lines): do NOT restore them; the
+  checkout is shared and the change may be the user's. Report each path
+  and diff in the final summary.
 - For **untracked files** (`??` lines): do NOT delete them. Surface their paths
   in the final summary for user review. Never run `git clean` from this skill.
 
@@ -910,7 +855,7 @@ summary.
 
 All ABSOLUTE CONSTRAINTS (top of this document) apply. Additionally:
 
-- **NEVER delete worktrees.** Only the Claude Code runtime may do that.
+- **NEVER delete worktrees.** The orchestrator that created one cleans it up.
 - Do NOT implement fixes. This is scan-only.
 - Do NOT file findings without concrete evidence (file + line + reasoning).
 - Do NOT file duplicate issues. Always check `gh issue list` first.

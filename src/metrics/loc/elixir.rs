@@ -19,7 +19,7 @@ use super::*;
 /// this one rule to twenty consecutive ids (`Elixir::QuotedContent`
 /// through `QuotedContent20`), and a name comparison stays correct when a
 /// grammar bump adds a twenty-first
-/// (`.claude/rules/grammar-dispatch.md` section 1).
+/// (`docs/development/grammar_dispatch.md` section 1).
 ///
 /// The rule calls that a small runtime cost, and it is: against a
 /// twenty-variant `kind_id` pattern over a 36 000-row Elixir file, the

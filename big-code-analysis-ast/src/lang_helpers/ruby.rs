@@ -26,7 +26,7 @@ use crate::node::{Ancestors, FoldLane, Node};
 /// One helper the `Closure` and `FuncOpener` rows of `roles/ruby.rs`
 /// both gate on, so the closure count, the space tree, and the
 /// cognitive nesting surcharge — each a reader of those rows — cannot
-/// drift apart (`.claude/rules/grammar-dispatch.md` §6).
+/// drift apart (`docs/development/grammar_dispatch.md` §6).
 ///
 /// The parent comes off the caller's chain: all consumers run per node
 /// from a walk, and `Node::parent` costs `O(depth)` because

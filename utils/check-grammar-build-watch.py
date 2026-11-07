@@ -9,7 +9,7 @@ the headers under ``src/tree_sitter/``.
 header-only edit (``parser.h``, ``alloc.h``, ``array.h``) left a stale
 parser object behind a fresh ``build inputs:`` digest — a binary
 advertising a tree it did not compile. The block is the one thing in
-those files that is *not* generated binding boilerplate: AGENTS.md
+those files that is *not* generated binding boilerplate: CONTRIBUTING.md
 exempts the vendored crates from the workspace lint tables because a
 regeneration replaces their sources wholesale, and ``recreate-grammars.sh``
 / ``generate-grammars/*.sh`` happen to leave ``build.rs`` alone today.
@@ -39,7 +39,7 @@ case and is never skipped.
 ``--root <dir>`` points the gate at another checkout, which is how the
 self-tests drive it over scratch layouts.
 
-See AGENTS.md "Rust conventions" for the exemption this qualifies.
+See CONTRIBUTING.md "Project conventions" for the exemption this qualifies.
 """
 
 from __future__ import annotations

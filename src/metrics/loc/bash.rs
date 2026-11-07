@@ -57,7 +57,7 @@ impl Loc for BashCode {
             //
             // The heredoc is routed through its **wrapper**,
             // `heredoc_redirect`, rather than through `heredoc_body`, for
-            // `.claude/rules/grammar-dispatch.md` section 6's keeper rule —
+            // `docs/development/grammar_dispatch.md` section 6's keeper rule —
             // the same call #1396 made for PHP. `heredoc_body`'s span
             // excludes a leading empty body row and collapses to zero width
             // when the body is empty throughout, so those rows sat inside no
@@ -172,7 +172,7 @@ impl Loc for BashCode {
             // `readonly C=3`) and as a `command`'s environment prefix
             // (`X=1 cmd`). The unsuffixed `VariableAssignment` below is
             // never emitted, so listing only it scored `a=1` zero
-            // logical lines (`.claude/rules/grammar-dispatch.md` §1);
+            // logical lines (`docs/development/grammar_dispatch.md` §1);
             // it stays as a defensive arm rather than being swapped.
             //
             // The last two positions need the parent gate. Both

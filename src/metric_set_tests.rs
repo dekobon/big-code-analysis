@@ -212,7 +212,7 @@ fn _all_variants_exhaustive_guard(m: Metric) {
 fn from_str_round_trips_every_variant_display_name() {
     // Reverting any single arm in `impl FromStr for Metric`
     // makes this fail on exactly that variant — the test is
-    // load-bearing per `.claude/rules/testing.md`.
+    // load-bearing per `docs/development/testing.md`.
     for &m in ALL_VARIANTS {
         let parsed: Metric = m
             .to_string()

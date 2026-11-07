@@ -6,13 +6,12 @@ description: Complete workflow for fixing GitHub issues including investigation,
 # Fix GitHub Issue Workflow
 
 1. Read the GitHub issue thoroughly (`gh issue view <number>` plus all comments).
-2. If Serena (or another LSP-based code intelligence MCP) is available, read its
-   instructions manual (`serena:initial_instructions`) so symbol-level navigation
-   and editing are the default. LSP tools are preferred over text-based search/edit for code;
-   fall back to `rg`/`fd` and the built-in Grep/Glob tools only when LSP is
-   unavailable. Never use legacy `grep`/`find`.
-3. Re-read any relevant project conventions (e.g., `CLAUDE.md`, `README.md`, and
-   any rule files under `.claude/rules/` if present). Note any rule that is
+2. If a code-intelligence tool (such as the Serena MCP server) is available,
+   use it for symbol-level navigation and editing; otherwise use the file
+   tools and `rg` / `fd`.
+3. Re-read `AGENTS.md` and the guides its routing table names for this
+   change (`docs/development/testing.md` always; `grammar_dispatch.md` for
+   anything touching a language module or metric). Note any rule that is
    directly relevant so it can be cited in the fix.
 4. Investigate the codebase to understand the root cause. For tree-sitter
    grammar / language-specific behavior, examine the corresponding module under
@@ -70,7 +69,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
      coupling to incidental host/filesystem details.
    - **Test-via-revert for defensive refactors**: if the fix pins an
      invariant rather than repairing a live bug, follow
-     `.claude/rules/testing.md` — prove the new test fails against the
+     `docs/development/testing.md` — prove the new test fails against the
      pre-fix code before trusting it, and revert safely (never a
      file-level restore over uncommitted work).
 9. **Review the changes** for:
@@ -94,8 +93,8 @@ description: Complete workflow for fixing GitHub issues including investigation,
     Do NOT commit with known issues and plan to fix them in a follow-up — that
     is how fix-up chains happen.
 11. Run `make pre-commit` as the final gate before committing. It is the
-    canonical entry point for the full validation gate (see "Validation
-    gates" in `AGENTS.md` for the current stage list — do not rely on a
+    canonical entry point for the full validation gate (see "Local
+    validation gate" in `CONTRIBUTING.md` for the current stage list — do not rely on a
     from-memory subset). If
     `make` is unavailable, fall back to running the cargo gates manually
     (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
@@ -116,7 +115,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
     - `CHANGELOG.md` — add an entry under `## [Unreleased]`. Public-API
       changes must be cross-referenced against `STABILITY.md`; a
       source-level break deferred to the next major bump is marked
-      **(breaking)** (see AGENTS.md "Editing principles").
+      **(breaking)** (see AGENTS.md "Conventions the code cannot tell you").
     - `README.md` — if user-facing behavior, install steps, or supported
       languages changed.
     - `big-code-analysis-book/` — if the change affects documented metrics,
@@ -142,8 +141,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
 
 ## Worktree Safety Reminder
 
-If this session is running inside a worktree (`git rev-parse --show-toplevel`
-returns a path under `.claude/worktrees/`), worktree-safety bans apply
-throughout this workflow: never delete worktrees, never `cd` to the main repo,
-never check out a different branch, never write to files outside your
+If this session runs in a worktree, the worktree rules in `AGENTS.md`
+apply throughout: never remove or prune worktrees, never `cd` to another
+checkout, never check out a different branch, never write outside the
 worktree.

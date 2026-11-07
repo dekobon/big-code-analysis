@@ -530,7 +530,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
 
     /// Whether `node`'s parent has kind id `kind`.
     ///
-    /// The compound-leaf guard of `.claude/rules/grammar-dispatch.md`
+    /// The compound-leaf guard of `docs/development/grammar_dispatch.md`
     /// section 5 asks this and nothing else: a delimiter or keyword
     /// token is suppressed *only* directly under the construct that
     /// owns it, never under an arbitrary ancestor. Eleven dispatch

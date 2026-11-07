@@ -59,7 +59,7 @@ Look for duplicated logic and missing abstractions.
 - Helper functions that duplicate standard library or crate functionality
 - Per-language duplicated logic in `big-code-analysis-ast/src/languages/` that could be expressed via
   a trait method or macro instead of being copied across language modules
-  (when consolidating into a macro, follow `.claude/rules/macro-comments.md`:
+  (when consolidating into a macro, follow `docs/development/formatting.md`:
   hoist per-language rationale comments above each invocation, not into the
   macro body)
 

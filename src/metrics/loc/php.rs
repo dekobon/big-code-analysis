@@ -48,7 +48,7 @@ impl Loc for PhpCode {
             // The wrapper is routed rather than `HeredocBody` / `NowdocBody`
             // because a body of one empty row emits no body node at all —
             // `heredoc` is the node present for every spelling
-            // (`.claude/rules/grammar-dispatch.md` section 6). Its span runs
+            // (`docs/development/grammar_dispatch.md` section 6). Its span runs
             // from `<<<` to the closing marker, so its interior is the body
             // rows plus that marker's row, which is code either way.
             //

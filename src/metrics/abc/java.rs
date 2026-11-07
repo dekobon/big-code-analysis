@@ -355,7 +355,7 @@ fn java_walk_for_conditions<'a>(
         // compound guard (`when a > 1 && b < 2`) keeps its
         // sub-structure rather than collapsing to one.
         //
-        // By role, not index (`.claude/rules/grammar-dispatch.md` §3):
+        // By role, not index (`docs/development/grammar_dispatch.md` §3):
         // `guard` is `seq('when', expression)` and node-types.json gives
         // it no field, so the expression is the clause's first operand
         // that is not an `extra` — `when /*c*/ g` puts a comment before

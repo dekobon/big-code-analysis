@@ -157,7 +157,7 @@ class ClassifyTest(unittest.TestCase):
 
     def test_modification_alone_is_ready(self) -> None:
         # Accepting a snapshot in the integration-snapshot submodule is
-        # routine (AGENTS.md); it must not read as damage, or the setup
+        # routine (CONTRIBUTING.md, "Integration snapshots"); it must not read as damage, or the setup
         # target would offer to overwrite work in progress.
         (self.fixture.work / "snapshots" / "s.snap").write_text("locally accepted\n")
         self.assertIs(self.fixture.classify(), SETUP.State.READY)
@@ -181,7 +181,7 @@ class RepairTest(unittest.TestCase):
     here. A test that assembles its own `git submodule update --force`
     proves git can repair the tree; it never proves this script asks git
     to — the production bookkeeping and a test's replica of it are two
-    different things (`.claude/rules/testing.md`).
+    different things (`docs/development/testing.md`).
     """
 
     def setUp(self) -> None:

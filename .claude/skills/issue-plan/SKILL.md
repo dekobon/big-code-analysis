@@ -41,8 +41,8 @@ Before planning, understand the relevant code:
    generation), and `enums` (language-enum codegen). Per-language
    logic lives under `big-code-analysis-ast/src/languages/` (one `language_<lang>.rs` per
    supported language) and metric implementations under `src/metrics/`.
-3. Use Serena LSP tools (`find_symbol`, `get_symbols_overview`,
-   `find_referencing_symbols`) — or Grep / Glob if Serena is unavailable —
+3. Use a code-intelligence tool (`find_symbol`, `get_symbols_overview`,
+   `find_referencing_symbols`) when one is available, or Grep / Glob otherwise,
    to locate the relevant code paths.
 4. Note the scope: how many files, which crate(s), which language modules,
    whether public API is affected, whether tree-sitter grammar versions

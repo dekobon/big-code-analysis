@@ -949,7 +949,7 @@ impl Stats {
         // sets already empty, so `(0, 0)` here is byte-identical over
         // every corpus input — measured. `a_zero_span_keeps_no_row`
         // below is therefore a direct `Stats` test rather than a
-        // fixture, per `.claude/rules/testing.md`: it is the only shape
+        // fixture, per `docs/development/testing.md`: it is the only shape
         // that can tell the two spellings apart.
         //
         // The corpus measurement is the weaker half of that claim, and
@@ -2721,7 +2721,7 @@ line two
     #[cfg(feature = "python")]
     #[test]
     fn python_docstring_is_a_subset_of_cloc() {
-        // Anchors the subset on a second axis (`.claude/rules/testing.md`):
+        // Anchors the subset on a second axis (`docs/development/testing.md`):
         // the comment row is in `cloc` and not in `dloc`, so trimming
         // either construct out of the fixture fails a different assertion.
         // expected: 5 rows — `def`, two docstring rows, `# a comment`,
@@ -5799,7 +5799,7 @@ line3\";",
     // The union of the fixture languages below, so a feature subset that
     // enables none of them makes this test *absent* rather than failing
     // in a way that reads as a defect in whatever is being changed
-    // (`.claude/rules/testing.md`). Every call site carries its own
+    // (`docs/development/testing.md`). Every call site carries its own
     // narrower gate, so if the test exists at least one row runs and it
     // cannot go vacuous.
     #[cfg(any(
@@ -5992,7 +5992,7 @@ line3\";",
         // `read_file_with_eol` path each force a trailing newline, so a
         // node ending at EOF is unreachable from either and a test written
         // the ordinary way passes against unfixed code (#1051, #1067 —
-        // `.claude/rules/testing.md`). These fixtures reach the parser
+        // `docs/development/testing.md`). These fixtures reach the parser
         // byte-for-byte through `metrics_verbatim`, with the closing
         // delimiter as the last byte of the file.
         //
@@ -8071,7 +8071,7 @@ function f() {
         // lloc=3, cloc=1 (row 3, now a code-comment line, not comment-only),
         // blank=1 (row 1). Without the fix `blank` collapses to 0 because
         // row 3 is double-counted. Verified fail-on-revert per
-        // .claude/rules/testing.md.
+        // docs/development/testing.md.
         check_metrics::<BashParser>("echo a\n\necho \"$(\n  # c\n)\"\n", "foo.sh", |metric| {
             assert_eq!(metric.loc.sloc(), 5);
             assert_eq!(metric.loc.ploc(), 4);
@@ -8189,7 +8189,7 @@ function f() {
     /// The parser emits `variable_assignment` under the id the enum
     /// spells `VariableAssignment2`; the unsuffixed `VariableAssignment`
     /// it never emits, so the LLOC arm listing only that scored a bare
-    /// `a=1` zero (`.claude/rules/grammar-dispatch.md` §1). Adding the
+    /// `a=1` zero (`docs/development/grammar_dispatch.md` §1). Adding the
     /// alias ungated then double-counted the two positions where the
     /// assignment hangs off a node the same arm already counts — a
     /// `declaration_command` and a `command`'s environment prefix (§5).
@@ -8321,7 +8321,7 @@ EOF
         //
         // Each fixture isolates one arm of the new match, so a dropped kind
         // fails here rather than being covered by a sibling
-        // (`.claude/rules/grammar-dispatch.md` section 11): `raw_string`,
+        // (`docs/development/grammar_dispatch.md` section 11): `raw_string`,
         // `ansi_c_string` and `heredoc_body` are childless nodes the old
         // leaf arm credited only one row of, while `string` emits a
         // `string_content` child per row that *has* text and so skipped an
@@ -8398,7 +8398,7 @@ EOF
     /// Analyses `source` byte-for-byte as Bash, for the #1412 fixtures
     /// `check_metrics` cannot carry: that shim trims trailing newlines,
     /// and a heredoc whose terminator is the last row is exactly the
-    /// shape it normalises away (`.claude/rules/testing.md`).
+    /// shape it normalises away (`docs/development/testing.md`).
     #[cfg(feature = "bash")]
     fn bash_loc_verbatim(source: &[u8]) -> Stats {
         metrics_verbatim(
@@ -8418,7 +8418,7 @@ EOF
     /// #1260 routed the body, which fixed only the interior of a body
     /// that has text — the shape all of its fixtures had. The arm now
     /// routes the `heredoc_redirect` wrapper, the node present for every
-    /// spelling (`.claude/rules/grammar-dispatch.md` section 6), which
+    /// spelling (`docs/development/grammar_dispatch.md` section 6), which
     /// is what #1396 did for PHP.
     #[cfg(feature = "bash")]
     #[test]
@@ -8428,7 +8428,7 @@ EOF
         // rather than a restatement of the fixed behaviour.
         //
         // `sloc` is the second axis the fixtures are anchored on
-        // (`.claude/rules/testing.md`): trimming the heredoc out of any
+        // (`docs/development/testing.md`): trimming the heredoc out of any
         // of them leaves a bare `cat` — or, in the last row, a bare
         // function — which fails the `sloc` assertion before the `blank`
         // one can go vacuous.
@@ -8600,7 +8600,7 @@ EOF
     /// Asserts each `(source, file rows, blank before the bare-row credit)`
     /// fixture's file-level `loc_rows` under `lang`, byte-for-byte:
     /// `check_metrics` would normalise away the CRLF and the missing final
-    /// newline that some fixtures are about (`.claude/rules/testing.md`).
+    /// newline that some fixtures are about (`docs/development/testing.md`).
     /// The credit reached Bash, Tcl and iRules in #1445, the C family,
     /// Ruby and Elixir in #1801, and Python in #1819.
     #[cfg(any(
@@ -9501,7 +9501,7 @@ EOF
                 // #1819, when the comment credited it itself. CPython
                 // rejects a NUL byte outright, so no tokenizer stream
                 // derives the value: it pins the recovery behaviour only
-                // (`.claude/rules/grammar-dispatch.md` §6). Measured
+                // (`docs/development/grammar_dispatch.md` §6). Measured
                 // (3, 2, 1, 0) before and after #1819.
                 (b"x=1\n\\\0# c\ny=2\n", (3, 2, 1, 0), 0),
                 // FIXME(#1825): pins the wrong value. `STRING NEWLINE NAME
@@ -11558,7 +11558,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// but excluded the heredoc, on the premise that its inner nodes
     /// already covered every row.
     ///
-    /// `sloc` is the fixture anchor (`.claude/rules/testing.md`):
+    /// `sloc` is the fixture anchor (`docs/development/testing.md`):
     /// deleting the empty row drops it to 5 and fails this test, rather
     /// than leaving it quietly asserting `blank 0` about a literal with
     /// no interior gap left to misclassify.
@@ -11610,7 +11610,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// wrapper rather than `heredoc_body` / `nowdoc_body`: for a body of
     /// one empty row the grammar emits **no body node at all**, so an
     /// arm keyed on the body would still report that row blank
-    /// (`.claude/rules/grammar-dispatch.md` section 6). The interpolated
+    /// (`docs/development/grammar_dispatch.md` section 6). The interpolated
     /// form checks that an interior `{$v}` — whose own nodes cover only
     /// their row — does not stop the empty row above it being credited.
     /// The PHP 7.3 indented closing marker is syntax coverage rather
@@ -11688,7 +11688,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     /// heredoc whose closing marker is the last byte of the file.
     /// `check_metrics` trims and re-appends a trailing newline, so that
     /// shape cannot reach the parser through it at all
-    /// (`.claude/rules/testing.md`); `metrics_verbatim` hands the bytes
+    /// (`docs/development/testing.md`); `metrics_verbatim` hands the bytes
     /// over untouched.
     ///
     /// Unlike #1051 and #1067, no *known* defect hides in this class for
@@ -14557,7 +14557,7 @@ class A {
     ///   interior insert credits row 1 — `preproc_def` contributes only
     ///   its own start row — so `ploc == 3` fails if that row is ever
     ///   trimmed out of the fixture, per the fixture-decay rule in
-    ///   `.claude/rules/testing.md`. The `blank == 1` half has no such
+    ///   `docs/development/testing.md`. The `blank == 1` half has no such
     ///   anchor available: deleting the dangling backslash also stops
     ///   row 2 being credited, so a revert of the bound is the only
     ///   evidence that half discriminates, and it was run.
@@ -15088,7 +15088,7 @@ class A {
     /// under-subtracting in the ordinary rustfmt layout.
     ///
     /// **`shared_row` has no fixture-decay anchor, and none exists.**
-    /// The rule in `.claude/rules/testing.md` asks for a second axis
+    /// The rule in `docs/development/testing.md` asks for a second axis
     /// only the excluded construct contributes to, so that trimming it
     /// out of the fixture fails this test rather than quietly hollowing
     /// it. Deleting `#[cfg(test)] mod t {}` from row 0 leaves all four
@@ -15208,7 +15208,7 @@ class A {
     /// well-formed input — measured: replacing all fifteen fixtures
     /// with well-formed sources of the same row count leaves this test
     /// green. The phantom node *is* the subject, so it is the axis to
-    /// anchor on (`.claude/rules/testing.md`, "Perturb the fixture as
+    /// anchor on (`docs/development/testing.md`, "Perturb the fixture as
     /// well as the production line").
     ///
     /// Writing that anchor as `has_error()` — the obvious choice — is
@@ -15365,7 +15365,7 @@ class A {
     /// `span == 0` needs a space opened on a genuinely zero-width node
     /// at column 0, and every `is_func_space` matches compound
     /// productions — so seeding `Stats` directly is the only shape that
-    /// can (`.claude/rules/testing.md`, "Pair any end-to-end test with a
+    /// can (`docs/development/testing.md`, "Pair any end-to-end test with a
     /// direct unit test on the function whose contract is verified").
     #[test]
     #[cfg(debug_assertions)]

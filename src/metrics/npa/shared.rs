@@ -710,7 +710,7 @@ fn cpp_recovered_member_pointers(outer: &Node) -> RecoveredMemberPointers {
 // `None`. The name is the innermost `qualified_identifier`'s
 // `type_identifier`; it counts when the grammar invented it
 // (zero-width, tested by width rather than `is_missing()` — see
-// `.claude/rules/grammar-dispatch.md`) or left an `ERROR` beside it.
+// `docs/development/grammar_dispatch.md`) or left an `ERROR` beside it.
 fn cpp_recovered_member_pointer_parameter(parameter: &Node) -> Option<bool> {
     let qualified = parameter
         .child_by_field_name("type")

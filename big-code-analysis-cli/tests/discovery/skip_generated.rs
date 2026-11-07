@@ -118,7 +118,7 @@ fn marker_in_body_is_not_skipped() {
 ///   manifest is never discovered, so `hand.rs` survives.
 /// - Reverting `cli()` to `bca_command()` (no cwd anchor) inherits this
 ///   leaky cwd, discovers the manifest, and drops `hand.rs` — the test
-///   then fails, proving it guards the anchor (see `.claude/rules/testing.md`).
+///   then fails, proving it guards the anchor (see `docs/development/testing.md`).
 ///
 /// The control arm (raw command explicitly rooted at the leaky dir)
 /// proves the exclude actually fires, so the hermetic assertion is not

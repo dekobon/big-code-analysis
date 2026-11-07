@@ -340,7 +340,7 @@ macro_rules! js_family_abc_compute {
                 // `type_parameters` — so the allowlist is the inverse of
                 // a five-entry denylist today and, unlike it, needs no
                 // revisiting when the grammar grows a seventh
-                // (`.claude/rules/grammar-dispatch.md` §1). The shifts
+                // (`docs/development/grammar_dispatch.md` §1). The shifts
                 // (`<<`, `>>`, `>>>`) are their own tokens.
                 _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                     stats.conditions += 1.;

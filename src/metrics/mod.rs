@@ -43,7 +43,7 @@ mod bash_test_connective_tests;
 // `FIXTURES`, not here: a module gate is an outer `cfg`, so naming only
 // the `FIXTURES` features would delete that Bash/Lua/C test from a build
 // enabling exactly the languages it exists to cover
-// (`.claude/rules/testing.md`, #1286).
+// (`docs/development/testing.md`, #1286).
 #[cfg(test)]
 #[cfg(any(
     feature = "bash",

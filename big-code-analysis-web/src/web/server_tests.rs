@@ -3317,7 +3317,7 @@ async fn vcs_error_kind_maps_each_client_variant_to_a_distinct_token() {
 /// an entry that advertises a token the server never sends.
 ///
 /// This reads a published document, not the crate's own source, so it is
-/// not the restated-`matches!()` pattern `.claude/rules/testing.md`
+/// not the restated-`matches!()` pattern `docs/development/testing.md`
 /// bans: the drift is between two artifacts, and neither can enumerate
 /// the other.
 ///

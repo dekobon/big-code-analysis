@@ -81,7 +81,7 @@ fn assert_flattened(lang: LANG, code: &str, file_name: &str, literal: &str) {
 /// one of them. A row whose grammar is absent must be *absent* too, not
 /// merely failing: without the gate every row panicked in `dump_root`
 /// under any feature set short of the full eight, which reads as a
-/// defect in whatever was being changed (`.claude/rules/testing.md`,
+/// defect in whatever was being changed (`docs/development/testing.md`,
 /// "Gate a feature-gated fixture table on the union of its rows").
 macro_rules! flatten_cases {
     ($($name:ident: $feat:literal, $lang:expr, $code:expr, $file:expr, $lit:expr;)*) => {

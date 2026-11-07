@@ -53,7 +53,7 @@ that merely *looks* like a raw-string open — a plain string ending in
 ``r``, an unterminated ``r"`` inside a trailing or block comment — was
 read as one, and every line to the next quote was then skipped (#1219).
 
-See AGENTS.md "Validation gates" for the policy this enforces.
+See CONTRIBUTING.md "Local validation gate" for the policy this enforces.
 """
 
 from __future__ import annotations

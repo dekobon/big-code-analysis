@@ -341,7 +341,7 @@ fn the_exclude_tests_prune_asks_once_per_attributed_item() {
 // seed, `python` for the instance-attribute scan, `rust` for the
 // suppression walk. Dropping `c` here would leave `CParser::new`
 // reaching `Tree::new`'s disabled-language `expect` under
-// `--features python,rust` (`.claude/rules/testing.md`).
+// `--features python,rust` (`docs/development/testing.md`).
 #[cfg(all(feature = "c", feature = "python", feature = "rust"))]
 #[test]
 fn the_metric_and_suppression_walks_scan_a_tree_on_one_cursor() {

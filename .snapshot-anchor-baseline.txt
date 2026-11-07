@@ -1,5 +1,5 @@
 # Bare insta::assert_json_snapshot! call counts per metric file.
-# Maintained by check-snapshot-anchors.py; see AGENTS.md.
+# Maintained by check-snapshot-anchors.py; see CONTRIBUTING.md "Snapshot anchors".
 # Lower-or-equal current counts pass; any increase fails CI.
 # Regenerate with: ./utils/check-snapshot-anchors.py --update
 #

@@ -1686,7 +1686,7 @@ fn resolve_provenance_maps_each_tier_branch() {
 // recovered guard still holds every joined worker's file entry, so
 // `into_preproc_data` degrades to the accumulated data rather than
 // re-panicking on `.expect("mutex not poisoned")`. Verified by revert
-// per `.claude/rules/testing.md`: restoring the `.expect()` chain makes
+// per `docs/development/testing.md`: restoring the `.expect()` chain makes
 // this test panic instead of recovering.
 #[test]
 fn into_preproc_data_degrades_on_poisoned_mutex() {

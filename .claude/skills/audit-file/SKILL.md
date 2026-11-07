@@ -34,8 +34,9 @@ composing Serena memory keys so the key is a single flat token (e.g.,
 
 - **NEVER commit code.** No `git commit`, no `git add`, no staging. Zero commits.
 - **NEVER leave uncommitted files.** No new files, no modified files, no temp files
-  in the worktree. If you accidentally create or modify a file, revert it
-  immediately with `git checkout -- .`.
+  in the worktree. If you accidentally create or modify a file, undo
+  your own edit with the exact inverse edit; never `git checkout -- .`
+  in a shared checkout.
 - **NEVER modify source files.** Not even "harmless" formatting or comment fixes.
 - **NEVER push branches.** The isolation branch is disposable and local-only.
 - The ONLY side effects of this skill are: GitHub issues filed, Serena memories
@@ -50,95 +51,25 @@ Note any relevant open issues as context, but do NOT let them constrain the audi
 
 ---
 
-## Step 0: Launch isolated agent
+## Step 0: Isolate
 
-**This step is MANDATORY and must be the very first action.**
-
-The audit runs in isolation to guarantee the main working tree is never touched.
-
-### Environment detection
-
-Determine the isolation mode:
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
-
-- **Worktree mode**: You are already inside a worktree. Keep all existing
-  behavior (agent launched with `isolation: "worktree"`).
-- **Branch mode**: You are in the main project directory. Agents run without
-  worktree isolation. Serena LSP works correctly in this mode.
-
-### Branch mode prerequisites
-
-In branch mode, verify the working tree is completely clean before proceeding:
-
-```bash
-if [[ "$ISOLATION_MODE" == "branch" ]]; then
-  DIRTY="$(git status --porcelain)"
-  if [[ -n "$DIRTY" ]]; then
-    echo "Error: branch mode requires a clean repository (no uncommitted or untracked files)." >&2
-    echo "$DIRTY" >&2
-    exit 1
-  fi
-fi
-```
-
-### Launch the agent
-
-If you are the top-level orchestrator (invoked by the user), immediately launch
-a single Agent that executes Steps 1-9. Pass the resolved file path and any
-prior context. Do NOT perform any audit work directly.
-
-- **Worktree mode**: Launch the Agent with `isolation: "worktree"`. This creates
-  an isolated worktree automatically.
-- **Branch mode**: Launch the Agent WITHOUT `isolation: "worktree"`. The agent
-  runs in the main project directory (safe because the audit is read-only).
-
-**CRITICAL**: In worktree mode, the Agent tool call MUST include
-`isolation: "worktree"` as a required parameter. Double-check before sending.
-In branch mode, do NOT include `isolation: "worktree"`.
-
-### Agent verification (MANDATORY)
-
-Every agent must verify its environment before doing any work:
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
-```
-
-**In worktree mode**: Confirm `PROJECT_ROOT` contains `.claude/worktrees/`.
-If not, abort:
-"ABORTED: Agent expected worktree isolation but PROJECT_ROOT=\<path\>"
-
-**In branch mode**: Confirm the working tree is clean (`git status --porcelain`
-returns empty output). If dirty, abort:
-"ABORTED: Branch mode requires a clean working tree."
-
-In worktree mode, all file operations must be within `PROJECT_ROOT`.
-
-**Worktree cleanup**: Worktrees are automatically cleaned up by the Claude Code
-runtime. NEVER run `git worktree remove` or `git worktree prune`.
+This skill writes nothing, so it runs in **shared read-only mode** per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+verify `git status --porcelain` is empty before starting, run the
+audit (and any parallel read-only sub-agents) in the current checkout
+without switching branches, cleaning or resetting, and verify the tree
+is still clean at the end (Step 9). If the user asked for a separate
+checkout, allocate a worktree per that document and start the audit
+there instead. Children never remove or prune worktrees.
 
 ---
 
 ## Step 1: Load audit history
 
-Read the Serena memory keyed on `$FILE_PATH` (with `/` replaced by `-`) to
-check for prior audit state. Invoke the Serena MCP tool `serena:read_memory`
-directly with `memory_name: "audit-state-<sanitized-FILE_PATH>"`. If the Serena MCP
-server is not active for this session, call `serena:activate_project` first.
+If a persistent-memory tool (such as the Serena MCP server) is
+available, read the memory `audit-state-<sanitized-FILE_PATH>` (the
+path with `/` replaced by `-`) for prior audit state. If none is
+available, skip this step and treat the file as unaudited.
 
 If the memory exists, it contains a single-file coverage record in this format:
 
@@ -531,8 +462,8 @@ Also list any findings dropped as duplicates of existing issues.
 
 ## Step 8: Save audit state
 
-After completing the audit, persist the coverage state to Serena memory by
-invoking the Serena MCP tool `serena:write_memory` directly with
+If a persistent-memory tool is available, persist the coverage state by
+writing the memory with
 `memory_name: "audit-state-<sanitized-FILE_PATH>"` (i.e., `$FILE_PATH` with
 `/` replaced by `-`) and the merged content as `content`.
 
@@ -581,10 +512,10 @@ git status --porcelain
 If any output is shown, something went wrong — the audit was supposed to be
 read-only.
 
-- For **modifications to tracked files** (`M ` / ` M` lines), revert with
-  `git checkout -- <path>` per file. Do NOT use a blanket `git checkout -- .`
-  in worktree mode without first verifying every listed path belongs to the
-  audit (other agents may share the worktree).
+- For **modifications to tracked files** (`M ` / ` M` lines), do NOT
+  restore them: the checkout is shared, and a change made while the audit
+  ran may be the user's. Report each path and the diff hunk in the final
+  summary and let the user decide.
 - For **untracked files** (`??` lines), do NOT delete them automatically.
   Untracked output means the audit wrote a file it should not have. Surface
   the path(s) verbatim in the final summary so the user can decide whether
@@ -599,10 +530,10 @@ final summary output.
 
 All ABSOLUTE CONSTRAINTS (top of this document) apply. Additionally:
 
-- **NEVER delete worktrees.** Only the Claude Code runtime may do that.
+- **NEVER delete worktrees.** The orchestrator that created one cleans it up.
 - Do NOT implement fixes. This is audit-only.
 - Do NOT file findings without concrete evidence (file + line + reasoning).
 - Do NOT file duplicate issues. Always check `gh issue list` first.
 - Use `--body-file` for all `gh issue create` and `gh issue comment` calls.
-- In worktree mode, all audit work MUST happen inside the isolated worktree.
-- In branch mode, audit work runs in the main directory (read-only, verified clean).
+- In shared read-only mode, the checkout is verified clean before and
+  after; nothing in it is restored or cleaned by this skill.

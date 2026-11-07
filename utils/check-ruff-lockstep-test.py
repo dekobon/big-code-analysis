@@ -497,7 +497,7 @@ class RealRepositoryTest(unittest.TestCase):
     def test_it_runs_from_an_unrelated_cwd(self) -> None:
         # `REPO_ROOT` is derived from the script's own location, so the
         # gate must not depend on being invoked from the repository root
-        # (AGENTS.md, "Project layout").
+        # (every gate under utils/ follows this convention).
         with tempfile.TemporaryDirectory() as elsewhere:
             result = subprocess.run(
                 [sys.executable, str(SCRIPT_SRC)],

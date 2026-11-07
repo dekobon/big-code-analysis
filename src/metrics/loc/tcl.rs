@@ -91,7 +91,7 @@ impl Loc for TclCode {
             // the arm rather than between the alternatives because a
             // comment *inside* a match pattern makes rustfmt emit the
             // whole match verbatim while `cargo fmt --check` still exits
-            // 0 — see `.claude/rules/formatting.md`.
+            // 0 — see `docs/development/formatting.md`.
             Tcl::ExprCmd | Tcl::Command
                 if ancestors
                     .parent(node)

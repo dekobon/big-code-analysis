@@ -137,7 +137,7 @@
 // the import itself can express. Partial builds only — `all-languages`
 // is on by default and under `--all-features`, so the build CI gates on
 // and the one a contributor runs still police every unused import. See
-// `.claude/rules/testing.md`, "Why the import lint is off on a partial
+// `docs/development/testing.md`, "Why the import lint is off on a partial
 // build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 #[doc(hidden)]
@@ -160,7 +160,7 @@ mod macros;
 mod test_support;
 // Gated on the four grammars its tables name, so a build enabling none
 // of them drops the module rather than tripping its `checked > 0`
-// non-vacuity guard (`.claude/rules/testing.md`, #1286). The guard then
+// non-vacuity guard (`docs/development/testing.md`, #1286). The guard then
 // covers only the residual case where `is_enabled` stops agreeing with
 // the feature it compiled under.
 #[cfg(test)]

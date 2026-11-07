@@ -170,7 +170,7 @@ node.kind_id()` arm that touches an aliasable rule must either list
 every numbered variant or compare on the string `node.kind()`
 instead. Missing an alias silently drops nodes from the metric. See
 the `add-lang` skill for the mechanical audit procedure, and
-[`.claude/rules/grammar-dispatch.md`](https://github.com/dekobon/big-code-analysis/blob/main/.claude/rules/grammar-dispatch.md)
+[`docs/development/grammar_dispatch.md`](https://github.com/dekobon/big-code-analysis/blob/main/docs/development/grammar_dispatch.md)
 plus lessons 2, 19 and 34 in
 [`docs/development/lessons_learned.md`](https://github.com/dekobon/big-code-analysis/blob/main/docs/development/lessons_learned.md)
 for the failure modes.

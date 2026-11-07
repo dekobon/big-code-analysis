@@ -8,7 +8,7 @@ usage: coverage-diff.py --base-json B --head-json H --base-rev R0 --head-rev R1
 
 `utils/patch-coverage.py` is the quick single-report approximation;
 this one takes two reports and compares per-file covered counts rather
-than percentages (`.claude/rules/testing.md`, "Coverage measures
+than percentages (`docs/development/testing.md`, "Coverage measures
 execution, not discrimination": the denominator moves for reasons
 unrelated to the change).
 

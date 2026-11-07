@@ -462,7 +462,7 @@ impl Abc for ElixirCode {
             // (`E::BinaryOperator`, `BinaryOperator2`,
             // `BinaryOperator3`), and a name comparison stays correct
             // when a bump adds a fourth
-            // (`.claude/rules/grammar-dispatch.md` §1, the same call
+            // (`docs/development/grammar_dispatch.md` §1, the same call
             // `QUOTED_CONTENT` makes in `src/metrics/loc/elixir.rs`).
             // The runtime cost that trade buys there is not paid here:
             // the guard runs only for one of these four tokens, not for

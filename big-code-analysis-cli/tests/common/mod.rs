@@ -120,7 +120,7 @@ pub fn corpus_fixture_strip_prefix() -> String {
 /// Split from [`corpus_fixture_path`] so the diagnostic is testable
 /// against a synthetic tree. The real corpus is checked out in any tree
 /// where this suite runs, so a test that waited for its absence would
-/// never execute — see `.claude/rules/testing.md`.
+/// never execute — see `docs/development/testing.md`.
 #[allow(dead_code)]
 pub fn corpus_checkout_hint(workspace_root: &Path, corpus: &str, file: &str) -> Option<String> {
     let corpus_dir = workspace_root.join(CORPUS_ROOT).join(corpus);
@@ -310,7 +310,7 @@ pub fn process_env_lock() -> std::sync::MutexGuard<'static, ()> {
 /// these drive the cwd into a `.git`-rooted manifest dir and prove the
 /// hermetic builders ignore it (the assertion then fails if a builder is
 /// reverted to the un-anchored `bca_command()` — see
-/// `.claude/rules/testing.md`).
+/// `docs/development/testing.md`).
 #[allow(dead_code)]
 pub struct CwdGuard {
     prior: std::path::PathBuf,

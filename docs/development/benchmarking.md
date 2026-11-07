@@ -954,7 +954,7 @@ Interleave instead. Keep a binary per side. A paired series is
 usually compared across sessions, and the base binary is slow to
 rebuild, so the copy goes under `/var/tmp/bca/<issue>/` rather than
 `/tmp` (see
-[`.claude/rules/temp-files.md`](../../.claude/rules/temp-files.md)):
+[`AGENTS.md`](../../AGENTS.md), "Temporary files"):
 
 ```bash
 mkdir -p /var/tmp/bca/<issue>

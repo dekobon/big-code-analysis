@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perturbation sweep driver (`.claude/rules/testing.md`, "Verify
+"""Perturbation sweep driver (`docs/development/testing.md`, "Verify
 defensive refactor tests by reverting the production code").
 
 Applies one exact substitution to one production file, runs a test
@@ -75,7 +75,7 @@ and #1787, each one a failure the rules file has already paid for:
 
 - A `cargo test` argv that can run more than one test target must carry
   `--no-fail-fast`, or the targets after the first failing one never
-  run and their guards read as dead (`.claude/rules/testing.md`, "So is
+  run and their guards read as dead (`docs/development/testing.md`, "So is
   the invocation"). Anything but exactly one `-p` with exactly one of
   `--lib`, `--doc`, `--test`, `--bin`, `--example` or `--bench` is
   refused without it, before anything is read or run; so is a glob

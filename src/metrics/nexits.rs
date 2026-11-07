@@ -129,7 +129,7 @@ where
 /// The `Exit` row of a language's role table, read as its exit count:
 /// one owner per explicit exit (#1697). Per-language rationale — which
 /// kinds are exits and which spellings are deliberately not — sits on
-/// the row (`.claude/rules/macro-comments.md`).
+/// the row (`docs/development/formatting.md`).
 macro_rules! impl_exit_from_row {
     ($code:ty, $roles:path) => {
         impl Exit for $code {

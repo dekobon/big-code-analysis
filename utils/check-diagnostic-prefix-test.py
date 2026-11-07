@@ -17,7 +17,7 @@ pattern:
 The false-clean direction is the one that matters: a gate that reports
 "OK" over a tree it failed to read is indistinguishable from a tree with
 nothing to find, which is precisely the outcome the gate exists to
-prevent (see `.claude/rules/tool-output.md`).
+prevent (see AGENTS.md "Tool output").
 
 Run with:
     python3 -m unittest -q utils/check-diagnostic-prefix-test.py

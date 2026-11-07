@@ -72,13 +72,11 @@ continuing.
   (Step 3a). The three role gates in `make pre-commit` keep
   removal-only baselines, so a new language cannot add `pending`
   cells, unclaimed kinds, or bypass sites to them.
-- **Worktree safety.** If `git rev-parse --show-toplevel` returns a
-  path under `.claude/worktrees/`, do not `cd` to the main repo,
-  remove worktrees, or check out a different branch. Run all work in
-  the current worktree.
-- **Tooling.** Prefer Serena symbol-level editing for `.rs` code,
-  targeted `Edit` for `.toml`/`.md`. Use `rg`/`fd` (not `grep`/`find`)
-  for search.
+- **Worktree safety.** Run all work in the current worktree; the
+  worktree rules in `AGENTS.md` apply.
+- **Tooling.** Prefer symbol-level editing for `.rs` code when a
+  code-intelligence tool is available, targeted `Edit` otherwise and
+  for `.toml`/`.md`.
 
 ---
 
@@ -109,9 +107,10 @@ the user's behalf.
   grammar requires a newer `tree-sitter`, STOP and ask the user —
   bumping the workspace `tree-sitter` is a separate, larger change.
 
-### 0c: Activate Serena
+### 0c: Code intelligence
 
-If a Serena MCP server is available, run `serena:activate_project` so
+If a code-intelligence tool such as the Serena MCP server is available,
+activate it so
 symbol-level navigation/editing is the default for all `.rs` edits.
 
 ---
@@ -553,7 +552,7 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
   at the AST shape. Since #1697 the strategy is the `ElseIf` row's
   gate in `roles/<lang>.rs` and the Checker is `impl_else_if_from_row!
   (<lang>)`; lesson 10 in `lessons_learned.md` and
-  `.claude/rules/grammar-dispatch.md` §4 catalogue the strategies.
+  `docs/development/grammar_dispatch.md` §4 catalogue the strategies.
   **Re-derive the membership rather than trusting this table** — it
   moves with every language:
 
@@ -1133,7 +1132,7 @@ it. (The non-zero smoke checks from Step 4b are an additional
 defence against the silent-zero failure mode in lesson 1; they are
 not a substitute for exact-value pinning here.)
 
-**AGENTS.md enforces snapshot anchoring.** Every new
+**Snapshot anchoring is gated (`CONTRIBUTING.md` "Snapshot anchors").** Every new
 `insta::assert_json_snapshot!(metric.X)` call must carry one of: an
 inline expected block, a positive `assert_eq!` anchor on the
 headline integer value above it, or a `// expected: <derivation>`
@@ -1283,7 +1282,7 @@ Sweeps that filter on `LANG::is_enabled()` and assert non-vacuity
 need `any(<every language>)`; a helper that picks a language from a
 string needs a hand-written gate with a
 `// test-lang-gates: hand-written(<lang>) — <why>` marker. The rules
-are in `.claude/rules/testing.md`, "Every test that names a language
+are in `docs/development/testing.md`, "Every test that names a language
 carries that language's gate".
 
 ---
@@ -1329,7 +1328,7 @@ Do not hardcode "now supports N languages" anywhere — counts rot.
 
 ## Step 7: Final validation gate
 
-`make pre-commit` is the canonical entry point per AGENTS.md. It
+`make pre-commit` is the canonical entry point (`CONTRIBUTING.md`). It
 runs the cargo trio (fmt-check, clippy with `-D warnings` in both
 default-features and `--all-features` flavours, full test suite),
 `cargo +nightly udeps`, the markdown / TOML / shell / Makefile /
@@ -1355,8 +1354,8 @@ parallel pass. The ones a language addition touches directly:
   offender.
 
 Two gates are deliberately *not* in `make pre-commit` and a new
-language is exactly what they exist for (AGENTS.md, "Benchmarking" and
-"The ancestor-chain audit"): `make bench-scaling`, because a new
+language is exactly what they exist for (`docs/development/benchmarking.md`,
+including its "chain audit" section): `make bench-scaling`, because a new
 `Checker` / `Getter` / `compute` is where a quadratic walk arrives, and
 it shows up as *slow* tests rather than red ones; and `make
 chain-audit`, because the `_with_code` row predicates read the
@@ -1412,8 +1411,9 @@ fields, causing further cascading mismatches.
 work on metric computation, AST traversal, or alterator rules
 generates `.snap.new` files inside
 `tests/repositories/big-code-analysis-output/`, which is a separate
-git submodule (`dekobon/big-code-analysis-output`). Per AGENTS.md
-and lesson 8, a language addition is not done until ALL four hold:
+git submodule (`dekobon/big-code-analysis-output`). Per
+`CONTRIBUTING.md` "Integration snapshots" and lesson 8, a language
+addition is not done until ALL four hold:
 
 1. `cargo test --workspace --all-features` exits clean from a
    fresh working tree with no `.snap.new` left behind under
@@ -1537,7 +1537,7 @@ impl — exactly the failure mode lessons 1, 6, and 19 warn about.
 
 ## Worktree Safety Reminder
 
-If `git rev-parse --show-toplevel` returns a path under
-`.claude/worktrees/`, all worktree-safety bans apply: do not delete
-worktrees, do not `cd` to the main repo, do not check out a different
-branch, do not write outside the current worktree.
+If this session runs in a worktree, the worktree rules in `AGENTS.md`
+apply throughout: never remove or prune worktrees, never `cd` to another
+checkout, never check out a different branch, never write outside the
+worktree.

@@ -195,7 +195,7 @@ fn ruby_count_when<'a>(
 // Java's 4.
 //
 // Slots are addressed by grammar field, per
-// `.claude/rules/grammar-dispatch.md` item 3.
+// `docs/development/grammar_dispatch.md` item 3.
 //
 // The condition slot reuses `ruby_count_condition`, so a ternary's
 // predicate is classified by exactly the code that classifies an

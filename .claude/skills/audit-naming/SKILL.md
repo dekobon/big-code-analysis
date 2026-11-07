@@ -32,8 +32,9 @@ memory-key reference below.
 
 - **NEVER commit code.** No `git commit`, no `git add`, no staging.
 - **NEVER leave uncommitted files.** No new files, no modified files, no temp
-  files in the worktree. If you accidentally create or modify a file, revert
-  it immediately with `git checkout -- .`.
+  files in the worktree. If you accidentally create or modify a file, undo
+  your own edit with the exact inverse edit; never `git checkout -- .`
+  in a shared checkout.
 - **NEVER modify source files.** Not even "harmless" formatting or comment fixes.
 - **NEVER push branches.**
 - The ONLY side effects of this skill are: GitHub issues filed, Serena
@@ -41,77 +42,24 @@ memory-key reference below.
 
 ---
 
-## Step 0: Launch isolated agent
+## Step 0: Isolate
 
-**This step is MANDATORY and must be the very first action.**
-
-The audit runs in isolation to guarantee the main working tree is never touched.
-
-### Environment detection
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
-
-- **Worktree mode**: You are already inside a worktree. Keep all existing
-  behavior (agent launched with `isolation: "worktree"`).
-- **Branch mode**: You are in the main project directory. Agents run without
-  worktree isolation. Serena LSP works correctly in this mode.
-
-### Branch mode prerequisites
-
-```bash
-if [[ "$ISOLATION_MODE" == "branch" ]]; then
-  DIRTY="$(git status --porcelain)"
-  if [[ -n "$DIRTY" ]]; then
-    echo "Error: branch mode requires a clean repository (no uncommitted or untracked files)." >&2
-    echo "$DIRTY" >&2
-    exit 1
-  fi
-fi
-```
-
-### Launch the agent
-
-If you are the top-level orchestrator, immediately launch a single Agent that
-executes Steps 1-8. Do NOT perform any audit work directly.
-
-- **Worktree mode**: Launch with `isolation: "worktree"`.
-- **Branch mode**: Launch WITHOUT `isolation: "worktree"`.
-
-Sub-agents inherit context (read-only) and do NOT need their own
-`isolation: "worktree"`.
-
-### Agent verification (MANDATORY)
-
-Every agent must verify its environment before doing any work:
-
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
-```
-
-In worktree mode: confirm `PROJECT_ROOT` contains `.claude/worktrees/`.
-In branch mode: confirm `git status --porcelain` is empty.
-
-**Worktree cleanup**: NEVER run `git worktree remove` or `git worktree prune`.
+This skill writes nothing, so it runs in **shared read-only mode** per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+verify `git status --porcelain` is empty before starting, run the
+audit (and any parallel read-only sub-agents) in the current checkout
+without switching branches, cleaning or resetting, and verify the tree
+is still clean at the end (Step 8). If the user asked for a separate
+checkout, allocate a worktree per that document and start the audit
+there instead. Children never remove or prune worktrees.
 
 ---
 
 ## Step 1: Load audit history
 
-Read the Serena memory `naming-audit-state-$ARGUMENTS` via the Serena MCP tool
-`serena:read_memory`. If Serena is not active, call `serena:activate_project`
+If a persistent-memory tool (such as the Serena MCP server) is
+available, read the memory `naming-audit-state-$ARGUMENTS`; otherwise
+treat every file as unaudited. If a memory exists, consult it
 first.
 
 If the memory exists, parse the per-file coverage table:
@@ -394,8 +342,9 @@ Skipped: Z findings already caught by clippy
 
 ## Step 7: Save audit state
 
-Persist coverage state to Serena memory `naming-audit-state-$ARGUMENTS` via
-`serena:write_memory`.
+If a persistent-memory tool is available, persist coverage state to the
+memory `naming-audit-state-$ARGUMENTS`; otherwise include it in the
+final summary.
 
 **Merge** the previous state (Step 1) with current session coverage:
 
@@ -427,8 +376,9 @@ git status --porcelain
 
 If any output:
 
-- For modifications to tracked files: `git checkout -- <path>` per file. Do
-  NOT blanket-revert in worktree mode.
+- For modifications to tracked files: do NOT restore them; the checkout
+  is shared and the change may be the user's. Report each path and diff
+  in the summary.
 - For untracked files (`??`): do NOT delete automatically; surface paths in
   the summary so the user can decide.
 

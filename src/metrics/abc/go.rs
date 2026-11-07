@@ -95,7 +95,7 @@ fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
         // Asking the peel itself which kinds it unwraps, rather than
         // restating the list here (#1470): a restated list that gained a
         // kind the peel lacked would read as covering a shape the peel
-        // then dropped (`.claude/rules/grammar-dispatch.md` §7).
+        // then dropped (`docs/development/grammar_dispatch.md` §7).
         go_inspect_container(condition, parent, conditions);
     }
 }

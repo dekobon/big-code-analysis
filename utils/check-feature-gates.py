@@ -5,7 +5,7 @@ Verify that every *union-gated* test subject in ``src/`` is **absent**,
 not merely non-vacuous, under a feature set that enables none of the
 features its rows name.
 
-``.claude/rules/testing.md`` ("Gate a feature-gated fixture table on the
+``docs/development/testing.md`` ("Gate a feature-gated fixture table on the
 union of its rows") requires two halves on any test whose case list is
 built from ``#[cfg(feature = …)]`` rows:
 
@@ -718,7 +718,7 @@ def main(argv: list[str] | None = None) -> int:
             "\nPut `#[cfg(any(feature = \"a\", feature = \"b\", …))]` on the item\n"
             "itself, naming the union of the features its rows use, so the\n"
             "subject is *absent* rather than tripping its own non-vacuity\n"
-            "guard. See `.claude/rules/testing.md`, \"Gate a feature-gated\n"
+            "guard. See `docs/development/testing.md`, \"Gate a feature-gated\n"
             "fixture table on the union of its rows\" (#1220, #1472).\n"
         )
         return 1

@@ -8,7 +8,7 @@
 // `matches!()` at the call site, where a `use <Lang>::*` glob brings
 // the variants into scope. They carry no logic -- only the variant
 // membership -- and every per-call grammar rationale comment travels
-// with its macro (see `.claude/rules/macro-comments.md`).
+// with its macro (see `docs/development/formatting.md`).
 //
 // Re-exported below via `pub use` and again from
 // `macros/mod.rs`, so every existing `crate::macros::<name>` import in
@@ -78,7 +78,7 @@ macro_rules! csharp_var_declarator_kinds {
 // it, while the comparison token beside them scored in both. Each now
 // has an unconditional arm in its language's ABC `compute` and is
 // listed in neither place twice — which would score it twice
-// (`.claude/rules/grammar-dispatch.md` §5).
+// (`docs/development/grammar_dispatch.md` §5).
 //
 // The line is the construct's *value*, not its type. A cast, a type
 // assertion and an `@available` query all yield something the slot

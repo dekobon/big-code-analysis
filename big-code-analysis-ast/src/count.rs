@@ -183,7 +183,7 @@ mod tests {
     // cascade into a pool-wide panic. A worker that panics while holding
     // the shared guard poisons the lock; `CountCollector::add` used to
     // re-panic on `.lock().unwrap()`. Verified by revert per
-    // `.claude/rules/testing.md`: reverting the recovery makes this test
+    // `docs/development/testing.md`: reverting the recovery makes this test
     // panic instead of applying the tally.
     #[test]
     fn add_degrades_on_poisoned_stats_mutex() {
@@ -274,7 +274,7 @@ mod tests {
     // misuse cannot masquerade as a final aggregate. Gated on
     // `debug_assertions`: `debug_assert!` is a no-op under `--release`,
     // where the call degrades to the snapshot instead of panicking.
-    // Verified by revert per `.claude/rules/testing.md`: without the
+    // Verified by revert per `docs/development/testing.md`: without the
     // `debug_assert!`, `into_count` returns normally and this test fails
     // (no panic), proving the assert is what makes the misuse loud.
     #[test]

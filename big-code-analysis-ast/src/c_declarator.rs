@@ -52,7 +52,7 @@ use crate::node::Node;
 /// nesting can only be a macro (or an `ERROR`, below). The walk stops
 /// at the outer link there and reports the function's arity (#1213).
 ///
-/// The walk is by field name, per `.claude/rules/grammar-dispatch.md`
+/// The walk is by field name, per `docs/development/grammar_dispatch.md`
 /// §3, which also sidesteps §1: `PointerDeclarator2`,
 /// `FunctionDeclarator2`/`3` and `ReferenceDeclarator2`/`3`/`4` are
 /// numeric-suffix aliases that a `kind_id` match would have to
@@ -268,7 +268,7 @@ pub fn declarator_name<'tree, T: Checker>(node: &Node<'tree>) -> Option<Node<'tr
 }
 
 /// Compared by `kind()` string rather than `kind_id`, per
-/// `.claude/rules/grammar-dispatch.md` §1: every rule below carries
+/// `docs/development/grammar_dispatch.md` §1: every rule below carries
 /// numeric-suffix aliases across the four C-family grammars, and a
 /// `kind_id` match would have to enumerate every one of them and would
 /// regress silently on the next grammar bump. C and Objective-C simply

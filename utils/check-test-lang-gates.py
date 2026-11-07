@@ -1796,7 +1796,7 @@ def resolve_needs(items: list[Item]) -> dict[int, frozenset[str]]:
             # only check that saw it.
             #
             # Conditioned on the sweep carrying *both halves* of the
-            # rule in `.claude/rules/testing.md`: an `is_enabled()` row
+            # rule in `docs/development/testing.md`: an `is_enabled()` row
             # filter and a non-vacuity assertion. Together those mean it
             # *fails* rather than skips when no language is enabled, so
             # it must be absent then — the #1220 class. A full-enum
@@ -2729,7 +2729,7 @@ def main(argv: list[str] | None = None) -> int:
                 "marker: this\ncompares against the merge base, so a marker "
                 "would be stale the moment\nthe branch lands and would sit in "
                 "the tree as a hole nothing detects.\n\n"
-                "See `.claude/rules/testing.md` (#1478).\n"
+                "See `docs/development/testing.md` (#1478).\n"
             )
             return 1
         print(f"test-lang-gates: OK — no test lost a build since {args.compare}")
@@ -2834,7 +2834,7 @@ def main(argv: list[str] | None = None) -> int:
             "or a path — say so above it:\n\n"
             "    // test-lang-gates: hand-written(cpp) — the corpus walk "
             "picks the\n    //     language per file from its extension\n\n"
-            "See `.claude/rules/testing.md` (#1478).\n"
+            "See `docs/development/testing.md` (#1478).\n"
         )
         if failures:
             sys.stderr.write("\n")
@@ -2854,7 +2854,7 @@ def main(argv: list[str] | None = None) -> int:
             "the marker the derivation reports:\n\n"
             "    ./utils/check-test-lang-gates.py --show\n"
             "    ./utils/check-test-lang-gates.py --fix\n\n"
-            'See `.claude/rules/testing.md`, "Gate a feature-gated fixture '
+            'See `docs/development/testing.md`, "Gate a feature-gated fixture '
             'table on the\nunion of its rows" (#1472, #1413).\n'
         )
 

@@ -80,7 +80,7 @@ measured with ``GIT_EXTERNAL_DIFF=/bin/true``. The verdict is git's
 exit status. ``--no-ext-diff`` then keeps the *printed* evidence git's
 own, so a real failure still shows which lines moved.
 
-See AGENTS.md "Validation gates" for the policy this enforces.
+See CONTRIBUTING.md "Local validation gate" for the policy this enforces.
 """
 
 from __future__ import annotations

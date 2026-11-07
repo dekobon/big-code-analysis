@@ -1,8 +1,12 @@
 {
+  "permissions": {
+    "ask": ["Bash(git push *)", "Bash(gh pr create *)"],
+    "deny": ["Bash(git worktree remove *)", "Bash(git worktree prune *)"]
+  },
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",

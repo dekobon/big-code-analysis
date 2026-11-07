@@ -2154,7 +2154,7 @@ mod tests {
         // zero until #1406 — the C# sibling of Kotlin's #1384.
         //
         // tree-sitter-c-sharp 0.23.5 spells the `record` and `class`
-        // families differently, so per `.claude/rules/grammar-dispatch.md`
+        // families differently, so per `docs/development/grammar_dispatch.md`
         // §11 they are two independent paths and each needs its own
         // fixture: the record form nests the arguments under a
         // `primary_constructor_base_type`, the class form hangs them
@@ -2315,19 +2315,10 @@ mod tests {
                 1,
                 "the class space owns `: Base(x)` and nothing else"
             );
-            // Both constructors are named after the class (#1828), so
-            // select by position: the primary constructor's parameter
-            // list precedes the body. The base call is its *sibling*,
-            // not its child, so it owns no branch.
-            let rows: Vec<(Option<&str>, u64)> = class
-                .spaces
-                .iter()
-                .map(|s| (s.name.as_deref(), s.metrics.abc.branches()))
-                .collect();
             assert_eq!(
-                rows,
-                [(Some("Both"), 0), (Some("Both"), 1)],
-                "the primary constructor owns nothing; the secondary owns `: this(a)`"
+                child_space(class, "Both").metrics.abc.branches(),
+                1,
+                "the secondary constructor owns `: this(a)` and nothing else"
             );
         });
     }
@@ -2382,9 +2373,8 @@ mod tests {
         // difference — the file totals 3 either way — so a codebase moving
         // to primary constructors shifts per-function `branches_max` /
         // `branches_average` and per-space `abc` thresholds without any
-        // behaviour change. That is deliberate (the constructor's space is
-        // its parameter list, and the call is not in it — #1828), and C#
-        // has the identical split, pinned by
+        // behaviour change. That is deliberate (there is no function to
+        // attribute the call to), and C# has the identical split, pinned by
         // `csharp_base_call_and_constructor_initializer_do_not_double_count`
         // (#1456).
         //
@@ -2525,14 +2515,14 @@ mod tests {
     // the *same* enum, because that is the only shape that shows the gate
     // working: a fixture of only `A(1)` scores the same whether the arm is
     // gated on the argument list or matches every constant
-    // (`.claude/rules/grammar-dispatch.md` §6). Each also carries a
+    // (`docs/development/grammar_dispatch.md` §6). Each also carries a
     // constant whose argument is itself a call, which must score 2 rather
     // than 1 (§5).
     //
     // `branches_sum()` alone cannot notice the bare constant being trimmed
     // out — it contributes to no axis — so every fixture is anchored on a
     // node census that fails by name when a spelling is edited away
-    // (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+    // (`docs/development/testing.md`, "Perturb the fixture as well as the
     // production line"). The two are coupled in one helper for the same
     // reason `assert_kotlin_class_members` couples its pair: a branch
     // total added without the census reads as coverage and is not.
@@ -3769,7 +3759,7 @@ mod tests {
     ///
     /// `jmp` differs from `ctl` by exactly one statement, so the
     /// `goto case` is the only thing that can separate their scores
-    /// (`.claude/rules/grammar-dispatch.md` §11 — an arm and a
+    /// (`docs/development/grammar_dispatch.md` §11 — an arm and a
     /// `goto case` are independent paths into the same counter, and a
     /// fixture carrying only arms cannot show the gate works). `dfl` is
     /// the control that was already correct, by accident rather than
@@ -4847,7 +4837,7 @@ mod tests {
     // nothing red. This is that pin.
     //
     // `BinaryExpression2` (469) is the pre-alias symbol the arm also
-    // lists, defensively, per `.claude/rules/grammar-dispatch.md` §1. §2
+    // lists, defensively, per `docs/development/grammar_dispatch.md` §1. §2
     // asks that such an entry be kept *and* have its unreachability
     // asserted, so that a pin promoting the symbol changes behaviour
     // loudly rather than invisibly.
@@ -5153,7 +5143,7 @@ mod tests {
     // Counting both charged a relational arm twice, and twice C#'s own
     // cyclomatic decision count.
     //
-    // Per `.claude/rules/grammar-dispatch.md` §11 the `operator <`
+    // Per `docs/development/grammar_dispatch.md` §11 the `operator <`
     // fixture above cannot prove this alone: its `is > 0` sits beside a
     // `binary_expression` comparison that supplies a plausible total on
     // its own. Here the pattern operators are the *only* `<` / `>` /
@@ -5549,7 +5539,7 @@ mod tests {
     // codebase with nullable reference types enabled the suffix is
     // everywhere, so the gap is not an exotic corner.
     //
-    // Both walker paths, per `.claude/rules/grammar-dispatch.md` §11:
+    // Both walker paths, per `docs/development/grammar_dispatch.md` §11:
     // `p*` go through the `if` predicate slot
     // (`csharp_count_condition`) and `c*` through the `&&` chain slot
     // (also `csharp_count_condition`, per chain operand), which reach
@@ -5679,7 +5669,7 @@ mod tests {
     // The statement `switch` reaches the same `when_clause` kind through
     // a different parent — `switch_section` rather than
     // `switch_expression_arm` — which makes it an independent path in
-    // the sense of `.claude/rules/grammar-dispatch.md` §11: the arms
+    // the sense of `docs/development/grammar_dispatch.md` §11: the arms
     // themselves are counted by two different owners (a `Case` token
     // here, the `SwitchExpressionArm` node there), so a guard rule
     // written against one shape could be dead for the other and every
@@ -6818,7 +6808,7 @@ function f(int $a, int $b): int {
     // The Kotlin binding of the two assertions every #1421 fixture needs,
     // coupled on purpose. A per-member score table is worth only as much
     // as the anchor proving the fixture still spells what it claims to
-    // (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+    // (`docs/development/testing.md`, "Perturb the fixture as well as the
     // production line"), and the `when_subject` count is the anchor no
     // score can stand in for: a `when` that grew a subject scores its
     // entries the pre-#1421 way with every other row still satisfied.
@@ -7604,7 +7594,7 @@ function f(int $a, int $b): int {
     // taught it therefore have a
     // second, structurally independent path into the count, and a
     // fixture covering only the slot leaves it untested
-    // (`.claude/rules/grammar-dispatch.md` §11).
+    // (`docs/development/grammar_dispatch.md` §11).
     //
     // Each chain is one identifier plus one wrapped comparison, so 2 is
     // "the walker peeled the wrapper to the comparison, which pays for
@@ -7621,7 +7611,7 @@ function f(int $a, int $b): int {
         // wrapper from its operand: `a && x > 1` scores the same 2 / 3 as
         // every row here, so trimming the `!!` or the cast out of a
         // fixture would leave this green with its subject gone
-        // (`.claude/rules/testing.md`, "Perturb the fixture as well as
+        // (`docs/development/testing.md`, "Perturb the fixture as well as
         // the production line").
         for (chain, spelling, anchors) in [
             (
@@ -16531,7 +16521,7 @@ end
         // that starts emitting it keeps working, and this pins that it
         // does not emit it today — otherwise the defensive arm is
         // indistinguishable from a dead one
-        // (`.claude/rules/grammar-dispatch.md` §2).
+        // (`docs/development/grammar_dispatch.md` §2).
         let parser = RubyParser::new(
             src.as_bytes().to_vec(),
             &std::path::PathBuf::from("foo.rb"),
@@ -16570,7 +16560,7 @@ end
     // *without* the slot. Its `when` arm added a flat one on top of
     // whatever the guard's sub-structure already scored, so `tok` came
     // back 3 against `call` and `bare`'s 2 — the spelling-dependence the
-    // batch exists to remove, and a `.claude/rules/grammar-dispatch.md`
+    // batch exists to remove, and a `docs/development/grammar_dispatch.md`
     // §5 double count with the `>` token arm. A whole-branch review of
     // the batch found it; all three rows now read 2, level with the
     // sibling fixtures above and with their own decision counts.
@@ -17068,7 +17058,7 @@ end
     // written, so the asymmetry was in the mechanism. Each construct
     // now has an unconditional arm in its language's `compute` and has
     // left the terminal set; listing it in both would score it twice
-    // (`.claude/rules/grammar-dispatch.md` §5).
+    // (`docs/development/grammar_dispatch.md` §5).
     //
     // Every fixture below carries the same four shapes, because they
     // are structurally independent paths and covering one says nothing
@@ -17081,7 +17071,7 @@ end
     // - `outCtl` — the same member spelling `==`. It read 1 before and
     //   after, so it is the anchor that makes `out*`'s 1 a claim about
     //   the construct rather than about the member shape
-    //   (`.claude/rules/testing.md`, "Perturb the fixture as well as
+    //   (`docs/development/testing.md`, "Perturb the fixture as well as
     //   the production line").
     // - `in*` / `inAnd` — the predicate slot and the `&&`-chain walker,
     //   the two paths that already owned the count. They must be
@@ -17439,7 +17429,7 @@ fn ctrl(x: Option<u8>) -> u8 { if x.is_some() { 1 } else { 0 } }
 // Gated on the union of the features [`ternary_comment_invariance::cases`]
 // has a row for, so a build enabling none of them — `--no-default-features
 // --features go` — drops both tests rather than tripping their
-// `checked > 0` guards (`.claude/rules/testing.md`, #1286). Both tests
+// `checked > 0` guards (`docs/development/testing.md`, #1286). Both tests
 // read the same table, so one gate on the module is exact for each.
 #[cfg(test)]
 #[cfg(any(
@@ -17587,7 +17577,7 @@ mod ternary_comment_invariance {
 // Gated on the union of every row below — the three `pairs` languages
 // plus Lua, whose test is separate — so a build enabling none of them
 // drops the module instead of failing its guards
-// (`.claude/rules/testing.md`, #1286 / #1411). The three tests do *not*
+// (`docs/development/testing.md`, #1286 / #1411). The three tests do *not*
 // share a row set, so each carries its own narrower gate: a Lua-only
 // build must not be asked to run the Ruby/Perl baselines.
 #[cfg(test)]
@@ -17736,7 +17726,7 @@ mod keyword_negation_parity {
 /// gives a failure message naming both spellings.
 /// `every_operand_scores_its_recorded_values` then pins the absolute
 /// numbers, so a regression moving *both* sides equally still fails, and
-/// carries the cross-metric anchor `.claude/rules/grammar-dispatch.md` §8
+/// carries the cross-metric anchor `docs/development/grammar_dispatch.md` §8
 /// asks for.
 ///
 /// Two slots per language, because the sets feed two independent walker
@@ -17947,7 +17937,7 @@ mod numeric_bool_operands {
     /// whole module green:
     ///
     /// - **`checked > 0`** is the non-vacuity half of the rule in
-    ///   `.claude/rules/testing.md`. The `#[cfg(any(feature = …))]` on
+    ///   `docs/development/testing.md`. The `#[cfg(any(feature = …))]` on
     ///   this module makes the tests *absent* when no truthy-valued
     ///   language is compiled in; this catches the residual case where
     ///   the runtime `is_enabled()` check stops agreeing with the feature
@@ -18069,7 +18059,7 @@ mod numeric_bool_operands {
 ///   boolean slot as `==` does, and `groovy_condition_scores_itself`
 ///   lists each so the slot holding one does not pay again; a construct
 ///   takes exactly one of the two routes, never both
-///   (`.claude/rules/grammar-dispatch.md` §5).
+///   (`docs/development/grammar_dispatch.md` §5).
 /// - **Perl** `/^#/` (`pattern_matcher`) and `m{^#}`
 ///   (`pattern_matcher_m`), the two spellings of a match against the
 ///   implicit `$_`. They are sibling rules, not aliases, so both are
@@ -18120,7 +18110,7 @@ mod numeric_bool_operands {
 /// decision), so each slot pins its own pair rather than sharing one.
 // Gated on the union of the three languages with rows, so a build
 // enabling none of them drops the module instead of failing its
-// guards (`.claude/rules/testing.md`, #1286 / #1411).
+// guards (`docs/development/testing.md`, #1286 / #1411).
 #[cfg(test)]
 #[cfg(any(
     feature = "groovy",
@@ -18538,7 +18528,7 @@ mod own_production_bool_constructs {
 /// spell-anchored because the modifier is the only thing in them that
 /// scores a condition: deleting `if $x` from the modifier fixture would
 /// otherwise turn it into a silent copy of nothing at all
-/// (`.claude/rules/testing.md`, "Perturb the fixture as well as the
+/// (`docs/development/testing.md`, "Perturb the fixture as well as the
 /// production line").
 #[cfg(test)]
 #[cfg(feature = "perl")]
@@ -18709,12 +18699,12 @@ mod perl_statement_modifier_parity {
 /// cannot:
 ///
 /// - **The `kind_id` each spelling parses to.** This is the whole bug
-///   class (`.claude/rules/grammar-dispatch.md` §1): the grammars here
+///   class (`docs/development/grammar_dispatch.md` §1): the grammars here
 ///   emit `string` under two ids in JavaScript, Mozjs and Tsx and under
 ///   three in Tsx counting the type keyword, and listing the wrong one
 ///   compiles, runs, and returns the unfixed number. Asserting the id
 ///   turns that measurement into a standing claim rather than a note in
-///   an issue. It is also the fixture anchor `.claude/rules/testing.md`
+///   an issue. It is also the fixture anchor `docs/development/testing.md`
 ///   asks for — editing `"s"` to `1` in a row now fails by name instead
 ///   of quietly turning that row into a copy of the numeric module.
 /// - **`cyclomatic` does not move.** Only the operand spelling changes

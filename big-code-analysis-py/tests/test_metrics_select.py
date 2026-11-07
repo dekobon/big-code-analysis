@@ -20,7 +20,7 @@ The contract under test:
   :func:`analyze_batch`.
 
 Several tests below are flagged **load-bearing** per
-``.claude/rules/testing.md``: reverting the production change they
+``docs/development/testing.md``: reverting the production change they
 guard makes them fail. Treat them as test-via-revert candidates
 before deleting or weakening their assertions.
 """

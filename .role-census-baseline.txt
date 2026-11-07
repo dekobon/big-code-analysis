@@ -1,6 +1,6 @@
 # Role-census baseline: the (language, role, package) cells still
 # `pending` in big-code-analysis-ast/src/roles/<lang>.rs (#1692).
-# Maintained by check-role-census.py; see AGENTS.md "Validation gates".
+# Maintained by check-role-census.py; see CONTRIBUTING.md "Local validation gate".
 #
 # An entry is one cell a later work package will declare. The gate
 # fails when a current pending cell is not listed here, so a row cannot

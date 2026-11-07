@@ -134,7 +134,7 @@ impl Abc for LuaCode {
             // in exactly two productions — `binary_expression` and the
             // hidden `_attrib`, which surfaces aliased as `attribute` —
             // so the gate is closed rather than a coverage claim
-            // (`.claude/rules/grammar-dispatch.md` §1).
+            // (`docs/development/grammar_dispatch.md` §1).
             _ if comparison::pays_at_leaf_kind(kind, node, code, ancestors) => {
                 stats.conditions += 1.;
             }

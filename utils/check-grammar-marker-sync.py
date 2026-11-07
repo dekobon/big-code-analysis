@@ -28,7 +28,7 @@ itself is REQUIRED on disk — if it has been deleted (e.g.,
 during a merge conflict), restore it from git history rather
 than regenerating from --update.
 
-See AGENTS.md "Validation gates" and #400 for context.
+See CONTRIBUTING.md "Local validation gate" and #400 for context.
 """
 
 from __future__ import annotations
@@ -624,7 +624,7 @@ def main() -> int:
         description=(
             "Block grammar-marker bumps in tree-sitter-{mozjs,mozcpp}/"
             "Cargo.toml that aren't accompanied by a matching source "
-            "regen. See AGENTS.md and #400 for context."
+            "regen. See CONTRIBUTING.md and #400 for context."
         ),
     )
     parser.add_argument(
@@ -709,7 +709,7 @@ def main() -> int:
             "        ./utils/check-grammar-marker-sync.py --update\n"
             "  - The sources were regenerated but the baseline was not\n"
             "    refreshed. Run the --update command above.\n"
-            "\nSee AGENTS.md and #400 for context.\n"
+            "\nSee CONTRIBUTING.md and #400 for context.\n"
         )
         return 1
 

@@ -661,7 +661,7 @@ class MainTest(unittest.TestCase):
         self.assertIn('should be "=0.23.4"', err)
 
     def test_an_unpinned_grammar_in_the_root_manifest_is_reported(self) -> None:
-        # AGENTS.md claims this gate enforces the root manifest's pins.
+        # CONTRIBUTING.md claims this gate enforces the root manifest's pins.
         # Before the root was added to the scan, loosening one there was
         # invisible.
         self._repo(

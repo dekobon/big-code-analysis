@@ -74,7 +74,7 @@ report as missing. ``include`` is the exception: ``cargo metadata`` does
 not emit it, so it is read from the manifest with inheritance resolved
 by hand.
 
-See `#1224`, ``RELEASING.md``, and AGENTS.md "Validation gates".
+See `#1224`, ``RELEASING.md``, and CONTRIBUTING.md "Local validation gate".
 """
 
 from __future__ import annotations

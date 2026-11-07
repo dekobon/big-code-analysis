@@ -1,9 +1,9 @@
 # Developers Guide
 
 How to build, test, lint and run `big-code-analysis` from a checkout.
-It is for contributors; the repository-level rules (stability
-contract, validation gates, review conventions) live in `AGENTS.md`
-and `CONTRIBUTING.md` at the repository root.
+It is for contributors; the validation gate and review conventions
+live in `CONTRIBUTING.md`, and the rules shared with coding agents in
+`AGENTS.md`, both at the repository root.
 
 You need a current stable
 <a href="https://www.rust-lang.org/tools/install" target="_blank">Rust toolchain</a>;

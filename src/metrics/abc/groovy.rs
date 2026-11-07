@@ -28,7 +28,7 @@ rows_own_inventory!(comparison, short_circuit, ternary);
 // that rather than restating the kind list — the divergence #1459 fixed
 // in Kotlin, where `unary_expression` was routed to the peel while the
 // peel handled only its `!` spelling, so the slot read as covering a
-// shape the peel dropped on the floor (`.claude/rules/grammar-dispatch.md`
+// shape the peel dropped on the floor (`docs/development/grammar_dispatch.md`
 // §7).
 //
 // The operand is read by grammar field (§3): `unary_expression` names

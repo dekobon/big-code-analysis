@@ -555,14 +555,12 @@ fn objc_space_tree_rows() {
 /// C#: the accessor-less indexer and property (`this[int i] => i;`,
 /// `int W => F;`) open a `Function` space as callables, the bodied ones
 /// defer to their accessors (#464, #472 — lesson 65), checked by text
-/// since one kind spells both; every other kind by the table. A
-/// `parameter_list` is likewise two things by its parent (#1828).
+/// since one kind spells both; every other kind by the table.
 #[cfg(feature = "csharp")]
 #[test]
-#[allow(clippy::too_many_lines)]
 fn csharp_space_tree_rows() {
     use crate::roles::csharp::{closure, container, func_opener, member};
-    let source = b"namespace N {\n  interface I { int P { get; set; } void M(); }\n  struct S(int g) { public int F; public S(int f) : this(0) { F = f; } }\n  record Rec(int X) { public int Y { get; init; } }\n  enum E { A, B }\n  class P(int a) : I { void M() { } }\n  class C : I {\n    public int F1, F2 = 2;\n    public int P { get; set; }\n    public int W => F1;\n    public int this[int i] => i;\n    public int this[string k] { get { return 1; } }\n    public C() { }\n    ~C() { }\n    public void M() { int L(int z) { return z; } System.Func<int, int> f = y => y + 1; System.Action a = delegate { }; L(1); }\n    public static C operator +(C a, C b) => a;\n    public static implicit operator int(C c) => 1;\n  }\n}\n";
+    let source = b"namespace N {\n  interface I { int P { get; set; } void M(); }\n  struct S { public int F; public S(int f) { F = f; } }\n  record Rec(int X) { public int Y { get; init; } }\n  enum E { A, B }\n  class C : I {\n    public int F1, F2 = 2;\n    public int P { get; set; }\n    public int W => F1;\n    public int this[int i] => i;\n    public int this[string k] { get { return 1; } }\n    public C() { }\n    ~C() { }\n    public void M() { int L(int z) { return z; } System.Func<int, int> f = y => y + 1; System.Action a = delegate { }; L(1); }\n    public static C operator +(C a, C b) => a;\n    public static implicit operator int(C c) => 1;\n  }\n}\n";
     let expected: &[(&str, Answers)] = &[
         ("compilation_unit", container(SpaceKind::Unit)),
         ("class_declaration", container(SpaceKind::Class)),
@@ -597,43 +595,15 @@ fn csharp_space_tree_rows() {
         );
         seen_kinds.insert(node.kind_id());
         // `has_no_accessors` reads the node's own children, so the
-        // byte-less pair agrees with the `_with_code` one everywhere but
-        // on the primary constructor's `parameter_list`, whose parent
-        // gate the empty chain cannot see
-        // (`csharp_byte_less_spellings_omit_the_primary_constructor`).
-        if kind != "parameter_list" {
-            assert_eq!(
-                (
-                    CsharpCode::is_func_space(node),
-                    CsharpCode::get_space_kind(node)
-                ),
-                (promoted, got.3),
-                "{kind}: the byte-less spellings are the kind table"
-            );
-        }
-        // One kind, a constructor under a type declaration and a
-        // callable's parameters anywhere else (#1828).
-        if kind == "parameter_list" {
-            // By id, as the row reads it, so an alias of a type
-            // declaration minted by a grammar bump is not read as one
-            // through its shared string (grammar-dispatch §1).
-            let under_type = chain.last().is_some_and(|p| {
-                matches!(
-                    p.kind_id().into(),
-                    crate::Csharp::ClassDeclaration
-                        | crate::Csharp::StructDeclaration
-                        | crate::Csharp::RecordDeclaration
-                )
-            });
-            let want = if under_type { F } else { NONE };
-            assert_eq!(
-                got,
-                want,
-                "{kind} `{}`",
-                node.utf8_text(source).unwrap_or("?")
-            );
-            return;
-        }
+        // byte-less pair agrees with the `_with_code` one everywhere.
+        assert_eq!(
+            (
+                CsharpCode::is_func_space(node),
+                CsharpCode::get_space_kind(node)
+            ),
+            (promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
         if matches!(kind, "property_declaration" | "indexer_declaration") {
             let text = node.utf8_text(source).unwrap_or("?");
             let head = text.split_once(['{', '=']).map_or(text, |(h, _)| h).trim();
@@ -734,7 +704,6 @@ fn kotlin_space_tree_rows() {
             ("companion_object", container(SpaceKind::Class)),
             ("object_literal", container(SpaceKind::Class)),
             ("function_declaration", F),
-            ("primary_constructor", F),
             ("secondary_constructor", F),
             ("getter", (false, false, true, SpaceKind::Function, false)),
             ("setter", (false, false, true, SpaceKind::Function, false)),
@@ -1121,59 +1090,4 @@ fn closures_that_open_a_space_are_what_the_book_says() {
         ]
     );
     assert_eq!(none, ["bash", "c", "irules", "tcl"]);
-}
-
-/// The byte-less `Checker::is_func_space` / `Getter::get_space_kind`
-/// forward with a known-empty chain, so the `FuncOpener` row's
-/// `under [..]` gate on a `parameter_list` — the primary constructor,
-/// #1828 — sees no type declaration and answers `(false, Unknown)`,
-/// the pre-#1828 answer for every parameter list, while the
-/// `_with_code` spellings the walk reads promote it. The opposite
-/// direction from Ruby's block (`ruby_byte_less_spellings_stay_the_kind_table`):
-/// a positive parent gate under-approximates where a negative one
-/// over-approximates. A method's list answers alike on both.
-#[cfg(feature = "csharp")]
-#[test]
-fn csharp_byte_less_spellings_omit_the_primary_constructor() {
-    use crate::{Checker, CsharpCode, Getter};
-    let source = b"class C(int a) { void M(int b) { } }\nrecord R(int x);\n";
-    let mut lists = Vec::new();
-    for_each_node_with_chain::<CsharpCode>(source, |node, chain| {
-        if node.kind() != "parameter_list" {
-            return;
-        }
-        let ancestors = Ancestors::known(chain);
-        lists.push((
-            node.utf8_text(source).unwrap_or("?").to_owned(),
-            (
-                CsharpCode::is_func_space(node),
-                CsharpCode::get_space_kind(node),
-            ),
-            (
-                CsharpCode::is_func_space_with_code(node, source, ancestors),
-                CsharpCode::get_space_kind_with_code(node, source, ancestors),
-                CsharpCode::get_func_space_name(node, source, ancestors),
-            ),
-        ));
-    });
-    assert_eq!(
-        lists,
-        [
-            (
-                "(int a)".to_owned(),
-                (false, SpaceKind::Unknown),
-                (true, SpaceKind::Function, Some("C"))
-            ),
-            (
-                "(int b)".to_owned(),
-                (false, SpaceKind::Unknown),
-                (false, SpaceKind::Unknown, Some("<anonymous>"))
-            ),
-            (
-                "(int x)".to_owned(),
-                (false, SpaceKind::Unknown),
-                (true, SpaceKind::Function, Some("R"))
-            ),
-        ]
-    );
 }

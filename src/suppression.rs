@@ -1673,7 +1673,7 @@ mod tests {
     /// A marker carrying a rationale still attaches when the comment is
     /// the last thing in the file, with no trailing newline.
     ///
-    /// Per `.claude/rules/testing.md`, both the `check_metrics` shim and
+    /// Per `docs/development/testing.md`, both the `check_metrics` shim and
     /// the integration suites append a newline to every fixture, so "a
     /// node ending at EOF" is unreachable from them —
     /// [`crate::test_support::space_verbatim`] analyses the bytes as

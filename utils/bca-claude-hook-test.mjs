@@ -169,7 +169,7 @@ function bcaRegistrations(settings) {
 test("configured exec hook sends escaped advisory JSON for every file-writing tool", async (t) => {
   const f = await fixture(t)
   const settings = JSON.parse(await readFile(join(REPO, ".claude/settings.json"), "utf8"))
-  assert.deepEqual(Object.keys(settings), ["hooks"])
+  assert.deepEqual(Object.keys(settings), ["permissions", "hooks"])
   const registrations = bcaRegistrations(settings)
   assert.equal(registrations.length, 1, "exactly one bca registration; a second one checks every edit twice")
   const [{ group, handler }] = registrations
@@ -183,10 +183,12 @@ test("configured exec hook sends escaped advisory JSON for every file-writing to
   assert.equal(resolve(script), HOOK)
   // The recipe's settings example is the one adopters copy; it must be the
   // registration this repository runs, not a paraphrase of it.
+  // The example carries the hook registration only; the permission rules
+  // beside it in this repository's settings are repository policy.
   const [documented, ...more] = fencedBlocks(await readFile(RECIPE, "utf8"), "json")
   assert.equal(more.length, 0, "one json block in the recipe: the settings example")
-  assert.deepEqual(JSON.parse(documented), settings)
-  for (const tool of ["Edit", "Write", "MultiEdit"]) {
+  assert.deepEqual(JSON.parse(documented), { hooks: settings.hooks })
+  for (const tool of ["Edit", "Write"]) {
     assert.ok(group.matcher.split("|").includes(tool))
     const result = f.run(f.input({ tool_name: tool, agent_id: "child-a" }), {}, script)
     const text = report(result)
@@ -559,18 +561,6 @@ test("oversized hook input is rejected without analyzer execution", async (t) =>
   assert.deepEqual(await f.calls(), [])
 })
 
-test("compatibility shell wrapper preserves the Node adapter's JSON and zero exit", { skip: spawnSync("bash", ["--version"]).status !== 0 }, async (t) => {
-  const f = await fixture(t)
-  const expected = f.run(f.input())
-  const result = spawnSync("bash", [join(REPO, ".claude/hooks/bca-check.sh")], {
-    input: JSON.stringify(f.input()), encoding: "utf8",
-    env: { ...f.env, BCA: f.stub, NODE_OPTIONS: `--import=${pathToFileURL(f.preload).href}` },
-    cwd: f.temp, timeout: 10_000,
-  })
-  assert.equal(report(result), report(expected))
-  assert.equal(result.stdout, expected.stdout)
-})
-
 test("a file modified or removed while analyzing never receives stale findings", async (t) => {
   const f = await fixture(t)
   for (const data of [{ replace: true }, { sameSize: true }, { remove: true }]) {
@@ -662,10 +652,7 @@ test("sibling-package checks keep the session policy and nested gitfiles require
 
 // The recipe's "ship this verbatim" block is the standing policy adopters
 // paste into their rules file; AGENTS.md is this repository's copy of it.
-// The V1 example's GUIDANCE literal is the short runtime reminder, which is
-// a different, deliberately smaller text (bca-common.mjs bounds it to
-// 1,200 characters inside the 4,000-character advisory).
-test("AGENTS.md carries the recipe's policy block and the V1 example carries the runtime reminder", async () => {
+test("AGENTS.md carries the recipe's policy block verbatim", async () => {
   const lf = (text) => text.replaceAll("\r\n", "\n")
   const recipe = await readFile(RECIPE, "utf8")
   const [policy, ...morePolicy] = fencedBlocks(recipe, "markdown")
@@ -676,11 +663,4 @@ test("AGENTS.md carries the recipe's policy block and the V1 example carries the
   assert.ok(section, "AGENTS.md has the metric-feedback section")
   assert.equal(section.split(policy).length - 1, 1, "the policy block appears exactly once, verbatim, in that section")
   assert.equal(agents.split(policy).length - 1, 1, "and nowhere else")
-
-  const [example, ...moreExamples] = fencedBlocks(recipe, "javascript")
-  assert.equal(moreExamples.length, 0, "one javascript block in the recipe: the V1 example")
-  const literal = example.match(/const GUIDANCE = `\n([\s\S]*?)\n`\.trim\(\)/)?.[1]
-  assert.ok(literal, "the V1 example declares GUIDANCE as a trimmed template literal")
-  const reminder = lf(await readFile(join(REPO, ".claude/hooks/bca-guidance.txt"), "utf8")).trim()
-  assert.equal(literal, reminder)
 })

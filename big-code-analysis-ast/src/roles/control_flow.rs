@@ -5,7 +5,7 @@
 //! `Node::prev_sibling`, which resolve the parent by descending from the
 //! root (#1084, #1584). The per-language rationale — which grammar
 //! shape makes the gate the right one — stays beside each invocation,
-//! per `.claude/rules/macro-comments.md`.
+//! per `docs/development/formatting.md`.
 
 /// `continues_else_clause`: an `if` whose parent is the grammar's
 /// `$clause` kind — the `else if` of the C and JS families, whose

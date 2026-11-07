@@ -123,7 +123,7 @@ SCOPE_NOTE = (
 HEADER = """\
 # Role-bypass baseline: role-claimed kinds still restated as
 # classification inside the consumer boundary (#1692).
-# Maintained by check-role-bypass.py; see AGENTS.md "Validation gates".
+# Maintained by check-role-bypass.py; see CONTRIBUTING.md "Local validation gate".
 #
 # An entry is one site a migration package will replace with a call to
 # the row. The gate fails on a site not listed here; `--update` only

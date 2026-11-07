@@ -29,27 +29,6 @@ fn kotlin_count_property_attrs(decl: &Node) -> usize {
         .max(1)
 }
 
-// The `val` / `var` parameters of `class`'s primary constructor, if it
-// has one: `class_declaration → primary_constructor → class_parameters
-// → class_parameter`. A parameter without the keyword is a plain
-// constructor argument.
-fn kotlin_parameter_properties<'a>(class: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
-    use Kotlin::*;
-    class
-        .first_child(|id| id == PrimaryConstructor)
-        .and_then(|ctor| ctor.first_child(|id| id == ClassParameters))
-        .into_iter()
-        .flat_map(|params| params.children())
-        // role-bypass: allow(DeclKeyword, DocTarget) — whether the parameter declares a
-        // property, a question about the parameter, not whether the token is a
-        // declaration keyword or the parameter a doc target
-        .filter(|p| {
-            p.kind_id() == ClassParameter
-                && p.children()
-                    .any(|c| matches!(c.kind_id().into(), Val | Var))
-        })
-}
-
 impl Npa for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -57,27 +36,25 @@ impl Npa for KotlinCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::kotlin::member;
         use Kotlin::*;
 
         match node.kind_id().into() {
             // A `ClassParameter` carrying `val` / `var` is a Kotlin
-            // primary-constructor parameter property — an attribute of
-            // the class, counted once toward it. Parameters without
-            // `val`/`var` are plain constructor arguments, not
-            // attributes. Read at the class declaration rather than at
-            // each parameter: the primary constructor opens a function
-            // space of its own (#1828), so a parameter is visited inside
-            // that space and a count there would make the property the
-            // constructor's — the same reason TypeScript scans a
-            // constructor's parameter properties from the class body.
-            // role-bypass: allow(Container) — which declaration holds the
-            // constructor, not whether it opens a space
-            ClassDeclaration => {
-                for param in kotlin_parameter_properties(node) {
-                    stats.class_na += 1;
-                    if kotlin_is_public(&param) {
-                        stats.class_npa += 1;
-                    }
+            // primary-constructor parameter property — counts once toward
+            // the enclosing class. Parameters without `val`/`var` are plain
+            // constructor arguments, not attributes.
+            // role-bypass: allow(DeclKeyword, DocTarget) — whether the parameter declares a
+            // property, a question about the parameter, not whether the token is a
+            // declaration keyword or the parameter a doc target
+            ClassParameter
+                if node
+                    .children()
+                    .any(|c| matches!(c.kind_id().into(), Val | Var)) =>
+            {
+                stats.class_na += 1;
+                if kotlin_is_public(node) {
+                    stats.class_npa += 1;
                 }
             }
             // Every `ClassBody` we visit attributes its direct
@@ -88,39 +65,31 @@ impl Npa for KotlinCode {
             // semantics. Nested class / interface bodies start a new
             // func_space (handled by `spaces.rs`), so they do NOT leak
             // attributes into their outer space.
-            ClassBody => kotlin_count_body_properties(node, code, ancestors, stats),
-            _ => {}
-        }
-    }
-}
-
-// The properties declared in a class or interface body.
-// tree-sitter-kotlin elides the `class_member_declaration` and
-// `declaration` rule layers when those rules are pure forwarding
-// choices, so property declarations appear as direct children of
-// `class_body`. Each member is asked under its own chain, the body's
-// plus the body.
-fn kotlin_count_body_properties<'a>(
-    body: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-    stats: &mut Stats,
-) {
-    use crate::roles::kotlin::member;
-    let is_interface = kotlin_class_body_is_interface(body, ancestors);
-    let under = ancestors.of_children(body);
-    let members = under.get();
-    for prop in body.children().filter(|c| member::owns(c, code, members)) {
-        let attrs = kotlin_count_property_attrs(&prop);
-        if is_interface {
-            stats.interface_na += attrs;
-            // Interface members are always public.
-            stats.interface_npa += attrs;
-        } else {
-            stats.class_na += attrs;
-            if kotlin_is_public(&prop) {
-                stats.class_npa += attrs;
+            ClassBody => {
+                let is_interface = kotlin_class_body_is_interface(node, ancestors);
+                // tree-sitter-kotlin elides the `class_member_declaration`
+                // and `declaration` rule layers when those rules are pure
+                // forwarding choices, so property declarations appear as
+                // direct children of `class_body`.
+                // Each member is asked under its own chain, the body's
+                // plus the body.
+                let under = ancestors.of_children(node);
+                let members = under.get();
+                for prop in node.children().filter(|c| member::owns(c, code, members)) {
+                    let attrs = kotlin_count_property_attrs(&prop);
+                    if is_interface {
+                        stats.interface_na += attrs;
+                        // Interface members are always public.
+                        stats.interface_npa += attrs;
+                    } else {
+                        stats.class_na += attrs;
+                        if kotlin_is_public(&prop) {
+                            stats.class_npa += attrs;
+                        }
+                    }
+                }
             }
+            _ => {}
         }
     }
 }

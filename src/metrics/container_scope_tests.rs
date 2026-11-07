@@ -402,7 +402,7 @@ int top() { return 0; }
     },
     // Mozcpp owns no file extension, so nothing routes to it and it gets
     // no integration-snapshot coverage at all — the case
-    // `.claude/rules/grammar-dispatch.md` says to pin against its
+    // `docs/development/grammar_dispatch.md` says to pin against its
     // extension-owning sibling. `cpp_mozcpp_parity` does not cover this:
     // it compares metric *values* through `metric_sums`, so it would not
     // notice Mozcpp losing both blocks to a stray `HAS_MEMBERS = false`
@@ -680,7 +680,7 @@ fn the_file_root_keeps_its_rollup() {
 /// keeping one genuine function space — an `AnonymousFunction`, which
 /// the Elixir fixture happens not to have — would satisfy that guard
 /// while the rest degraded silently. This sweep filters nothing, so
-/// there is no set for a space to fall out of. (`.claude/rules/testing.md`:
+/// there is no set for a space to fall out of. (`docs/development/testing.md`:
 /// "review the selector as carefully as the assertion".)
 #[test]
 #[cfg(any(

@@ -95,43 +95,8 @@ impl Getter for CsharpCode {
     // (#1696): an enum opens `Class` for cross-language parity (#429);
     // a bodied indexer or property defers to its accessors and the
     // accessor-less form opens `Function` (#464, #472). The rows read no
-    // bytes; the opener row reads the chain for the primary
-    // constructor's `parameter_list` (#1828), so this forwards with a
-    // known-empty chain and labels that list `Unknown`, exactly as the
-    // Checker half (`checker/csharp.rs`) answers `false` — see the
-    // rationale there.
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        const _: () = assert!(
-            !crate::roles::csharp::func_opener::TEXT_GATED
-                && !crate::roles::csharp::container::TEXT_GATED
-                && !crate::roles::csharp::container::CHAIN_GATED,
-            "a space-opening row reads bytes; the byte-less spelling cannot forward with none"
-        );
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
-
-    /// A primary constructor's `parameter_list` carries no name: it
-    /// takes its type's, as a `constructor_declaration`'s `name` field
-    /// already spells the type it constructs (#1828). The default would
-    /// name it `<anonymous>`, which `bca check` reads as a closure.
-    fn get_func_space_name<'a, 'tree>(
-        node: &Node<'tree>,
-        code: &'a [u8],
-        ancestors: Ancestors<'tree, '_>,
-    ) -> Option<&'a str> {
-        // role-bypass: allow(FuncOpener) — a naming rule, not whether the
-        // node opens a space
-        // The `Container` row carries no gate, so its kind table is the
-        // whole answer; a method's list sits under a method, not a
-        // container, and keeps the default.
-        if node.kind_id() == Csharp::ParameterList
-            && let Some(owner) = ancestors.parent(node)
-            && crate::roles::csharp::container::lists_kind(owner.kind_id())
-        {
-            return crate::getter::default_func_space_name(&owner, code, ancestors);
-        }
-        crate::getter::default_func_space_name(node, code, ancestors)
-    }
+    // bytes and no chain, so the byte-less spelling forwards with none.
+    impl_byte_less_space_kind!(csharp);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,

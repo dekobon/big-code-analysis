@@ -32,9 +32,9 @@ three reasons, with different remedies:
 
 1. **A comment inside a match pattern** — between the pattern and its
    ``=>``, or between ``|`` alternatives. This is the one
-   ``.claude/rules/formatting.md`` is about, and the fix is to hoist the
+   ``docs/development/formatting.md`` is about, and the fix is to hoist the
    comment above the arm, outside the pattern. Never delete it:
-   ``.claude/rules/macro-comments.md`` explains why that per-arm
+   ``docs/development/formatting.md`` explains why that per-arm
    rationale is load-bearing where it sits.
 2. **A ``macro_rules!`` body rustfmt cannot parse** — a metavariable in
    a position that is not valid Rust, such as the ``LANG::$camel => …``
@@ -307,8 +307,8 @@ def probe_arms(
     ``big-code-analysis-ast/src/getter.rs`` or
     ``src/metrics/cognitive.rs`` standalone errors out with "file not
     found for module" — an error that reads exactly like a bail if
-    stderr is discarded, and the reason
-    ``.claude/rules/formatting.md`` calls those two files unprobeable.
+    stderr is discarded, which once led a hand-rolled probe to call
+    those two files unprobeable.
     On stdin there is nothing to resolve, so they probe like any other.
     """
     lines = source.split("\n")
@@ -361,7 +361,7 @@ def discover_targets(root: pathlib.Path) -> list[pathlib.Path]:
     """Every Rust file in the tree.
 
     The sweep is workspace-wide on purpose. The site list in
-    ``.claude/rules/formatting.md`` was scoped to ``src/metrics/`` for
+    ``docs/development/formatting.md`` was scoped to ``src/metrics/`` for
     two revisions, which is exactly why
     ``big-code-analysis-ast/src/getter/`` — where the bail is close to
     universal — went unmentioned: a directory nobody swept reads as
@@ -438,7 +438,7 @@ NOTES_SENTINEL = "# ---- notes below are preserved across --update ----"
 
 BASELINE_HEADER = """\
 # Match arms rustfmt declines to format, per file.
-# Maintained by check-rustfmt-bail.py; see AGENTS.md "Validation gates".
+# Maintained by check-rustfmt-bail.py; see CONTRIBUTING.md "Local validation gate".
 # Lower-or-equal current counts pass; any increase fails CI.
 # Regenerate with: ./utils/check-rustfmt-bail.py --update
 #
@@ -449,7 +449,7 @@ BASELINE_HEADER = """\
 #   1. A comment inside a match *pattern* (between the pattern and its
 #      `=>`, or between `|` alternatives). Fix by hoisting the comment
 #      above the arm, outside the pattern — never by deleting it. See
-#      .claude/rules/formatting.md.
+#      docs/development/formatting.md.
 #   2. A `macro_rules!` body rustfmt cannot parse, typically a
 #      metavariable in a non-Rust position such as the pattern
 #      repetition `$ternary $(| $short_circuit)+`. No comment is
@@ -537,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
             "match pattern (hoist it above the arm) and a macro_rules! body "
             "rustfmt cannot parse (nothing to fix). This gate cannot tell "
             "them apart -- run --show and look for the in-pattern comment "
-            "before editing. See .claude/rules/formatting.md."
+            "before editing. See docs/development/formatting.md."
         ),
     )
     parser.add_argument(
@@ -636,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
             "    never delete it;\n"
             "  * neither, inside a `macro_rules!` body -> rustfmt cannot parse\n"
             "    the body and there is nothing to fix.\n"
-            ".claude/rules/formatting.md has the full rule. If the increase is\n"
+            "docs/development/formatting.md has the full rule. If the increase is\n"
             "deliberate and unavoidable, ratchet with:\n"
             "  ./utils/check-rustfmt-bail.py --update\n"
         )

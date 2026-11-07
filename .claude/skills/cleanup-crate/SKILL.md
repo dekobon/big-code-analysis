@@ -117,23 +117,21 @@ continue from where the last run left off (consult Serena memory
 
 ### 0d: Detect isolation mode
 
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
+Choose the mode per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+**worktree mode** when the runtime can start each child agent in a
+worktree you allocate (parallel, at most six in flight), otherwise
+**branch mode** (sequential, feature branches off the integration
+branch). Record `ISOLATION_MODE` and tell every child which mode it is
+in, with the absolute path and branch it must verify.
 
-- **Worktree mode**: agents run in parallel with `isolation: "worktree"`.
-- **Branch mode**: agents run sequentially using feature branches.
 
 ---
 
 ## Step 1: Load prior state
 
-Read Serena memories via the Serena MCP tool `serena:read_memory`:
+If a persistent-memory tool (such as the Serena MCP server) is
+available, read these memories; otherwise start from no prior state:
 
 1. `audit-state-<crate-name>` — prior audit findings
 2. `cleanup/<crate-name>` — prior cleanup runs
@@ -212,8 +210,9 @@ approval-required). Re-run without --dry-run to apply."
 
 #### Worktree mode
 
-**CRITICAL**: Every agent MUST be launched with `isolation: "worktree"`.
-Launch removal area agents in parallel, at most six at a time — each one
+Start every child agent in its own worktree (allocated per
+`docs/development/agent_isolation.md`; in Claude Code, `isolation:
+worktree` on the Agent call does this). Launch removal area agents in parallel, at most six at a time — each one
 clones the workspace, and a crate with a dozen removal areas will fill
 the disk with scratch clones if they all start at once. Queue the rest
 and launch each as a slot frees.
@@ -233,7 +232,7 @@ fi
 git checkout -b "$BRANCH" "cleanup/${CRATE_NAME}"
 ```
 
-2. Launch ONE Agent (NO `isolation: "worktree"`).
+2. Launch ONE child agent in this directory, on that branch.
 
 3. On **SUCCESS**:
 
@@ -264,19 +263,32 @@ You are cleaning up dead code in crate `<CRATE>`. Your removal area:
 <REMOVAL_AREA>
 ```
 
+Your checkout, as allocated by the orchestrator (`runtime` where the
+runtime allocated it):
+
+```
+ISOLATION_MODE: <ISOLATION_MODE>
+PROJECT_ROOT:   <PROJECT_ROOT or "runtime-allocated">
+BRANCH:         <BRANCH or branch pattern>
+BASE_COMMIT:    <BASE_COMMIT>
+```
+
 ### 3a: Setup — Environment Verification (MANDATORY)
 
+Compare the checkout you are in against the block above before touching
+anything, per `docs/development/agent_isolation.md`, and abort on any
+mismatch:
+
 ```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
+ROOT="$(git rev-parse --show-toplevel)"
+BASE="$(git rev-parse HEAD)"
+# Orchestrator-allocated: ROOT must equal PROJECT_ROOT exactly.
+# Runtime-allocated: ROOT must not be the orchestrator's directory, and
+# BASE must equal BASE_COMMIT.
+echo "ROOT=$ROOT BASE=$BASE"
 
 AGENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-echo "AGENT_BRANCH=$AGENT_BRANCH"
+echo "AGENT_BRANCH=$AGENT_BRANCH"   # must equal BRANCH, or match the branch pattern
 ```
 
 **HARD GATE**: If `AGENT_BRANCH` is `master`, `main`, or `HEAD` (detached),
@@ -291,8 +303,8 @@ SKIPPED: Agent is on disallowed branch. AGENT_BRANCH=<branch>
 
 In worktree mode: ALL file operations must be within `PROJECT_ROOT`.
 
-If Serena MCP is available, call `serena:activate_project` first. Otherwise
-use Read, Edit, Grep, Glob.
+Use a code-intelligence tool for symbol-level navigation when one is
+available; otherwise use Read, Edit, Grep, Glob.
 
 ### 3b: Verify before removing
 
@@ -395,15 +407,15 @@ git merge <worktree-branch-name> --no-edit
 If a merge conflict: `git merge --abort` and log as conflict.
 
 After all merges (or directly, in branch mode), run `make pre-commit` on
-the integration branch — the canonical validation gate (see "Validation
-gates" in `AGENTS.md`; it adds udeps, doc warnings, the lint families,
+the integration branch — the canonical validation gate (see "Local validation
+gate" in `CONTRIBUTING.md`; it adds udeps, doc warnings, the lint families,
 the self-scan gates, and `make snapshot-anchors` on top of the cargo
 trio run in 3e). If `make` is unavailable, fall back to the raw cargo
 gates from 3e.
 
 ---
 
-## Step 5: Update Serena memories
+## Step 5: Update memories (when a persistent-memory tool is available)
 
 ### 5a: Update cleanup progress
 
@@ -448,6 +460,13 @@ Branch: cleanup/<crate-name>
 
 ### Approval Required (not applied)
 | # | Symbol | Reason |
+
+### Worktrees left behind
+| Path | Branch | State (merged / unmerged / dirty) |
+|------|--------|-----------------------------------|
+(Each worktree this run allocated; `git worktree remove` is denied to
+agents, so the user removes them. Runtime-allocated ones are the
+runtime's to sweep.)
 
 ### Statistics
 - Removal areas: N

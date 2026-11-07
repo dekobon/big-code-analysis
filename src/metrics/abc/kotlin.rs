@@ -87,7 +87,7 @@ fn kotlin_eq_initializes_immutable_binding<'a>(
 // - `as_expression` was not recognised at all, so a cast fell off the
 //   end of the slot's `else if`.
 //
-// By field, not index (`.claude/rules/grammar-dispatch.md` §3): both
+// By field, not index (`docs/development/grammar_dispatch.md` §3): both
 // kinds name their parts (`operator` / `argument`, `left` / `right`), so
 // one read serves the prefix and postfix spellings alike instead of the
 // per-spelling index that produced the defect, and it survives a grammar
@@ -342,8 +342,8 @@ impl Abc for KotlinCode {
             // `delegation_specifiers` — outside every member, and a
             // *sibling* of the `primary_constructor` node rather than its
             // child — so the innermost enclosing space is the **class**.
-            // (`PrimaryConstructor` *is* a `SpaceKind::Function` since
-            // #1828, and this moved nothing, precisely because the
+            // (Verified by perturbation: labelling `PrimaryConstructor` a
+            // `SpaceKind::Function` moves nothing, precisely because the
             // delegation specifier is not inside it.) A
             // `SecondaryConstructor`, which `KotlinCode::get_space_kind`
             // does label a function, takes its `: super(x)` with it.

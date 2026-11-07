@@ -247,7 +247,7 @@ mode to watch for: it reads as zero, so a comparison like
 `tokens_sum() > halstead_total` keeps passing while testing nothing.
 
 Every `insta::assert_json_snapshot!` call must be **anchored**; see
-`AGENTS.md` "Validation gates". Either inline the expected block,
+`CONTRIBUTING.md` "Snapshot anchors". Either inline the expected block,
 add a positive `assert_eq!` on an integer accessor immediately above,
 or include a `// expected: …` derivation comment. `make pre-commit`
 runs `./utils/check-snapshot-anchors.py` against

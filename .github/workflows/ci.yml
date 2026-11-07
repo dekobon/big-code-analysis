@@ -584,7 +584,7 @@ jobs:
           #   tcl    a two-row fixture table whose rows are cfg-gated
           #          collapses to one row (`clippy::single_element_loop`).
           #
-          # `go` is the fourth because `.claude/rules/testing.md` names
+          # `go` is the fourth because `docs/development/testing.md` names
           # `--features go` as the subset contributors run to verify a
           # feature-gated fixture table: it is the nearest thing to a
           # language outside every union, enabling none of the five

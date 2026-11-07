@@ -2218,7 +2218,7 @@ mod tests {
     /// pinning the member count, and the whole claim is that `jmp` reads
     /// the same as `ctl`. The three methods are identical but for one
     /// statement each, so `jmp`'s `goto case` is the only thing that can
-    /// separate them (`.claude/rules/grammar-dispatch.md` §11 — an arm
+    /// separate them (`docs/development/grammar_dispatch.md` §11 — an arm
     /// and a `goto case` are independent paths into the same counter, and
     /// a fixture carrying only arms cannot show the gate works).
     ///

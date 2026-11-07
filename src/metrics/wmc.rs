@@ -230,8 +230,7 @@ impl Wmc for CsharpCode {
 // Kotlin's `class_declaration` becomes either `Class` or `Interface` via
 // `Getter::get_space_kind` (the keyword child disambiguates). `object`
 // singletons map to `Class`. Function spaces (top-level `fun`, member
-// `fun`, primary and secondary constructors, lambdas, anonymous
-// functions) contribute
+// `fun`, secondary constructors, lambdas, anonymous functions) contribute
 // their cyclomatic to the enclosing class / interface. `companion_object`
 // IS a `func_space` and opens its own `Class` scope (#431): `Checker::
 // is_func_space` matches `Kotlin::CompanionObject` and `Getter::
@@ -2220,15 +2219,14 @@ mod tests {
     fn kotlin_data_class() {
         // `data class` synthesizes copy/equals/hashCode/toString at
         // compile time, but only user-written methods are counted —
-        // compiler-generated members are not user code. The primary
-        // constructor is written, and opens a function space (#1828).
+        // compiler-generated members are not user code.
         check_metrics::<KotlinParser>(
-            "data class Point(val x: Int, val y: Int) {              // +1 (#1828)
+            "data class Point(val x: Int, val y: Int) {
                 fun manhattan(): Int = kotlin.math.abs(x) + kotlin.math.abs(y)  // +1
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
@@ -2641,7 +2639,7 @@ mod tests {
         // which is why this moves even though the block is deliberately
         // *not* in `is_func` (it is not a callable anyone names).
         check_metrics::<KotlinParser>(
-            "class C(val n: Int) {                       // +1 since #1828
+            "class C(val n: Int) {
                 init {                                   // +1 since #1184
                     require(n >= 0) { \"n must be non-negative\" }
                 }
@@ -2649,7 +2647,7 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
@@ -2698,15 +2696,15 @@ mod tests {
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_generic_class() {
-        // Generic class with two methods and a primary constructor.
+        // Generic class with two methods.
         check_metrics::<KotlinParser>(
-            "class Box<T>(val value: T) {                // +1 (#1828)
+            "class Box<T>(val value: T) {
                 fun get(): T = value                     // +1
                 fun mapTo(f: (T) -> T): T = f(value)     // +1
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },

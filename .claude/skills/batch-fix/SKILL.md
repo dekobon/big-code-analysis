@@ -59,21 +59,17 @@ running /batch-fix."
 
 ### 0c: Detect isolation mode
 
-```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-```
+Choose the mode per
+[`docs/development/agent_isolation.md`](../../../docs/development/agent_isolation.md):
+**worktree mode** when the runtime can start each child agent in a
+worktree you allocate (parallel, at most six in flight), otherwise
+**branch mode** (sequential, feature branches off the integration
+branch). Record `ISOLATION_MODE` and tell every child which mode it is
+in, with the absolute path and branch it must verify.
 
-- **Worktree mode**: Agents are launched with `isolation: "worktree"` and run
-  in parallel (existing behavior).
-- **Branch mode**: Agents are launched WITHOUT `isolation: "worktree"` and run
-  sequentially using feature branches. This preserves Serena LSP compatibility.
-  All agents in a wave MUST be processed one at a time (they share the working
-  directory).
+- **Worktree mode**: each agent runs in its own worktree, in parallel.
+- **Branch mode**: agents run sequentially on feature branches, one at a
+  time, because they share the working directory.
 
 Record `ISOLATION_MODE` for use in Step 4.
 
@@ -323,7 +319,7 @@ Print the wave plan:
 
 ```
 ## Processing Plan
-Isolation: <worktree (parallel) | branch (sequential, Serena-compatible)>
+Isolation: <worktree (parallel) | branch (sequential)>
 Wave 1 (parallel): #42 (big-code-analysis, quick-win), #57 (big-code-analysis-cli)
 Wave 2 (parallel): #63 (big-code-analysis), #71 (big-code-analysis-web, quick-win)
 Wave 3 (sequential): #80 (cross-lang, depends on #42)
@@ -347,23 +343,21 @@ Use the issue data (title, body, comments) cached from Step 0a to populate
 each agent's prompt.
 
 Pass each agent the full agent prompt (see below) with `<ISSUE_NUMBER>`,
-`<ISSUE_TITLE>`, `<ISSUE_BODY>`, and `<INTEGRATION_BRANCH>` substituted.
+`<ISSUE_TITLE>`, `<ISSUE_BODY>`, `<INTEGRATION_BRANCH>`, `<ISOLATION_MODE>`,
+`<PROJECT_ROOT>`, `<BRANCH>` and `<BASE_COMMIT>` substituted (the last
+three from the allocation in `docs/development/agent_isolation.md`).
 
 #### Worktree mode (`ISOLATION_MODE=worktree`)
 
-**CRITICAL**: Every agent MUST be launched with `isolation: "worktree"`.
-This is a required parameter on the Agent tool call, not optional. Agents
-launched without worktree isolation will modify the main project directory,
-corrupting the integration branch. Double-check that every Agent tool call
-includes `isolation: "worktree"` before sending.
+Start every child agent in its own worktree, allocated per
+`docs/development/agent_isolation.md` (in Claude Code, `isolation:
+worktree` on the Agent call creates and enters one). An agent started
+in the orchestrator's directory modifies the integration checkout, so
+confirm the worktree in every launch before sending.
 
-For a **single-issue wave**: launch one Agent with `isolation: "worktree"`
-and `model: "opus"`.
-
-For a **multi-issue wave**: launch ALL agents in a single message block
-(parallel tool calls). Each agent gets `isolation: "worktree"` and
-`model: "opus"`. Do NOT use `run_in_background` -- wait for all agents in
-the wave to complete before proceeding.
+For a **single-issue wave**: launch one agent. For a **multi-issue
+wave**: launch all agents of the wave together and wait for every one
+to return before proceeding; do not merge while any is running.
 
 **Worktree agents fork from the base, not from the integration-branch
 tip.** Each worktree starts at the commit `INTEGRATION_BRANCH` was created
@@ -400,7 +394,7 @@ fi
 git checkout -b "$BRANCH" "$INTEGRATION_BRANCH"
 ```
 
-2. Launch ONE Agent with `model: "opus"` (NO `isolation: "worktree"`).
+2. Launch ONE child agent in this directory, on that branch.
 
 3. On **SUCCESS**:
 
@@ -571,8 +565,8 @@ After all waves are processed, if any merges succeeded:
 git checkout <INTEGRATION_BRANCH>
 ```
 
-Then run `make pre-commit` — the canonical gate per "Validation gates"
-in `AGENTS.md` (it adds udeps, doc warnings, the lint families, the
+Then run `make pre-commit` — the canonical gate per "Local validation gate"
+in `CONTRIBUTING.md` (it adds udeps, doc warnings, the lint families, the
 self-scan gates, and `make snapshot-anchors` on top of the cargo trio).
 
 **Capture it to a per-invocation log and read the verdict from the log**
@@ -715,6 +709,14 @@ Mode: <parallel|sequential>
 | # | Issue | Title | Reason |
 |---|-------|-------|--------|
 
+
+### Worktrees left behind
+| Path | Branch | State (merged / unmerged / dirty) |
+|------|--------|-----------------------------------|
+(Each worktree this run allocated; `git worktree remove` is denied to
+agents, so the user removes them. Runtime-allocated ones are the
+runtime's to sweep.)
+
 ### Statistics
 - Issues attempted: N
 - Succeeded: N
@@ -746,6 +748,16 @@ review. Merge to main when satisfied, or push to open a PR."
 
 You are fixing GitHub issue #<ISSUE_NUMBER>: <ISSUE_TITLE>
 
+Your checkout, as allocated by the orchestrator (`runtime` where the
+runtime allocated it):
+
+```
+ISOLATION_MODE: <ISOLATION_MODE>
+PROJECT_ROOT:   <PROJECT_ROOT or "runtime-allocated">
+BRANCH:         <BRANCH or branch pattern>
+BASE_COMMIT:    <BASE_COMMIT>
+```
+
 Issue body:
 
 ```
@@ -758,23 +770,24 @@ annotate it. The `Fixes #N` commit trailer will close it on merge.
 
 ### Setup — Environment Verification (MANDATORY)
 
-Determine your isolation mode:
+Compare the checkout you are in against the block above before touching
+anything, per `docs/development/agent_isolation.md`, and abort on any
+mismatch:
 
 ```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PROJECT_ROOT" == *".claude/worktrees/"* ]]; then
-  ISOLATION_MODE="worktree"
-else
-  ISOLATION_MODE="branch"
-fi
-echo "ISOLATION_MODE=$ISOLATION_MODE PROJECT_ROOT=$PROJECT_ROOT"
+ROOT="$(git rev-parse --show-toplevel)"
+BASE="$(git rev-parse HEAD)"
+# Orchestrator-allocated: ROOT must equal PROJECT_ROOT exactly.
+# Runtime-allocated: ROOT must not be the orchestrator's directory, and
+# BASE must equal BASE_COMMIT.
+echo "ROOT=$ROOT BASE=$BASE"
 ```
 
 Verify your branch:
 
 ```bash
 AGENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-echo "AGENT_BRANCH=$AGENT_BRANCH"
+echo "AGENT_BRANCH=$AGENT_BRANCH"   # must equal BRANCH, or match the branch pattern
 ```
 
 **HARD GATE**: If `AGENT_BRANCH` is `main`, `master`, or `HEAD` (detached),
@@ -834,21 +847,17 @@ though `<INTEGRATION_BRANCH>` is checked out elsewhere: git refuses to
 In branch mode, skip this — your branch was created from the integration
 branch's current tip in Step 4a and already contains it.
 
-Try to activate Serena:
-
-```
-serena:activate_project project="big-code-analysis"
-```
-
-If Serena is unavailable, use text-based tools (Read, Edit, Grep, Glob) and
-`rg` / `fd` via Bash. Never use legacy `grep` / `find`.
+Use a code-intelligence tool (such as the Serena MCP server) for
+symbol-level navigation and editing when one is available; otherwise
+use the file tools and `rg` / `fd`.
 
 ### Phase 1: Investigate and Fix
 
 Follow the `/fix-issue` workflow:
 
-1. Re-read project conventions: top-level `CLAUDE.md`, `AGENTS.md`, and any
-   rule files under `.claude/rules/` if present.
+1. Re-read `AGENTS.md` and the guides its routing table names for this
+   change (`docs/development/testing.md` always; `grammar_dispatch.md`
+   for anything touching a language module or metric).
 2. If `docs/development/lessons_learned.md` exists, read it and identify
    any lessons relevant to this issue's domain.
 3. Investigate the codebase to understand root cause. For tree-sitter
@@ -929,9 +938,10 @@ Follow the `/fix-issue` workflow:
    - **Integration-snapshot submodule**: a behaviour-changing metric /
      traversal / alterator fix generates `.snap.new` inside
      `tests/repositories/big-code-analysis-output/`. Follow the submodule
-     discipline in `AGENTS.md`: accept the snapshots, push them to the
-     submodule remote, and record the new submodule SHA in the **same**
-     commit as the fix (`git add tests/repositories/big-code-analysis-output`
+     discipline in `CONTRIBUTING.md` "Integration snapshots": accept the snapshots, record the new submodule SHA in the **same**
+     commit as the fix, and report the submodule commit for the user to
+     push (pushing is publication and the orchestrator's invocation is
+     not an instruction to publish) (`git add tests/repositories/big-code-analysis-output`
      is exempt from the "only files you changed" staging rule).
    - **Regression check**: `cargo test --workspace --all-features` and
      `cargo clippy --workspace --all-targets -- -D warnings` must pass.
@@ -974,7 +984,7 @@ directly:
 - Duplicate logic across sibling language modules that should live in a
   shared helper, trait method, or macro (the project already uses
   `big-code-analysis-ast/src/c_langs_macros/`, `big-code-analysis-ast/src/macros/`, and `big-code-analysis-ast/src/c_macro.rs` for shared
-  structure; follow `.claude/rules/macro-comments.md` when consolidating)
+  structure; follow `docs/development/formatting.md` when consolidating)
 
 **Clarity**:
 
@@ -1244,7 +1254,7 @@ git checkout -- .
 git reset HEAD
 ```
 
-Do NOT run `git clean -fd` -- the worktree runtime manages untracked files.
+Do NOT run `git clean -fd`; report untracked files and leave them.
 
 **END AGENT PROMPT**
 
@@ -1255,7 +1265,7 @@ Do NOT run `git clean -fd` -- the worktree runtime manages untracked files.
 - Do NOT merge the integration branch into `main` -- leave for the user
 - Do NOT close GitHub issues -- the `Fixes #N` trailer handles this on merge
 - Do NOT use `git push --force` or any destructive git operations
-- Do NOT delete worktrees -- only the Claude Code runtime may do that
+- Do NOT delete worktrees -- the orchestrator that created one cleans it up
 - Do NOT skip the review phase -- every fix must be reviewed before commit
 - Do NOT bump tree-sitter grammar pins as part of an issue fix; grammar
   bumps are a deliberate, separate change driven by `recreate-grammars.sh`

@@ -6,7 +6,7 @@ in ``big-code-analysis-py/src/node.rs`` is the version the workspace
 actually pins in the root ``Cargo.toml``.
 
 That module doc is the canonical justification for the workspace's only
-sanctioned ``unsafe`` block (AGENTS.md, "Rust conventions"), and part of
+sanctioned ``unsafe`` block (CONTRIBUTING.md, "Project conventions"), and part of
 its argument — that ``Tree``/``Node``/``TreeCursor`` are ``Send + Sync``,
 that ``Node<'tree>`` is ``(ffi::TSNode, PhantomData<&'tree ()>)``, that
 ``Tree::edit`` takes ``&mut self`` — is a claim about a *specific*
@@ -29,14 +29,14 @@ Two directions are enforced:
   invisible rather than fixing it.
 
 Scope is deliberately one file. Two other places name this pin in
-prose — the runtime-exemption rationale in ``AGENTS.md`` and the same
+prose — the runtime-exemption rationale in ``CONTRIBUTING.md`` and the same
 rationale echoed in ``utils/check-excluded-manifests.py`` — but both sit
 in text that also cites *grammar* pins illustratively (``=0.23.5``,
 ``=0.26.10``), so a literal-scanning rule there would fail on versions
 that are supposed to differ. In ``node.rs`` an ``=X.Y.Z`` literal can
 only mean the tree-sitter pin, which is what makes the rule crisp here.
 
-See AGENTS.md "Validation gates" for the policy this enforces.
+See CONTRIBUTING.md "Local validation gate" for the policy this enforces.
 """
 
 from __future__ import annotations

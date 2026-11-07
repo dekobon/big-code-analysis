@@ -142,7 +142,7 @@ fn warning_flag_names_the_skip_reason_for_a_utf16_file() {
 /// hermetic builder still reports the default count (the `?` operator
 /// counts). Reverting `cli()` to `bca_command()` inherits the leaky cwd,
 /// picks up the manifest, drops the `?` from the count, and fails this
-/// test (test-via-revert; see `.claude/rules/testing.md`).
+/// test (test-via-revert; see `docs/development/testing.md`).
 #[test]
 fn hermetic_cwd_ignores_discoverable_manifest() {
     let probe = NamedTempFile::with_suffix(".rs").unwrap();

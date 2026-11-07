@@ -52,7 +52,7 @@ The regex version of this gate silently skipped TOML literal strings
 a commented-out ``exclude`` entry as a crate, and counted the text
 ``[workspace]`` inside a multi-line string as a workspace table.
 
-See AGENTS.md "Tree-sitter grammars" for the pinning rule and the
+See CONTRIBUTING.md "Adding a new language or bumping a grammar" for the pinning rule and the
 `#1145` issue for the worktree traversal this guards.
 """
 
@@ -126,7 +126,7 @@ LINTS_EXEMPT_CRATES = frozenset(
 # `tree-sitter` dependencies that must NOT carry an `=` pin.
 #
 # `tree-sitter-language` is the ecosystem's shared `LanguageFn` trait
-# shim, not a grammar, so AGENTS.md's pinning rule does not reach it.
+# shim, not a grammar, so the pinning rule in CONTRIBUTING.md does not reach it.
 # Pinning it breaks resolution in both directions: `tree-sitter-irules
 # 0.1.1` requires `^0.1.7` and cargo unifies 0.1.x deps, so `=0.1.0`
 # makes this workspace unresolvable; and these crates are published, so
@@ -429,7 +429,7 @@ def _report_unpinned(drifted: list[tuple[str, str, str]]) -> None:
         )
         + "\n\nA caret range lets `cargo update` move a grammar silently and\n"
         "lets a downstream consumer of the published crate resolve one\n"
-        "freely (#1151). See AGENTS.md \"Tree-sitter grammars\".",
+        "freely (#1151). See CONTRIBUTING.md \"Adding a new language or bumping a grammar\".",
         file=sys.stderr,
     )
 
@@ -458,7 +458,7 @@ def main() -> int:
 
     # The root manifest is checked alongside the excluded crates: its
     # `[workspace.dependencies]` block holds ~20 grammar pins, and
-    # AGENTS.md claims this gate enforces them.
+    # CONTRIBUTING.md claims this gate enforces them.
     manifests = [(ROOT_MANIFEST_LABEL, root_text)] + [
         (
             f"{crate}/Cargo.toml",

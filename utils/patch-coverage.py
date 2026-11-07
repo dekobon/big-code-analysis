@@ -20,9 +20,9 @@ for the figure.
 
 Not a gate: it takes its inputs as arguments and is run by hand before
 quoting a patch-coverage number on a PR (see
-`.claude/rules/testing.md`, "Coverage measures execution, not
+`docs/development/testing.md`, "Coverage measures execution, not
 discrimination"). The JSON it reads is a tier-2 artifact under
-`.claude/rules/temp-files.md`; this driver is tier 1, which is why it
+AGENTS.md "Temporary files"; this driver is irreplaceable, which is why it
 lives here rather than beside the JSON.
 """
 

@@ -663,7 +663,7 @@ d""#
     /// `#[cfg]` sits on the callers' `fn`, not around a test body: an
     /// empty `#[test]` body is a *passing* test, so the inner-block form
     /// reports green on Windows having asserted nothing
-    /// (`.claude/rules/testing.md`).
+    /// (`docs/development/testing.md`).
     #[cfg(unix)]
     fn non_utf8_path() -> std::path::PathBuf {
         use std::ffi::OsStr;

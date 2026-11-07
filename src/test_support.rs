@@ -280,7 +280,7 @@ pub(crate) fn function_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a F
 /// #1383, a `goto case`'s `case` token after #1450 — and so has no
 /// second axis for the metric assertions to rest on. Trimming `> 5` down
 /// to `5`, or deleting `goto case 2;`, leaves every metric assertion
-/// satisfied and the construct gone (`.claude/rules/testing.md`,
+/// satisfied and the construct gone (`docs/development/testing.md`,
 /// "Perturb the fixture as well as the production line"). Editing a
 /// spelling out of the source now fails here by name instead of silently
 /// turning the method into a copy of its control.

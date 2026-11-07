@@ -110,7 +110,7 @@ fn labelled_prints_the_true_slots_by_name() {
 /// the walker feeds it the right slice. The walker lives in the other
 /// crate, so nothing links the two but this sentence — a change to its
 /// truncate/push discipline must be mirrored here by hand
-/// (`.claude/rules/testing.md`, lesson #82).
+/// (`docs/development/testing.md`, lesson #82).
 ///
 /// # Panics
 ///

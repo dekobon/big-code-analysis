@@ -56,7 +56,7 @@ fn an_unreadable_attributes_file_fails_the_open_as_it_fails_gix() {
     std::fs::set_permissions(&user_file, std::fs::Permissions::from_mode(0o000))
         .expect("chmod user attributes");
     // A `return` here would be a passing test with no assertion run
-    // (`.claude/rules/testing.md`, "an empty test is a passing test"), so
+    // (`docs/development/testing.md`, "an empty test is a passing test"), so
     // a privileged runner fails loudly instead of reading as covered.
     assert!(
         std::fs::read(&user_file).is_err(),

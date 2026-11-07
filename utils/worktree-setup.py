@@ -14,7 +14,7 @@ Recovering an *interrupted* ``git submodule update`` needs ``--force``,
 and ``--force`` is destructive: it is ``git checkout --force`` inside the
 submodule, so it overwrites locally modified tracked files. The
 integration-snapshot submodule is one contributors legitimately edit
-(accepting ``.snap`` files, per AGENTS.md), so the escalation has to be
+(accepting ``.snap`` files, per CONTRIBUTING.md), so the escalation has to be
 conditional on what the submodule actually looks like. That
 classification is what this script exists for.
 

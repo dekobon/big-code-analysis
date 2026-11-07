@@ -84,7 +84,7 @@
 // the import itself can express. Partial builds only — `all-languages`
 // is on by default and under `--all-features`, so the build CI gates on
 // and the one a contributor runs still police every unused import. See
-// `.claude/rules/testing.md`, "Why the import lint is off on a partial
+// `docs/development/testing.md`, "Why the import lint is off on a partial
 // build".
 #![cfg_attr(not(feature = "all-languages"), allow(unused_imports))]
 pub mod alterator;

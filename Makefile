@@ -535,7 +535,7 @@ mutation-workflow-test:
 # The role-series drift drivers (#1744): each self-test stubs the
 # binaries it drives, so these run in seconds and never touch the
 # corpus. `-B` because a sweep of an imported module must not read a
-# stale `.pyc` (`.claude/rules/testing.md`).
+# stale `.pyc` (`docs/development/testing.md`).
 drift-common-test:
 	@echo "Running drift-common self-tests..."
 	@(cd $(BASE_DIR) && python3 -B -m unittest -q utils/drift_common-test.py)
@@ -917,8 +917,6 @@ plugin-test:
 	elif [ "$${CI:-}" = "true" ]; then \
 	  echo "Node >= 22.7 required for plugin-test in CI" >&2; exit 1; \
 	else echo "Node >= 22.7 not found; skipping plugin-test"; fi
-	@if command -v shellcheck >/dev/null 2>&1; then shellcheck "$(BASE_DIR).claude/hooks/bca-check.sh"; fi
-	@if command -v shfmt >/dev/null 2>&1; then shfmt -d -i 0 -ci -bn "$(BASE_DIR).claude/hooks/bca-check.sh"; fi
 
 # Sync gate for check-grammar-crate.py's EXTENSIONS table. Re-derives
 # the grammar -> extension mapping from the parse layer's langs.rs

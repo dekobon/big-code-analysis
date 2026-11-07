@@ -110,7 +110,7 @@ repos:
       # match verbatim while `cargo fmt --check` still exits 0, so the
       # `fmt` hook above cannot see any of this. The gate sweeps the
       # whole workspace rather than a directory list — the site list in
-      # .claude/rules/formatting.md was scoped to src/metrics/ for two
+      # docs/development/formatting.md was scoped to src/metrics/ for two
       # revisions, which is exactly how the largest cluster
       # (src/getter/) went unnoticed — so the trigger is any Rust file.
       - id: rustfmt-bail
