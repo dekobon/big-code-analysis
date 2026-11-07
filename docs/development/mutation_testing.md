@@ -102,7 +102,9 @@ lists of a `role_table!` invocation and the `under [...]` /
 `not_under [...]` parent lists on them — so a gate `fn` moved onto a
 row as such a list leaves this selection, as Python's
 `under_case_clause`, Groovy's `not_in_an_import` and Java's
-`not_a_class_literal` and `not_in_a_directive` did under #1794 — and
+`not_a_class_literal` and `not_in_a_directive` did under #1794 (the
+TypeScript family's `under_enum_body` moved too, but a fragment macro
+emitted it, so it was never in the selection) — and
 equally every gate a macro
 *emits* — the thirteen `else_if_parent_clause_gate!` /
 `else_if_prev_sibling_gate!` invocations, and the gates the

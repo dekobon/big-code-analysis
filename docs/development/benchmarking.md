@@ -231,7 +231,8 @@ Read it as follows.
 | `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
 | `dump/tcl-wide-erroring-eval` | Tcl | width | the argument-list readability scan under `keeps_children`, memoised through the cache the export lends (#1686) | linear |
 | `count/tcl-nested-braces` | Tcl | depth | walk control for the row below: the same filter with nothing rendered | linear |
-| `find/tcl-nested-braces` | Tcl | depth | the renderer `bca find` prints through: each match's connector decided without `Node::parent`, and a nested match's text printed once (#1416) | linear |
+| `find/tcl-nested-braces` | Tcl | depth | the renderer `bca find` prints through: each match's connector decided without `Node::parent`, and past 64 nested levels a match's text printed once (#1416) | linear |
+| `find/tcl-wide-braces-past-the-limit` | Tcl | width | the same renderer's step from one elided match to the next through `next_outside`; re-walking the siblings for each is quadratic in a level's width (#1416) | linear |
 | `halstead/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, reached through an iterated ancestor on the metric walk (#1686) | linear |
 | `ops/tcl-wide-erroring-eval` | Tcl | width | the same scan under `braced_word_op_type`, on the `ops` walk (#1686) | linear |
 | `count/tcl-wide-erroring-eval` | Tcl | width | the same scan under the `string` filter, on the `find` / `count` walk (#1686) | linear |
@@ -628,19 +629,28 @@ asking `Node::parent`: one `O(depth)` climb per match, 98% of the
 single-row match's whole span, so a match nested `k` deep was printed
 `k` times, 16 MB of output for 8 KB of input. The renderer the CLI
 calls now, `render_found` in `src/output/dump.rs`, decides the
-connector against the tree's root and prints `…` in place of each
-nested match. `find/tcl-nested-braces` times the walk and that render
+connector against the tree's root, prints each match whole through 64
+levels of single-row matches nested in one another — so ordinary
+output is what it always was — and past that prints `…` in place of
+each nested match, stepping from one to the next through
+`next_outside`. `find/tcl-nested-braces` times the walk and that render
 into a sink that reads every byte; `count/tcl-nested-braces` is the
 walk alone. Both take `FIND_RENDER_DEPTHS`, 4 000 / 8 000 / 16 000,
 because the output term needs those depths to overtake the per-match
 cost: on `LINEAR_DEPTHS` the whole-span render fit only 1.56.
+`find/tcl-wide-braces-past-the-limit` is the width half: 4 000 to
+16 000 sibling words inside 66 braces, so the level eliding them is
+past the limit, where a chain of one match per level cannot show a
+rescan of the siblings.
 
 | Render put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
 | a `Node::parent` climb per match | `find/tcl-nested-braces` | 0.99 | 2.00 | 5.3 ms → 6.2 s |
-| each match prints its whole span | `find/tcl-nested-braces` | 0.99 | 1.84 | 5.3 ms → 67.0 ms |
+| each match prints its whole span (the limit at `usize::MAX`) | `find/tcl-nested-braces` | 1.01 | 1.80 | 5.3 ms → 67.0 ms |
+| each next match found by re-walking the siblings | `find/tcl-wide-braces-past-the-limit` | 1.01 | 1.81 | — |
 
-`count/tcl-nested-braces` held at 0.92–0.94 under both.
+`count/tcl-nested-braces` held at 0.84–0.94 under all three, and the
+depth probe at 1.02 under the third.
 
 The AST export reads the same flat `ERROR`, and until [#1684][dump-cursor]
 it did so by index: `Node::child` and `Node::field_name_for_child` both

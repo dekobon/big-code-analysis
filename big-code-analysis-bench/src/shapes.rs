@@ -3477,7 +3477,8 @@ pub const PROBES: &[Probe] = &[
                     documents it when any branch, at any depth, holds an \
                     entry. Asked afresh at every level that is `O(depth)` \
                     each; the walk's `FoldCache` memoises the answer per \
-                    conditional. Every block binds, so the reading is the \
+                    conditional: bypassing the memo fits 1.95 against \
+                    0.92 with it. Every block binds, so the reading is the \
                     doc rows, one per level.",
     },
     Probe {

@@ -125,7 +125,10 @@ and `cargo run -p big-code-analysis-web --`.
   the lesson-102 truncation sweep; `perturb.py` is the
   `.claude/rules/testing.md` perturbation driver, which refuses a
   target that is modified, untracked, ignored or absent and restores
-  from memory; `coverage-diff.py` compares two `llvm-cov` reports by
+  from memory, under a `cargo` or a `unittest` runner — the latter runs
+  `perturb_unittest_recorder.py` in place of `-m unittest`, unittest's
+  own `main` recording each outcome as data, since a test can print
+  anything the report prints; `coverage-diff.py` compares two `llvm-cov` reports by
   covered count. The extension tables,
   grammar-pin reader, byte-level subprocess capture and manifest
   shape the three drift drivers share live in `drift_common.py`,

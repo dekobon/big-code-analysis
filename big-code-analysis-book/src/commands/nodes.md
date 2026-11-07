@@ -54,10 +54,9 @@ print:
 ```
 
 Each line gives the node type and its `kind_id`, then two 1-based
-`(row, column)` pairs: the node's first column, and the column just
-past its end. A node that fits on
-one row ends with its source text; one that spans several rows prints
-none.
+`(row, column)` pairs: where the node starts, and the position just
+past its end. A node that fits on one row ends with its source text and
+one space; one that spans several rows prints none.
 
 A match nested in another on the same row prints in full, as above,
 until the nesting passes 64 levels. From the 65th level down, a match
@@ -73,7 +72,8 @@ This keeps the output linear in the size of the file: printing every
 level in full made a file of 4,000 nested braces print 16 MB. The
 `…` is not escaped, so a `…` that is in the source reads the same.
 Real code rarely nests past 64 levels on one row: across the serde,
-pdf.js and DeepSpeech corpora the deepest is 42, under `-t all`.
+pdf.js and DeepSpeech corpora the deepest is 42, in pdf.js under
+`-t all`.
 
 ## Semantic filters {#semantic-filters}
 
