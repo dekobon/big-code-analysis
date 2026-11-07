@@ -262,11 +262,9 @@ role_table! {
     // `int permits`) as an `identifier`, so they need no gate. The
     // `static` of `import static` and `requires static` sits under an
     // `import_declaration` / `requires_modifier`, a directive that
-    // qualifies no declaration. Java bills no directive word (`package`,
-    // `import`, `module`, `requires`, `exports`, `transitive`, measured
-    // on a fixture of each), so without the list this would be the one
-    // that bills; #1600 records C#, which bills `using static` in full,
-    // as the outlier in the book's Halstead rules.
+    // qualifies no declaration, and is not a modifier; what the
+    // Halstead consumer makes of directive words is its own
+    // (`java_modifiers_are_operators_1565`, #1600).
     Modifier {
         owns [
             Public, Private, Protected, Static(not_under [ImportDeclaration, RequiresModifier]),

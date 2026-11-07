@@ -146,6 +146,14 @@ rg -n 'ElseIf \{ absent' big-code-analysis-ast/src/roles/*.rs           # the co
 | the owner is the sole statement of the `else:` block (`else_clause → block → if_statement`, #276) | hand-written gate on the row; the Checker is `Branch ∧ ElseIf`, so the `elif_clause` the row also owns stays false | Python |
 | `absent` row — the trait default `false` | — | Elixir (`cond` and nested `if/else`, no chain to collapse) |
 
+A gate that is only the owner's parent kind is not a `fn` at all
+since #1794: spell it on the row as `K(under [P, ..])` or
+`K(not_under [P, ..])`, which the Python reader and the derived suite
+then see. The `ElseIf` family keeps its emitters because their gates
+read more than the parent (the clause's previous sibling, the outer
+`if`), and because a `fn` stays in cargo-mutants' reach where a row
+list does not (`docs/development/mutation_testing.md`).
+
 Two things that list is worth reading for. The dedicated-clause row
 exists because some grammars emit an `elif_clause` / `ElsifClause` /
 `Elseif` node with no nested `if` to inspect at all — a shape neither

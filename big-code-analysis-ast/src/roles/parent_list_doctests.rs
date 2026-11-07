@@ -93,7 +93,9 @@
 //! ```
 //!
 //! And a list names at least one kind, an owner's or a payer's — an
-//! empty one would claim the kind and never admit it:
+//! empty one would claim the kind and never admit it. The row body
+//! requires it as well as the entry scan, so a `..fragment!()` whose
+//! splice spells `K under []` is refused where a row's own `pays` is:
 //!
 //! ```compile_fail
 //! # #[macro_use] extern crate big_code_analysis_ast;

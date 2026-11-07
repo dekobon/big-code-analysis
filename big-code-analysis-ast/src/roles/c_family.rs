@@ -542,7 +542,12 @@ macro_rules! c_family_conditional_kinds {
     };
 }
 
-/// The ids of `objc_doc_conditionals!`, for the Objective-C grammar.
+/// The ids of `objc_doc_conditionals!`, for the Objective-C grammar:
+/// 19 where the other three have 20, since its grammar mints one
+/// `preproc_ifdef` alias fewer and one more each of `preproc_else` and
+/// `preproc_elif`, with two `preproc_elifdef`. The per-dialect
+/// `old_names_are_the_conditional_kinds` test holds each list to its
+/// enum, so a count that looks like a slip is the grammar's.
 macro_rules! objc_conditional_kinds {
     () => {
         $crate::roles::c_family::preproc_conditional_kind!(Objc [

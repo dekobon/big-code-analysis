@@ -1427,7 +1427,7 @@ macro_rules! role_table {
     };
     (@row_body $lang:ident $role:ident [$mode:ident] {
         owns [ $($owner:ident $(( $($owner_attr:tt)* ))?),* $(,)? ]
-        pays [ $($payer:ident $(gated_by $payer_gate:ident)? $(under [$($payer_parent:ident),*])?),* $(,)? ]
+        pays [ $($payer:ident $(gated_by $payer_gate:ident)? $(under [$($payer_parent:ident),+ $(,)?])?),* $(,)? ]
         $(project $field:literal)?
         $(wraps [ $($wrapped:ident),* $(,)? ])?
         $(excludes [ $($excluded:ident $excluded_why:literal),* $(,)? ])?
