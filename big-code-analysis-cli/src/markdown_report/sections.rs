@@ -98,10 +98,12 @@ pub(super) fn emit_cc_note_md(
         .unwrap_or_default();
     // The bands use the resolved advisory CC cutoff and its severe multiple
     // (issue #630) — `> 10` / `> 20` by default, shifted when a manifest sets
-    // `cyclomatic = N`.
+    // `cyclomatic = N`. The fields are joined by `;`, not `|`: a `|`-joined
+    // line directly under a table is an orphaned table row to a Markdown
+    // linter (MD075) and to some renderers.
     let _ = writeln!(
         out,
-        "Average CC: {:.1} | Max: {:.0} | CC > {:.0}: {} functions | CC > {:.0}: {} functions{caption}",
+        "Average CC: {:.1}; Max: {:.0}; CC > {:.0}: {} functions; CC > {:.0}: {} functions{caption}",
         stats.avg(),
         stats.max,
         stats.primary_cutoff,

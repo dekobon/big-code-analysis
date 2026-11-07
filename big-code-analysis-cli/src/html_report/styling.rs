@@ -349,26 +349,6 @@ keyed.forEach(function(e){tbody.appendChild(e.r);});\
 })();\
 ";
 
-/// Tooltips for the Per-language overview table's columns, which are NOT
-/// part of the hotspot `SPECS` (they are per-language aggregates, not
-/// per-function rows). The averaged CC / Cognitive columns reuse the
-/// shared metric definitions from [`crate::markdown_report::hotspot`] so
-/// "Avg CC" and the hotspot "CC" column can never describe the same metric
-/// differently. "Avg MI" is the exception: it is SLOC-weighted and derived
-/// from the *unclamped* MI, so it uses [`hotspot::AVG_MI_TOOLTIP`] rather
-/// than the per-file `MI_TOOLTIP` (issue #725).
-/// "Files" here means *source files analysed*; the bus-factor table's
-/// like-named column means files-per-directory and supplies its own
-/// tooltip (issue #610), so this entry never leaks onto it.
-pub(crate) const AST_OVERVIEW_TOOLTIPS: &[(&str, &str)] = &[
-    ("SLOC", hotspot::SLOC_TOOLTIP),
-    ("Avg MI", hotspot::AVG_MI_TOOLTIP),
-    ("Avg CC", hotspot::CC_TOOLTIP),
-    ("Avg Cognitive", hotspot::COGNITIVE_TOOLTIP),
-    ("Functions", "Number of functions and methods analysed."),
-    ("Files", "Number of source files analysed."),
-];
-
 /// Plain-English tooltip for a metric column header, or `None` when the
 /// header names a non-metric dimension (file, function, class, line,
 /// language) or a column whose table supplies its own tooltips
@@ -376,12 +356,14 @@ pub(crate) const AST_OVERVIEW_TOOLTIPS: &[(&str, &str)] = &[
 /// spec tooltips through [`write_table_with_tooltips`]).
 ///
 /// This lookup serves only the tables that call the plain [`write_table`]
-/// (the Per-language overview), so it consults [`AST_OVERVIEW_TOOLTIPS`].
+/// (the Per-language overview), so it consults
+/// [`hotspot::OVERVIEW_LEGEND`] — the one definition list, so the `title=`
+/// attribute and the rendered legend cannot drift.
 /// The hotspot and VCS columns own their definitions on
 /// [`crate::markdown_report::hotspot::Column`] /
 /// [`crate::vcs_report::VcsColumn`] and never route through here.
 pub(crate) fn header_tooltip(header: &str) -> Option<&'static str> {
-    AST_OVERVIEW_TOOLTIPS
+    hotspot::OVERVIEW_LEGEND
         .iter()
         .find_map(|&(name, tip)| (name == header).then_some(tip))
 }

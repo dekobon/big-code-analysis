@@ -57,7 +57,7 @@ _MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: G
 | `main`      | src/main.py |   10 |  10 |        12 |   60 |    300 |
 | `load_data` | src/main.py |   40 |   7 |         6 |   35 |    180 |
 
-Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excluding suppressed functions)
+Average CC: 8.5; Max: 10; CC > 10: 0 functions; CC > 20: 0 functions (excluding suppressed functions)
 
 ### Cognitive complexity hotspots (top 5 by Cognitive)
 
@@ -136,7 +136,7 @@ _MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: G
 | `handle_event`    | src/lib.rs |  100 |  12 |        14 |   70 |    400 |
 | `compute_score`   | src/lib.rs |  130 |   8 |         9 |   40 |    200 |
 
-Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (excluding suppressed functions)
+Average CC: 12.6; Max: 25; CC > 10: 4 functions; CC > 20: 1 functions (excluding suppressed functions)
 
 ### Cognitive complexity hotspots (top 5 by Cognitive)
 
@@ -204,7 +204,7 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ## Legend
 
-- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and PLOC (the rows that carry code); higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score.
+- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio rescale, clamped to 0–100 in the per-file tables): composite of Halstead volume, cyclomatic complexity, and PLOC (the rows that carry code); higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score. The overview's Avg MI is unclamped and can be negative.
 - **[SLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Source Lines Of Code: total physical lines, including blanks and comments.
 - **[Tokens](https://dekobon.github.io/big-code-analysis/metrics.html#tokens)** — Total lexical tokens (AST leaves excluding comments) of the function or file.
 - **[CC](https://dekobon.github.io/big-code-analysis/metrics.html#cyclomatic-complexity-cc)** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.
@@ -213,12 +213,17 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 - **[Volume](https://dekobon.github.io/big-code-analysis/metrics.html#halstead)** — Halstead volume: program length weighted by vocabulary size.
 - **[Est. Bugs](https://dekobon.github.io/big-code-analysis/metrics.html#halstead)** — Halstead bugs: estimated defect count derived from program volume.
 - **[Args](https://dekobon.github.io/big-code-analysis/metrics.html#nargs)** — Number of declared parameters of the function.
-- **[WMC](https://dekobon.github.io/big-code-analysis/metrics.html#wmc)** — Weighted Methods per Class: sum of cyclomatic complexity across a type's methods. "Type" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.
-- **[Methods](https://dekobon.github.io/big-code-analysis/metrics.html#nom)** — Number of methods declared on the class.
-- **[NPA](https://dekobon.github.io/big-code-analysis/metrics.html#npa)** — Number of Public Attributes declared on the class.
-- **[NPM](https://dekobon.github.io/big-code-analysis/metrics.html#npm)** — Number of Public Methods declared on the class.
-- **[Exits](https://dekobon.github.io/big-code-analysis/metrics.html#nexits)** — Number of exit points (returns, throws, breaks out of the function).
+- **[WMC](https://dekobon.github.io/big-code-analysis/metrics.html#wmc)** — Weighted Methods per Class: sum of cyclomatic complexity across a type's methods, including the methods of any type nested in it. "Type" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.
+- **[Methods](https://dekobon.github.io/big-code-analysis/metrics.html#nom)** — Number of functions, methods and closures in the type, including those of any type nested in it.
+- **[NPA](https://dekobon.github.io/big-code-analysis/metrics.html#npa)** — Number of Public Attributes in the type, including those of any type nested in it.
+- **[NPM](https://dekobon.github.io/big-code-analysis/metrics.html#npm)** — Number of Public Methods in the type, including those of any type nested in it.
+- **[Exits](https://dekobon.github.io/big-code-analysis/metrics.html#nexits)** — Number of exit points (returns, throws, breaks out of the function), summed over the function and every function or closure nested in it.
 - **[ABC](https://dekobon.github.io/big-code-analysis/metrics.html#abc)** — ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.
 - **[PLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Physical Lines Of Code: source lines excluding blank lines and comments.
-- **[Comments](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Comment lines (CLOC): lines that are entirely comment.
+- **[Comments](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Comment lines (CLOC): lines carrying a comment, whether standalone or trailing code; a line with both code and a comment counts toward PLOC and CLOC alike.
 - **[Comment ratio](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Comment ratio: comment lines as a percentage of source lines (CLOC / SLOC).
+- **Files** — Number of source files analysed.
+- **Functions** — Number of functions and methods analysed.
+- **Avg MI** — Average Maintainability Index, SLOC-weighted across the language's files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD ≥ 20, MODERATE ≥ 10, else LOW; any value below 10, however negative, is LOW.
+- **Avg CC** — Mean Cyclomatic Complexity over every function and method in the language, ignoring suppression markers. The Average CC under the cyclomatic hotspot table covers every function eligible for that table before its top-N cut (CC above 0 and, by default, not suppressed), so the two can differ.
+- **Avg Cognitive** — Mean Cognitive Complexity over every function and method in the language, ignoring suppression markers.

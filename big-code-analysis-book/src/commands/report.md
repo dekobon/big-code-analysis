@@ -183,8 +183,12 @@ summaries, hotspot membership, and captions, so both formats report
 identical numbers.
 
 Both formats carry a **Legend** that defines every metric column
-abbreviation (`CC`, `MI`, `ABC`, `WMC`, and so on) plus the
-global-header stats (`PLOC`, `Comments`, `Comment ratio`). It is a
+abbreviation (`CC`, `MI`, `ABC`, `WMC`, and so on), the
+global-header stats (`PLOC`, `Comments`, `Comment ratio`), and the
+Per-language overview's columns (`Files`, `Functions`, `Avg MI`,
+`Avg CC`, `Avg Cognitive`) — `Avg MI` in particular, since it is the
+unclamped, SLOC-weighted average and can read negative where the
+per-file `MI` column saturates at 0. It is a
 `## Legend` section in Markdown (its own outline entry, not nested under
 the last language) and an expanded (`<details open>`) block in HTML, so
 it survives print, mobile, and screen readers as well as a hover

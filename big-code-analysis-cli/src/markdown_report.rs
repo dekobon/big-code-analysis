@@ -555,14 +555,21 @@ pub(crate) fn write_table(
 }
 
 /// The hotspot-column legend plus the global-header stat definitions
-/// (PLOC / Comments / Comment ratio), so the AST report's legend defines
-/// every number on the page — including the header stats no hotspot column
-/// covers (issue #679). Shared by the Markdown and HTML AST renderers so the
-/// two legends carry the same rows.
+/// (PLOC / Comments / Comment ratio) and the Per-language overview's
+/// columns, so the AST report's legend defines every number on the page —
+/// including the header stats no hotspot column covers (issue #679) and the
+/// overview averages, whose `Avg MI` can read negative while the per-file
+/// `MI` entry says "clamped to 0–100". Shared by the Markdown and HTML AST
+/// renderers so the two legends carry the same rows. `SLOC` recurs in the
+/// overview and is deduplicated on its first (hotspot) definition.
 pub(crate) fn legend_entries_with_header_stats() -> Vec<(&'static str, &'static str)> {
-    let mut entries = hotspot::legend_entries();
-    entries.extend_from_slice(hotspot::HEADER_STAT_LEGEND);
-    entries
+    hotspot::dedup_legend(
+        hotspot::legend_entries()
+            .into_iter()
+            .chain(hotspot::HEADER_STAT_LEGEND.iter().copied())
+            .chain(hotspot::OVERVIEW_LEGEND.iter().copied())
+            .map(|(h, t)| (h, Some(t))),
+    )
 }
 
 /// Append a "Legend" subsection at the given heading `level` (number of
@@ -1479,11 +1486,94 @@ mod tests {
         }
         // Identity columns describe the row, not a metric; they must not
         // appear as legend bullets.
-        for identity in ["Function", "File", "Line", "Type"] {
+        for identity in ["Function", "File", "Line", "Type", "Language"] {
             assert!(
                 !out.contains(&format!("- **{identity}**")),
                 "identity column {identity:?} should not be in the legend"
             );
+        }
+    }
+
+    /// The Per-language overview's columns are defined on the page: a
+    /// reader meeting a negative `Avg MI` had, before this, only an `MI`
+    /// entry saying "clamped to 0–100" and nothing naming the overview's
+    /// unclamped average or the population behind `Avg CC`.
+    #[test]
+    fn markdown_legend_defines_the_overview_columns() {
+        let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let legend = out.split("## Legend").nth(1).expect("legend section");
+        for header in ["Files", "Functions", "Avg MI", "Avg CC", "Avg Cognitive"] {
+            assert!(
+                legend.contains(&format!("- **{header}** — ")),
+                "legend missing overview entry {header:?}:\n{legend}"
+            );
+        }
+        // `SLOC` is both a hotspot column and an overview column; it is
+        // defined once, on its linked hotspot entry.
+        assert_eq!(legend.matches("- **[SLOC](").count(), 1);
+        assert!(!legend.contains("- **SLOC** — "));
+        // The two MI definitions reconcile: the per-file entry says where
+        // the clamp applies and points at the unclamped average.
+        assert!(legend.contains("The overview's Avg MI is unclamped and can be negative."));
+        assert!(legend.contains("- **Avg MI** — ") && legend.contains("reads negative"));
+        // `Avg CC` names its population and the figure it can disagree with.
+        assert!(
+            legend.contains("ignoring suppression markers. The Average CC under the cyclomatic hotspot table covers every function eligible for that table before its top-N cut"),
+            "Avg CC entry must say which functions it averages:\n{legend}"
+        );
+    }
+
+    /// `write_legend` emits each definition as Markdown prose, unescaped,
+    /// and the HTML legend passes the same string through `note_html`.
+    /// That is sound only while no definition carries a character the two
+    /// readers would treat differently: `<` and `&` (raw HTML / an entity
+    /// in Markdown, escaped in HTML), `*`, `_`, `[`, `~` (Markdown markup,
+    /// literal in HTML) — and `|`, which would break a table if a
+    /// definition ever moved into one. Backticks are the one exception,
+    /// by design: both renderers read a paired span as code, and inside
+    /// it Markdown renders every character literally (`` `commits_recent` ``),
+    /// so the check skips code spans. This test is what makes the bypass
+    /// true by construction rather than by inspection, for every legend
+    /// the crate renders — and it found the VCS wire keys rendering with
+    /// a bare `_` the first time it ran.
+    #[test]
+    fn legend_definitions_carry_no_markup_the_two_renderers_would_read_apart() {
+        let mut entries = legend_entries_with_header_stats();
+        entries.extend(crate::vcs_report::all_legend_entries_for_test());
+        assert!(entries.len() > 20, "the legends were collected");
+        for (header, definition) in entries {
+            let segments: Vec<&str> = definition.split('`').collect();
+            assert!(
+                segments.len() % 2 == 1,
+                "legend entry {header:?} has an unpaired backtick: {definition}"
+            );
+            // Even-indexed segments are the prose between code spans.
+            for prose in segments.iter().step_by(2) {
+                for ch in ['<', '&', '*', '_', '[', '~', '|'] {
+                    assert!(
+                        !prose.contains(ch),
+                        "legend entry {header:?} carries {ch:?} outside a code span, which Markdown and HTML would render differently: {definition}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The CC note's fields are not joined by `|`: directly under a table
+    /// that spelling is an orphaned table row to a Markdown linter
+    /// (MD075) and renders as one in some viewers.
+    #[test]
+    fn cc_note_is_not_a_stray_table_row() {
+        let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let notes: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("Average CC: "))
+            .collect();
+        // One note per language in the fixture (Python and Rust).
+        assert_eq!(notes.len(), 2, "one CC note per language:\n{out}");
+        for note in notes {
+            assert!(!note.contains('|'), "CC note must not carry a pipe: {note}");
+            assert!(note.contains("; Max: "), "fields are `;`-joined: {note}");
         }
     }
 
@@ -2364,7 +2454,7 @@ mod tests {
         // CC note: captioned, and tallies only the visible function (max 12).
         assert!(
             report.contains(
-                "Average CC: 12.0 | Max: 12 | CC > 10: 1 functions | CC > 20: 0 functions \
+                "Average CC: 12.0; Max: 12; CC > 10: 1 functions; CC > 20: 0 functions \
                  (excluding suppressed functions)"
             ),
             "CC note must be captioned and exclude the suppressed cc=30:\n{report}"

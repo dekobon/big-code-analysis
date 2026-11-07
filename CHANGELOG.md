@@ -66,6 +66,44 @@ for historical reference.
   `utils/check-tools.sh --release-only` asks the script itself, names
   the binary it judged when it refuses one, and the install hints name
   CI's pin, `cargo-deny@0.20.2`.
+- **`bca report` renders its tables and notes correctly in both formats.**
+  A review of the published report found: HTML numeric column headers were
+  left-aligned over right-aligned cells (only `td.numeric` carried the
+  rule); notes shared with the Markdown renderer showed literal backticks
+  in HTML ("the \`bca.toml\` \`[thresholds]\` table"); the change-history
+  `Hotspot` column rendered `748436.0` beside thousands-separated
+  siblings; the Markdown pointer under that table told a `bca report`
+  reader to re-run with `--format csv`, which `report` rejects (it is
+  `bca vcs --format csv`); the HTML risk-heat bands graded rows against
+  the rendered top-N rather than every ranked file, so `--top 1` painted
+  the repository's riskiest file green; the sortable-table script sent a
+  blank numeric cell *first* on a descending sort; and the `Average CC`
+  note's `|`-joined fields read as an orphaned table row (rumdl 0.2.2's
+  MD075, four hits on the published report) directly under the
+  cyclomatic table. Headers are now
+  focusable (`tabindex`) and sort on Enter / Space, so the sort is
+  reachable without a mouse.
+- **GFM table cells escape Markdown and HTML metacharacters.** A path
+  such as `a<img src=x onerror=…>.py` became an element under a
+  non-sanitising renderer, `a&amp;b.py` displayed as `a&b.py`, and
+  `__init__.py` rendered as bold `init.py`. `escape_gfm_cell` (shared by
+  the report, `check`'s `--summary-file` step-summary digest and
+  `exemptions`) now backslash-escapes `` < & ` * _ ~ [ ] `` alongside the
+  existing `\` and `|`; GFM renders each as the literal character. The
+  legend definitions, which are crate-authored prose, are no longer
+  passed through it.
+- **The report legends say what the columns measure.** The Per-language
+  overview's `Files` / `Functions` / `Avg MI` / `Avg CC` / `Avg Cognitive`
+  were defined only as HTML hover tooltips, so a Markdown reader meeting
+  a negative `Avg MI` (the SLOC-weighted *unclamped* average of #725) had
+  only the per-file `MI` entry's "clamped to 0–100" to go on; both legends
+  now carry them, the `MI` entry points at the unclamped average, and
+  `Avg CC` names its population (every function, suppression ignored,
+  unlike the CC note's `Average CC`). `Exits`, `Methods`, `WMC`, `NPA`
+  and `NPM` said "out of the function" / "declared on the class" while
+  the columns are subtree sums (`nexits_sum`, `nom.total`, …, the
+  deliberate #709 accessor split); and `Comments` said "lines that are
+  entirely comment" while `cloc()` counts trailing comments too.
 
 ## [2.5.1] - 2026-11-06
 

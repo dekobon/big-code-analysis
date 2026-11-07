@@ -522,6 +522,14 @@ fn bus_factor_tooltips() -> [Option<&'static str>; 3] {
 /// in column order, skipping identity columns. Both the HTML legend and the
 /// Markdown legend draw from this so a column's definition renders
 /// identically in the `title=` tooltip and the legend (issue #611).
+/// Every legend entry the change-history pages can render — all columns,
+/// Hotspot included, plus the bus-factor pair — for the crate-wide
+/// legend-prose invariant test in `markdown_report`.
+#[cfg(test)]
+pub(crate) fn all_legend_entries_for_test() -> Vec<(&'static str, &'static str)> {
+    legend_entries(&VCS_SPECS.iter().collect::<Vec<_>>())
+}
+
 fn legend_entries(specs: &[&VcsColumn]) -> Vec<(&'static str, &'static str)> {
     // The bus-factor columns render in the same page but live outside
     // `VCS_SPECS`, so chain them onto the spec-driven pairs.

@@ -441,7 +441,7 @@ fn emit_cc_note_html(
     // `cyclomatic = N`.
     let _ = writeln!(
         out,
-        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; {:.0}: {} functions | CC &gt; {:.0}: {} functions{caption}</p>",
+        "<p class=\"note\">Average CC: {:.1}; Max: {:.0}; CC &gt; {:.0}: {} functions; CC &gt; {:.0}: {} functions{caption}</p>",
         stats.avg(),
         stats.max,
         stats.primary_cutoff,

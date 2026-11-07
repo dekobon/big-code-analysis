@@ -105,7 +105,7 @@ pub(crate) struct Column {
 // specs the single source of truth.
 pub(crate) const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
 pub(crate) const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
-pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescale, clamped to 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and PLOC (the rows that carry code); higher is more maintainable. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score.";
+pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescale, clamped to 0\u{2013}100 in the per-file tables): composite of Halstead volume, cyclomatic complexity, and PLOC (the rows that carry code); higher is more maintainable. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score. The overview's Avg MI is unclamped and can be negative.";
 
 /// The trailing note rendered under the MI hotspot table in both formats
 /// (issue #627). States which MI variant the column shows, the rating bands,
@@ -120,12 +120,41 @@ pub(crate) const MI_NOTE: &str = "MI shown is the Visual Studio rescale (mi_visu
 /// `mi_visual_studio`): the overview average is SLOC-weighted and derived
 /// from the *unclamped* value, so it can go negative for an unmaintainable
 /// codebase instead of saturating at 0 (issue #725).
-pub(crate) const AVG_MI_TOOLTIP: &str = "Average Maintainability Index, SLOC-weighted across the language's files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW.";
+pub(crate) const AVG_MI_TOOLTIP: &str = "Average Maintainability Index, SLOC-weighted across the language's files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW; any value below 10, however negative, is LOW.";
+/// Tooltip for the Per-language overview's `Avg CC` column. Names the
+/// population — every function, suppression markers ignored — because the
+/// CC note under the cyclomatic hotspot table averages a *different* set
+/// (suppressed functions excluded) and the two figures can disagree.
+pub(crate) const AVG_CC_TOOLTIP: &str = "Mean Cyclomatic Complexity over every function and method in the language, ignoring suppression markers. The Average CC under the cyclomatic hotspot table covers every function eligible for that table before its top-N cut (CC above 0 and, by default, not suppressed), so the two can differ.";
+/// Tooltip for the Per-language overview's `Avg Cognitive` column.
+pub(crate) const AVG_COGNITIVE_TOOLTIP: &str = "Mean Cognitive Complexity over every function and method in the language, ignoring suppression markers.";
+pub(crate) const FILES_TOOLTIP: &str = "Number of source files analysed.";
+pub(crate) const FUNCTIONS_TOOLTIP: &str = "Number of functions and methods analysed.";
+
+/// Tooltip / legend definitions for the Per-language overview table,
+/// which is NOT part of the hotspot [`SPECS`] (per-language aggregates,
+/// not per-function rows); its header and alignment lists live with the
+/// two `write_per_language_overview` / `write_overview_table` callers.
+/// The HTML renderer attaches these as `title=` tooltips and both
+/// renderers list them in the legend, so a reader who
+/// meets a negative `Avg MI` has the explanation on the page rather than
+/// only on hover. `Language` is an identity column and carries none.
+/// "Files" here means *source files analysed*; the bus-factor table's
+/// like-named column means files-per-directory and supplies its own
+/// tooltip (issue #610), so this entry never leaks onto it.
+pub(crate) const OVERVIEW_LEGEND: &[(&str, &str)] = &[
+    ("Files", FILES_TOOLTIP),
+    ("SLOC", SLOC_TOOLTIP),
+    ("Functions", FUNCTIONS_TOOLTIP),
+    ("Avg MI", AVG_MI_TOOLTIP),
+    ("Avg CC", AVG_CC_TOOLTIP),
+    ("Avg Cognitive", AVG_COGNITIVE_TOOLTIP),
+];
 pub(crate) const SLOC_TOOLTIP: &str =
     "Source Lines Of Code: total physical lines, including blanks and comments.";
 pub(crate) const PLOC_TOOLTIP: &str =
     "Physical Lines Of Code: source lines excluding blank lines and comments.";
-pub(crate) const COMMENTS_TOOLTIP: &str = "Comment lines (CLOC): lines that are entirely comment.";
+pub(crate) const COMMENTS_TOOLTIP: &str = "Comment lines (CLOC): lines carrying a comment, whether standalone or trailing code; a line with both code and a comment counts toward PLOC and CLOC alike.";
 pub(crate) const COMMENT_RATIO_TOOLTIP: &str =
     "Comment ratio: comment lines as a percentage of source lines (CLOC / SLOC).";
 pub(crate) const TOKENS_TOOLTIP: &str =
@@ -136,14 +165,15 @@ pub(crate) const VOLUME_TOOLTIP: &str =
     "Halstead volume: program length weighted by vocabulary size.";
 pub(crate) const BUGS_TOOLTIP: &str =
     "Halstead bugs: estimated defect count derived from program volume.";
-pub(crate) const EXITS_TOOLTIP: &str =
-    "Number of exit points (returns, throws, breaks out of the function).";
+pub(crate) const EXITS_TOOLTIP: &str = "Number of exit points (returns, throws, breaks out of the function), summed over the function and every function or closure nested in it.";
 pub(crate) const ABC_TOOLTIP: &str =
     "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions.";
-pub(crate) const WMC_TOOLTIP: &str = "Weighted Methods per Class: sum of cyclomatic complexity across a type's methods. \"Type\" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.";
-pub(crate) const METHODS_TOOLTIP: &str = "Number of methods declared on the class.";
-pub(crate) const NPA_TOOLTIP: &str = "Number of Public Attributes declared on the class.";
-pub(crate) const NPM_TOOLTIP: &str = "Number of Public Methods declared on the class.";
+pub(crate) const WMC_TOOLTIP: &str = "Weighted Methods per Class: sum of cyclomatic complexity across a type's methods, including the methods of any type nested in it. \"Type\" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.";
+pub(crate) const METHODS_TOOLTIP: &str = "Number of functions, methods and closures in the type, including those of any type nested in it.";
+pub(crate) const NPA_TOOLTIP: &str =
+    "Number of Public Attributes in the type, including those of any type nested in it.";
+pub(crate) const NPM_TOOLTIP: &str =
+    "Number of Public Methods in the type, including those of any type nested in it.";
 pub(crate) const ARGS_TOOLTIP: &str = "Number of declared parameters of the function.";
 
 /// Base URL of the hosted metric reference (the mdBook's metrics chapter),

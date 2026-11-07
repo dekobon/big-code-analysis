@@ -949,12 +949,12 @@ mod tests {
         // required to appear in real output without anyone remembering to
         // update the test. The hotspot metric columns own their tooltip on
         // the spec (`hotspot::legend_entries`); the Per-language overview's
-        // averaged / count columns supply theirs via `AST_OVERVIEW_TOOLTIPS`.
+        // averaged / count columns supply theirs via `OVERVIEW_LEGEND`.
         // `needle` embeds the rendered title directly, so a divergence
         // between the spec tooltip and the `title=` attribute surfaces here.
         for (header, tip) in hotspot::legend_entries()
             .into_iter()
-            .chain(AST_OVERVIEW_TOOLTIPS.iter().copied())
+            .chain(hotspot::OVERVIEW_LEGEND.iter().copied())
         {
             // A metric header now links its hosted chapter (issue #675), so
             // its text is wrapped in an `<a>`; a non-metric overview header
@@ -1290,7 +1290,7 @@ mod tests {
 
         assert!(
             report.contains(
-                "CC &gt; 10: 1 functions | CC &gt; 20: 0 functions (excluding suppressed functions)"
+                "CC &gt; 10: 1 functions; CC &gt; 20: 0 functions (excluding suppressed functions)"
             ),
             "HTML CC note must be captioned and exclude the suppressed cc=30:\n{report}"
         );
