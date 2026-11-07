@@ -929,6 +929,39 @@ mod tests {
     /// The fixture is the #1236 reproducer, picked because no space in it
     /// has `own == total`: a fixture where the two agree passes whichever
     /// one the code reads.
+    /// The `Stats` doc's and the book's `#nargs-aggregates` example, held
+    /// here so the sentence "`closure_args_average` can fall below
+    /// `closure_args_min`" stops being true the day #1809 changes the
+    /// definition, and the three docs that state it are known to need
+    /// an edit. Four one-parameter lambdas open no space, so `pick` owns
+    /// all four parameters (min = max = 4) while `nom` counts four
+    /// closures (average 1.0).
+    #[cfg(feature = "python")]
+    #[test]
+    fn closure_args_average_falls_below_min_when_lambdas_open_no_space() {
+        check_spaces::<PythonParser, _>(
+            "def pick(rows):
+    a = sorted(rows, key=lambda r: r[0])
+    b = filter(lambda r: r[1], a)
+    c = map(lambda r: r[2], b)
+    return min(c, key=lambda r: r)
+",
+            "pick.py",
+            |space| {
+                let pick = space.spaces.first().expect("pick is the first space");
+                assert_eq!(pick.name.as_deref(), Some("pick"));
+                let nargs = &pick.metrics.nargs;
+                assert_eq!(nargs.closure_args_min(), 4);
+                assert_eq!(nargs.closure_args_max(), 4);
+                assert_eq!(nargs.closure_args_sum(), 4);
+                assert!((nargs.closure_args_average() - 1.0).abs() < 1e-9);
+                assert!(nargs.closure_args_average() < nargs.closure_args_min() as f64);
+                // The file unit declares no parameters, so its minimum is 0.
+                assert_eq!(space.metrics.nargs.function_args_min(), 0);
+            },
+        );
+    }
+
     #[cfg(feature = "rust")]
     #[test]
     fn own_args_excludes_nested_closure_spaces() {

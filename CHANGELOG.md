@@ -290,9 +290,10 @@ for historical reference.
   whose own line prints that text. Above that depth nothing changes:
   output is byte-identical to before, colour included, which held for
   every file of the serde, pdf.js and DeepSpeech corpora under `-t all`
-  and `-t call_expression`; their deepest same-row nesting is 42. The renderer is reached through two new
-  `#[doc(hidden)]` re-exports, `dump_found_with_color` and
-  `write_found`, which exist for the CLI and the scaling bench and are
+  and `-t call_expression`; their deepest same-row nesting is 42, in
+  pdf.js. The renderer is reached through two new `#[doc(hidden)]`
+  re-exports, `dump_found_with_color` and `write_found`, which exist
+  for the CLI and the scaling bench and are
   outside the stability contract (`STABILITY.md`).
 - **A `role_table!` owner may carry a parent list** (#1794).
   `K(under [P, ..])` admits the owner only under one of the listed
@@ -312,17 +313,6 @@ for historical reference.
   changes: a drift-oracle sweep over the six languages, 7,028 outputs
   in 14 views, found 0 differing for the first four, and the fifth
   expands to the parent test its fn spelled.
-- **NArgs documents where its aggregates disagree** (#1809). The
-  extrema fold every space's own count, the file unit and containers
-  included, while the averages divide by the functions and closures
-  `nom` counts. A lambda that opens no space adds its parameters to
-  the enclosing function's `closure_args` yet is one closure of the
-  divisor, so `closure_args_average` can fall below
-  `closure_args_min`, and file-level `function_args_min` is always 0.
-  The `Stats` docs, a new NArgs aggregates subsection in the book and
-  the Python bindings' metric page now say so. The definition is
-  unchanged, since changing it moves integration snapshots; #1827
-  tracks the same shape in `loc`.
 - **The agent-feedback recipe documents the OpenCode V2 install**
   (#1811). The
   book had only the legacy V1 example and a pointer to the shipped V2
