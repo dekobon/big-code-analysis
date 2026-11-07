@@ -86,24 +86,55 @@ pub(crate) fn write_table_with_tooltips(
     write_table_classed_with_tooltips(out, headers, aligns, tooltips, ranked, rows, |_, _| None);
 }
 
-/// [`write_table_with_tooltips`] plus a `cell_class` callback (the
-/// severity-heat tint the change-history table paints on its risk cell).
-pub(crate) fn write_table_classed_with_tooltips(
-    out: &mut String,
-    headers: &[&str],
-    aligns: &[Align],
-    tooltips: &[Option<&str>],
-    ranked: Option<RankedColumn>,
-    rows: &[Vec<String>],
-    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
-) {
-    debug_assert_eq!(headers.len(), tooltips.len());
-    write_table_core(out, headers, aligns, tooltips, rows, ranked, cell_class);
+/// Every header cell in `html`, as the text between its `<th` and `</th>`,
+/// across every table on the page. `<thead>` shares the prefix, so the
+/// split is on `<th ` / `<th>` only.
+#[cfg(test)]
+pub(crate) fn header_cells(html: &str) -> Vec<&str> {
+    html.split("<th")
+        .skip(1)
+        .filter(|c| c.starts_with(' ') || c.starts_with('>'))
+        .map(|c| c.split("</th>").next().expect("th closes"))
+        .collect()
 }
 
-/// Emit the `<thead>` row: one `<th>` per header, carrying its numeric hint,
-/// the pre-ranked column's `aria-sort`, an optional tooltip, and a link to the
-/// metric's hosted chapter when one exists.
+/// The rendered header cell for the column labelled `label`, or `None`.
+/// A label is read as the text of its sort button, so a test selecting a
+/// column by name reads the one place the label lives and is not written
+/// against the attribute order, the icon span or the documentation glyph
+/// around it.
+#[cfg(test)]
+pub(crate) fn header_cell<'a>(html: &'a str, label: &str) -> Option<&'a str> {
+    // The button's tag may carry a `title`, so the label is matched on the
+    // text run the tag closes into, bounded by the icon span after it.
+    let needle = format!(">{label}<span class=\"sort-icon\"");
+    header_cells(html)
+        .into_iter()
+        .find(|c| c.contains("class=\"sort\"") && c.contains(&needle))
+}
+
+/// Emit the `<thead>` row: one `<th>` per header, carrying its numeric
+/// hint, the pre-ranked column's `aria-sort`, an optional tooltip, and a
+/// link to the metric's hosted chapter when one exists.
+///
+/// Each header is the WAI-ARIA APG sortable-column shape: the label is a
+/// `<button>` the inline JS binds the sort to, natively focusable and
+/// activated by Enter / Space, and announced as a button; `aria-sort`
+/// and `title` stay on the `<th>`, where ARIA defines them. The sort
+/// arrow is an empty, `aria-hidden` span the CSS fills from the parent's
+/// `aria-sort`, so it never joins the button's accessible name. The
+/// documentation link, once the label itself, is a small `?` beside it
+/// — so clicking the label sorts and clicking the glyph navigates, and
+/// neither handler needs to guess which the reader meant. It carries a
+/// `title`, not an `aria-label`: a column header's accessible name is
+/// computed from its content, descending into the link, so a label there
+/// would be read out with the column name on every cell a screen reader
+/// crosses ("CC CC: documentation 25"); the link's purpose is clear from
+/// its context in the header, and the legend links every chapter by
+/// name. The tooltip is repeated on the button, since a focused element's
+/// description comes from the element itself, not an ancestor. Attribute
+/// order on the `<th>` is fixed (`scope`, `data-numeric`, `aria-sort`,
+/// `title`) because tests select on it.
 fn write_table_head(
     out: &mut String,
     headers: &[&str],
@@ -118,10 +149,7 @@ fn write_table_head(
         } else {
             ""
         };
-        // `tabindex="0"` puts the header in the tab order so the sort the
-        // inline JS binds to click is also reachable by keyboard (Enter /
-        // Space); without it a bare `<th>` can never take focus.
-        let _ = write!(out, "<th tabindex=\"0\"{numeric_attr}");
+        let _ = write!(out, "<th scope=\"col\"{numeric_attr}");
         // Announce the pre-ranked column's initial sort order at render
         // time. The `dir` string comes from `SortDir::aria_sort`, so it is
         // always the literal `ascending`/`descending` the inline JS toggles
@@ -132,43 +160,44 @@ fn write_table_head(
         {
             let _ = write!(out, " aria-sort=\"{}\"", rank.dir);
         }
-        if let Some(tip) = tooltips.get(i).copied().flatten() {
-            let _ = write!(out, " title=\"{}\"", escape_html(tip));
+        let tip = tooltips.get(i).copied().flatten().map(escape_html);
+        let title_attr = tip
+            .as_deref()
+            .map(|t| format!(" title=\"{t}\""))
+            .unwrap_or_default();
+        let _ = write!(
+            out,
+            "{title_attr}><button type=\"button\" class=\"sort\"{title_attr}>{}<span class=\"sort-icon\" aria-hidden=\"true\"></span></button>",
+            escape_html(h)
+        );
+        // The hosted metric chapter (issue #675); non-metric headers (File,
+        // Rank, the overview averages) carry no link.
+        if let Some(url) = hotspot::metric_doc_url(h) {
+            let _ = write!(
+                out,
+                "<a class=\"doc\" href=\"{}\" title=\"Documentation\">?</a>",
+                escape_html(&url)
+            );
         }
-        // Link the header text to its hosted metric chapter when one exists
-        // (issue #675). The link sits inside the still-clickable `<th>`, so
-        // clicking the padding sorts and clicking the term opens the docs;
-        // non-metric headers (File, Rank, overview averages) render bare.
-        match hotspot::metric_doc_url(h) {
-            Some(url) => {
-                let _ = write!(
-                    out,
-                    "><a href=\"{}\">{}</a></th>",
-                    escape_html(&url),
-                    escape_html(h)
-                );
-            }
-            None => {
-                let _ = write!(out, ">{}</th>", escape_html(h));
-            }
-        }
+        let _ = out.write_str("</th>");
     }
     let _ = out.write_str("</tr></thead>\n");
 }
 
-/// Shared table body for the HTML renderers: `cell_class` contributes an
-/// optional per-cell CSS class keyed by `(row, col)`, and `tooltips[i]`
-/// is column `i`'s `title=` text.
-fn write_table_core(
+/// [`write_table_with_tooltips`] plus a `cell_class` callback (the
+/// severity-heat tint the change-history table paints on its risk cell),
+/// contributing an optional per-cell CSS class keyed by `(row, col)`.
+pub(crate) fn write_table_classed_with_tooltips(
     out: &mut String,
     headers: &[&str],
     aligns: &[Align],
     tooltips: &[Option<&str>],
-    rows: &[Vec<String>],
     ranked: Option<RankedColumn>,
+    rows: &[Vec<String>],
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
 ) {
     debug_assert_eq!(headers.len(), aligns.len());
+    debug_assert_eq!(headers.len(), tooltips.len());
     // Wrap every table in an overflow-x scroll container so a wide table
     // (the 21-column VCS table especially) scrolls horizontally instead of
     // clipping its right-most metric columns past a narrow viewport (issue
@@ -513,42 +542,126 @@ mod tests {
         // The selector keys on the attribute the sorter already emits, so
         // the real output carries it on exactly the numeric headers.
         let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
-        assert!(out.contains("<th tabindex=\"0\" data-numeric=\"1\""));
+        assert!(out.contains("<th scope=\"col\" data-numeric=\"1\""));
         assert!(
-            out.contains("<th tabindex=\"0\">File</th>"),
+            out.contains("<th scope=\"col\"><button type=\"button\" class=\"sort\">File<"),
             "identity headers stay text-aligned (no data-numeric):\n{out}"
         );
     }
 
-    /// Sorting is reachable from the keyboard: every header is in the tab
-    /// order and the handler fires on Enter / Space as well as click.
-    /// Before, a bare `<th>` could never take focus, and the only
-    /// focusable thing in a metric header was its documentation link.
+    /// Each header is the APG sortable-column shape: the label is a native
+    /// `<button>` (focusable and activated by Enter / Space with no key
+    /// handling of our own), the sort arrow is an `aria-hidden` span inside
+    /// it so it never joins the button's accessible name, `scope="col"` is
+    /// set, and nothing on the `<th>` itself is focusable or bound. The
+    /// previous shape — `tabindex="0"` on the `th` with a `keydown`
+    /// listener — was reachable but announced as a plain column header.
+    /// Walks every header rather than comparing global counts, over the
+    /// AST report, the standalone change-history page with and without
+    /// its Hotspot column (whose 20-plus columns and bus-factor table have
+    /// no documentation links), and the aggregated page with the
+    /// change-history section embedded.
     #[test]
-    fn headers_are_focusable_and_sort_on_keyboard() {
-        let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
-        // `<th ` and `<th>` only — `<thead>` shares the prefix.
-        let total = out.matches("<th ").count() + out.matches("<th>").count();
-        assert!(total > 0);
-        assert_eq!(
-            out.matches("<th tabindex=\"0\"").count(),
-            total,
-            "every <th> must be focusable"
+    fn headers_are_native_sort_buttons() {
+        let ast = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
+        let vcs_report = crate::vcs_report::rich_report_for_test();
+        let vcs = crate::vcs_report::render_html(&vcs_report);
+        let vcs_unscored =
+            crate::vcs_report::render_html(&crate::vcs_report::unscored_report_for_test());
+        let embedded = generate_html_report_with_vcs(
+            &rust_fixture(),
+            20,
+            SuppressionPolicy::Honor,
+            &AdvisoryThresholds::DEFAULT,
+            Some(&vcs_report),
+            None,
         );
-        assert!(INLINE_JS.contains("th.addEventListener('keydown'"));
-        assert!(INLINE_JS.contains("e.key==='Enter'||e.key===' '"));
-        // A metric header holds a documentation link; Enter on *that*
-        // must follow the link, not sort. The handler ignores a keydown
-        // that bubbled from a child, before it reads the key.
-        let guard = INLINE_JS
-            .find("if(e.target!==th)return;")
-            .expect("target guard");
-        let key = INLINE_JS.find("e.key==='Enter'").expect("key test");
-        assert!(guard < key, "the target guard must run before the key test");
         assert!(
-            INLINE_CSS.contains("table.hotspot th:focus-visible{outline:"),
-            "a focused header must be visibly focused"
+            header_cell(&vcs, "Hotspot").is_some()
+                && header_cell(&vcs_unscored, "Hotspot").is_none()
         );
+        for (page, html) in [
+            ("ast", &ast),
+            ("vcs", &vcs),
+            ("vcs-unscored", &vcs_unscored),
+            ("embedded", &embedded),
+        ] {
+            let cells = header_cells(html);
+            assert!(cells.len() >= 10, "{page}: headers found: {}", cells.len());
+            for cell in &cells {
+                let (opening, body) = cell.split_once('>').expect("opening tag closes");
+                assert!(
+                    opening.starts_with(" scope=\"col\""),
+                    "{page}: scope=\"col\" leads every th: <th{opening}>"
+                );
+                // The one negative worth spelling: the `th` was focusable
+                // before, and a focusable `th` beside a focusable button is
+                // two stops announcing two different things.
+                assert!(
+                    !opening.contains("tabindex"),
+                    "{page}: no tabindex on a th: {cell}"
+                );
+                let button_at = body
+                    .find("<button type=\"button\" class=\"sort\"")
+                    .unwrap_or_else(|| panic!("{page}: a sort button opens the th body: {cell}"));
+                assert_eq!(
+                    button_at, 0,
+                    "{page}: the button is the first child: {cell}"
+                );
+                assert_eq!(
+                    body.matches("<button").count(),
+                    1,
+                    "{page}: exactly one button per th: {cell}"
+                );
+                let button_end = body.find("</button>").expect("button closes");
+                assert!(
+                    body[..button_end]
+                        .ends_with("<span class=\"sort-icon\" aria-hidden=\"true\"></span>"),
+                    "{page}: the button ends with its hidden icon span: {cell}"
+                );
+                // After the button: nothing, or exactly one documentation
+                // link that is the cell's last child.
+                let rest = &body[button_end + "</button>".len()..];
+                assert!(
+                    rest.is_empty()
+                        || (rest.starts_with("<a class=\"doc\" href=")
+                            && rest.ends_with(">?</a>")
+                            && rest.matches("<a ").count() == 1),
+                    "{page}: the doc link, if any, follows the button and ends the cell: {cell}"
+                );
+            }
+            assert_html_well_formed(html);
+        }
+        // The AST page has metric headers with a doc link; the VCS page
+        // has none (no change-history column maps to a hosted chapter).
+        let cc = header_cell(&ast, "CC").expect("a CC header on the AST page");
+        assert!(
+            cc.ends_with("title=\"Documentation\">?</a>"),
+            "the metric doc link carries a title, not an aria-label that would join the column's name: {cc}"
+        );
+        assert!(!cc.contains("aria-label"), "{cc}");
+        assert!(
+            header_cells(&vcs)
+                .iter()
+                .all(|c| !c.contains("class=\"doc\""))
+        );
+        // The script binds the button, with no key handling of its own:
+        // the harness test proves the listeners land there; this pins the
+        // one selector the two share.
+        assert!(INLINE_JS.contains("th.querySelector('button.sort')"));
+        assert!(!INLINE_JS.contains("keydown"), "no key handling of our own");
+        assert!(
+            INLINE_CSS.contains("table.hotspot th button.sort:focus-visible{outline:"),
+            "a focused sort button must be visibly focused"
+        );
+        assert!(
+            INLINE_CSS.contains("th[aria-sort=ascending] .sort-icon::after"),
+            "the arrow is drawn in the hidden icon span"
+        );
+        // The button, not the header's padding, is the hover target and
+        // carries the cell's padding so the whole header area activates it.
+        assert!(INLINE_CSS.contains("table.hotspot th button.sort:hover{background:"));
+        assert!(INLINE_CSS.contains("table.hotspot th button.sort{font:inherit;color:inherit;background:none;border:0;padding:0.4rem 0.6rem;"));
     }
 
     /// An empty numeric cell (the overview's `Avg MI` when no file carries
@@ -576,7 +689,9 @@ mod tests {
     /// Runs [`INLINE_JS`] under Node against a DOM stub
     /// (`tests/fixtures/sort_script_harness.mjs`) and asserts what it
     /// *does*: the substring tests above pin the spelling and would pass
-    /// a script that, say, guarded the wrong event target. The harness
+    /// a script that, say, bound its listener one element up. The stub
+    /// proves click routing and sort state only — not native keyboard
+    /// activation, focus, accessible names, layout or print. The harness
     /// needs nothing newer than Node 14; the floor is `make plugin-test`'s
     /// 22.7 so one runtime serves every Node-driven test. Without it the
     /// test skips locally with a note, and **fails** under `CI` — the
@@ -643,20 +758,36 @@ mod tests {
         assert_eq!(strs("textAscending"), ["a.rs", "b.rs", "c.rs", "d.rs"]);
         assert!(got["numericAriaCleared"].is_null(), "{got}");
         assert!(got["rankedAriaCleared"].is_null(), "{got}");
-        // Keyboard: Enter / Space on the header sort and swallow the key.
-        assert_eq!(strs("enterOnHeaderSorts"), ["d.rs", "c.rs", "b.rs", "a.rs"]);
-        assert_eq!(got["enterOnHeaderPrevented"], true);
-        assert_eq!(strs("spaceOnHeaderSorts"), ["5", "12", "1,000", ""]);
-        assert_eq!(got["spaceOnHeaderPrevented"], true);
-        // Enter on the header's documentation link neither sorts nor
-        // cancels the link's own navigation — including the `click` a
-        // browser synthesizes to activate the link, which bubbles to the
-        // header's click handler. A mouse click on the link is likewise
-        // the link's alone.
-        assert_eq!(got["enterOnLinkPrevented"], false, "{got}");
-        assert_eq!(got["enterOnLinkMovedRows"], false, "{got}");
-        assert_eq!(got["clickOnLinkMovedRows"], false, "{got}");
-        assert_eq!(got["tabPrevented"], false);
+        // The button is the control: it carries the one listener, the
+        // header itself none — so Enter / Space on the focused button sort
+        // through the browser's native activation with no key handling of
+        // our own, and nothing can intercept a key on the header.
+        assert_eq!(
+            got["headerListeners"],
+            serde_json::json!([0, 0, 0, 0]),
+            "{got}"
+        );
+        assert_eq!(
+            got["buttonListeners"],
+            serde_json::json!([1, 1, 1, 1]),
+            "{got}"
+        );
+        // Sorting one table leaves the other alone, in both directions. The
+        // baseline is the second table's order as rendered, read before the
+        // script ran, so a script that sorted at load time is seen too.
+        assert_eq!(strs("otherAsRendered"), ["src", "docs", "tests"]);
+        assert_eq!(got["otherUntouchedBySort"], true, "{got}");
+        assert_eq!(strs("otherAscending"), ["docs", "src", "tests"]);
+        assert_eq!(got["firstUntouchedByOther"], true, "{got}");
+        // A click on the arrow inside the button still reaches the button.
+        assert_eq!(got["iconClickMovedRows"], true, "{got}");
+        // Only the button is the control: a click targeting the
+        // documentation link, or the header cell itself, leaves the order
+        // alone. The button carries the cell's padding, so the whole header
+        // area still sorts in a browser; the cell-target case proves the
+        // listener lives on the button and nowhere above it.
+        assert_eq!(got["linkClickMovedRows"], false, "{got}");
+        assert_eq!(got["cellClickMovedRows"], false, "{got}");
     }
 
     #[test]
@@ -919,22 +1050,30 @@ mod tests {
             .into_iter()
             .chain(overview::legend())
         {
-            // A metric header now links its hosted chapter (issue #675), so
-            // its text is wrapped in an `<a>`; a non-metric overview header
-            // (Avg CC, …) stays bare. Either way the `title=` tooltip
-            // precedes it.
-            let needle = match hotspot::metric_doc_url(header) {
-                Some(url) => format!(
-                    " title=\"{}\"><a href=\"{}\">{header}</a></th>",
-                    escape_html(tip),
-                    escape_html(&url)
-                ),
-                None => format!(" title=\"{}\">{header}</th>", escape_html(tip)),
-            };
+            // The `title=` sits on the `<th>`; a metric header also links
+            // its hosted chapter (issue #675) through the `?` glyph after
+            // the label, and a non-metric overview header (Avg CC, …) has
+            // no glyph.
+            let cell = header_cell(&out, header)
+                .unwrap_or_else(|| panic!("header {header:?} should render:\n{out}"));
+            let (opening, body) = cell.split_once('>').expect("th opening tag");
             assert!(
-                out.contains(&needle),
-                "header {header:?} should render with title attribute; expected substring {needle:?}"
+                opening.contains(&format!(" title=\"{}\"", escape_html(tip))),
+                "header {header:?} should carry its tooltip: <th{opening}>"
             );
+            match hotspot::metric_doc_url(header) {
+                Some(url) => assert!(
+                    body.ends_with(&format!(
+                        "<a class=\"doc\" href=\"{}\" title=\"Documentation\">?</a>",
+                        escape_html(&url)
+                    )),
+                    "metric header {header:?} should end with its doc glyph: {body}"
+                ),
+                None => assert!(
+                    !body.contains("<a "),
+                    "non-metric header {header:?} should carry no link: {body}"
+                ),
+            }
         }
 
         // Non-metric labels must remain bare so click-to-sort UX is not
@@ -948,10 +1087,12 @@ mod tests {
             "Language is the overview's only tooltip-less column"
         );
         for plain in ["File", "Function", "Type", "Line", "Language"] {
-            let needle = format!(">{plain}</th>");
+            let cell = header_cell(&out, plain)
+                .unwrap_or_else(|| panic!("expected a <th> labelled {plain} in output"));
+            let (opening, _) = cell.split_once('>').expect("th opening tag");
             assert!(
-                out.contains(&needle),
-                "expected bare <th>{plain}</th> in output"
+                !opening.contains("title="),
+                "identity header {plain:?} must carry no tooltip: <th{opening}>"
             );
         }
     }
@@ -983,27 +1124,34 @@ mod tests {
                 "legend missing linked header-stat entry {header:?}"
             );
         }
+        let mut rendered = 0usize;
         for (header, tip) in hotspot::legend_entries() {
             // Only assert entries whose column the fixture actually renders;
             // every metric column the rust fixture exercises must define
-            // itself in the legend. Metric terms link their chapter (#675), so
-            // both the `<th>` render-check and the `<dt>` term carry the link.
-            let (th_needle, dt_term) = match hotspot::metric_doc_url(header) {
-                Some(url) => (
-                    format!("<a href=\"{}\">{header}</a></th>", escape_html(&url)),
-                    format!(
-                        "<a href=\"{}\">{}</a>",
-                        escape_html(&url),
-                        escape_html(header)
-                    ),
-                ),
-                None => (format!(">{header}</th>"), escape_html(header).into_owned()),
-            };
-            let dt = format!("<dt>{dt_term}</dt><dd>{}</dd>", escape_html(tip));
-            if out.contains(&th_needle) {
+            // itself in the legend. Every hotspot legend term links its
+            // chapter (#675; `every_legend_header_has_a_doc_anchor` pins
+            // that none lacks one), so the `<dt>` carries the link.
+            let url = hotspot::metric_doc_url(header)
+                .expect("every hotspot legend header has a doc anchor");
+            let dt = format!(
+                "<dt><a href=\"{}\">{}</a></dt><dd>{}</dd>",
+                escape_html(&url),
+                escape_html(header),
+                escape_html(tip)
+            );
+            if header_cell(&out, header).is_some() {
+                rendered += 1;
                 assert!(out.contains(&dt), "legend missing entry for {header:?}");
             }
         }
+        // The fixture renders most hotspot sections, so the loop above
+        // must have asserted on a real majority of the legend, not matched
+        // nothing and passed vacuously.
+        assert!(
+            rendered >= hotspot::legend_entries().len() / 2,
+            "only {rendered} of {} legend columns were found rendered",
+            hotspot::legend_entries().len()
+        );
     }
 
     #[test]

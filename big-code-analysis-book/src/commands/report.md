@@ -249,17 +249,24 @@ bca report --paths /path/to/project \
     html --top 10 --output report.html
 ```
 
-Click any column header — or Tab to it and press Enter or Space — to
-sort that table ascending, and again to toggle descending. Each table
-sorts independently. Empty cells (where a metric was not measured) sort
-last in both directions, so "no data" rows never surface at the top of
-a hotspot.
+Every column header is a native button: click its label — or Tab to
+it and press Enter or Space — to sort that table ascending, and again
+to toggle descending. Each table sorts independently. Empty cells
+(where a metric was not measured) sort last in both directions, so
+"no data" rows never surface at the top of a hotspot. The header
+follows the WAI-ARIA sortable-table pattern — the label is the
+`<button>`, the cell carries `aria-sort`, and the sort arrow is hidden
+from assistive technology — so a screen reader announces the control
+as a button and the column's current order. The button fills the
+header cell, so clicking anywhere in it sorts; the `?` beside a metric
+label is the one thing in a header that does not.
 
-Hover (or keyboard-focus, where the browser supports it) any metric
-column header (`SLOC`, `MI`, `CC`, `ABC`, `WMC`, `NPA`, `NPM`,
-`Exits`, and the rest) for a one-sentence plain-English explanation of
-the metric. The tooltip is delivered through the native HTML `title`
-attribute, so it works offline with no JavaScript.
+Hover any metric column header (`SLOC`, `MI`, `CC`, `ABC`, `WMC`,
+`NPA`, `NPM`, `Exits`, and the rest) for a one-sentence plain-English
+explanation of the metric. The tooltip is delivered through the native
+HTML `title` attribute, so it works offline with no JavaScript. The
+small `?` after a metric's label is the link to that metric's chapter
+in this book.
 
 Because `title` tooltips are hover-only (invisible in print, on
 mobile, and to screen readers), the page also ends with a visible,

@@ -241,12 +241,7 @@ pub(crate) fn write_overview_table(
 ) {
     headings.emit_h2(out, "Per-language overview", "Per-language overview");
     let _ = out.write_str("\n");
-    // One discoverability hint near the first table: the columns are
-    // sortable, which is otherwise invisible until a reader happens to
-    // click a header (issue #622).
-    let _ = out.write_str(
-        "<p class=\"sort-hint\">Click a column header \u{2014} or Tab to it and press Enter \u{2014} to sort any table.</p>\n",
-    );
+    write_sort_hint(out);
     let rows: Vec<Vec<String>> = by_lang
         .iter()
         .map(|(&lang_name, lang_summaries)| {

@@ -609,12 +609,6 @@ value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_table_core"
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_head"
 metric = "nargs"
 value = 5.0

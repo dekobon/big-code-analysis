@@ -1494,9 +1494,10 @@ mod tests {
     }
 
     /// The HTML overview's header cells as `(opening tag, label)` pairs,
-    /// one per `<th>`. The label is the cell's *first* text run only, so a
-    /// control wrapping the label or a glyph following it (a sort button,
-    /// a documentation link) does not change what the tests compare.
+    /// one per `<th>`, over the crate's one header extractor. The label is
+    /// the text the sort button's tag closes into, bounded by the icon
+    /// span after it, so what surrounds the label does not change what the
+    /// tests compare.
     fn overview_header_cells(html: &str) -> Vec<(String, String)> {
         let thead = html
             .split("Per-language overview</h2>")
@@ -1504,51 +1505,18 @@ mod tests {
             .and_then(|t| t.split("<thead>").nth(1))
             .and_then(|t| t.split("</thead>").next())
             .expect("overview thead");
-        thead
-            .split("<th")
-            .skip(1)
+        crate::html_report::header_cells(thead)
+            .into_iter()
             .map(|cell| {
-                let tag_end = cell.find('>').expect("th opening tag closes");
-                let opening = format!("<th{}", &cell[..=tag_end]);
-                let mut label = String::new();
-                let mut in_tag = false;
-                for ch in cell[tag_end + 1..].chars() {
-                    match ch {
-                        '<' => {
-                            if !label.trim().is_empty() {
-                                break;
-                            }
-                            in_tag = true;
-                        }
-                        '>' => in_tag = false,
-                        _ if !in_tag => label.push(ch),
-                        _ => {}
-                    }
-                }
-                (opening, label.trim().to_owned())
+                let (opening, body) = cell.split_once('>').expect("th opening tag closes");
+                let label = body
+                    .split_once("<span class=\"sort-icon\"")
+                    .and_then(|(before, _)| before.rsplit_once('>'))
+                    .map(|(_, label)| label)
+                    .expect("a sort button labels the th");
+                (format!("<th{opening}>"), label.to_owned())
             })
             .collect()
-    }
-
-    /// The extractor the two overview tests share reads a header's label
-    /// as its first text run, so a sort control around the label and a
-    /// documentation glyph after it — the markup the sortable-header
-    /// work renders — leave the comparison unchanged.
-    #[test]
-    fn overview_header_extraction_survives_a_control_and_a_glyph() {
-        let html = "x<h2>Per-language overview</h2><table><thead><tr>\
-            <th scope=\"col\"><button type=\"button\" class=\"sort\">Language<span aria-hidden=\"true\"></span></button></th>\
-            <th scope=\"col\" data-numeric=\"1\" title=\"Source Lines\"><button type=\"button\" class=\"sort\">SLOC</button><a class=\"doc\" href=\"#\">?</a></th>\
-            </tr></thead></table>";
-        let cells = overview_header_cells(html);
-        let labels: Vec<&str> = cells.iter().map(|(_, l)| l.as_str()).collect();
-        assert_eq!(labels, ["Language", "SLOC"]);
-        assert!(cells[1].0.contains(" title=\"Source Lines\""));
-        assert!(
-            !cells[1].0.contains("button"),
-            "opening tag only: {}",
-            cells[1].0
-        );
     }
 
     /// The overview's five tooltips, pinned by hand against both outputs
@@ -3071,7 +3039,7 @@ mod tests {
             let table_slice = &html[start..];
             let body_start = table_slice.find("<tbody").unwrap_or(table_slice.len());
             assert!(
-                table_slice[..body_start].contains(">Line</th>"),
+                crate::html_report::header_cell(&table_slice[..body_start], "Line").is_some(),
                 "Line column missing from HTML {header} header"
             );
         }

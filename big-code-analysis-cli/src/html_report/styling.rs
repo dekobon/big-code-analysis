@@ -205,14 +205,20 @@ table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;\
 background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.06);margin-bottom:0.5rem}\
 table.hotspot th,table.hotspot td{padding:0.4rem 0.6rem;\
 border-bottom:1px solid #e5e5e5;text-align:left;white-space:nowrap}\
-table.hotspot th{background:#f0f0f0;cursor:pointer;user-select:none;\
-font-weight:600}\
-table.hotspot th:hover{background:#e5e5e5}\
-table.hotspot th[aria-sort=ascending]::after{content:\" \\2191\"}\
-table.hotspot th[aria-sort=descending]::after{content:\" \\2193\"}\
+table.hotspot th{background:#f0f0f0;user-select:none;font-weight:600;\
+padding:0}\
+table.hotspot th button.sort{font:inherit;color:inherit;background:none;\
+border:0;padding:0.4rem 0.6rem;cursor:pointer;text-align:inherit}\
+table.hotspot th button.sort:hover{background:#e5e5e5}\
+table.hotspot th button.sort:focus-visible{outline:2px solid #3d82cc;\
+outline-offset:-2px}\
+table.hotspot th[aria-sort=ascending] .sort-icon::after{content:\" \\2191\"}\
+table.hotspot th[aria-sort=descending] .sort-icon::after{content:\" \\2193\"}\
+table.hotspot th a.doc{padding:0.4rem 0.6rem 0.4rem 0;font-size:0.85em;\
+color:#555}\
+table.hotspot th a.doc:hover,table.hotspot th a.doc:focus-visible{color:#222}\
 table.hotspot tr:nth-child(even) td{background:#fafafa}\
 table.hotspot th[data-numeric=\"1\"]{text-align:right}\
-table.hotspot th:focus-visible{outline:2px solid #3d82cc;outline-offset:-2px}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 table.hotspot td.risk-heat-0,table.hotspot td.risk-heat-1,\
 table.hotspot td.risk-heat-2,table.hotspot td.risk-heat-3,\
@@ -243,7 +249,9 @@ details.legend dd{color:#999}\
 table.hotspot{background:#1e1e1e}\
 table.hotspot th,table.hotspot td{border-bottom-color:#333}\
 table.hotspot th{background:#2a2a2a}\
-table.hotspot th:hover{background:#383838}\
+table.hotspot th button.sort:hover{background:#383838}\
+table.hotspot th a.doc{color:#aaa}\
+table.hotspot th a.doc:hover,table.hotspot th a.doc:focus-visible{color:#e0e0e0}\
 table.hotspot tr:nth-child(even) td{background:#232323}\
 table.hotspot tr:nth-child(even) td.risk-heat-0,table.hotspot td.risk-heat-0\
 {background:#7a1f17;color:#f0f0f0}\
@@ -309,14 +317,9 @@ function num(s){return s===''?NaN:parseFloat(s.replace(/,/g,''));}\
 document.querySelectorAll('table.hotspot').forEach(function(table){\
 var headers=table.querySelectorAll('thead th');\
 headers.forEach(function(th,idx){\
-th.addEventListener('click',function(e){\
-if(e.target!==th)return;\
-sort(table,idx,th);\
-});\
-th.addEventListener('keydown',function(e){\
-if(e.target!==th)return;\
-if(e.key==='Enter'||e.key===' '){e.preventDefault();sort(table,idx,th);}\
-});\
+var b=th.querySelector('button.sort');\
+if(!b)return;\
+b.addEventListener('click',function(){sort(table,idx,th);});\
 });\
 });\
 function sort(tbl,idx,th){\
@@ -348,6 +351,17 @@ keyed.forEach(function(e){tbody.appendChild(e.r);});\
 }\
 })();\
 ";
+
+/// One discoverability hint near a page's first table: the columns are
+/// sortable, which is otherwise invisible until a reader happens to
+/// activate a header (issue #622). Lives beside [`INLINE_JS`], whose
+/// behaviour it describes, and is shared by the aggregated report and the
+/// standalone change-history page.
+pub(crate) fn write_sort_hint(out: &mut String) {
+    let _ = out.write_str(
+        "<p class=\"sort-hint\">Click a column header's label \u{2014} or Tab to it and press Enter \u{2014} to sort any table.</p>\n",
+    );
+}
 
 /// Write the shared HTML preamble (doctype, head with the inline CSS, and
 /// the opening `<h1>`). `title` fills the `<title>` element and `heading`

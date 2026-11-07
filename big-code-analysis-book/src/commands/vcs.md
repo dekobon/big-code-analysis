@@ -76,8 +76,8 @@ bca vcs --top 50 --format markdown --output vcs.md
 ```
 
 `--format html` produces a self-contained, sortable page styled like
-`bca report html` (click any column header, or focus it and press
-Enter, to re-sort); `--format
+`bca report html` (click any column header's label, or Tab to it and
+press Enter, to re-sort); `--format
 markdown` produces the same ranked table as
 [GitHub-Flavored Markdown](https://github.github.com/gfm/). Both render
 every signal column, the same data the structured formats carry. The

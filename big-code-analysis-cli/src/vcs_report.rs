@@ -20,7 +20,8 @@ use std::fmt::Write as _;
 
 use crate::html_report::{
     Headings, RankedColumn, note_html, write_html_head, write_html_tail, write_legend_html,
-    write_table_classed_with_tooltips as write_html_table_classed, write_table_with_tooltips,
+    write_sort_hint, write_table_classed_with_tooltips as write_html_table_classed,
+    write_table_with_tooltips,
 };
 use crate::markdown_report::hotspot::{self, Cell};
 use crate::markdown_report::{
@@ -512,10 +513,20 @@ fn bus_factor_tooltips() -> [Option<&'static str>; 3] {
     ]
 }
 
-/// The deduplicated `(header, tooltip)` pairs for the change-history table,
-/// in column order, skipping identity columns. Both the HTML legend and the
-/// Markdown legend draw from this so a column's definition renders
-/// identically in the `title=` tooltip and the legend (issue #611).
+/// The rich test report, for the crate-wide header-shape test in
+/// `html_report`, which walks every table family a page can render.
+#[cfg(test)]
+pub(crate) fn rich_report_for_test() -> Report {
+    tests::rich_report()
+}
+
+/// The same with every hotspot score cleared — the plain `bca vcs` shape,
+/// which drops the Hotspot column (#615) — for the same test.
+#[cfg(test)]
+pub(crate) fn unscored_report_for_test() -> Report {
+    tests::unscored_report()
+}
+
 /// Every legend entry the change-history pages can render — all columns,
 /// Hotspot included, plus the bus-factor pair — for the crate-wide
 /// legend-prose invariant test in `markdown_report`.
@@ -524,6 +535,10 @@ pub(crate) fn all_legend_entries_for_test() -> Vec<(&'static str, &'static str)>
     legend_entries(&VCS_SPECS.iter().collect::<Vec<_>>())
 }
 
+/// The deduplicated `(header, tooltip)` pairs for the change-history table,
+/// in column order, skipping identity columns. Both the HTML legend and the
+/// Markdown legend draw from this so a column's definition renders
+/// identically in the `title=` tooltip and the legend (issue #611).
 fn legend_entries(specs: &[&VcsColumn]) -> Vec<(&'static str, &'static str)> {
     // The bus-factor columns render in the same page but live outside
     // `VCS_SPECS`, so chain them onto the spec-driven pairs.
@@ -616,7 +631,7 @@ pub(crate) fn render_html(report: &Report) -> String {
     let mut headings = Headings::default();
     let _ = out.write_str("<section>\n");
     // Page title is `<h1>`, so subsections start at `<h2>` (issue #618).
-    write_html_body(&mut out, &mut headings, report, STANDALONE_SUBSECTION_LEVEL);
+    write_html_body(&mut out, &mut headings, report, Page::Standalone);
     let _ = out.write_str("</section>\n");
     write_html_tail(&mut out);
     out
@@ -632,19 +647,34 @@ pub(crate) fn push_html_section(out: &mut String, headings: &mut Headings, repor
     headings.emit_h2(out, HEADING, HEADING);
     let _ = out.write_str("\n");
     // Section header is `<h2>`, so subsections start at `<h3>`.
-    write_html_body(out, headings, report, EMBEDDED_SUBSECTION_LEVEL);
+    write_html_body(out, headings, report, Page::Embedded);
     let _ = out.write_str("</section>\n");
+}
+
+/// Which page the change-history HTML is rendered into: its own
+/// (`bca vcs --format html`), or a section of the aggregated report.
+/// Decides the subsection heading depth and whether this body carries the
+/// page's sort hint — the aggregated page places that above its first
+/// table, the overview, so an embedded section must not repeat it.
+#[derive(Clone, Copy)]
+enum Page {
+    Standalone,
+    Embedded,
+}
+
+impl Page {
+    fn subsection_level(self) -> usize {
+        match self {
+            Self::Standalone => STANDALONE_SUBSECTION_LEVEL,
+            Self::Embedded => EMBEDDED_SUBSECTION_LEVEL,
+        }
+    }
 }
 
 /// Provenance summary + sortable table (or the empty-set message). No
 /// `<section>` wrapper or heading — the caller supplies those.
-/// `subsection_level` is the heading depth for the Bus factor subsection.
-fn write_html_body(
-    out: &mut String,
-    headings: &mut Headings,
-    report: &Report,
-    subsection_level: usize,
-) {
+fn write_html_body(out: &mut String, headings: &mut Headings, report: &Report, page: Page) {
+    let subsection_level = page.subsection_level();
     let _ = out.write_str("<div class=\"summary\">\n");
     let _ = writeln!(out, "<p>{}</p>", provenance(report));
     if report.truncated_shallow_clone {
@@ -655,6 +685,11 @@ fn write_html_body(
     if report.files.is_empty() {
         let _ = writeln!(out, "<p>{EMPTY_MESSAGE}</p>");
     } else {
+        // The hint sits directly above the first table it describes, and
+        // only when there is one to sort.
+        if matches!(page, Page::Standalone) {
+            write_sort_hint(out);
+        }
         let rows: Vec<Vec<String>> = cell_rows(report, &specs)
             .into_iter()
             .map(|row| row.into_iter().map(Cell::into_text).collect())
@@ -782,7 +817,7 @@ mod tests {
 
     /// A small ranked report: descending risk, one row with a hotspot
     /// score and one without (the `bca vcs` vs `metrics --vcs` split).
-    fn rich_report() -> Report {
+    pub(super) fn rich_report() -> Report {
         Report {
             long_window_days: 365,
             recent_window_days: 90,
@@ -797,6 +832,16 @@ mod tests {
             ],
             ranked_total: 3,
         }
+    }
+
+    /// [`rich_report`] with every hotspot score cleared: the plain `bca vcs`
+    /// shape, with no AST join, which drops the Hotspot column (#615).
+    pub(super) fn unscored_report() -> Report {
+        let mut report = rich_report();
+        for entry in &mut report.files {
+            entry.vcs.hotspot_score = None;
+        }
+        report
     }
 
     /// A small, fixed bus-factor aggregate so the rich-report snapshots
@@ -1056,7 +1101,7 @@ mod tests {
         // HTML carries every active header; Markdown carries the curated core.
         for header in headers(&active) {
             assert!(
-                html.contains(&format!(">{header}</th>")),
+                crate::html_report::header_cell(&html, header).is_some(),
                 "HTML missing column header {header:?}"
             );
         }
@@ -1146,7 +1191,10 @@ mod tests {
         let md = render_markdown(&report);
         let html = render_html(&report);
         assert!(md.contains("| Hotspot |"), "Markdown keeps Hotspot header");
-        assert!(html.contains(">Hotspot</th>"), "HTML keeps Hotspot header");
+        assert!(
+            crate::html_report::header_cell(&html, "Hotspot").is_some(),
+            "HTML keeps Hotspot header"
+        );
         // The score is an integral product (cyclomatic sum × churn), so it
         // takes the thousands separator the count columns use rather than
         // the bare `748436.0` it rendered as before.
@@ -1210,15 +1258,7 @@ mod tests {
         // Plain `bca vcs` (no AST join): every row's `hotspot_score` is
         // `None`. The all-blank column is dropped from both formats and the
         // legend, instead of a permanently-empty trailing column (#615).
-        let report = Report {
-            vcs_aggregate: None,
-            files: vec![
-                entry("src/a.rs", 9.0, 30, None),
-                entry("src/b.rs", 4.0, 10, None),
-            ],
-            ranked_total: 2,
-            ..rich_report()
-        };
+        let report = unscored_report();
         let specs = active_specs(&report);
         assert!(
             !specs.iter().any(|c| c.header == HOTSPOT_HEADER),
@@ -1234,12 +1274,13 @@ mod tests {
             "Markdown must omit the Hotspot column entirely:\n{md}"
         );
         assert!(
-            !html.contains(">Hotspot</th>") && !html.contains("<dt>Hotspot</dt>"),
+            crate::html_report::header_cell(&html, "Hotspot").is_none()
+                && !html.contains("<dt>Hotspot</dt>"),
             "HTML must omit the Hotspot column entirely (header + legend)"
         );
         // A still-rendered column proves the table itself is intact.
         assert!(md.contains("| Rank |"));
-        assert!(html.contains(">Risk</th>"));
+        assert!(crate::html_report::header_cell(&html, "Risk").is_some());
     }
 
     #[test]
@@ -1255,14 +1296,12 @@ mod tests {
         let report = rich_report();
         let html = render_html(&report);
         for (header, tip) in legend_entries(&active_specs(&report)) {
-            let needle = format!(
-                " title=\"{}\">{}</th>",
-                escape_html(tip),
-                escape_html(header)
-            );
+            let cell = crate::html_report::header_cell(&html, header)
+                .unwrap_or_else(|| panic!("VCS header {header:?} should render"));
+            let needle = format!(" title=\"{}\">", escape_html(tip));
             assert!(
-                html.contains(&needle),
-                "VCS header {header:?} should render with its tooltip; expected {needle:?}"
+                cell.contains(&needle),
+                "VCS header {header:?} should render with its tooltip; expected {needle:?} in {cell}"
             );
         }
     }
@@ -1292,12 +1331,14 @@ mod tests {
             .split("<section class=\"bus-factor\">")
             .nth(1)
             .expect("rich report renders a bus-factor section");
+        let files = crate::html_report::header_cell(bus_factor_html, "Files")
+            .expect("bus-factor table renders a Files header");
         assert!(
-            bus_factor_html.contains(&format!(
-                " title=\"{}\">Files</th>",
+            files.contains(&format!(
+                " title=\"{}\">",
                 crate::html_report::escape_html(BUS_FACTOR_FILES_TOOLTIP)
             )),
-            "bus-factor Files column must carry its own tooltip"
+            "bus-factor Files column must carry its own tooltip: {files}"
         );
     }
 
@@ -1348,9 +1389,11 @@ mod tests {
         // carries its own definition rather than inheriting the unrelated
         // overview one.
         let html = render_html(&rich_report());
+        let files =
+            crate::html_report::header_cell(&html, "Files").expect("a Files header renders");
         assert!(
-            html.contains(&format!(" title=\"{BUS_FACTOR_FILES_TOOLTIP}\">Files</th>")),
-            "bus-factor Files column should carry its own tooltip"
+            files.contains(&format!(" title=\"{BUS_FACTOR_FILES_TOOLTIP}\">")),
+            "bus-factor Files column should carry its own tooltip: {files}"
         );
         assert!(
             !html.contains("Number of source files analysed."),

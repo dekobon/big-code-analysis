@@ -26,6 +26,20 @@ for historical reference.
 
 ### Changed
 
+- **The HTML report's column headers are native sort buttons.** Each
+  header's label is now a `<button>` inside the `<th>` — the WAI-ARIA
+  sortable-table shape — so it is announced as a control, sorts on
+  Enter / Space through the browser's own activation, and needs no
+  `tabindex` or key handling of our own; `aria-sort` stays on the
+  cell and the sort arrow is hidden from assistive technology so it
+  never joins the button's name. The documentation link that was the
+  label itself is a small `?` after it, so clicking the label sorts
+  and clicking the glyph navigates; the button carries the cell's
+  padding, so the rest of the header still sorts as before. Every
+  `<th>` carries `scope="col"`, and the "click a column header" hint
+  now appears on the standalone `bca vcs --format html` page as well
+  as on `bca report html`.
+
 - **`roles/mod.rs` no longer allows `dead_code` module-wide** (#1792).
   The allow was recorded as hiding 58 unread macro-emitted items; with
   it overridden (`RUSTFLAGS=--force-warn dead_code`) the library
