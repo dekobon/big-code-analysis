@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-ccomment"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-mozcpp"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "cc",
  "tree-sitter-cpp",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-mozjs"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "cc",
  "tree-sitter-javascript",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-preproc"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-tcl"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "enums"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "askama",
  "bca-tree-sitter-ccomment",

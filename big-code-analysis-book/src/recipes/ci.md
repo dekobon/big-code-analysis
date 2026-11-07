@@ -72,7 +72,7 @@ so a green-path rerun skips the download entirely:
 
 ```yaml
 env:
-  BCA_VERSION: "2.4.0"
+  BCA_VERSION: "2.5.0"
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from the
   # release's SHA256SUMS file. Bump together with BCA_VERSION.
@@ -148,7 +148,7 @@ or [cargo-binstall](https://github.com/cargo-bins/cargo-binstall).
 - name: Install bca
   uses: taiki-e/install-action@v2
   with:
-    tool: big-code-analysis-cli@2.4.0
+    tool: big-code-analysis-cli@2.5.0
 ```
 
 ```yaml
@@ -156,7 +156,7 @@ or [cargo-binstall](https://github.com/cargo-bins/cargo-binstall).
 - name: Install cargo-binstall
   uses: cargo-bins/cargo-binstall@main
 - name: Install bca
-  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.4.0
+  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.5.0
 ```
 
 If either action falls back to compilation, cache the cargo registry
@@ -174,7 +174,7 @@ and the installed binary so the second run is fast:
     # sufficient here; there is no sha256 to rotate. (The GitHub
     # Releases install path above is different: republished release
     # assets share a version, so its cache key must include the sha256.)
-    key: bca-${{ runner.os }}-2.4.0
+    key: bca-${{ runner.os }}-2.5.0
 ```
 
 Pin to a specific version (matching a published
@@ -215,7 +215,7 @@ jobs:
       - name: Install bca
         uses: taiki-e/install-action@v2
         with:
-          tool: big-code-analysis-cli@2.4.0
+          tool: big-code-analysis-cli@2.5.0
       - name: Generate report
         run: |
           bca \
@@ -708,7 +708,7 @@ stages:
   - quality
 
 variables:
-  BCA_VERSION: "2.4.0"  # pin a published big-code-analysis-cli release
+  BCA_VERSION: "2.5.0"  # pin a published big-code-analysis-cli release
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from
   # the release's SHA256SUMS file. Bump together with BCA_VERSION.

@@ -34,6 +34,25 @@ for historical reference.
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
 
+## [2.5.1] - 2026-11-06
+
+2.5.0 reached PyPI only: its release run failed a Windows smoke test
+before publishing anywhere else. On crates.io, GitHub Releases,
+Homebrew and Scoop this release follows 2.4.0 directly, so its changes
+are the
+[2.5.0 notes](https://github.com/dekobon/big-code-analysis/blob/v2.5.1/CHANGELOG.md#250---2026-11-06)
+plus the fix below.
+
+### Fixed
+
+- **The release pipeline's Windows smoke test accepts the multi-line
+  `bca --version`.** Since #1773 the output is several lines, which
+  PowerShell captures as an array, and `-notmatch` on an array returns
+  the non-matching lines instead of a bool. Those lines are truthy, so
+  the x86_64 leg rejected a correct build. The smoke now joins the
+  lines before matching. The binaries differ from 2.5.0 only in their
+  version metadata.
+
 ## [2.5.0] - 2026-11-06
 
 ### Added
@@ -12909,7 +12928,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/dekobon/big-code-analysis/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/dekobon/big-code-analysis/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/dekobon/big-code-analysis/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...v2.3.1
