@@ -1746,6 +1746,18 @@ for historical reference.
 
 ### Security
 
+- Cleared RUSTSEC-2026-0446, -0448 and -0455 (`actix-http` 3.19.0:
+  request smuggling through malformed chunked trailers, and two
+  unbounded-decompression memory exhaustions) and RUSTSEC-2026-0447
+  (`actix-web` 4.18.1: compressed request bodies exhausting memory
+  before extractor limits apply) by moving `actix-http` 3.19.0 →
+  3.20.3 and `actix-web` 4.18.1 → 4.18.2. `brotli` 9.0.0 → 9.1.1 and
+  `brotli-decompressor` 6.0.1 → 6.3.0 moved with them, and `base64`
+  0.22.1 left the lockfile; no other package version or checksum did.
+  All four were red under `cargo-deny check advisories` on `main`,
+  where the `deny` job and the weekly run had reported them since
+  their publication; `utils/check-deny-manifests.sh` now passes all
+  four checks on all eight lockfiles.
 - Cleared GHSA-q54r-jf2p-rfr2 (Dependabot alert 90, high) by moving
   `gix` 0.89.0 → 0.90.0, with the rest of the gitoxide family
   advancing to its latest compatible release in step: 52 gitoxide
