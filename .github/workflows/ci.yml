@@ -277,6 +277,16 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
+      # Node is installed before the Rust tests, not only for the agent
+      # hook tests below: `html_report::tests::inline_sort_script_behaves_
+      # under_a_dom_stub` runs the report's inline sort script under Node
+      # and, with `CI` set, fails rather than skips when Node is absent —
+      # so the pinned runtime, not whatever the image ships, is what it
+      # sees.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
       # nextest runs the lib / bins / integration tests and writes the JUnit
       # report to target/nextest/ci/junit.xml (see .config/nextest.toml). It
       # does not run doctests — those are covered by the next step.
@@ -287,10 +297,6 @@ jobs:
       # exercising the workspace's documentation examples.
       - name: cargo test --doc
         run: cargo test --doc --all-features --workspace --locked
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          check-latest: true
       - name: Build analyzer for plugin integration tests
         run: cargo build -p big-code-analysis-cli --all-features --locked
       - name: Agent hook tests with the checkout analyzer
@@ -408,6 +414,13 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
+      # The instrumented run below is the same test set as the `test` job,
+      # including the Node-driven inline-sort-script test, which fails
+      # under `CI` when Node is missing rather than skipping.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
       - name: Record coverage provenance
         run: |
           {
@@ -622,6 +635,14 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
+      # The two `(cli)` legs run the CLI crate's lib tests, one of which
+      # drives the report's inline sort script under Node and fails under
+      # `CI` when Node is absent — on every leg, so the verdict never
+      # depends on what the runner image happens to ship.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          check-latest: true
       # The one thing a partial feature set breaks that the clippy run
       # above cannot see (#1472): a test gated on the union of its rows
       # must be *absent* when none of those features is enabled, not
