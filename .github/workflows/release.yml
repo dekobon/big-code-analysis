@@ -999,11 +999,15 @@ jobs:
           if (-not $bca)    { throw "bca.exe missing from zip" }
           if (-not $bcaWeb) { throw "bca-web.exe missing from zip" }
           if ($env:EXEC -eq "true") {
-            $out1 = & $bca.FullName --version
+            # `--version` prints several lines (#1773), which PowerShell
+            # captures as an array; on an array `-notmatch` returns the
+            # non-matching lines instead of a bool, and any such line is
+            # truthy. Join first so the test is one string match.
+            $out1 = (& $bca.FullName --version) -join "`n"
             if ($out1 -notmatch [regex]::Escape($env:VERSION)) {
               throw "bca version mismatch: $out1"
             }
-            $out2 = & $bcaWeb.FullName --version
+            $out2 = (& $bcaWeb.FullName --version) -join "`n"
             if ($out2 -notmatch [regex]::Escape($env:VERSION)) {
               throw "bca-web version mismatch: $out2"
             }
