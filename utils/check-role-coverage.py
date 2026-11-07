@@ -34,12 +34,18 @@ ever existed at ``HEAD``.
 
 Observation. ``.role-coverage-observed.txt``, written by ``--observe``,
 records which ``(language, id)`` pairs the integration corpus emitted at
-this pin — the three repository submodules whole, and the output
-submodule under ``control_flow/`` only (``CORPORA``) — with
+this pin — the three repository submodules, and the output submodule
+under ``control_flow/`` only (``CORPORA``) — with
 provenance: the corpus submodules' HEAD SHAs, the
 ``bca`` that observed them (built by the command itself), the grammar
 pins, and per language the files attempted, parsed and failed. The
-gate labels each residue entry ``observed`` or ``unobserved`` from it,
+files are each corpus's *tracked* files, read from its index rather
+than its directory (#1836): a nested submodule is one gitlink and never
+its contents, an untracked file is not sampled, and a tracked file
+missing from disk, or a corpus whose index lists nothing, is refused,
+so a recursive checkout and a plain one at the same SHAs write the same
+observation. The gate labels each
+residue entry ``observed`` or ``unobserved`` from it,
 ``unknown`` when the file is missing or stale or the language has no
 corpus file at all; it never says "unreachable" — a kind no corpus
 file emits may be one line of valid input away. ``--require-observations``
@@ -67,11 +73,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import pathlib
 import re
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = UTILS_DIR.parent
@@ -82,15 +91,15 @@ import role_tables as rt  # noqa: E402
 DEFAULT_BASELINE = REPO_ROOT / ".role-coverage-baseline.txt"
 DEFAULT_OBSERVED = REPO_ROOT / ".role-coverage-observed.txt"
 CORPUS_DIR = REPO_ROOT / "tests" / "repositories"
-# `(submodule, subpath)`: the files sampled are those under
-# `CORPUS_DIR / submodule / subpath`, or the whole submodule when the
-# subpath is `None`. The output submodule is sampled only under
-# `control_flow/`, the hand-written per-language fixtures #1744
-# preserved (one file per language spelling every control-flow owner
-# and payer); the rest of that submodule is snapshot output and a few
-# per-language corpora whose kind census belongs to their own suites.
-# Provenance records the submodule's SHA either way, since the subpath
-# is part of this script, not of the record.
+# `(submodule, subpath)`: the files sampled are the submodule's tracked
+# files under `subpath`, or all of them when the subpath is `None`. The
+# output submodule is sampled only under `control_flow/`, the
+# hand-written per-language fixtures #1744 preserved (one file per
+# language spelling every control-flow owner and payer); the rest of
+# that submodule is snapshot output and a few per-language corpora
+# whose kind census belongs to their own suites. Provenance records the
+# submodule's SHA either way, since the subpath is part of this script,
+# not of the record.
 CORPORA: tuple[tuple[str, str | None], ...] = (
     ("DeepSpeech", None),
     ("pdf.js", None),
@@ -98,10 +107,45 @@ CORPORA: tuple[tuple[str, str | None], ...] = (
     ("big-code-analysis-output", "control_flow"),
 )
 
+# The index modes of a sampled entry: a regular and an executable file.
+# A `120000` symlink and a `160000` gitlink — a nested submodule, whose
+# files belong to a commit the provenance does not record — are not.
+SAMPLED_MODES = (b"100644", b"100755")
 
-def corpus_root(corpus: str, subpath: str | None) -> pathlib.Path:
-    root = CORPUS_DIR / corpus
-    return root / subpath if subpath else root
+# What repairs a tracked file missing from disk. `make worktree-setup`
+# restores an interrupted checkout (#1171) — and, forcing it, a file
+# deleted on purpose, which only `git rm` keeps deleted — but `git diff
+# HEAD` hides a sparse or skip-worktree entry, so it finds those corpora
+# complete and leaves them alone.
+MISSING_FILE_REMEDY = (
+    "run `make worktree-setup` (a sparse or skip-worktree corpus needs "
+    "`git sparse-checkout disable` or `git update-index --no-skip-worktree`, "
+    "and a file deleted on purpose `git rm`)"
+)
+
+# The variables through which git finds a repository, or its object
+# store, other than the one `-C` names, removed from every git call made
+# inside a corpus. Git exports `GIT_DIR` and `GIT_INDEX_FILE` to hooks,
+# and `GIT_DIR` to `git rebase --exec` in a linked worktree; inherited,
+# they outrank `-C`, so `--show-toplevel` names the corpus while `HEAD`
+# and the index are the parent checkout's. `GIT_OBJECT_DIRECTORY`,
+# which a `receive-pack` quarantine hook exports, passes the toplevel
+# check and then fails the dirt check's read of `HEAD` with `bad
+# object`, or discovery itself once the quarantine is gone. An alternate
+# is consulted before the corpus's own store, so a corrupt pack index
+# there that advertises a corpus object fails the same read with `hash
+# mismatch` (a merely unreadable alternate is fallen back from; no
+# fixture spells the crafted one). The parent's own reads keep them:
+# there they name the right repository, and a pre-commit hook's index is
+# the one being committed.
+REPOSITORY_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+)
 
 SCOPE_NOTE = (
     "role-coverage: every runtime kind id is claimed, excluded with a reason, or "
@@ -283,19 +327,115 @@ NODE_HEADER_RE = re.compile(r"^[\s│├╰─]*\{.*?:(\d+)\} from \(")
 EXTENSIONS: dict[str, tuple[str, ...]] = {}
 
 
-def corpus_files(lang: rt.Language, exts: dict[str, tuple[str, ...]]) -> list[pathlib.Path]:
-    want = exts.get(lang.variant, ())
-    files: list[pathlib.Path] = []
-    if not want:
-        return files
-    for corpus, subpath in CORPORA:
-        root = corpus_root(corpus, subpath)
-        if not root.is_dir():
+def corpus_git(path: pathlib.Path, *args: str, **run: Any) -> subprocess.CompletedProcess[Any]:
+    """`git -C path <args>` for a corpus, none of `REPOSITORY_ENV`
+    inherited."""
+    env = {k: v for k, v in os.environ.items() if k not in REPOSITORY_ENV}
+    return subprocess.run(["git", "-C", str(path), *args], env=env, **run)
+
+
+class CorpusUnopenable(rt.RoleTableError):
+    """Git itself refused the corpus — dubious ownership, a gitfile naming
+    a module directory that is gone — rather than answering for the wrong
+    repository. The observer refuses it like any other `RoleTableError`;
+    the gate's staleness check skips it, as it did before the toplevel
+    check existed, since the tree's gitlink is what it judges against."""
+
+
+def corpus_repo(corpus: str) -> pathlib.Path:
+    """The corpus submodule's directory, once git confirms it is the root
+    of its own repository. An uninitialised submodule is an empty
+    directory inside the parent checkout, and `git -C` there answers for
+    the parent without an error — its HEAD, its index — so every read of
+    a corpus goes through this check first."""
+    path = CORPUS_DIR / corpus
+    if not path.is_dir():
+        raise rt.RoleTableError(f"corpus {path} is not checked out; run `make worktree-setup`")
+    run = corpus_git(path, "rev-parse", "--show-toplevel", capture_output=True, check=False)
+    if run.returncode != 0:
+        # git's own reason: dubious ownership or a broken gitfile is not
+        # what `make worktree-setup` repairs, so no remedy is named.
+        raise CorpusUnopenable(f"corpus {path}: git cannot open it: {run.stderr.decode(errors='replace').strip()}")
+    toplevel = os.fsdecode(run.stdout.rstrip(b"\n"))
+    if pathlib.Path(toplevel).resolve() != path.resolve():
+        raise rt.RoleTableError(f"corpus {path} is not a checked-out repository of its own; run `make worktree-setup`")
+    return path
+
+
+def tracked_files(repo: pathlib.Path, subpath: str | None) -> list[str]:
+    """The regular files `repo`'s index tracks, under `subpath` when one
+    is given, as paths relative to `repo`. Read from the index, not the
+    disk, so a nested submodule is one gitlink and never its contents and
+    an untracked file is invisible: the set is the one the recorded
+    commit describes, however deep the checkout. NUL-separated and read
+    as bytes, because without `-z` git C-quotes a non-ASCII path and a
+    lossy decode would name a file that does not exist."""
+    args = ["ls-files", "-s", "-z"]
+    if subpath:
+        args += ["--", subpath]
+    run = corpus_git(repo, *args, capture_output=True, check=False)
+    if run.returncode != 0:
+        raise rt.RoleTableError(f"corpus {repo}: `git ls-files` failed: {run.stderr.decode(errors='replace').strip()}")
+    # `<mode> <object> <stage>\t<path>`; a conflicted path is listed once
+    # per merge stage, so the dict keeps one copy in index order.
+    paths: dict[str, None] = {}
+    for record in run.stdout.split(b"\0"):
+        if not record:
             continue
-        for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lstrip(".") in want:
-                files.append(p)
-    return sorted(files)
+        meta, tab, name = record.partition(b"\t")
+        if not tab:
+            raise rt.RoleTableError(f"corpus {repo}: malformed `git ls-files` record {record!r}")
+        if meta.split(b" ", 1)[0] in SAMPLED_MODES:
+            paths[os.fsdecode(name)] = None
+    return list(paths)
+
+
+def corpus_listing() -> dict[str, list[pathlib.Path]]:
+    """Every corpus's sampled files, listed once and checked against the
+    disk before any language routes through them. A tracked file missing
+    from disk is refused rather than sampled around: a sparse or
+    skip-worktree checkout is clean to `git status`, and a language whose
+    files only partly parsed would still be written as a complete
+    observation. So is a corpus whose index lists nothing — the
+    interrupted checkout of #1171 that never wrote one, where git reads
+    the missing index as an empty one and no file is tracked to be
+    missing. Every tracked file is checked, not only the routed ones, so
+    this refuses exactly what the derived parity sweep's `files_under`
+    refuses."""
+    listing: dict[str, list[pathlib.Path]] = {}
+    for corpus, subpath in CORPORA:
+        repo = corpus_repo(corpus)
+        listed = tracked_files(repo, subpath)
+        if not listed:
+            where = f" under `{subpath}/`" if subpath else ""
+            raise rt.RoleTableError(f"corpus {corpus}: its index lists no file{where}; run `make worktree-setup`")
+        files: list[pathlib.Path] = []
+        for rel in listed:
+            p = repo / rel
+            # Stat and classify the error here rather than ask `is_file`,
+            # whose answer under a directory the user cannot search
+            # depends on the interpreter: through 3.13 it raises, and from
+            # 3.14, where it became `os.path.isfile`, it answers False —
+            # which would report a permission problem as a missing file.
+            try:
+                present = stat.S_ISREG(p.stat().st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                present = False
+            except OSError as e:
+                raise rt.RoleTableError(f"corpus {corpus}: tracked file {rel} cannot be read: {e}") from e
+            if not present:
+                raise rt.RoleTableError(f"corpus {corpus}: tracked file {rel} is not on disk; {MISSING_FILE_REMEDY}")
+            files.append(p)
+        listing[corpus] = files
+    return listing
+
+
+def corpus_files(lang: rt.Language, exts: dict[str, tuple[str, ...]], listing: dict[str, list[pathlib.Path]]) -> list[pathlib.Path]:
+    """The files of `listing` a language's extensions route to."""
+    want = exts.get(lang.variant, ())
+    if not want:
+        return []
+    return sorted(p for files in listing.values() for p in files if p.suffix.lstrip(".") in want)
 
 
 def extensions_from_langs(langs_rs: pathlib.Path = rt.LANGS_RS) -> dict[str, tuple[str, ...]]:
@@ -318,13 +458,15 @@ def extensions_from_langs(langs_rs: pathlib.Path = rt.LANGS_RS) -> dict[str, tup
 def submodule_shas(allow_dirty: bool) -> dict[str, str]:
     shas: dict[str, str] = {}
     for corpus, subpath in CORPORA:
-        path = CORPUS_DIR / corpus
-        if not path.is_dir():
-            raise rt.RoleTableError(f"corpus {path} is not checked out; run `make worktree-setup`")
+        path = corpus_repo(corpus)
         if subpath and not (path / subpath).is_dir():
             raise rt.RoleTableError(f"corpus {path} has no `{subpath}/`; the submodule is older than this script expects")
-        sha = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], check=True, **RUN).stdout.strip()
-        dirty = subprocess.run(["git", "-C", str(path), "status", "--porcelain"], check=True, **RUN).stdout.strip()
+        sha = corpus_git(path, "rev-parse", "HEAD", check=True, **RUN).stdout.strip()
+        # A nested submodule is one gitlink and never its files (#1836), so
+        # its state cannot change the observation: build output inside it,
+        # or the commit a non-recursive update left it at, is not a local
+        # change of this corpus.
+        dirty = corpus_git(path, "status", "--porcelain", "--ignore-submodules=all", check=True, **RUN).stdout.strip()
         if dirty and not allow_dirty:
             raise rt.RoleTableError(f"corpus {corpus} has local changes; the observation would not describe {sha}")
         shas[corpus] = sha
@@ -344,6 +486,13 @@ def observe(
     cargo_toml: pathlib.Path = REPO_ROOT / "Cargo.toml",
 ) -> int:
     shas = submodule_shas(allow_dirty)
+    # Every refusal `corpus_listing` makes — a tracked file missing or
+    # unreadable, an index that lists nothing — is reached here, before
+    # the release build and the dump loop it would otherwise cut short.
+    listing = corpus_listing()
+    langs = rt.languages(langs_rs)
+    exts = extensions_from_langs(langs_rs)
+    sampled = {lang.variant: corpus_files(lang, exts, listing) for lang in langs}
     print("role-coverage: building the observer (`cargo build --release -p big-code-analysis-cli --locked`)")
     build = subprocess.run(["cargo", "build", "--release", "-p", "big-code-analysis-cli", "--locked"], cwd=REPO_ROOT, check=False, **RUN)
     if build.returncode != 0:
@@ -353,15 +502,14 @@ def observe(
     bca = REPO_ROOT / "target" / "release" / "bca"
     version = observer_line(subprocess.run([str(bca), "-V"], check=True, **RUN).stdout)
     pins = rt.grammar_pins(cargo_toml)
-    exts = extensions_from_langs(langs_rs)
     # Provenance is the inputs — observer version, corpus commits, pins —
     # not the parent tree: a HEAD recorded here would name a commit that
     # a later squash or rebase leaves dangling.
     lines = [OBS_HEADER, f"observer {version}\n"]
     for corpus, sha in shas.items():
         lines.append(f"corpus {corpus} {sha}\n")
-    for lang in rt.languages(langs_rs):
-        files = corpus_files(lang, exts)
+    for lang in langs:
+        files = sampled[lang.variant]
         seen: set[int] = set()
         attempted = parsed = failed = 0
         for f in files:
@@ -520,7 +668,18 @@ def observation_status(obs: Observation | None, reports: list[LangReport]) -> tu
             problems.append(f"corpus {c}: observed at {obs.corpus_shas.get(c, '?')[:12]}, tree records {want[:12]}")
         path = CORPUS_DIR / c
         if (path / ".git").exists() or (path.is_dir() and any(path.iterdir())):
-            run = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], check=False, **RUN)
+            # A populated directory that is not a repository of its own
+            # would answer with the parent's HEAD. A corpus git cannot
+            # open at all has no HEAD to compare, as before: the gate
+            # reads the tree's gitlink, and the observer is what refuses.
+            try:
+                corpus_repo(c)
+            except CorpusUnopenable:
+                continue
+            except rt.RoleTableError as e:
+                problems.append(str(e))
+                continue
+            run = corpus_git(path, "rev-parse", "HEAD", check=False, **RUN)
             if run.returncode == 0 and run.stdout.strip() != want:
                 problems.append(f"corpus {c}: checked out at {run.stdout.strip()[:12]}, tree records {want[:12]}")
     for r in reports:

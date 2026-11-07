@@ -12,11 +12,15 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import pathlib
+import re
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(UTILS_DIR))
@@ -86,6 +90,65 @@ LANGS_RS_SHARED = LANGS_RS.replace(
 )
 
 CARGO = 'tree-sitter-java = "=0.23.5"\n'
+
+JAVA = rt.Language("Java", "java", "tree_sitter_java", ("java",))
+JAVA_EXTS = {"Java": ("java",)}
+
+
+# Keeps the suite's git away from the host's configuration as
+# `tests/common/vcs_fixture.rs` does (#1771): a global `core.hooksPath`,
+# `init.templateDir` or ignore-everything `core.excludesFile` would
+# otherwise decide whether a fixture can be built at all.
+GIT_ISOLATION = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "core.excludesFile",
+    "GIT_CONFIG_VALUE_0": os.devnull,
+    "GIT_CONFIG_KEY_1": "core.attributesFile",
+    "GIT_CONFIG_VALUE_1": os.devnull,
+}
+
+
+def setUpModule() -> None:
+    """Every git the suite runs — the fixtures, `Tree`'s scratch
+    repository and the gate's own reads under test — sees `GIT_ISOLATION`
+    and no inherited `GIT_*` variable, as `check-deny-manifests-test.py`'s
+    `_git_env` drops them. Git exports `GIT_DIR` and `GIT_INDEX_FILE` to
+    hooks, and `GIT_DIR` to `git rebase --exec` in a linked worktree;
+    both outrank `git -C`, so inherited they turn a scratch repository's
+    `init`, `add` and `commit` into writes to the checkout running the
+    suite. Module-wide rather than per subprocess, as the sibling suites
+    do it, because the gate's own `corpus_git` reads `os.environ`."""
+    env = unittest.mock.patch.dict(os.environ)
+    env.start()
+    unittest.addModuleCleanup(env.stop)
+    for key in [k for k in os.environ if k.startswith("GIT_")]:
+        del os.environ[key]
+    os.environ.update(GIT_ISOLATION)
+
+
+def git(*args: str) -> str:
+    """One fixture git command, with a throwaway identity for the commits a
+    fixture makes. A failure carries git's own message, which
+    `check=True` would drop."""
+    run = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@x", *args], capture_output=True, text=True, check=False)
+    if run.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)}: {run.stderr.strip()}")
+    return run.stdout
+
+
+def tracked_corpus(path: pathlib.Path, files: dict[str, str]) -> pathlib.Path:
+    """A corpus at `path` that is a repository of its own, with `files`
+    (relative path → content) written and added to its index — the only
+    thing the enumerator reads."""
+    path.mkdir(parents=True, exist_ok=True)
+    git("init", "-q", str(path))
+    for rel, content in files.items():
+        (path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (path / rel).write_text(content)
+    git("-C", str(path), "add", "--", *files)
+    return path
 
 
 def enum_rs(kinds: list[tuple[str, str, bool, bool]]) -> str:
@@ -365,35 +428,303 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaises(rt.RoleTableError):
             cov.extensions_from_langs(self.t.langs)
 
+    def corpora(self, corpora: tuple[tuple[str, str | None], ...] = (("serde", None),)) -> contextlib.AbstractContextManager[object]:
+        """The gate pointed at the scratch repo's corpora; both globals are
+        restored however the block exits."""
+        return unittest.mock.patch.multiple(cov, CORPUS_DIR=self.t.repo / "tests" / "repositories", CORPORA=corpora)
+
+    def corpus_files(self, corpora: tuple[tuple[str, str | None], ...] = (("serde", None),)) -> list[pathlib.Path]:
+        """`corpus_listing` routed to Java against the scratch repo's
+        corpora: the enumeration, every refusal it makes, and the suffix
+        filter in one call."""
+        with self.corpora(corpora):
+            return cov.corpus_files(JAVA, JAVA_EXTS, cov.corpus_listing())
+
     def test_corpus_files_match_extensions_under_the_corpus_dir(self) -> None:
-        corpus = self.t.repo / "tests" / "repositories" / "serde"
-        (corpus / "a").mkdir(parents=True)
-        (corpus / "a" / "x.java").write_text("")
-        (corpus / "a" / "y.rs").write_text("")
-        saved = cov.CORPUS_DIR
-        cov.CORPUS_DIR = self.t.repo / "tests" / "repositories"
-        try:
-            files = cov.corpus_files(rt.Language("Java", "java", "tree_sitter_java", ("java",)), {"Java": ("java",)})
-        finally:
-            cov.CORPUS_DIR = saved
-        self.assertEqual([f.name for f in files], ["x.java"])
+        tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"a/x.java": "", "a/y.rs": ""})
+        self.assertEqual([f.name for f in self.corpus_files()], ["x.java"])
 
     def test_a_corpus_with_a_subpath_is_sampled_under_it_only(self) -> None:
         # The output submodule holds snapshot output and per-language
         # corpora beside `control_flow/`; only the subpath is sampled, so
-        # a `.java` elsewhere in it is not an observation (#1700).
+        # a `.java` elsewhere in it is not an observation (#1700). Both
+        # files are tracked, so the pathspec is what excludes the stray.
         sub = self.t.repo / "tests" / "repositories" / "big-code-analysis-output"
-        (sub / "control_flow" / "java").mkdir(parents=True)
-        (sub / "control_flow" / "java" / "r07.java").write_text("")
-        (sub / "csharp").mkdir()
-        (sub / "csharp" / "stray.java").write_text("")
-        saved = (cov.CORPUS_DIR, cov.CORPORA)
-        cov.CORPUS_DIR, cov.CORPORA = self.t.repo / "tests" / "repositories", (("big-code-analysis-output", "control_flow"),)
-        try:
-            files = cov.corpus_files(rt.Language("Java", "java", "tree_sitter_java", ("java",)), {"Java": ("java",)})
-        finally:
-            cov.CORPUS_DIR, cov.CORPORA = saved
+        tracked_corpus(sub, {"control_flow/java/r07.java": "", "csharp/stray.java": ""})
+        files = self.corpus_files((("big-code-analysis-output", "control_flow"),))
         self.assertEqual([f.name for f in files], ["r07.java"])
+
+    def test_a_nested_submodule_is_one_gitlink_not_its_files(self) -> None:
+        # A recursive checkout populates the corpus's own submodules,
+        # whose files belong to commits the provenance never records; the
+        # observation must not change with checkout depth (#1836). The
+        # nested repository's file and the untracked one are on disk
+        # beside the tracked ones, and only the index decides. A tracked
+        # symlink is a `120000` entry and is dropped, as the derived
+        # parity sweep's walker drops it, so the two censuses agree.
+        corpus = tracked_corpus(
+            self.t.repo / "tests" / "repositories" / "serde",
+            {"x.java": "", "run.java": "", "sub dir/café.java": ""},
+        )
+        (corpus / "run.java").chmod(0o755)
+        (corpus / "link.java").symlink_to("x.java")
+        git("-C", str(corpus), "add", "run.java", "link.java")
+        # Added as a registered, active submodule rather than written as a
+        # bare gitlink: `ls-files --recurse-submodules` descends only into
+        # an active one, so only this shape notices that flag coming back.
+        # Its path carries a routed suffix, so the mode filter, not the
+        # extension filter, is what drops the gitlink.
+        source = tracked_corpus(self.t.dir / "nested-source", {"inner.java": ""})
+        git("-C", str(source), "commit", "-q", "-m", "nested")
+        git("-C", str(corpus), "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "nested.java")
+        (corpus / "stray.java").write_text("")
+        modes = {line.split()[0] for line in git("-C", str(corpus), "ls-files", "-s").splitlines()}
+        self.assertEqual(modes, {"100644", "100755", "120000", "160000"}, "the fixture spells a regular file, an executable, a symlink and a gitlink")
+        files = self.corpus_files()
+        self.assertEqual([f.relative_to(corpus).as_posix() for f in files], ["run.java", "sub dir/café.java", "x.java"])
+
+    def test_a_corpus_that_is_not_its_own_repository_is_refused(self) -> None:
+        # An uninitialised submodule is a directory of the parent
+        # checkout, and git answers for the parent there. The file is in
+        # the *parent's* index, so a missing guard samples it rather than
+        # finding nothing.
+        corpus = self.t.repo / "tests" / "repositories" / "serde"
+        corpus.mkdir(parents=True)
+        (corpus / "x.java").write_text("")
+        git("-C", str(self.t.repo), "add", "--", str(corpus / "x.java"))
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files()
+        self.assertIn("not a checked-out repository of its own; run `make worktree-setup`", str(ctx.exception))
+
+    def test_a_corpus_git_cannot_open_is_refused_with_gits_reason(self) -> None:
+        # A gitfile naming a module directory that is gone (or a corpus
+        # owned by another user) is not what `make worktree-setup`
+        # repairs, so git's own message reaches the user and that remedy
+        # is not named.
+        corpus = self.t.repo / "tests" / "repositories" / "serde"
+        corpus.mkdir(parents=True)
+        (corpus / ".git").write_text(f"gitdir: {self.t.dir / 'gone'}\n")
+        with self.assertRaises(cov.CorpusUnopenable) as ctx:
+            self.corpus_files()
+        # The wording is git's and varies by version; its `fatal:` does not.
+        self.assertIn(f"corpus {corpus}: git cannot open it: fatal: ", str(ctx.exception))
+        self.assertNotIn("worktree-setup", str(ctx.exception))
+
+    def test_observation_status_tolerates_a_corpus_git_cannot_open(self) -> None:
+        # The gate judges staleness from the tree's gitlink; a corpus git
+        # refuses outright has no HEAD to compare, and refusing the gate
+        # for it would make `--require-observations` fail on a checkout
+        # whose corpora were, say, chowned by an earlier `sudo` run. The
+        # observer is what refuses such a corpus.
+        repo = self.t.repo
+        corpus = repo / "tests" / "repositories" / "serde"
+        corpus.mkdir(parents=True)
+        (corpus / ".git").write_text(f"gitdir: {self.t.dir / 'gone'}\n")
+        git("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "parent")
+        sha = "1" * 40
+        git("-C", str(repo), "update-index", "--add", "--cacheinfo", f"160000,{sha},tests/repositories/serde")
+        obs = cov.Observation({"serde": sha}, {}, {}, {}, {})
+        with unittest.mock.patch.object(cov, "REPO_ROOT", repo), self.corpora():
+            self.assertEqual(cov.observation_status(obs, []), ("ok", []))
+
+    def test_an_inherited_object_directory_does_not_reach_a_corpus_read(self) -> None:
+        # `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
+        # exports, passes the toplevel check — git takes the `-C`
+        # directory's own `.git` — and the index needs no object, so
+        # `ls-files` lists the corpus; the dirt check's read of HEAD then
+        # fails with `bad object`, an uncaught `CalledProcessError`
+        # instead of an observation. The other repository holds a
+        # different commit, so its store cannot answer for this one.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": ""})
+        git("-C", str(corpus), "commit", "-q", "-m", "corpus")
+        other = tracked_corpus(self.t.dir / "other", {"o.java": ""})
+        git("-C", str(other), "commit", "-q", "-m", "other")
+        inherited = {"GIT_OBJECT_DIRECTORY": str(other / ".git" / "objects")}
+        with unittest.mock.patch.dict(os.environ, inherited), self.corpora():
+            shas = cov.submodule_shas(allow_dirty=False)
+            files = cov.corpus_files(JAVA, JAVA_EXTS, cov.corpus_listing())
+        self.assertEqual(shas, {"serde": git("-C", str(corpus), "rev-parse", "HEAD").strip()})
+        self.assertEqual([f.relative_to(corpus).as_posix() for f in files], ["x.java"])
+
+    def test_a_tracked_file_missing_from_disk_is_refused(self) -> None:
+        # Sparse and skip-worktree checkouts leave `git status` clean with
+        # tracked files absent, and an interrupted one (#1171) leaves them
+        # deleted; sampling around them would write a partial observation
+        # as a complete one.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": "", "gone.java": ""})
+        (corpus / "gone.java").unlink()
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files()
+        self.assertIn("tracked file gone.java is not on disk", str(ctx.exception))
+        # `make worktree-setup` alone cannot repair a sparse corpus, and
+        # forcing it restores a file deleted on purpose.
+        self.assertIn("git sparse-checkout disable", str(ctx.exception))
+        self.assertIn("a file deleted on purpose `git rm`", str(ctx.exception))
+
+    def test_a_tracked_file_whose_directory_is_now_a_file_is_missing_not_unreadable(self) -> None:
+        # Stat answers ENOTDIR, not ENOENT, for `a/x.java` once `a` is a
+        # regular file; nothing is there to read, so it takes the
+        # missing-file remedy rather than the permission one.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"a/x.java": ""})
+        (corpus / "a" / "x.java").unlink()
+        (corpus / "a").rmdir()
+        (corpus / "a").write_text("")
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files()
+        self.assertIn("tracked file a/x.java is not on disk", str(ctx.exception))
+
+    def test_a_tracked_file_under_an_unsearchable_directory_is_refused_not_a_traceback(self) -> None:
+        # A directory the user cannot search (left root-owned by an earlier
+        # sudo run) is a permission problem, not a missing file, and `main`
+        # reports a `RoleTableError`, never a traceback. `Path.is_file`
+        # raises there through Python 3.13 and answers False from 3.14,
+        # where it became `os.path.isfile`. CI's lint job runs `3.x` and
+        # the venv 3.12, so each would see only its own; both behaviours
+        # are installed in turn, and a gate that asks `is_file` fails one.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"locked/x.java": ""})
+        locked = corpus / "locked"
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o755)
+        if os.access(locked, os.X_OK):
+            self.skipTest("a privileged user searches through mode 000")
+
+        def raises_on_eacces(path: pathlib.Path, **_: object) -> bool:
+            return stat.S_ISREG(os.stat(path).st_mode)
+
+        def answers_false(path: pathlib.Path, **_: object) -> bool:
+            return os.path.isfile(path)
+
+        for mode, is_file in (("through 3.13", raises_on_eacces), ("from 3.14", answers_false)):
+            with self.subTest(mode), unittest.mock.patch.object(pathlib.Path, "is_file", is_file):
+                with self.assertRaises(rt.RoleTableError) as ctx:
+                    self.corpus_files()
+                self.assertIn("tracked file locked/x.java cannot be read", str(ctx.exception))
+
+    def test_observe_refuses_a_broken_corpus_before_building(self) -> None:
+        # The release build and the dump loop take minutes, and a refusal
+        # reached inside that loop wastes them. `--allow-dirty` lets a
+        # deleted file past the dirt check, so the missing-file refusal is
+        # the one left to fire, and it must fire before `cargo` runs: this
+        # `REPO_ROOT` has no manifest, so a build that started would fail
+        # with exit 2 rather than raise.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": "", "gone.java": ""})
+        git("-C", str(corpus), "commit", "-q", "-m", "corpus")
+        (corpus / "gone.java").unlink()
+        out = io.StringIO()
+        with unittest.mock.patch.object(cov, "REPO_ROOT", self.t.repo), self.corpora(), contextlib.redirect_stdout(out):
+            with self.assertRaises(rt.RoleTableError) as ctx:
+                cov.observe(self.t.observed, allow_dirty=True, langs_rs=self.t.langs, cargo_toml=self.t.cargo)
+        self.assertIn("tracked file gone.java is not on disk", str(ctx.exception))
+        self.assertNotIn("building the observer", out.getvalue())
+
+    def test_a_corpus_whose_index_lists_nothing_is_refused(self) -> None:
+        # The interrupted checkout of #1171 can leave HEAD at the recorded
+        # commit with no index and no files. Git reads the missing index
+        # as an empty one, so no file is tracked to be missing, and the
+        # corpus would contribute nothing instead of failing.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": ""})
+        git("-C", str(corpus), "commit", "-q", "-m", "corpus")
+        (corpus / ".git" / "index").unlink()
+        (corpus / "x.java").unlink()
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files()
+        self.assertIn("corpus serde: its index lists no file; run `make worktree-setup`", str(ctx.exception))
+
+    def test_a_corpus_whose_index_lists_nothing_under_the_subpath_names_it(self) -> None:
+        # The output submodule is sampled under `control_flow/` only; one
+        # that tracks files elsewhere but none there would also contribute
+        # nothing, and the message has to say where it looked.
+        sub = self.t.repo / "tests" / "repositories" / "big-code-analysis-output"
+        tracked_corpus(sub, {"csharp/stray.java": ""})
+        (sub / "control_flow").mkdir()
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files((("big-code-analysis-output", "control_flow"),))
+        self.assertIn("corpus big-code-analysis-output: its index lists no file under `control_flow/`; run `make worktree-setup`", str(ctx.exception))
+
+    def test_a_missing_tracked_file_is_refused_whatever_its_extension(self) -> None:
+        # The derived parity sweep's `files_under` refuses any tracked file
+        # the disk lacks, routed or not; the observer must refuse the same
+        # checkout, or `make role-corpus-refresh` writes an observation and
+        # then fails the sweep on a corpus the observer called complete.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": "", "README.md": ""})
+        (corpus / "README.md").unlink()
+        with self.assertRaises(rt.RoleTableError) as ctx:
+            self.corpus_files()
+        self.assertIn("tracked file README.md is not on disk", str(ctx.exception))
+
+    def test_a_malformed_ls_files_record_is_refused_not_dropped(self) -> None:
+        # A record without its tab has no path to sample; dropping it
+        # would list a corpus smaller than its index, as the sweep's
+        # walker refuses to.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": ""})
+        listing = subprocess.CompletedProcess([], 0, stdout=b"100644 0000000000000000000000000000000000000000 0\0", stderr=b"")
+        with unittest.mock.patch.object(cov, "corpus_git", return_value=listing), self.assertRaises(rt.RoleTableError) as ctx:
+            cov.tracked_files(corpus, None)
+        self.assertIn("malformed `git ls-files` record", str(ctx.exception))
+
+    def test_an_inherited_repository_does_not_reach_a_corpus_read(self) -> None:
+        # Git exports GIT_DIR and GIT_INDEX_FILE to hooks, and GIT_DIR to
+        # `git rebase --exec` in a linked worktree. Inherited, the toplevel
+        # check passes — git takes the `-C` directory for the work tree —
+        # while HEAD and the index are the other repository's.
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": ""})
+        git("-C", str(corpus), "commit", "-q", "-m", "corpus")
+        other = tracked_corpus(self.t.dir / "other", {"o.java": ""})
+        git("-C", str(other), "commit", "-q", "-m", "other")
+        inherited = {"GIT_DIR": str(other / ".git"), "GIT_INDEX_FILE": str(other / ".git" / "index")}
+        with unittest.mock.patch.dict(os.environ, inherited), self.corpora():
+            files = cov.corpus_files(JAVA, JAVA_EXTS, cov.corpus_listing())
+            shas = cov.submodule_shas(allow_dirty=False)
+        self.assertEqual([f.relative_to(corpus).as_posix() for f in files], ["x.java"])
+        self.assertEqual(shas, {"serde": git("-C", str(corpus), "rev-parse", "HEAD").strip()})
+
+    def test_nested_submodule_state_is_not_a_local_change_of_the_corpus(self) -> None:
+        # A nested submodule is one gitlink and never its files (#1836), so
+        # build output inside one must not refuse the corpus as dirty. The
+        # corpus's own untracked file still does: the check is narrowed to
+        # what is sampled, not dropped.
+        source = tracked_corpus(self.t.dir / "nested-source", {"n.java": ""})
+        git("-C", str(source), "commit", "-q", "-m", "nested")
+        corpus = tracked_corpus(self.t.repo / "tests" / "repositories" / "serde", {"x.java": ""})
+        git("-C", str(corpus), "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "nested")
+        git("-C", str(corpus), "commit", "-q", "-m", "corpus")
+        (corpus / "nested" / "build.out").write_text("")
+        with self.corpora():
+            shas = cov.submodule_shas(allow_dirty=False)
+            (corpus / "stray.java").write_text("")
+            with self.assertRaises(rt.RoleTableError) as ctx:
+                cov.submodule_shas(allow_dirty=False)
+        self.assertEqual(shas, {"serde": git("-C", str(corpus), "rev-parse", "HEAD").strip()})
+        self.assertIn("corpus serde has local changes", str(ctx.exception))
+
+    def test_observation_status_reads_head_only_from_a_corpus_repository(self) -> None:
+        # A populated corpus directory that is not a repository of its own
+        # — files copied in, or strays in an uninitialised submodule's
+        # directory — answers `rev-parse HEAD` with the parent's commit,
+        # which the gate would report as the corpus checkout.
+        repo = self.t.repo
+        corpus = repo / "tests" / "repositories" / "serde"
+        corpus.mkdir(parents=True)
+        (corpus / "stray.txt").write_text("")
+        git("-C", str(repo), "commit", "-q", "--allow-empty", "-m", "parent")
+        sha = "1" * 40
+        git("-C", str(repo), "update-index", "--add", "--cacheinfo", f"160000,{sha},tests/repositories/serde")
+        obs = cov.Observation({"serde": sha}, {}, {}, {}, {})
+        with unittest.mock.patch.object(cov, "REPO_ROOT", repo), self.corpora():
+            status, problems = cov.observation_status(obs, [])
+        self.assertEqual((status, problems), ("stale", [f"corpus {corpus} is not a checked-out repository of its own; run `make worktree-setup`"]))
+
+    def test_submodule_shas_refuses_an_uninitialised_corpus(self) -> None:
+        # Without the guard `rev-parse HEAD` in the empty directory
+        # returns the parent's HEAD, and the observation records it as
+        # the corpus commit.
+        (self.t.repo / "f").write_text("")
+        git("-C", str(self.t.repo), "add", "f")
+        git("-C", str(self.t.repo), "commit", "-q", "-m", "parent")
+        (self.t.repo / "tests" / "repositories" / "serde").mkdir(parents=True)
+        with self.corpora(), self.assertRaises(rt.RoleTableError) as ctx:
+            cov.submodule_shas(allow_dirty=True)
+        self.assertIn("not a checked-out repository of its own", str(ctx.exception))
 
     def test_observe_refuses_a_corpus_missing_its_subpath(self) -> None:
         # A checkout whose submodule predates `control_flow/` would
@@ -414,8 +745,7 @@ class CoverageTests(unittest.TestCase):
 
     def test_the_production_corpora_name_the_output_submodule_under_control_flow(self) -> None:
         self.assertIn(("big-code-analysis-output", "control_flow"), cov.CORPORA)
-        self.assertEqual(cov.corpus_root("big-code-analysis-output", "control_flow"), cov.CORPUS_DIR / "big-code-analysis-output" / "control_flow")
-        self.assertEqual(cov.corpus_root("serde", None), cov.CORPUS_DIR / "serde")
+        self.assertIn(("serde", None), cov.CORPORA)
 
     def test_claimed_report_labels_every_claim_by_the_corpus(self) -> None:
         # `--claimed` is the no-occurrence census of #1700: every declared

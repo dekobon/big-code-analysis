@@ -1862,9 +1862,9 @@ fn the_dedicated_else_if_clauses_are_exactly_the_owners_branch_does_not_list() {
 // The integration corpora — opt-in, `make role-parity-corpus`
 // ---------------------------------------------------------------------------
 
-/// The same forward comparison over every file of the three repository
-/// corpora (`DeepSpeech`, `pdf.js`, `serde`) a language's extensions
-/// route to, with the tolerant walk: a file that recovers into an
+/// The same forward comparison over every tracked file of the three
+/// repository corpora (`DeepSpeech`, `pdf.js`, `serde`) a language's
+/// extensions route to, with the tolerant walk: a file that recovers into an
 /// `ERROR` is walked and labelled, and its disagreements are reported
 /// under that label rather than failed — error recovery is parity on a
 /// tree the grammar did not mean, not a language contract
@@ -1987,57 +1987,281 @@ fn assert_every_corpus_present(present: &BTreeMap<&str, usize>, routed: &BTreeMa
     }
 }
 
-/// Every regular file under `root`, `.git` and symlinks excluded. A
-/// directory or entry that cannot be read is a failure, not a skipped
-/// subtree: a sweep that walked less than it claims must say so.
+/// Every regular file `root`'s git index tracks: the corpus its
+/// recorded submodule commit describes, however deep the checkout
+/// (#1836). Read from the index rather than the directory, so a nested
+/// submodule is one `160000` gitlink and never its contents, an
+/// untracked file is invisible, and a symlink is one `120000` entry
+/// with nothing listed under it — dropped, as `check-role-coverage.py`
+/// drops it, so the two list a corpus's files the same way. A `root`
+/// git does not resolve to its own repository (an uninitialised
+/// submodule, where git answers for the parent checkout), a failed
+/// `git`, or a tracked file missing from disk is a failure, not a
+/// smaller walk: a sweep that walked less than it claims must say so.
 fn files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let toplevel = git_output(root, &["rev-parse", "--show-toplevel"]);
+    let toplevel = path_from_git(toplevel.strip_suffix(b"\n").unwrap_or(&toplevel));
+    let canonical = |p: &std::path::Path| {
+        std::fs::canonicalize(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+    };
+    assert_eq!(
+        canonical(&toplevel),
+        canonical(root),
+        "{}: not the root of its own git repository; run `make worktree-setup`",
+        root.display()
+    );
+    let listing = git_output(root, &["ls-files", "-s", "-z"]);
+    let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("{}: unreadable corpus directory: {e}", dir.display()));
-        for entry in entries {
-            let entry =
-                entry.unwrap_or_else(|e| panic!("{}: unreadable corpus entry: {e}", dir.display()));
-            let path = entry.path();
-            if path.file_name().is_some_and(|n| n == ".git") {
-                continue;
-            }
-            // Symlinks are not followed, as `WalkDir`'s default and the
-            // Python observer's `rglob` do not: serde links a crate's
-            // `src` into another's, which would walk nine files twice
-            // under two names, and a cycle would walk forever.
-            let kind = entry
-                .file_type()
-                .unwrap_or_else(|e| panic!("{}: unreadable corpus entry: {e}", path.display()));
-            if kind.is_dir() {
-                stack.push(path);
-            } else if kind.is_file() {
-                out.push(path);
-            }
+    for record in listing.split(|&b| b == 0).filter(|r| !r.is_empty()) {
+        // `<mode> <object> <stage>\t<path>`; a conflicted path is listed
+        // once per merge stage.
+        let tab = record
+            .iter()
+            .position(|&b| b == b'\t')
+            .unwrap_or_else(|| panic!("{}: malformed `git ls-files` record", root.display()));
+        let (meta, name) = (&record[..tab], &record[tab + 1..]);
+        let mode = meta
+            .split(|&b| b == b' ')
+            .next()
+            .expect("`split` yields at least one field");
+        if !SAMPLED_MODES.contains(&mode) || !seen.insert(name) {
+            continue;
         }
+        let path = root.join(path_from_git(name));
+        // `is_file` answers false for a file it cannot reach, and would
+        // call an unreadable checkout a missing one.
+        let on_disk = match std::fs::metadata(&path) {
+            Ok(meta) => meta.is_file(),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                false
+            }
+            Err(e) => panic!("{}: tracked but unreadable: {e}", path.display()),
+        };
+        assert!(
+            on_disk,
+            "{}: tracked but not on disk; {MISSING_FILE_REMEDY}",
+            path.display()
+        );
+        out.push(path);
     }
     out
 }
 
-/// `files_under` lists every regular file beneath a root, skipping
-/// `.git` and every symlink — a directory link would be walked twice
-/// under two names and a cycle forever (serde links one crate's `src`
-/// into another's) — and fails on an unreadable entry rather than
-/// skipping it. On a scratch tree, so the sweep's walker is exercised
-/// under the gate the sweep itself is not.
+/// The index modes `files_under` lists, as `check-role-coverage.py`'s
+/// `SAMPLED_MODES`: a regular and an executable file. A `120000`
+/// symlink would list a file twice under two names, and a `160000`
+/// gitlink is a nested submodule, whose files belong to a commit the
+/// corpus's own does not record.
+const SAMPLED_MODES: [&[u8]; 2] = [b"100644", b"100755"];
+
+/// What repairs a tracked file missing from disk. `make worktree-setup`
+/// restores an interrupted checkout (#1171) — and, forcing it, a file
+/// deleted on purpose, which only `git rm` keeps deleted — but `git diff
+/// HEAD` hides a sparse or skip-worktree entry, so it finds those corpora
+/// complete and leaves them alone.
+const MISSING_FILE_REMEDY: &str = "run `make worktree-setup` (a sparse or skip-worktree corpus \
+     needs `git sparse-checkout disable` or `git update-index --no-skip-worktree`, and a file \
+     deleted on purpose `git rm`)";
+
+/// The variables through which git finds a repository, or its object
+/// store, other than the one `-C` names, as `check-role-coverage.py`'s
+/// `REPOSITORY_ENV`. Git exports `GIT_DIR` and `GIT_INDEX_FILE` to
+/// hooks, and `GIT_DIR` to `git rebase --exec` in a linked worktree;
+/// inherited, they outrank `-C`, so `--show-toplevel` names the corpus
+/// while `ls-files` lists the parent checkout's index.
+/// `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
+/// exports, fails discovery outright once the quarantine it names is
+/// gone, and an alternate is consulted before the corpus's own store.
+const REPOSITORY_ENV: [&str; 6] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+];
+
+/// `git -C dir <args>`'s standard output, or a panic naming the corpus.
+fn git_output(dir: &std::path::Path, args: &[&str]) -> Vec<u8> {
+    let mut cmd = std::process::Command::new("git");
+    for var in REPOSITORY_ENV {
+        cmd.env_remove(var);
+    }
+    let out = cmd
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("{}: cannot run git: {e}", dir.display()));
+    assert!(
+        out.status.success(),
+        "{}: `git {}` failed: {}",
+        dir.display(),
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    out.stdout
+}
+
+/// A path as git prints it under `-z`: unquoted bytes, which are the
+/// OS path on unix and UTF-8 everywhere else.
+#[cfg(unix)]
+fn path_from_git(bytes: &[u8]) -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::OsStr::from_bytes(bytes).into()
+}
+
+#[cfg(not(unix))]
+fn path_from_git(bytes: &[u8]) -> std::path::PathBuf {
+    std::str::from_utf8(bytes)
+        .unwrap_or_else(|e| panic!("git printed a non-UTF-8 path: {e}"))
+        .into()
+}
+
+/// `git` for a scratch fixture repository. Every inherited `GIT_*`
+/// variable goes first, as `utils/check-deny-manifests-test.py`'s
+/// `_git_env` drops them: an exported `GIT_DIR` or `GIT_INDEX_FILE` (a
+/// hook, `git rebase --exec` in a linked worktree) makes this `init`,
+/// `add` and `commit` write into the checkout running the test, and
+/// `GIT_CONFIG_PARAMETERS` outranks the configuration pinned here. The
+/// host's configuration is then kept away as `tests/common/vcs_fixture.rs`
+/// keeps it (#1771): no global or system file, no per-user ignore or
+/// attributes file, and a throwaway identity for the commits a fixture
+/// makes.
+fn fixture_git(dir: &std::path::Path, args: &[&str]) -> Vec<u8> {
+    let mut cmd = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if key.as_encoded_bytes().starts_with(b"GIT_") {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "core.excludesFile")
+        .env("GIT_CONFIG_VALUE_0", "/dev/null")
+        .env("GIT_CONFIG_KEY_1", "core.attributesFile")
+        .env("GIT_CONFIG_VALUE_1", "/dev/null")
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out.stdout
+}
+
+/// `files_under` and `check-role-coverage.py`'s `corpus_listing` list a
+/// corpus the same way, and each side spells the contract in its own
+/// constants. The Python module's are asked for as it holds them —
+/// imported and printed, never read back out of its source — and
+/// compared with the three here, as `python_reader_agrees_with_the_compiled_tables`
+/// compares the role-table reader with the compiled tables.
+#[test]
+fn the_two_enumerators_share_their_contract() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the ast crate sits under the workspace root");
+    let script = r#"
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("cov", sys.argv[1])
+cov = importlib.util.module_from_spec(spec)
+sys.modules["cov"] = cov
+spec.loader.exec_module(cov)
+print(json.dumps({
+    "modes": [m.decode() for m in cov.SAMPLED_MODES],
+    "env": list(cov.REPOSITORY_ENV),
+    "remedy": cov.MISSING_FILE_REMEDY,
+}))
+"#;
+    let out = std::process::Command::new("python3")
+        .arg("-B")
+        .arg("-c")
+        .arg(script)
+        .arg(root.join("utils/check-role-coverage.py"))
+        .output()
+        .expect("python3 is on PATH: the role gates need it, so this test does too");
+    assert!(
+        out.status.success(),
+        "check-role-coverage.py did not import:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let theirs: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("the probe prints one JSON object");
+    let ours = serde_json::json!({
+        "modes": SAMPLED_MODES.iter().map(|m| std::str::from_utf8(m).expect("ASCII mode")).collect::<Vec<_>>(),
+        "env": REPOSITORY_ENV,
+        "remedy": MISSING_FILE_REMEDY,
+    });
+    pretty_assertions::assert_eq!(theirs, ours);
+}
+
+/// `files_under` lists exactly the tracked regular and executable
+/// files. On a scratch repository holding every entry the index can
+/// carry that is not one — a symlink to a file and one to a directory
+/// (serde links one crate's `src` into another's), a nested repository
+/// as a registered, active submodule with its own file on disk, as a
+/// recursive checkout leaves it (#1836) — and an untracked file, so the
+/// sweep's walker is exercised under the gate the sweep itself is not.
+/// The submodule is added rather than written as a bare gitlink because
+/// `ls-files --recurse-submodules` descends only into an active one.
 #[cfg(unix)]
 #[test]
-fn files_under_lists_regular_files_and_skips_symlinks_and_git() {
+fn files_under_lists_the_tracked_regular_files_and_nothing_else() {
+    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().expect("scratch dir");
     let root = dir.path();
     std::fs::create_dir_all(root.join("a/b")).expect("mkdir");
-    std::fs::create_dir_all(root.join(".git/objects")).expect("mkdir");
     std::fs::write(root.join("a/x.rs"), "fn x() {}\n").expect("write");
     std::fs::write(root.join("a/b/y.rs"), "fn y() {}\n").expect("write");
-    std::fs::write(root.join(".git/objects/z"), "not a source").expect("write");
+    std::fs::write(root.join("a/run.rs"), "fn run() {}\n").expect("write");
+    std::fs::set_permissions(
+        root.join("a/run.rs"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .expect("chmod");
     std::os::unix::fs::symlink(root.join("a/b"), root.join("link_to_b")).expect("symlink");
     std::os::unix::fs::symlink(root.join("a/x.rs"), root.join("link_to_x.rs")).expect("symlink");
+    fixture_git(root, &["init", "-q"]);
+    fixture_git(root, &["add", "--", "a", "link_to_b", "link_to_x.rs"]);
+    let source = tempfile::tempdir().expect("scratch dir");
+    std::fs::write(source.path().join("n.rs"), "fn n() {}\n").expect("write");
+    fixture_git(source.path(), &["init", "-q"]);
+    fixture_git(source.path(), &["add", "n.rs"]);
+    fixture_git(source.path(), &["commit", "-q", "-m", "nested"]);
+    let url = source.path().to_str().expect("UTF-8 scratch path");
+    fixture_git(
+        root,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            url,
+            "nested",
+        ],
+    );
+    std::fs::write(root.join("stray.rs"), "fn stray() {}\n").expect("write");
+    let index = String::from_utf8(fixture_git(root, &["ls-files", "-s"])).expect("UTF-8");
+    let modes: BTreeSet<&str> = index.lines().filter_map(|l| l.split(' ').next()).collect();
+    assert_eq!(
+        modes,
+        BTreeSet::from(["100644", "100755", "120000", "160000"]),
+        "the fixture spells every mode the index can hold"
+    );
     let mut found: Vec<String> = files_under(root)
         .into_iter()
         .map(|p| {
@@ -2049,7 +2273,151 @@ fn files_under_lists_regular_files_and_skips_symlinks_and_git() {
         })
         .collect();
     found.sort();
-    assert_eq!(found, ["a/b/y.rs", "a/x.rs"]);
+    assert_eq!(found, [".gitmodules", "a/b/y.rs", "a/run.rs", "a/x.rs"]);
+}
+
+/// A hook, and `git rebase --exec` in a linked worktree, export
+/// `GIT_DIR` and `GIT_INDEX_FILE`, and both outrank `git -C`. The listing
+/// test above is re-run in a child with that pair naming another
+/// repository: the child must pass, and that repository must come
+/// through untouched. Verified by revert: without the scrub in
+/// `fixture_git` the child commits into it, and without the one in
+/// `git_output` the toplevel check passes and `files_under` lists its
+/// index.
+#[cfg(unix)]
+#[test]
+fn files_under_and_its_fixture_ignore_an_inherited_repository() {
+    let victim = tempfile::tempdir().expect("scratch dir");
+    std::fs::write(victim.path().join("keep.rs"), "fn keep() {}\n").expect("write");
+    fixture_git(victim.path(), &["init", "-q"]);
+    fixture_git(victim.path(), &["add", "keep.rs"]);
+    fixture_git(victim.path(), &["commit", "-q", "-m", "victim"]);
+    let read =
+        |args: &[&str]| String::from_utf8_lossy(&fixture_git(victim.path(), args)).into_owned();
+    let state = || (read(&["rev-parse", "HEAD"]), read(&["ls-files", "-s"]));
+    let before = state();
+    let git_dir = victim.path().join(".git");
+    rerun_listing_test_with(&[
+        ("GIT_DIR", git_dir.clone()),
+        ("GIT_INDEX_FILE", git_dir.join("index")),
+    ]);
+    assert_eq!(state(), before, "the inherited repository was written to");
+}
+
+/// `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
+/// exports, replaces the object store git reads; once the quarantine it
+/// names is gone, discovery itself fails with `not a git repository`.
+/// The listing test is re-run in a child with it naming a directory
+/// that does not exist. Verified by revert: without it in
+/// `REPOSITORY_ENV` the child's toplevel check fails.
+#[cfg(unix)]
+#[test]
+fn files_under_ignores_an_inherited_object_directory() {
+    let gone = tempfile::tempdir().expect("scratch dir");
+    let objects = gone.path().join("quarantine");
+    rerun_listing_test_with(&[("GIT_OBJECT_DIRECTORY", objects)]);
+}
+
+/// Runs `files_under_lists_the_tracked_regular_files_and_nothing_else`
+/// in a child test binary with `vars` exported, and asserts it passed.
+/// `files_under` reads the environment through `Command`, and a test
+/// cannot set its own process's environment without `unsafe`, so the
+/// variables are set on a child instead.
+#[cfg(unix)]
+fn rerun_listing_test_with(vars: &[(&str, std::path::PathBuf)]) {
+    // `module_path!()` carries the crate name; libtest's names do not.
+    let child = format!(
+        "{}::files_under_lists_the_tracked_regular_files_and_nothing_else",
+        module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .expect("the test module is nested under the crate root")
+    );
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", &child, "--format", "pretty"])
+        .envs(vars.iter().map(|(k, v)| (k, v)))
+        .output()
+        .expect("spawn the child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "the listing test must pass with {vars:?} inherited; stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// An uninitialised submodule is a directory of the parent checkout,
+/// where git answers for the parent without an error. The file is in
+/// the *parent's* index, so without the toplevel check the walker
+/// would list it rather than find nothing.
+#[test]
+#[should_panic(expected = "not the root of its own git repository")]
+fn files_under_refuses_a_directory_that_is_not_its_own_repository() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    std::fs::create_dir(dir.path().join("corpus")).expect("mkdir");
+    std::fs::write(dir.path().join("corpus/x.rs"), "fn x() {}\n").expect("write");
+    fixture_git(dir.path(), &["init", "-q"]);
+    fixture_git(dir.path(), &["add", "corpus/x.rs"]);
+    files_under(&dir.path().join("corpus"));
+}
+
+/// A tracked file under a directory the user cannot search is reported
+/// as unreadable, not as missing: the remedy for a missing file does
+/// nothing for a permission problem.
+#[cfg(unix)]
+#[test]
+fn files_under_names_an_unreadable_tracked_file_as_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).expect("mkdir");
+    std::fs::write(locked.join("x.rs"), "fn x() {}\n").expect("write");
+    fixture_git(dir.path(), &["init", "-q"]);
+    fixture_git(dir.path(), &["add", "locked/x.rs"]);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    // A privileged user searches through mode 000, and then there is
+    // nothing to refuse.
+    let refused = std::fs::metadata(locked.join("x.rs"))
+        .is_err()
+        .then(|| std::panic::catch_unwind(|| files_under(dir.path())));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+    let Some(refused) = refused else {
+        return;
+    };
+    let message = refused
+        .expect_err("an unreadable tracked file is refused")
+        .downcast::<String>()
+        .expect("a formatted panic message");
+    assert!(message.contains("tracked but unreadable"), "{message}");
+}
+
+/// `a/x.rs` stats as `NotADirectory`, not `NotFound`, once `a` is a
+/// regular file; nothing is there to read, so it is reported as missing
+/// rather than unreadable.
+#[test]
+#[should_panic(expected = "tracked but not on disk")]
+fn files_under_refuses_a_tracked_file_whose_directory_is_now_a_file() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    std::fs::create_dir(dir.path().join("a")).expect("mkdir");
+    std::fs::write(dir.path().join("a/x.rs"), "fn x() {}\n").expect("write");
+    fixture_git(dir.path(), &["init", "-q"]);
+    fixture_git(dir.path(), &["add", "a/x.rs"]);
+    std::fs::remove_dir_all(dir.path().join("a")).expect("rm");
+    std::fs::write(dir.path().join("a"), "").expect("write");
+    files_under(dir.path());
+}
+
+/// A sparse, skip-worktree or interrupted checkout (#1171) lists a file
+/// the disk does not hold; the sweep must not walk around it.
+#[test]
+#[should_panic(expected = "tracked but not on disk")]
+fn files_under_refuses_a_tracked_file_missing_from_disk() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    std::fs::write(dir.path().join("x.rs"), "fn x() {}\n").expect("write");
+    std::fs::write(dir.path().join("gone.rs"), "fn gone() {}\n").expect("write");
+    fixture_git(dir.path(), &["init", "-q"]);
+    fixture_git(dir.path(), &["add", "x.rs", "gone.rs"]);
+    std::fs::remove_file(dir.path().join("gone.rs")).expect("rm");
+    files_under(dir.path());
 }
 
 /// A corpus whose directory holds no file is the interrupted-checkout

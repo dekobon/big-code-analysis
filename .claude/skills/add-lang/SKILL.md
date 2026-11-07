@@ -508,8 +508,9 @@ of each `utils/check-role-*.py` before the first run:
 `--require-observations`, so `.role-coverage-observed.txt` must be
 current, and it is stale the moment `mk_langs!` has a language the
 file has no section for. Run `make role-coverage-observe` (builds
-`bca --release` with `--locked` and walks the three corpus submodules
-under `tests/repositories/`) after Step 2 compiles; it records the new
+`bca --release` with `--locked` and reads the tracked files of the
+corpus submodules under `tests/repositories/` from their git index)
+after Step 2 compiles; it records the new
 language as `not-sampled` when no corpus file carries one of its
 extensions — reported in every run, never a failure, and the only
 cure is a corpus with files in that language. The record also pins
@@ -517,6 +518,9 @@ the grammar version it observed under, so re-run `--observe` after
 any version change. The observer refuses a corpus submodule with local
 changes; the Makefile target is a bare `--observe`, so to override run
 `python3 utils/check-role-coverage.py --observe --allow-dirty` directly.
+Even then it samples only what a corpus's index lists (#1836): stage a
+new `control_flow/<lang>/` fixture in the output submodule first, or
+the language is recorded `not-sampled`.
 
 ### 3b: `Checker` impl in `big-code-analysis-ast/src/checker/<lang>.rs`
 

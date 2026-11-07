@@ -508,8 +508,8 @@ rustfmt-bail-test:
 # `.role-coverage-baseline.txt`, `.role-bypass-baseline.txt`. None
 # needs a Rust build. `--require-observations` makes a missing or stale
 # `.role-coverage-observed.txt` fail here as it does in CI; refresh it
-# with `make role-coverage-observe`, which builds `bca` and walks the
-# corpora.
+# with `make role-coverage-observe`, which builds `bca` and lists each
+# corpus's tracked files from its git index.
 role-census:
 	@echo "Checking the role census..."
 	@python3 $(BASE_DIR)utils/check-role-census.py

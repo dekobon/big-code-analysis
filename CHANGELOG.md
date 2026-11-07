@@ -80,6 +80,28 @@ for historical reference.
 
 ### Fixed
 
+- **`make role-coverage-observe` samples the same files at any checkout
+  depth** (#1836). It walked each corpus directory, so a checkout with
+  the corpora's own submodules initialised — as the benchmarking guide's
+  `git submodule update --init --recursive` leaves it — also sampled
+  DeepSpeech's `tensorflow`, `kenlm` and `doc/examples` and pdf.js's
+  `test/ttx/fonttools-code` (Python 73 → 3,162 files, C++ 1,048 →
+  9,987) and wrote a different observation at the same recorded corpus
+  SHAs, which the staleness check cannot detect. It now lists each
+  corpus's tracked files from its git index, where a nested submodule
+  is one gitlink entry and an untracked file does not appear, and its
+  dirty check ignores the nested submodules it no longer samples. It
+  refuses a tracked file missing from disk, a corpus whose index lists
+  nothing, and a corpus that is not a repository of its own: git
+  answers for the parent checkout in an uninitialised submodule, so the
+  observation would have recorded the parent's `HEAD` as the corpus
+  commit. Every git call inside a corpus also drops the `GIT_DIR`,
+  `GIT_INDEX_FILE` and object-directory variables that a hook, or `git
+  rebase --exec` in a linked worktree, exports, since they redirect it
+  to another repository the same way. The derived parity sweep (`make
+  role-parity-corpus`) lists each corpus the same way, and a test pins
+  the two enumerators to one contract. The committed
+  `.role-coverage-observed.txt` is unchanged.
 - **`make release-check` audits all eight lockfiles** (#1826). It ran
   one `cargo deny check` from the repository root, so the pre-tag gate
   never read the seven `[workspace].exclude` crates' lockfiles — the

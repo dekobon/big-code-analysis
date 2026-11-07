@@ -45,7 +45,10 @@ Deliberately non-recursive
 test reads them — and fetching them is most of the wall time that gets
 interrupted in the first place. The out-of-band benchmark harness
 (``make bench-*``) does walk them; see
-``docs/development/benchmarking.md`` for its recursive checkout.
+``docs/development/benchmarking.md`` for its recursive checkout. That
+checkout changes nothing ``make role-coverage-observe`` or ``make
+role-parity-corpus`` samples: both list a corpus from its git index,
+where a nested submodule is one gitlink entry (#1836).
 """
 
 from __future__ import annotations
