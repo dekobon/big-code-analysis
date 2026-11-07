@@ -114,6 +114,12 @@ for lock in "${locks[@]}"; do
 	# package, and handed a member cargo-deny roots the graph at it alone,
 	# which left the CLI, web, py, bench and xtask closures (155 of 374
 	# crates) unread. On the seven single-package graphs it changes nothing.
+	# Each run fetches the advisory database again, ~0.4 s each and ~3.5 s
+	# for the eight on a warm cache. `--offline` on the later runs would
+	# cut that to ~0.1 s each, but it also stops the crate-index fetch,
+	# and on a cold cache a later manifest's crate the earlier runs did
+	# not pull fails resolution (`location searched: crates.io index`,
+	# measured with `tree-sitter-tcl` first and `enums` offline after it).
 	if ! cargo-deny --locked \
 		--workspace \
 		--manifest-path "$ROOT/$manifest" \

@@ -3889,13 +3889,21 @@ call and not a property of actix — `bind_auto_h2c` speaks plaintext
 HTTP/2 without TLS, and is itself `#[cfg(feature = "http2")]`, so
 dropping the feature removes the H2C entry point along with the
 vulnerable crate. The obvious belt-and-braces guard, a `[bans] deny` on
-`h2 <0.4.16`, turned out to be dead by construction — krates, cargo-deny's
-graph builder, filters the crate out before the advisory and ban checks
-run (`-L debug` logs `filtered h2 0.3.27`), on 0.19 and on the 0.20 that
-CI's action bundles. Re-enabling `actix-web/http2` under both versions
-left cargo-deny silent. The working guard reads `Cargo.lock` directly
-from a test, and `deny.toml` carries a comment where the entry would
-have been, naming the reproduction so the next reader does not add one.
+`h2 <0.4.16`, was then found dead: re-enabling `actix-web/http2` left
+cargo-deny silent on 0.19 and on the 0.20 CI's action bundled, with
+`-L debug` logging `filtered h2 0.3.27`. That observation was right and
+its diagnosis wrong. The filter was not krates dropping the crate; it
+was the graph's roots. CI ran cargo-deny from the repository root with
+no `--workspace`, and the root manifest is also the `big-code-analysis`
+*package*, which does not depend on actix, so the web crate's whole
+closure went unvisited. #1823 established that by measurement (155 of
+374 crates unread) and `utils/check-deny-manifests.sh` now passes
+`--workspace`; on the pre-fix lockfile the same ban then fires
+(`error[banned]: crate 'h2 = 0.3.27'`), and it is in `deny.toml` as a
+live guard beside the lockfile test. A `filtered <crate>` debug line
+means *unreachable from the chosen roots*, not *invisible to
+cargo-deny*; check the roots before concluding a check cannot see a
+crate.
 
 **A scaling probe that never reaches the scan it prices reads linear
 with or without the memo** (#1602, #1697 cost audit). The probe's

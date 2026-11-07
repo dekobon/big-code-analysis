@@ -7,11 +7,15 @@
 //! negotiates HTTP/2 anyway — and the lockfile drops the crate once no
 //! workspace member can enable it.
 //!
-//! cargo-deny cannot guard this: krates filters `h2 0.3.27` out of the
-//! graph before the advisory and ban checks run, on 0.19 and 0.20 alike,
-//! so `deny.toml` is silent whether or not the feature is on. Reading the
-//! lockfile is the only observation that fails when `http2` comes back —
-//! through a re-enabled default, or a new dependency that turns it on.
+//! `deny.toml` bans `h2 <0.4.16` as well. That ban is live only while
+//! cargo-deny roots its graph at every workspace member (`--workspace`,
+//! which `utils/check-deny-manifests.sh` passes since #1823): rooted at
+//! the root package alone, as CI once ran it, this crate's closure is
+//! never visited and the ban cannot fire — which was misread as krates
+//! filtering the crate out when the feature was dropped. This test reads
+//! the lockfile directly, so it holds whatever roots a future cargo-deny
+//! invocation selects, when `http2` comes back through a re-enabled
+//! default or a new dependency that turns it on.
 
 use std::path::Path;
 

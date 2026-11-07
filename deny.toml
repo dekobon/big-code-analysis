@@ -62,11 +62,16 @@ wildcards = "deny"
 # dev-deps, which crates.io strips; a published crate's still needs a version.
 # A git source must also pass `[sources]` below, which denies unknown ones.
 allow-wildcard-paths = true
-# No `deny` entry for `h2 <0.4.16` (RUSTSEC-2026-0258): cargo-deny's graph
-# builder drops that crate before any check runs (`-L debug` logs
-# `filtered h2 0.3.27` with `actix-web/http2` enabled, on 0.19 and 0.20),
-# so neither an advisory nor a ban can see it. The lockfile is pinned by
-# `lockfile_tests` in big-code-analysis-web instead.
+# `h2 0.3` (RUSTSEC-2026-0258) reached the tree through `actix-web`'s
+# `http2` feature, which big-code-analysis-web no longer enables. This
+# entry fires if it comes back; `lockfile_tests` in that crate reads the
+# lockfile directly as a second guard. The entry is live only because the
+# graph is rooted at every workspace member (`--workspace`, #1823): rooted
+# at the root package alone, as CI's old `cargo-deny-action` ran it, the
+# web crate's closure is never visited and `-L debug` logs `filtered h2
+# 0.3.27` — an unreachable crate, not one cargo-deny cannot see, which
+# was misread as the latter when the feature was dropped (`3df3b2c3`).
+deny = [{ crate = "h2:<0.4.16", reason = "RUSTSEC-2026-0258; see big-code-analysis-web/src/lockfile_tests.rs" }]
 
 [sources]
 unknown-registry = "deny"
