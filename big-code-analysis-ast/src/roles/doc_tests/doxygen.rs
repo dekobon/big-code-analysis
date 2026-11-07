@@ -6,7 +6,9 @@
 //! the old names denote — exactly, with a hand-pinned copy of those
 //! names, so a moved alias cannot hide in `excludes`. `ERROR` is the
 //! Checker's clause (the enum sentinel owns no row), pinned on recovery
-//! fixtures through a walk that tolerates them.
+//! fixtures through a walk that tolerates them. The two kind lists the
+//! helpers still compare by name are held to the generated tables, per
+//! dialect.
 
 use super::*;
 use crate::ParserTrait;
@@ -194,6 +196,97 @@ old_names_are_the_conditional_kinds!(
     ObjcCode,
     OBJC_KIND_FLAGS
 );
+
+const ALL_FOUR: &[&str] = &["c", "cpp", "mozcpp", "objc"];
+const CXX_ONLY: &[&str] = &["cpp", "mozcpp"];
+const OBJC_ONLY: &[&str] = &["objc"];
+
+/// Each entry of `DOXYGEN_CONTAINERS` then `DOXYGEN_SKIP_KINDS`, in
+/// order, with the dialects whose generated table holds it as a visible
+/// kind. Hand-pinned, like [`OLD_ENTRY_NAMES`]: the four grammars are
+/// pinned and bumped apart, so a kind one of them renames still names a
+/// kind of the others, and only a per-dialect answer sees it go.
+const DOXYGEN_KIND_DIALECTS: &[(&str, &[&str])] = &[
+    ("translation_unit", ALL_FOUR),
+    ("template_parameter_list", CXX_ONLY),
+    ("declaration_list", ALL_FOUR),
+    ("field_declaration_list", ALL_FOUR),
+    ("enumerator_list", ALL_FOUR),
+    ("class_interface", OBJC_ONLY),
+    ("class_implementation", OBJC_ONLY),
+    ("protocol_declaration", OBJC_ONLY),
+    ("qualified_protocol_interface_declaration", OBJC_ONLY),
+    ("instance_variables", OBJC_ONLY),
+    ("preproc_include", ALL_FOUR),
+    ("preproc_call", ALL_FOUR),
+    ("static_assert_declaration", CXX_ONLY),
+    ("namespace_alias_definition", CXX_ONLY),
+    ("access_specifier", CXX_ONLY),
+    ("alone_macro", &["mozcpp"]),
+    (":", ALL_FOUR),
+    (";", ALL_FOUR),
+];
+
+/// Every kind string `doxygen_container` and `doxygen_skips` compare
+/// `node.kind()` against is a kind of exactly the dialects
+/// [`DOXYGEN_KIND_DIALECTS`] pins for it — a visible id, so a hidden
+/// `_rule` or an auxiliary `*_repeat1` does not count (#1834). A kind
+/// renamed or dropped by one grammar's bump, or a typo, otherwise
+/// matches nothing in that dialect in silence, and one a grammar gains
+/// changes what that dialect binds. The other names these helpers
+/// compare are pinned at build time: `expression_statement` and
+/// `comment` are owners of the `DocTarget` and `Comment` rows, so a
+/// rename fails to build the role tables, and `ERROR` is the runtime's
+/// sentinel, which no grammar names.
+#[test]
+fn doxygen_kind_strings_name_an_emitted_kind() {
+    use crate::lang_helpers::doxygen::{DOXYGEN_CONTAINERS, DOXYGEN_SKIP_KINDS};
+    fn visible_kinds<E: From<u16> + Into<&'static str>>(
+        flags: &[(u16, bool, bool)],
+    ) -> BTreeSet<&'static str> {
+        flags
+            .iter()
+            .filter(|&&(.., visible)| visible)
+            .map(|&(id, ..)| E::from(id).into())
+            .collect()
+    }
+    // In `ALL_FOUR`'s order, which the pinned sets are written in.
+    let tables = [
+        ("c", visible_kinds::<crate::C>(crate::C_KIND_FLAGS)),
+        ("cpp", visible_kinds::<crate::Cpp>(crate::CPP_KIND_FLAGS)),
+        (
+            "mozcpp",
+            visible_kinds::<crate::Mozcpp>(crate::MOZCPP_KIND_FLAGS),
+        ),
+        ("objc", visible_kinds::<crate::Objc>(crate::OBJC_KIND_FLAGS)),
+    ];
+    let listed: Vec<&str> = DOXYGEN_CONTAINERS
+        .iter()
+        .chain(DOXYGEN_SKIP_KINDS)
+        .copied()
+        .collect();
+    let pinned: Vec<&str> = DOXYGEN_KIND_DIALECTS
+        .iter()
+        .map(|&(kind, _)| kind)
+        .collect();
+    assert_eq!(
+        listed, pinned,
+        "the two lists and DOXYGEN_KIND_DIALECTS name different kinds"
+    );
+    let drifted: Vec<String> = DOXYGEN_KIND_DIALECTS
+        .iter()
+        .filter_map(|&(kind, expected)| {
+            let actual: Vec<&str> = tables
+                .iter()
+                .filter(|(_, kinds)| kinds.contains(kind))
+                .map(|&(dialect, _)| dialect)
+                .collect();
+            (actual.is_empty() || actual != expected)
+                .then(|| format!("{kind:?}: pinned to {expected:?}, a kind of {actual:?}"))
+        })
+        .collect();
+    assert!(drifted.is_empty(), "{drifted:#?}");
+}
 
 // Every C entry kind with its gate's two sides, the three conditional
 // forms with and without an entry, a nested conditional, a macro call

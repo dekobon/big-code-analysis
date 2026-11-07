@@ -34,6 +34,19 @@ for historical reference.
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
 
+### Fixed
+
+- **`make release-check` audits all eight lockfiles** (#1826). It ran
+  one `cargo deny check` from the repository root, so the pre-tag gate
+  never read the seven `[workspace].exclude` crates' lockfiles — the
+  five published grammar leaves among them — which CI's deny jobs have
+  audited since #1823. It now runs the same
+  `utils/check-deny-manifests.sh` with all four checks. That script
+  needs cargo-deny 0.20 or later as a binary on `PATH`, so
+  `utils/check-tools.sh --release-only` asks the script itself, names
+  the binary it judged when it refuses one, and the install hints name
+  CI's pin, `cargo-deny@0.20.2`.
+
 ## [2.5.1] - 2026-11-06
 
 2.5.0 reached PyPI only: its release run failed a Windows smoke test

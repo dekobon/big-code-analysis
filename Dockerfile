@@ -176,14 +176,17 @@ EOF
 #
 # Every tool is version-pinned so a rebuild is reproducible. cargo-about
 # tracks CARGO_ABOUT_VERSION in release.yml / python-cli-wheels.yml and
-# the literal `cargo-about@…` in ci.yml's release-check job; mdbook
+# the literal `cargo-about@…` in ci.yml's license-audit job; mdbook
 # tracks MDBOOK_VERSION in pages.yml (the 0.5.x line pairs with the
 # mdbook-i18n-helpers 0.4.x that pages.yml installs; the image does
 # not carry the helpers, so `make book-ja` / `book-pot` need the
 # install in docs/development/translations.md). No gate compares
-# these copies, so a bump is a grep for the old version. The rest
-# have no CI pin to mirror (ci.yml installs cargo-nextest /
-# cargo-llvm-cov unpinned).
+# these copies, so a bump is a grep for the old version. cargo-deny
+# is the exception: it tracks the `cargo-deny@…` pin of ci.yml's `deny`
+# job and deny-advisories.yml's `advisories` job, and
+# utils/check-deny-manifests-test.py fails when they differ (#1826).
+# The rest are not held to CI's copies (ci.yml installs cargo-nextest
+# unpinned in two jobs and pins it and cargo-llvm-cov in `coverage`).
 RUN set -eux; \
     cargo binstall --no-confirm \
         cargo-udeps@0.1.61 \

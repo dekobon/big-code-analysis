@@ -374,10 +374,12 @@ repos:
       # Self-tests for the release-tool probes and install hints.
       # cargo-about's hint is only correct with `--features cli`;
       # without it the install exits 0 and installs nothing (#1226).
+      # Fires on the deny script too, whose `--version-check` refusals
+      # the cargo-deny cases assert (#1826).
       - id: check-tools-test
         name: check-tools-test
         language: system
-        files: '^utils/check-tools(-test)?\.sh$'
+        files: '^utils/check-(tools(-test)?|deny-manifests)\.sh$'
         entry: bash utils/check-tools-test.sh
         pass_filenames: false
 
@@ -636,14 +638,16 @@ repos:
         entry: python3 -B -m unittest -q utils/check-grammar-build-watch-test.py
         pass_filenames: false
 
-      # Self-tests for utils/check-deny-manifests.sh, which only the two
-      # `deny` workflow jobs run for real (#1823). Fires on a lockfile too,
-      # because a ninth tracked Cargo.lock is what the live-tree case
-      # exists to catch, and on both workflows, whose wiring it pins.
+      # Self-tests for utils/check-deny-manifests.sh, which CI's two deny
+      # workflows and `make release-check` run for real (#1823, #1826).
+      # Fires on a lockfile too, because a ninth tracked Cargo.lock is
+      # what the live-tree case exists to catch; on both workflows and
+      # the Makefile, whose wiring it pins; and on every file it holds to
+      # CI's cargo-deny pin.
       - id: check-deny-manifests-test
         name: check-deny-manifests-test
         language: system
-        files: '^(utils/check-deny-manifests(\.sh|-test\.py)|\.github/workflows/(ci|deny-advisories)\.yml|(.+/)?Cargo\.lock)$'
+        files: '^(utils/check-deny-manifests(\.sh|-test\.py)|\.github/workflows/(ci|deny-advisories)\.yml|(.+/)?Cargo\.lock|Makefile|RELEASING\.md|Dockerfile)$'
         entry: python3 -m unittest -q utils/check-deny-manifests-test.py
         pass_filenames: false
 

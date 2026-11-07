@@ -409,6 +409,26 @@ fn chain_below<'a, 'c>(
 // (`KeptDocs::All`); what follows is which siblings are entries, which it
 // reads past, and where a doc block binds at all.
 
+/// The kinds [`doxygen_container`] names besides the preprocessor
+/// conditionals. By kind string, not id: one compare covers every alias
+/// of a rule in the four dialects, which number them differently
+/// (grammar-dispatch §1). Nothing at compile time ties a string to a
+/// grammar, so `doxygen_kind_strings_name_an_emitted_kind`
+/// (`roles/doc_tests/doxygen.rs`) holds each entry to the dialects
+/// whose parser emits it (#1834).
+pub(crate) const DOXYGEN_CONTAINERS: &[&str] = &[
+    "translation_unit",
+    "template_parameter_list",
+    "declaration_list",
+    "field_declaration_list",
+    "enumerator_list",
+    "class_interface",
+    "class_implementation",
+    "protocol_declaration",
+    "qualified_protocol_interface_declaration",
+    "instance_variables",
+];
+
 /// A node whose children Doxygen reads as a sequence of entries, so a doc
 /// comment among them documents the next one: a file, a namespace or
 /// `extern "C"` body, a class or enum body, an Objective-C container and a
@@ -421,21 +441,22 @@ fn chain_below<'a, 'c>(
 /// each doc comment documents an enumerator.
 #[must_use]
 pub(crate) fn doxygen_container<T: DoxygenRow>(node: &Node) -> bool {
-    preproc_conditional::<T>(node)
-        || matches!(
-            node.kind(),
-            "translation_unit"
-                | "template_parameter_list"
-                | "declaration_list"
-                | "field_declaration_list"
-                | "enumerator_list"
-                | "class_interface"
-                | "class_implementation"
-                | "protocol_declaration"
-                | "qualified_protocol_interface_declaration"
-                | "instance_variables"
-        )
+    preproc_conditional::<T>(node) || DOXYGEN_CONTAINERS.contains(&node.kind())
 }
+
+/// The kinds [`doxygen_skips`] always reads past, by kind string and
+/// pinned to the grammars as [`DOXYGEN_CONTAINERS`] is.
+pub(crate) const DOXYGEN_SKIP_KINDS: &[&str] = &[
+    "preproc_include",
+    "preproc_call",
+    "static_assert_declaration",
+    "namespace_alias_definition",
+    "access_specifier",
+    // Mozilla's C++ grammar reading a lone `FOO` line.
+    "alone_macro",
+    ":",
+    ";",
+];
 
 /// A sibling Doxygen reads past to the entry after it: `#include`,
 /// `#import`, `#pragma` and the other directives that declare nothing, an
@@ -446,15 +467,7 @@ pub(crate) fn doxygen_container<T: DoxygenRow>(node: &Node) -> bool {
 #[must_use]
 pub(crate) fn doxygen_skips<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
     match node.kind() {
-        // `alone_macro` is Mozilla's C++ grammar reading a lone `FOO` line.
-        "preproc_include"
-        | "preproc_call"
-        | "static_assert_declaration"
-        | "namespace_alias_definition"
-        | "access_specifier"
-        | "alone_macro"
-        | ":"
-        | ";" => true,
+        kind if DOXYGEN_SKIP_KINDS.contains(&kind) => true,
         "expression_statement" => !statement_is_macro_call(node),
         "ERROR" => no_entry_inside::<T>(node, ancestors),
         _ => preproc_conditional::<T>(node) && !conditional_declares::<T>(node, ancestors),
