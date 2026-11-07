@@ -245,10 +245,11 @@ bca report --paths /path/to/project \
     html --top 10 --output report.html
 ```
 
-Click any column header to sort that table ascending, click again to
-toggle descending. Each table sorts independently. Empty cells (where a
-metric was not measured) sort as if they were positive infinity, which
-keeps "no data" rows out of the visible top of a hotspot.
+Click any column header — or Tab to it and press Enter or Space — to
+sort that table ascending, and again to toggle descending. Each table
+sorts independently. Empty cells (where a metric was not measured) sort
+last in both directions, so "no data" rows never surface at the top of
+a hotspot.
 
 Hover (or keyboard-focus, where the browser supports it) any metric
 column header (`SLOC`, `MI`, `CC`, `ABC`, `WMC`, `NPA`, `NPM`,

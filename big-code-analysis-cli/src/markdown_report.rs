@@ -1063,7 +1063,8 @@ pub(crate) fn lang_overview_row(
         thousands(func_count),
         // An empty cell, not `n/a`, when no file had code to measure: the
         // HTML table sorter reads an empty cell as "no value" and sorts it
-        // last, where any other text would parse as NaN.
+        // last in either direction; any other text would parse as NaN and
+        // sort the same way, but read as a value in the cell.
         avg_mi.map_or_else(String::new, |mi| format!("{mi:.1}")),
         format!("{avg_cc:.1}"),
         format!("{avg_cog:.1}"),

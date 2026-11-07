@@ -155,7 +155,10 @@ fn write_table_head<'t>(
         } else {
             ""
         };
-        let _ = write!(out, "<th{numeric_attr}");
+        // `tabindex="0"` puts the header in the tab order so the sort the
+        // inline JS binds to click is also reachable by keyboard (Enter /
+        // Space); without it a bare `<th>` can never take focus.
+        let _ = write!(out, "<th tabindex=\"0\"{numeric_attr}");
         // Announce the pre-ranked column's initial sort order at render
         // time. The `dir` string comes from `SortDir::aria_sort`, so it is
         // always the literal `ascending`/`descending` the inline JS toggles
@@ -501,6 +504,166 @@ mod tests {
             out.contains("document.querySelectorAll('table.hotspot')"),
             "JS sort handler must bind to every hotspot table by class, not by id"
         );
+    }
+
+    /// A numeric column's header must sit over its right-aligned cells.
+    /// Only `td.numeric` was right-aligned before, while every `th` kept
+    /// the shared `text-align:left`, so "SLOC" read flush-left above a
+    /// column of right-aligned numbers.
+    #[test]
+    fn numeric_headers_are_right_aligned_like_their_cells() {
+        assert!(
+            INLINE_CSS.contains("table.hotspot th[data-numeric=\"1\"]{text-align:right}"),
+            "numeric <th> must carry a right-align rule"
+        );
+        assert!(INLINE_CSS.contains("table.hotspot td.numeric{text-align:right"));
+        // The selector keys on the attribute the sorter already emits, so
+        // the real output carries it on exactly the numeric headers.
+        let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
+        assert!(out.contains("<th tabindex=\"0\" data-numeric=\"1\""));
+        assert!(
+            out.contains("<th tabindex=\"0\">File</th>"),
+            "identity headers stay text-aligned (no data-numeric):\n{out}"
+        );
+    }
+
+    /// Sorting is reachable from the keyboard: every header is in the tab
+    /// order and the handler fires on Enter / Space as well as click.
+    /// Before, a bare `<th>` could never take focus, and the only
+    /// focusable thing in a metric header was its documentation link.
+    #[test]
+    fn headers_are_focusable_and_sort_on_keyboard() {
+        let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
+        // `<th ` and `<th>` only — `<thead>` shares the prefix.
+        let total = out.matches("<th ").count() + out.matches("<th>").count();
+        assert!(total > 0);
+        assert_eq!(
+            out.matches("<th tabindex=\"0\"").count(),
+            total,
+            "every <th> must be focusable"
+        );
+        assert!(INLINE_JS.contains("th.addEventListener('keydown'"));
+        assert!(INLINE_JS.contains("e.key==='Enter'||e.key===' '"));
+        // A metric header holds a documentation link; Enter on *that*
+        // must follow the link, not sort. The handler ignores a keydown
+        // that bubbled from a child, before it reads the key.
+        let guard = INLINE_JS
+            .find("if(e.target!==th)return;")
+            .expect("target guard");
+        let key = INLINE_JS.find("e.key==='Enter'").expect("key test");
+        assert!(guard < key, "the target guard must run before the key test");
+        assert!(
+            INLINE_CSS.contains("table.hotspot th:focus-visible{outline:"),
+            "a focused header must be visibly focused"
+        );
+    }
+
+    /// An empty numeric cell (the overview's `Avg MI` when no file carries
+    /// code) sorts last in *both* directions. The previous comparator
+    /// mapped it to +Infinity, which sorted it last ascending and first
+    /// descending.
+    #[test]
+    fn js_sorts_blank_numeric_cells_last_in_both_directions() {
+        assert!(
+            INLINE_JS.contains("function num(s){return s===''?NaN:parseFloat("),
+            "a blank must parse to NaN, never a signed infinity"
+        );
+        // The NaN arms return a fixed order that ignores `sign`, which is
+        // what makes the placement direction-independent.
+        assert!(INLINE_JS.contains("if(ae&&be)return 0;if(ae)return 1;if(be)return -1;"));
+        let signed_tail = "if(a.k<b.k)return -1*sign;if(a.k>b.k)return 1*sign;";
+        let nan_arms = INLINE_JS.find("if(ae)return 1;").expect("NaN arm");
+        let signed = INLINE_JS.find(signed_tail).expect("signed compare");
+        assert!(
+            nan_arms < signed,
+            "the NaN arms must run before the signed compare"
+        );
+    }
+
+    /// Runs [`INLINE_JS`] under Node against a DOM stub
+    /// (`tests/fixtures/sort_script_harness.mjs`) and asserts what it
+    /// *does*: the substring tests above pin the spelling and would pass
+    /// a script that, say, guarded the wrong event target. The harness
+    /// needs nothing newer than Node 14; the floor is `make plugin-test`'s
+    /// 22.7 so one runtime serves every Node-driven test. Without it the
+    /// test skips locally with a note, and **fails** under `CI` — the
+    /// `plugin-test` posture, since under nextest a skipped test's stderr
+    /// is never shown and a skip would read as a pass. `ci.yml` installs
+    /// Node before every job that runs this crate's tests.
+    #[test]
+    fn inline_sort_script_behaves_under_a_dom_stub() {
+        let node_ok = std::process::Command::new("node")
+            .arg("-e")
+            .arg(
+                "const [a,b]=process.versions.node.split('.').map(Number);\
+                 process.exit(a>22||(a===22&&b>=7)?0:1)",
+            )
+            .status()
+            .is_ok_and(|s| s.success());
+        if !node_ok {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "Node >= 22.7 is required for inline_sort_script_behaves_under_a_dom_stub in CI"
+            );
+            eprintln!(
+                "node >= 22.7 not found; skipping inline_sort_script_behaves_under_a_dom_stub"
+            );
+            return;
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script = dir.path().join("sort.js");
+        std::fs::write(&script, INLINE_JS).expect("write script");
+        let harness = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/sort_script_harness.mjs");
+        let out = std::process::Command::new("node")
+            .arg(&harness)
+            .arg(&script)
+            .output()
+            .expect("run node");
+        assert!(
+            out.status.success(),
+            "harness failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let got: serde_json::Value =
+            serde_json::from_slice(&out.stdout).expect("harness emits JSON");
+        let strs = |key: &str| -> Vec<String> {
+            got[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} is an array: {got}"))
+                .iter()
+                .map(|v| v.as_str().expect("string cell").to_owned())
+                .collect()
+        };
+        // The pre-ranked column ships `aria-sort="descending"`, so its
+        // first activation is a reversal to ascending.
+        assert_eq!(strs("rankedFirstClick"), ["1.0", "3.0", "7.0", "9.0"]);
+        assert_eq!(got["rankedAriaAfterFirstClick"], "ascending");
+        // Numeric sort parses through the thousands separator and keeps
+        // the blank last in both directions.
+        assert_eq!(strs("numericAscending"), ["5", "12", "1,000", ""]);
+        assert_eq!(got["ariaAfterFirstClick"], "ascending");
+        assert_eq!(strs("numericDescending"), ["1,000", "12", "5", ""]);
+        assert_eq!(got["ariaAfterSecondClick"], "descending");
+        // A text sort is lexical, and sorting one column clears the
+        // other's `aria-sort`.
+        assert_eq!(strs("textAscending"), ["a.rs", "b.rs", "c.rs", "d.rs"]);
+        assert!(got["numericAriaCleared"].is_null(), "{got}");
+        assert!(got["rankedAriaCleared"].is_null(), "{got}");
+        // Keyboard: Enter / Space on the header sort and swallow the key.
+        assert_eq!(strs("enterOnHeaderSorts"), ["d.rs", "c.rs", "b.rs", "a.rs"]);
+        assert_eq!(got["enterOnHeaderPrevented"], true);
+        assert_eq!(strs("spaceOnHeaderSorts"), ["5", "12", "1,000", ""]);
+        assert_eq!(got["spaceOnHeaderPrevented"], true);
+        // Enter on the header's documentation link neither sorts nor
+        // cancels the link's own navigation — including the `click` a
+        // browser synthesizes to activate the link, which bubbles to the
+        // header's click handler. A mouse click on the link is likewise
+        // the link's alone.
+        assert_eq!(got["enterOnLinkPrevented"], false, "{got}");
+        assert_eq!(got["enterOnLinkMovedRows"], false, "{got}");
+        assert_eq!(got["clickOnLinkMovedRows"], false, "{got}");
+        assert_eq!(got["tabPrevented"], false);
     }
 
     #[test]

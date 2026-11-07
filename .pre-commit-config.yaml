@@ -56,7 +56,9 @@ repos:
       - id: test
         name: test
         language: system
-        files: '\.rs$'
+        # The `.mjs` is the DOM-stub harness a Rust unit test drives, so an
+        # edit to it is an edit to that test.
+        files: '(\.rs|big-code-analysis-cli/tests/fixtures/.*\.mjs)$'
         entry: cargo test
         pass_filenames: false
 

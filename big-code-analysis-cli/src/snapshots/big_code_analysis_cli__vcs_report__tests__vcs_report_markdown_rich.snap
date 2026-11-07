@@ -28,9 +28,9 @@ _Bus factor: the number of authors whose departure would orphan more than half t
 ## Legend
 
 - **Risk** — Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.
-- **Commits (recent)** — Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: commits_recent.
-- **Churn (recent)** — Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: churn_recent.
-- **Authors (recent)** — Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: authors_recent.
+- **Commits (recent)** — Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: commits\_recent.
+- **Churn (recent)** — Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: churn\_recent.
+- **Authors (recent)** — Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: authors\_recent.
 - **Ownership** — Top-author edit share (0–1): fraction of edits by the single most active author; lower means more diluted ownership.
 - **Bug fixes** — Commits classified as bug fixes (by message) within the long window.
 - **Hotspot** — Complexity × recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.

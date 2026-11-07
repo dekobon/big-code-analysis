@@ -185,6 +185,8 @@ table.hotspot th:hover{background:#e5e5e5}\
 table.hotspot th[aria-sort=ascending]::after{content:\" \\2191\"}\
 table.hotspot th[aria-sort=descending]::after{content:\" \\2193\"}\
 table.hotspot tr:nth-child(even) td{background:#fafafa}\
+table.hotspot th[data-numeric=\"1\"]{text-align:right}\
+table.hotspot th:focus-visible{outline:2px solid #3d82cc;outline-offset:-2px}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 table.hotspot td.risk-heat-0,table.hotspot td.risk-heat-1,\
 table.hotspot td.risk-heat-2,table.hotspot td.risk-heat-3,\
@@ -277,35 +279,46 @@ pub(crate) fn language_palette_slug(lang_name: &str) -> &'static str {
 
 pub(crate) const INLINE_JS: &str = "\
 (function(){\
-function num(s){return s===''?Number.POSITIVE_INFINITY:parseFloat(s.replace(/,/g,''));}\
+function num(s){return s===''?NaN:parseFloat(s.replace(/,/g,''));}\
 document.querySelectorAll('table.hotspot').forEach(function(table){\
 var headers=table.querySelectorAll('thead th');\
 headers.forEach(function(th,idx){\
-th.addEventListener('click',function(){sort(table,idx,th);});\
+th.addEventListener('click',function(e){\
+if(e.target!==th)return;\
+sort(table,idx,th);\
+});\
+th.addEventListener('keydown',function(e){\
+if(e.target!==th)return;\
+if(e.key==='Enter'||e.key===' '){e.preventDefault();sort(table,idx,th);}\
+});\
 });\
 });\
 function sort(tbl,idx,th){\
 var tbody=tbl.tBodies[0];\
 if(!tbody)return;\
-var rows=Array.prototype.slice.call(tbody.rows);\
 var numeric=th.dataset.numeric==='1';\
 var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';\
 tbl.querySelectorAll('thead th').forEach(function(h){h.removeAttribute('aria-sort');});\
 th.setAttribute('aria-sort',dir);\
 var sign=dir==='ascending'?1:-1;\
-rows.sort(function(a,b){\
-var av=a.cells[idx].textContent;\
-var bv=b.cells[idx].textContent;\
+var keyed=Array.prototype.map.call(tbody.rows,function(r){\
+var t=r.cells[idx].textContent;\
+return {r:r,k:numeric?num(t):t};\
+});\
+keyed.sort(function(a,b){\
 if(numeric){\
-var an=num(av);\
-var bn=num(bv);\
-if(an<bn)return -1*sign;\
-if(an>bn)return 1*sign;\
+var ae=isNaN(a.k);\
+var be=isNaN(b.k);\
+if(ae&&be)return 0;\
+if(ae)return 1;\
+if(be)return -1;\
+if(a.k<b.k)return -1*sign;\
+if(a.k>b.k)return 1*sign;\
 return 0;\
 }\
-return av.localeCompare(bv)*sign;\
+return a.k.localeCompare(b.k)*sign;\
 });\
-rows.forEach(function(r){tbody.appendChild(r);});\
+keyed.forEach(function(e){tbody.appendChild(e.r);});\
 }\
 })();\
 ";

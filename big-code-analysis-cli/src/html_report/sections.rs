@@ -244,7 +244,9 @@ pub(crate) fn write_overview_table(
     // One discoverability hint near the first table: the columns are
     // sortable, which is otherwise invisible until a reader happens to
     // click a header (issue #622).
-    let _ = out.write_str("<p class=\"sort-hint\">Click a column header to sort any table.</p>\n");
+    let _ = out.write_str(
+        "<p class=\"sort-hint\">Click a column header \u{2014} or Tab to it and press Enter \u{2014} to sort any table.</p>\n",
+    );
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
     for (&lang_name, lang_summaries) in by_lang {
         rows.push(lang_overview_row(lang_name, lang_summaries));
