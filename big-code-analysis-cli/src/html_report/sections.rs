@@ -95,10 +95,11 @@ impl Headings {
 }
 
 /// Render a hotspot table from the shared [`Column`] descriptors. Builds the
-/// parallel `headers`/`aligns`/`rows` arrays and delegates to [`write_table`],
-/// the single source of truth for table bytes and escaping. HTML escapes
-/// every cell uniformly, so the raw [`Cell`] payload (regardless of kind) is
-/// handed to `write_table`, whose `escape_html` runs exactly once per cell.
+/// parallel `headers`/`aligns`/`rows` arrays and delegates to
+/// [`write_table_with_tooltips`], the single source of truth for table
+/// bytes and escaping. HTML escapes every cell uniformly, so the raw
+/// [`Cell`] payload (regardless of kind) is handed over, and `escape_html`
+/// runs exactly once per cell.
 fn write_hotspot_table(out: &mut String, spec: &HotspotSpec, entries: &[&FunctionSummary]) {
     let columns = spec.columns;
     let mut headers = Vec::with_capacity(columns.len());
@@ -113,8 +114,7 @@ fn write_hotspot_table(out: &mut String, spec: &HotspotSpec, entries: &[&Functio
     for s in entries {
         let mut row: Vec<String> = Vec::with_capacity(columns.len());
         for col in columns {
-            let (Cell::Name(text) | Cell::Path(text) | Cell::Num(text)) = (col.cell)(s);
-            row.push(text);
+            row.push((col.cell)(s).into_text());
         }
         rows.push(row);
     }
@@ -247,30 +247,25 @@ pub(crate) fn write_overview_table(
     let _ = out.write_str(
         "<p class=\"sort-hint\">Click a column header \u{2014} or Tab to it and press Enter \u{2014} to sort any table.</p>\n",
     );
-    let mut rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
-    for (&lang_name, lang_summaries) in by_lang {
-        rows.push(lang_overview_row(lang_name, lang_summaries));
-    }
-    write_table(
+    let rows: Vec<Vec<String>> = by_lang
+        .iter()
+        .map(|(&lang_name, lang_summaries)| {
+            overview::LangOverview::from_summaries(lang_name, lang_summaries)
+                .cells()
+                .into_iter()
+                .map(Cell::into_text)
+                .collect()
+        })
+        .collect();
+    // The column spec carries the authoritative tooltip; pass it
+    // positionally so each header's `title=` matches the legend exactly.
+    // The overview is unranked, so no header announces an initial sort.
+    write_table_with_tooltips(
         out,
-        &[
-            "Language",
-            "Files",
-            "SLOC",
-            "Functions",
-            "Avg MI",
-            "Avg CC",
-            "Avg Cognitive",
-        ],
-        &[
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
+        &overview::headers(),
+        &overview::aligns(),
+        &overview::tooltips(),
+        None,
         &rows,
     );
 }

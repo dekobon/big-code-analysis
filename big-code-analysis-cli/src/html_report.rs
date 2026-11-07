@@ -38,8 +38,8 @@ use big_code_analysis::{SpaceKind, SuppressionPolicy};
 use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
 use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS};
 use crate::markdown_report::{
-    FunctionSummary, LanguageTotals, comment_ratio_percent, is_class_like, lang_overview_row,
-    language_display_name, rated_avg_mi, thousands,
+    FunctionSummary, LanguageTotals, comment_ratio_percent, is_class_like, language_display_name,
+    overview, rated_avg_mi, thousands,
 };
 
 mod sections;
@@ -62,54 +62,19 @@ pub(crate) struct RankedColumn {
 /// Write a `<table class="hotspot">` with one `<thead>` and one
 /// `<tbody>`. `aligns` controls per-cell text alignment AND the
 /// `data-numeric="1"` attribute that the inline sort handler reads to
-/// pick numeric vs string comparison.
-///
-/// Cell strings are escaped via [`escape_html`]; do not pre-escape.
-pub(crate) fn write_table(
-    out: &mut String,
-    headers: &[&str],
-    aligns: &[Align],
-    rows: &[Vec<String>],
-) {
-    // No extra per-cell classes: every cell carries only its
-    // alignment-derived `numeric` class. The overview table is unranked,
-    // so no header announces an initial sort.
-    write_table_classed(out, headers, aligns, rows, |_, _| None);
-}
-
-/// Like [`write_table`], but a `cell_class` callback can contribute an
-/// extra CSS class (e.g. a severity-heat band) to a specific `<td>`,
-/// keyed by `(row_index, column_index)`. The returned class is appended
-/// after the alignment-derived `numeric` class on a single
-/// space-separated `class="…"` attribute, so [`escape_html`] still runs
-/// exactly once per cell and the attribute is never doubled.
-pub(crate) fn write_table_classed(
-    out: &mut String,
-    headers: &[&str],
-    aligns: &[Align],
-    rows: &[Vec<String>],
-    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
-) {
-    // Resolve each header's tooltip via the string-keyed overview
-    // catalogue (the only caller that takes this path is the Per-language
-    // overview).
-    write_table_core(out, headers, aligns, rows, None, cell_class, |_, h| {
-        header_tooltip(h)
-    });
-}
-
-/// Like [`write_table`], but each column's tooltip is supplied explicitly
-/// by index rather than resolved from a string-keyed catalogue. This is
-/// the path the hotspot and change-history tables take: their tooltip is
-/// already authoritative on the shared column spec
-/// ([`crate::markdown_report::hotspot::Column`] /
-/// [`crate::vcs_report::VcsColumn`]), and passing it positionally avoids
-/// the header-string ambiguity that made the bus-factor "Files" column
+/// pick numeric vs string comparison. Each column's tooltip is supplied
+/// positionally: every table's tooltip is authoritative on its column
+/// spec ([`crate::markdown_report::hotspot::Column`],
+/// [`crate::markdown_report::overview::OverviewColumn`],
+/// [`crate::vcs_report::VcsColumn`]), and passing it by index avoids the
+/// header-string ambiguity that once made the bus-factor "Files" column
 /// inherit the unrelated "source files analysed" definition (issue #610).
 /// `tooltips[i]` is the `title=` text for column `i`; `None` leaves the
 /// header bare. `ranked` names the column the table is already sorted by
 /// (and the direction) so its `<th>` carries `aria-sort` at render time;
 /// pass `None` for an unranked table.
+///
+/// Cell strings are escaped via [`escape_html`]; do not pre-escape.
 pub(crate) fn write_table_with_tooltips(
     out: &mut String,
     headers: &[&str],
@@ -133,20 +98,18 @@ pub(crate) fn write_table_classed_with_tooltips(
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
 ) {
     debug_assert_eq!(headers.len(), tooltips.len());
-    write_table_core(out, headers, aligns, rows, ranked, cell_class, |i, _| {
-        tooltips.get(i).copied().flatten()
-    });
+    write_table_core(out, headers, aligns, tooltips, rows, ranked, cell_class);
 }
 
 /// Emit the `<thead>` row: one `<th>` per header, carrying its numeric hint,
 /// the pre-ranked column's `aria-sort`, an optional tooltip, and a link to the
 /// metric's hosted chapter when one exists.
-fn write_table_head<'t>(
+fn write_table_head(
     out: &mut String,
     headers: &[&str],
     aligns: &[Align],
+    tooltips: &[Option<&str>],
     ranked: Option<RankedColumn>,
-    tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
 ) {
     let _ = out.write_str("<thead><tr>");
     for (i, (h, a)) in headers.iter().zip(aligns).enumerate() {
@@ -169,7 +132,7 @@ fn write_table_head<'t>(
         {
             let _ = write!(out, " aria-sort=\"{}\"", rank.dir);
         }
-        if let Some(tip) = tooltip_for(i, h) {
+        if let Some(tip) = tooltips.get(i).copied().flatten() {
             let _ = write!(out, " title=\"{}\"", escape_html(tip));
         }
         // Link the header text to its hosted metric chapter when one exists
@@ -194,16 +157,16 @@ fn write_table_head<'t>(
 }
 
 /// Shared table body for the HTML renderers: `cell_class` contributes an
-/// optional per-cell CSS class keyed by `(row, col)`, and `tooltip_for`
-/// resolves each header's `title=` text by `(col_index, header)`.
-fn write_table_core<'t>(
+/// optional per-cell CSS class keyed by `(row, col)`, and `tooltips[i]`
+/// is column `i`'s `title=` text.
+fn write_table_core(
     out: &mut String,
     headers: &[&str],
     aligns: &[Align],
+    tooltips: &[Option<&str>],
     rows: &[Vec<String>],
     ranked: Option<RankedColumn>,
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
-    tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
 ) {
     debug_assert_eq!(headers.len(), aligns.len());
     // Wrap every table in an overflow-x scroll container so a wide table
@@ -211,7 +174,7 @@ fn write_table_core<'t>(
     // clipping its right-most metric columns past a narrow viewport (issue
     // #686). `white-space:nowrap` cells stay; the wrapper handles overflow.
     let _ = out.write_str("<div class=\"table-wrap\">\n<table class=\"hotspot\">\n");
-    write_table_head(out, headers, aligns, ranked, tooltip_for);
+    write_table_head(out, headers, aligns, tooltips, ranked);
     let _ = out.write_str("<tbody>\n");
     for (r, row) in rows.iter().enumerate() {
         debug_assert_eq!(row.len(), headers.len());
@@ -949,12 +912,12 @@ mod tests {
         // required to appear in real output without anyone remembering to
         // update the test. The hotspot metric columns own their tooltip on
         // the spec (`hotspot::legend_entries`); the Per-language overview's
-        // averaged / count columns supply theirs via `OVERVIEW_LEGEND`.
+        // averaged / count columns supply theirs via `overview::legend`.
         // `needle` embeds the rendered title directly, so a divergence
         // between the spec tooltip and the `title=` attribute surfaces here.
         for (header, tip) in hotspot::legend_entries()
             .into_iter()
-            .chain(hotspot::OVERVIEW_LEGEND.iter().copied())
+            .chain(overview::legend())
         {
             // A metric header now links its hosted chapter (issue #675), so
             // its text is wrapped in an `<a>`; a non-metric overview header
@@ -975,12 +938,16 @@ mod tests {
         }
 
         // Non-metric labels must remain bare so click-to-sort UX is not
-        // crowded with redundant tooltips for self-describing columns.
+        // crowded with redundant tooltips for self-describing columns. The
+        // overview's one identity column is declared tooltip-less on its
+        // spec; the hotspot identity columns are `tooltip: None` on theirs.
+        assert!(
+            overview::OVERVIEW_SPECS
+                .iter()
+                .all(|c| (c.header == "Language") == c.tooltip.is_none()),
+            "Language is the overview's only tooltip-less column"
+        );
         for plain in ["File", "Function", "Type", "Line", "Language"] {
-            assert!(
-                header_tooltip(plain).is_none(),
-                "header {plain:?} should not carry a tooltip"
-            );
             let needle = format!(">{plain}</th>");
             assert!(
                 out.contains(&needle),

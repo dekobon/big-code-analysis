@@ -5,7 +5,7 @@
 //! This module decides WHICH functions appear in each hotspot section, in
 //! what order, with what suppression, plus the per-section columns and the
 //! cyclomatic summary stats. It does NOT decide escaping or table markup —
-//! each renderer keeps its own `write_table` and maps a [`Cell`] to its own
+//! each renderer keeps its own table writer and maps a [`Cell`] to its own
 //! format. Sharing the [`SPECS`] table is what keeps the two reports from
 //! diverging (the "same data" guarantee; see the book's report
 //! "Format consistency" section). Despite living under `markdown_report`,
@@ -69,15 +69,27 @@ pub(crate) enum Source {
 /// correctly. The payload is already value-formatted; only escaping differs:
 /// HTML escapes every kind uniformly via `escape_html`; Markdown wraps a
 /// [`Cell::Name`] in backticks (`escape_name`), GFM-escapes a [`Cell::Path`]
-/// (`escape_cell`), and emits a [`Cell::Num`] raw.
+/// or [`Cell::Text`] (`escape_cell`), and emits a [`Cell::Num`] raw.
 #[derive(Clone)]
 pub(crate) enum Cell {
     /// A function or class identifier.
     Name(String),
     /// A file path.
     Path(String),
+    /// Plain prose that is neither a path nor an identifier (a language
+    /// display name); GFM-escaped like a path.
+    Text(String),
     /// Pre-formatted numeric text (escaping is a no-op in either format).
     Num(String),
+}
+
+impl Cell {
+    /// The payload regardless of kind, for HTML, where the table writer
+    /// escapes every kind uniformly so the kind itself does not matter.
+    pub(crate) fn into_text(self) -> String {
+        let (Self::Name(t) | Self::Path(t) | Self::Text(t) | Self::Num(t)) = self;
+        t
+    }
 }
 
 /// One column: header, alignment, a capture-free projector to a [`Cell`],
@@ -115,41 +127,6 @@ pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescal
 /// (`mi.original` / `mi.sei`), so the column number and the gate number are
 /// not one-to-one comparable.
 pub(crate) const MI_NOTE: &str = "MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0\u{2013}100: GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column.";
-/// Tooltip for the Per-language overview's `Avg MI` column. Distinct from
-/// [`MI_TOOLTIP`] (the per-file hotspot column, which shows the *clamped*
-/// `mi_visual_studio`): the overview average is SLOC-weighted and derived
-/// from the *unclamped* value, so it can go negative for an unmaintainable
-/// codebase instead of saturating at 0 (issue #725).
-pub(crate) const AVG_MI_TOOLTIP: &str = "Average Maintainability Index, SLOC-weighted across the language's files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW; any value below 10, however negative, is LOW.";
-/// Tooltip for the Per-language overview's `Avg CC` column. Names the
-/// population — every function, suppression markers ignored — because the
-/// CC note under the cyclomatic hotspot table averages a *different* set
-/// (suppressed functions excluded) and the two figures can disagree.
-pub(crate) const AVG_CC_TOOLTIP: &str = "Mean Cyclomatic Complexity over every function and method in the language, ignoring suppression markers. The Average CC under the cyclomatic hotspot table covers every function eligible for that table before its top-N cut (CC above 0 and, by default, not suppressed), so the two can differ.";
-/// Tooltip for the Per-language overview's `Avg Cognitive` column.
-pub(crate) const AVG_COGNITIVE_TOOLTIP: &str = "Mean Cognitive Complexity over every function and method in the language, ignoring suppression markers.";
-pub(crate) const FILES_TOOLTIP: &str = "Number of source files analysed.";
-pub(crate) const FUNCTIONS_TOOLTIP: &str = "Number of functions and methods analysed.";
-
-/// Tooltip / legend definitions for the Per-language overview table,
-/// which is NOT part of the hotspot [`SPECS`] (per-language aggregates,
-/// not per-function rows); its header and alignment lists live with the
-/// two `write_per_language_overview` / `write_overview_table` callers.
-/// The HTML renderer attaches these as `title=` tooltips and both
-/// renderers list them in the legend, so a reader who
-/// meets a negative `Avg MI` has the explanation on the page rather than
-/// only on hover. `Language` is an identity column and carries none.
-/// "Files" here means *source files analysed*; the bus-factor table's
-/// like-named column means files-per-directory and supplies its own
-/// tooltip (issue #610), so this entry never leaks onto it.
-pub(crate) const OVERVIEW_LEGEND: &[(&str, &str)] = &[
-    ("Files", FILES_TOOLTIP),
-    ("SLOC", SLOC_TOOLTIP),
-    ("Functions", FUNCTIONS_TOOLTIP),
-    ("Avg MI", AVG_MI_TOOLTIP),
-    ("Avg CC", AVG_CC_TOOLTIP),
-    ("Avg Cognitive", AVG_COGNITIVE_TOOLTIP),
-];
 pub(crate) const SLOC_TOOLTIP: &str =
     "Source Lines Of Code: total physical lines, including blanks and comments.";
 pub(crate) const PLOC_TOOLTIP: &str =

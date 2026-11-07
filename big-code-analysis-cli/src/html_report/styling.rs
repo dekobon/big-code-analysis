@@ -349,25 +349,6 @@ keyed.forEach(function(e){tbody.appendChild(e.r);});\
 })();\
 ";
 
-/// Plain-English tooltip for a metric column header, or `None` when the
-/// header names a non-metric dimension (file, function, class, line,
-/// language) or a column whose table supplies its own tooltips
-/// out-of-band (the hotspot and change-history tables, which pass their
-/// spec tooltips through [`write_table_with_tooltips`]).
-///
-/// This lookup serves only the tables that call the plain [`write_table`]
-/// (the Per-language overview), so it consults
-/// [`hotspot::OVERVIEW_LEGEND`] — the one definition list, so the `title=`
-/// attribute and the rendered legend cannot drift.
-/// The hotspot and VCS columns own their definitions on
-/// [`crate::markdown_report::hotspot::Column`] /
-/// [`crate::vcs_report::VcsColumn`] and never route through here.
-pub(crate) fn header_tooltip(header: &str) -> Option<&'static str> {
-    hotspot::OVERVIEW_LEGEND
-        .iter()
-        .find_map(|&(name, tip)| (name == header).then_some(tip))
-}
-
 /// Write the shared HTML preamble (doctype, head with the inline CSS, and
 /// the opening `<h1>`). `title` fills the `<title>` element and `heading`
 /// the `<h1>`; both are escaped. Shared by the AST report and the VCS

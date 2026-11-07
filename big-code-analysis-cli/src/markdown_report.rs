@@ -14,6 +14,7 @@
 
 pub(crate) mod advisory;
 pub(crate) mod hotspot;
+pub(crate) mod overview;
 mod sections;
 
 // `Align` now lives in the format-neutral `hotspot` module; re-export it so
@@ -567,7 +568,7 @@ pub(crate) fn legend_entries_with_header_stats() -> Vec<(&'static str, &'static 
         hotspot::legend_entries()
             .into_iter()
             .chain(hotspot::HEADER_STAT_LEGEND.iter().copied())
-            .chain(hotspot::OVERVIEW_LEGEND.iter().copied())
+            .chain(overview::legend())
             .map(|(h, t)| (h, Some(t))),
     )
 }
@@ -1031,86 +1032,22 @@ fn write_global_header(
 
 fn write_per_language_overview(out: &mut String, by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>) {
     let _ = writeln!(out, "\n## Per-language overview\n");
-    let mut overview_rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
-    for (&lang_name, lang_summaries) in by_lang {
-        overview_rows.push(lang_overview_row(lang_name, lang_summaries));
-    }
+    let overview_rows: Vec<Vec<String>> = by_lang
+        .iter()
+        .map(|(&lang_name, lang_summaries)| {
+            overview::LangOverview::from_summaries(lang_name, lang_summaries)
+                .cells()
+                .into_iter()
+                .map(render_cell_md)
+                .collect()
+        })
+        .collect();
     write_table(
         out,
-        &[
-            "Language",
-            "Files",
-            "SLOC",
-            "Functions",
-            "Avg MI",
-            "Avg CC",
-            "Avg Cognitive",
-        ],
-        &[
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
+        &overview::headers(),
+        &overview::aligns(),
         &overview_rows,
     );
-}
-
-/// The seven-cell per-language overview row both reports render: Files /
-/// SLOC / Functions and the averages over one language's summaries.
-pub(crate) fn lang_overview_row(
-    lang_name: &str,
-    lang_summaries: &[&FunctionSummary],
-) -> Vec<String> {
-    let (unit_count, lang_sloc, avg_mi) = unit_aggregates(lang_summaries);
-    let (func_count, avg_cc, avg_cog) = function_aggregates(lang_summaries);
-    vec![
-        language_display_name(lang_name).into_owned(),
-        thousands(unit_count),
-        thousands(lang_sloc),
-        thousands(func_count),
-        // An empty cell, not `n/a`, when no file had code to measure: the
-        // HTML table sorter reads an empty cell as "no value" and sorts it
-        // last in either direction; any other text would parse as NaN and
-        // sort the same way, but read as a value in the cell.
-        avg_mi.map_or_else(String::new, |mi| format!("{mi:.1}")),
-        format!("{avg_cc:.1}"),
-        format!("{avg_cog:.1}"),
-    ]
-}
-
-fn unit_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, usize, Option<f64>) {
-    let mut count = 0usize;
-    let mut sloc = 0usize;
-    let mut mi = MiAverage::default();
-    for s in lang_summaries.iter().filter(|s| s.kind == SpaceKind::Unit) {
-        count += 1;
-        sloc += s.sloc;
-        mi.add(s);
-    }
-    (count, sloc, mi.average())
-}
-
-fn function_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, f64, f64) {
-    let mut count = 0usize;
-    let mut cc_sum = 0.0f64;
-    let mut cog_sum = 0.0f64;
-    for s in lang_summaries
-        .iter()
-        .filter(|s| s.kind == SpaceKind::Function)
-    {
-        count += 1;
-        cc_sum += s.cyclomatic;
-        cog_sum += s.cognitive;
-    }
-    if count > 0 {
-        (count, cc_sum / count as f64, cog_sum / count as f64)
-    } else {
-        (0, 0.0, 0.0)
-    }
 }
 
 fn write_language_section(
@@ -1490,6 +1427,184 @@ mod tests {
             assert!(
                 !out.contains(&format!("- **{identity}**")),
                 "identity column {identity:?} should not be in the legend"
+            );
+        }
+    }
+
+    /// The overview's seven columns, pinned by hand against each
+    /// renderer's actual output rather than read off `OVERVIEW_SPECS`,
+    /// so a column dropped from the spec fails here instead of taking
+    /// its own assertion with it. Covers the header row, the alignment
+    /// row and both of the rich fixture's data rows (Rust and Python) in
+    /// Markdown, and the `<thead>` text in HTML — the latter extracted by
+    /// stripping tags, so a control inside a `<th>` does not break it.
+    #[test]
+    fn overview_columns_render_in_the_pinned_order_in_both_formats() {
+        const HEADERS: [&str; 7] = [
+            "Language",
+            "Files",
+            "SLOC",
+            "Functions",
+            "Avg MI",
+            "Avg CC",
+            "Avg Cognitive",
+        ];
+        let md = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let section = md
+            .split("## Per-language overview\n")
+            .nth(1)
+            .expect("overview section");
+        let rows: Vec<Vec<&str>> = section
+            .lines()
+            .skip_while(|l| l.is_empty())
+            .take_while(|l| l.starts_with('|'))
+            .map(|l| l.trim_matches('|').split('|').map(str::trim).collect())
+            .collect();
+        assert_eq!(
+            rows.len(),
+            4,
+            "header, separator, two languages:\n{section}"
+        );
+        assert_eq!(rows[0], HEADERS);
+        assert!(
+            rows[1][0].chars().all(|c| c == '-'),
+            "Language is left-aligned"
+        );
+        for (i, sep) in rows[1][1..].iter().enumerate() {
+            assert!(
+                sep.ends_with(':') && !sep.starts_with(':'),
+                "column {} is right-aligned: {sep:?}",
+                HEADERS[i + 1]
+            );
+        }
+        // Rust: two units (200 + 80 SLOC), eight functions; the fixture
+        // keeps `mi_original` coherent with the displayed value, so the
+        // SLOC-weighted unclamped average is (20.5*200 + 77*80)/280 * 100/171
+        // = 21.43. Python: one unit, 47.9 * 100/171 = 28.0.
+        assert_eq!(rows[2], ["Python", "1", "120", "2", "28.0", "8.5", "9.0"]);
+        assert_eq!(rows[3], ["Rust", "2", "280", "8", "21.4", "23.4", "22.6"]);
+
+        let html =
+            crate::html_report::generate_html_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let got: Vec<String> = overview_header_cells(&html)
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
+        assert_eq!(got, HEADERS, "HTML overview header text:\n{html}");
+    }
+
+    /// The HTML overview's header cells as `(opening tag, label)` pairs,
+    /// one per `<th>`. The label is the cell's *first* text run only, so a
+    /// control wrapping the label or a glyph following it (a sort button,
+    /// a documentation link) does not change what the tests compare.
+    fn overview_header_cells(html: &str) -> Vec<(String, String)> {
+        let thead = html
+            .split("Per-language overview</h2>")
+            .nth(1)
+            .and_then(|t| t.split("<thead>").nth(1))
+            .and_then(|t| t.split("</thead>").next())
+            .expect("overview thead");
+        thead
+            .split("<th")
+            .skip(1)
+            .map(|cell| {
+                let tag_end = cell.find('>').expect("th opening tag closes");
+                let opening = format!("<th{}", &cell[..=tag_end]);
+                let mut label = String::new();
+                let mut in_tag = false;
+                for ch in cell[tag_end + 1..].chars() {
+                    match ch {
+                        '<' => {
+                            if !label.trim().is_empty() {
+                                break;
+                            }
+                            in_tag = true;
+                        }
+                        '>' => in_tag = false,
+                        _ if !in_tag => label.push(ch),
+                        _ => {}
+                    }
+                }
+                (opening, label.trim().to_owned())
+            })
+            .collect()
+    }
+
+    /// The extractor the two overview tests share reads a header's label
+    /// as its first text run, so a sort control around the label and a
+    /// documentation glyph after it — the markup the sortable-header
+    /// work renders — leave the comparison unchanged.
+    #[test]
+    fn overview_header_extraction_survives_a_control_and_a_glyph() {
+        let html = "x<h2>Per-language overview</h2><table><thead><tr>\
+            <th scope=\"col\"><button type=\"button\" class=\"sort\">Language<span aria-hidden=\"true\"></span></button></th>\
+            <th scope=\"col\" data-numeric=\"1\" title=\"Source Lines\"><button type=\"button\" class=\"sort\">SLOC</button><a class=\"doc\" href=\"#\">?</a></th>\
+            </tr></thead></table>";
+        let cells = overview_header_cells(html);
+        let labels: Vec<&str> = cells.iter().map(|(_, l)| l.as_str()).collect();
+        assert_eq!(labels, ["Language", "SLOC"]);
+        assert!(cells[1].0.contains(" title=\"Source Lines\""));
+        assert!(
+            !cells[1].0.contains("button"),
+            "opening tag only: {}",
+            cells[1].0
+        );
+    }
+
+    /// The overview's five tooltips, pinned by hand against both outputs
+    /// for the same reason: the spec-driven tooltip loop in
+    /// `html_report` skips a `None`, so it cannot see a tooltip that was
+    /// blanked.
+    #[test]
+    fn overview_tooltips_reach_both_renderers() {
+        const EXPECTED: [(&str, &str); 5] = [
+            ("Files", "Number of source files analysed."),
+            ("Functions", "Number of functions and methods analysed."),
+            ("Avg MI", "Average Maintainability Index, SLOC-weighted"),
+            ("Avg CC", "Mean Cyclomatic Complexity over every function"),
+            (
+                "Avg Cognitive",
+                "Mean Cognitive Complexity over every function",
+            ),
+        ];
+        let md = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let legend = md.split("## Legend").nth(1).expect("legend section");
+        let html =
+            crate::html_report::generate_html_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        let cells = overview_header_cells(&html);
+        for (header, text) in EXPECTED {
+            let bullet = legend
+                .lines()
+                .find(|l| l.starts_with(&format!("- **{header}** — ")))
+                .unwrap_or_else(|| panic!("legend bullet for {header}:\n{legend}"));
+            assert!(bullet.contains(text), "{header} legend text: {bullet}");
+            let (opening, _) = cells
+                .iter()
+                .find(|(_, label)| label == header)
+                .unwrap_or_else(|| panic!("overview th for {header}:\n{cells:?}"));
+            assert!(
+                opening.contains(&format!(" title=\"{text}")),
+                "{header} title attribute: {opening}"
+            );
+        }
+    }
+
+    /// Every language display name survives GFM cell escaping unchanged.
+    /// The overview's `Language` cell is a `Cell::Text`, so it is escaped
+    /// in Markdown; today no name needs it (`C++`, `C#`, `C/C++
+    /// Preprocessor` carry nothing in the escape set), which is what
+    /// made adopting the spec byte-identical. A future name that does
+    /// need escaping changes this test deliberately rather than a
+    /// snapshot silently.
+    #[test]
+    fn language_display_names_need_no_gfm_escaping() {
+        for lang in LANG::into_enum_iter() {
+            let display = language_display_name(lang.name());
+            assert_eq!(
+                escape_cell(&display),
+                display.as_ref(),
+                "{} would render escaped in the Markdown overview",
+                lang.name()
             );
         }
     }

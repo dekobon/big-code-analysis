@@ -7,11 +7,12 @@
 //! curated [`VcsColumn::in_markdown`] subset of that same slice, so the
 //! two cannot drift on a shared column (guarded by
 //! `markdown_columns_are_a_curated_subset_of_html`). Table markup and escaping are
-//! delegated to the existing renderers' `write_table` helpers
+//! delegated to the existing renderers' table writers
 //! (`crate::markdown_report::write_table` /
-//! `crate::html_report::write_table`, or `write_table_classed` for the
-//! HTML severity-heat tint on the `risk_score` cell, see
-//! [`risk_heat_class`]) and the shared HTML scaffolding
+//! `crate::html_report::write_table_with_tooltips`, or
+//! `write_table_classed_with_tooltips` for the HTML severity-heat tint on
+//! the `risk_score` cell, see [`risk_heat_class`]) and the shared HTML
+//! scaffolding
 //! (`write_html_head` / `write_html_tail`), so the page carries
 //! `report.html`'s styling and inline click-to-sort behaviour.
 
@@ -407,13 +408,6 @@ fn cell_rows(report: &Report, specs: &[&VcsColumn]) -> Vec<Vec<Cell>> {
         .collect()
 }
 
-/// Extract a `Cell`'s text payload for HTML, where `write_table` escapes
-/// every kind uniformly (so the kind itself does not matter here).
-fn cell_text(cell: Cell) -> String {
-    let (Cell::Name(t) | Cell::Path(t) | Cell::Num(t)) = cell;
-    t
-}
-
 /// One-line provenance shared by both formats: window lengths and the
 /// risk-formula version, plus the ordinal-only caveat. The
 /// `vcs_schema_version` is wire jargon (it stamps the structured CSV/JSON
@@ -663,7 +657,7 @@ fn write_html_body(
     } else {
         let rows: Vec<Vec<String>> = cell_rows(report, &specs)
             .into_iter()
-            .map(|row| row.into_iter().map(cell_text).collect())
+            .map(|row| row.into_iter().map(Cell::into_text).collect())
             .collect();
         // Tint only the risk cell, by relative rank. `report.files` is
         // risk-ranked, so the row index is the rank; the Markdown path
@@ -734,7 +728,7 @@ fn write_html_bus_factor(
     if !bf.by_directory.is_empty() {
         let rows: Vec<Vec<String>> = bus_factor_rows(bf)
             .into_iter()
-            .map(|row| row.into_iter().map(cell_text).collect())
+            .map(|row| row.into_iter().map(Cell::into_text).collect())
             .collect();
         write_table_with_tooltips(
             out,

@@ -76,7 +76,7 @@ pub(super) fn emit_section_md(
 pub(crate) fn render_cell_md(cell: Cell) -> String {
     match cell {
         Cell::Name(s) => escape_name(&s),
-        Cell::Path(s) => escape_cell(&s),
+        Cell::Path(s) | Cell::Text(s) => escape_cell(&s),
         Cell::Num(s) => s,
     }
 }
