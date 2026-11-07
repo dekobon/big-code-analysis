@@ -256,7 +256,12 @@ role_table! {
     // hard keyword.
     DeclKeyword { owns [Class, Interface, Fun, Object, Val, Var, Typealias] }
     Primitive { absent "Kotlin's built-in types are ordinary type names (`Int`, `String`)" }
-    // A function and a secondary constructor are the callables. A
+    // A function and either constructor are the callables. The primary
+    // constructor is the `primary_constructor` child of the class
+    // declaration — the optional `constructor` keyword and its
+    // modifiers plus the `class_parameters` list — a sibling of the
+    // `class_body` and of the `delegation_specifiers` holding the
+    // superclass call, so the call is outside it (#1828). A
     // property accessor (`get()` / `set(v)`) and `init { … }` carry
     // executable code and open a space (#1184) without being callable:
     // in Kotlin one writes `p.foo`, not `p.getFoo()`, and a callable
@@ -269,6 +274,7 @@ role_table! {
     FuncOpener {
         owns [
             FunctionDeclaration(callable opens Function),
+            PrimaryConstructor(callable opens Function),
             SecondaryConstructor(callable opens Function),
             Getter(opens Function),
             Setter(opens Function),

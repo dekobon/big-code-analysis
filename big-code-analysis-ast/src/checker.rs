@@ -121,7 +121,9 @@ macro_rules! impl_byte_gated_row_predicate {
 // a known-empty chain, which is exact only while neither row reads
 // either — the build asserts both flags of both rows (#1793). Ruby's
 // opener is chain-gated by design and keeps a hand-written forward
-// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`);
+// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`),
+// as C#'s is since #1828
+// (`csharp_byte_less_spellings_omit_the_primary_constructor`);
 // Elixir overrides both spellings. Per-language rationale — which
 // rows, why they read nothing — sits above the invocation.
 macro_rules! impl_byte_less_func_space {

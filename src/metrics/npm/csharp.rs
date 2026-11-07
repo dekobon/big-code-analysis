@@ -72,8 +72,27 @@ impl Npm for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        use crate::roles::csharp::func_opener;
         use Csharp::*;
 
+        // A primary constructor is the `parameter_list` child of the
+        // type declaration itself, not of its `declaration_list`
+        // (#1828): counted here, where the walk is still on the class
+        // space — the list's own function space opens one node later.
+        // Whether a list under this node is one is the `FuncOpener`
+        // row's question, asked of the list under the node's own chain,
+        // so the row's parent gate has one copy. Its accessibility is
+        // the type's (C# 12 §15.8.1, "the primary constructor is
+        // public"), with no member modifier of its own to read, so
+        // `csharp_is_explicit_public` does not apply.
+        // role-bypass: allow(FuncOpener) — a traversal step to the list
+        // the row then judges, not whether this node opens a space
+        if let Some(list) = node.first_child(|id| id == ParameterList)
+            && func_opener::is_callable(&list, code, ancestors.of_children(node).get())
+        {
+            stats.class_nm += 1;
+            stats.class_npm += 1;
+        }
         if !matches!(node.kind_id().into(), DeclarationList) {
             return;
         }

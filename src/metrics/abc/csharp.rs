@@ -362,23 +362,22 @@ fn csharp_count_token_branch<'a>(
         // Where the branch lands is decided by the space tree, not here,
         // and the two delegation spellings land differently. The
         // `base_list` is a direct child of the class declaration — outside
-        // every member, and a sibling of the primary constructor's
-        // `parameter_list` rather than inside it — and a primary
-        // constructor has no declaration node of its own for
-        // `CsharpCode::is_func_space` to promote
-        // (`big-code-analysis-ast/src/getter/csharp.rs` lists only
-        // `MethodDeclaration | ConstructorDeclaration | …` as
-        // `SpaceKind::Function`). So `class Sub(int x) : Base(x)` bills its
-        // branch to the **class** space, while `class C : Base { C(int x) :
-        // base(x) {} }` bills the same call to the constructor's *function*
-        // space. File-level `branches_sum` agrees between the two
-        // spellings, so nothing is wrong at the aggregate, but per-function
+        // every member, and a *sibling* of the primary constructor's
+        // `parameter_list` rather than inside it. Since #1828 that list
+        // opens the constructor's function space, but the space is the
+        // list and nothing more, so the call is still outside it. So
+        // `class Sub(int x) : Base(x)` bills its branch to the **class**
+        // space, while `class C : Base { C(int x) : base(x) {} }` bills
+        // the same call to the constructor's *function* space.
+        // File-level `branches_sum` agrees between the two spellings, so
+        // nothing is wrong at the aggregate, but per-function
         // `branches_max` / `branches_average` and a per-space
         // `bca check --threshold abc=N` see them differently: a codebase
         // migrating to primary constructors shifts weight off its function
         // rows and onto its class rows with no behaviour change. That is
-        // the intended reading — there is no function to attribute the call
-        // to — and it is pinned by
+        // the intended reading — the constructor's space holds its
+        // parameters, and the call to the base is not among them — and
+        // it is pinned by
         // `csharp_primary_constructor_base_call_is_a_branch` and
         // `csharp_base_call_and_constructor_initializer_do_not_double_count`
         // in `src/metrics/abc.rs`. Kotlin's `ConstructorInvocation` under a

@@ -194,11 +194,13 @@ class Classic : Base {
 }
 ```
 
-A primary constructor has no body. Its superclass call sits in the class
-header (C#'s `base_list`, Kotlin's `delegation_specifiers`), outside
-every member, so no function space encloses it and the branch belongs to
-the class. The classic spelling puts the same call inside a constructor
-declaration, which does open a function space.
+A primary constructor's function space is its parameter list (see
+[Primary constructors](#nargs-primary-constructors)) and nothing more.
+Its superclass call sits beside that list in the class header (C#'s
+`base_list`, Kotlin's `delegation_specifiers`), outside every member,
+so no function space encloses it and the branch belongs to the class.
+The classic spelling puts the same call inside a constructor
+declaration, whose function space does enclose it.
 
 File-level `abc.branches` is identical either way, so nothing shifts at
 the aggregate. Per-function figures do: `branches_max`,
@@ -206,7 +208,8 @@ the aggregate. Per-function figures do: `branches_max`,
 the primary-constructor form on a class row and never on a function row.
 A codebase migrating to primary constructors will therefore see its
 per-function ABC distribution move without any behaviour change. That is
-the intended reading: there is no function to attribute the call to.
+the intended reading: the constructor's space holds its parameters, and
+the call to the base is not among them.
 
 #### Worked example
 
@@ -1696,6 +1699,69 @@ second when none is (`closures_that_open_a_space_are_what_the_book_says`
 in `big-code-analysis-ast/src/roles/space_tree_tests.rs` pins the two
 against this paragraph; Bash, C, Tcl and iRules have no closure at all).
 
+### Primary constructors {#nargs-primary-constructors}
+
+A Kotlin primary constructor and a C# 12 primary constructor — a
+positional `record` included — have no body, only a parameter list in
+the class header:
+
+```kotlin
+data class D(val a: Int, val b: Int, val c: Int, val d: Int, val e: Int, val f: Int)
+```
+
+```csharp
+public class C(int a, int b, int c, int d, int e, int f) { }
+public record R(int A, int B);
+```
+
+Each opens a function space of its own, named after its class and
+spanning the list, so it is gated like any other callable: the row
+above reads `D::D: nargs = 6`.
+[detekt's `LongParameterList`](https://detekt.dev/docs/rules/complexity/#longparameterlist)
+gates constructors the same way, under a threshold of its own and a
+data-class opt-out that is on by default; `bca` has neither, so the
+`data class` above is reported. Before
+[#1828](https://github.com/dekobon/big-code-analysis/issues/1828) the
+list belonged to no space and counted nowhere, so a six-parameter data
+class passed `--threshold nargs=5`. The space also counts as one
+callable in [NOM](#nom), [NPM](#npm) and [WMC](#wmc) — a written
+`class G()` declares a zero-parameter constructor and counts too — and
+its superclass call stays with the class, as
+[Where a constructor call lands](#abc-constructor-attribution) explains. A default spelled
+as a lambda (`class L(val f: (Int) -> Int = { it })`) adds that
+lambda's parameters to the constructor's `closure_args`, exactly as a
+function's spaceless lambdas add to its own, so the row's split shows
+them.
+
+The space is the list and nothing more, so a
+[suppression marker](commands/suppression.md) has to sit *inside* it —
+a marker on the line above binds to no function, as for any other
+callable:
+
+```kotlin
+data class Row(
+    // bca: suppress(nargs) — a column set, not a signature
+    val a: Int, val b: Int, val c: Int, val d: Int, val e: Int, val f: Int,
+)
+```
+
+A parameterless `class G()` opens a space with no code in it, so its
+`mi.*` read the `0.0` placeholder that
+[Maintainability Index](#maintainability-index-mi) describes and
+`bca check` and `bca report` skip.
+
+Two things a reader of the rows will meet. A classic constructor
+beside a primary one shares its name — C#'s `H::H` twice, one per
+spelling — and `bca check --baseline` tells two same-named rows apart
+by line, so a class written on one line leaves them indistinguishable
+to the baseline, as two same-line overloads already were. And a Kotlin
+*secondary* constructor still reads `<anonymous>` in every listing,
+since its node carries no name; only the primary is named after the
+class.
+
+A Java or Groovy `record` with no explicit constructor still reads 0;
+see [Languages where it reads 0](#nargs-language-gaps).
+
 ### Averages, minimums and maximums {#nargs-aggregates}
 
 NArgs does not follow the
@@ -1746,6 +1812,17 @@ A metric that silently reports 0 reads as "no offenders" rather than
 - **Perl anonymous subs**: a gap, and an upstream one. The grammar
   parses an anonymous sub's signature inside an error node, so
   `my $f = sub ($x) {…}` reads 0 even though it has a signature.
+- **Java and Groovy records without an explicit constructor**: a
+  decision, recorded under
+  [#1160](https://github.com/dekobon/big-code-analysis/issues/1160)
+  and open for revisiting under
+  [#1842](https://github.com/dekobon/big-code-analysis/issues/1842).
+  `record R(int a, int b) {}` declares its components but no
+  constructor, so there is no space to attribute them to; a compact
+  constructor `R { … }` opens one and reports the component count. A
+  C# positional record reads its count either way, because its list
+  *is* its constructor (see
+  [Primary constructors](#nargs-primary-constructors)).
 
 A `nargs` limit is therefore inert on a Bash codebase and sparse on
 Perl written before `use v5.36`. Gate it per language rather than
@@ -1843,6 +1920,14 @@ attribute and again as a method, skewing the NPA/NPM ratio the OOP
 metrics exist to report. A Kotlin file of nothing but property
 accessors therefore reports `nom.functions == 0` while still reporting
 their complexity (#1184).
+
+A constructor is counted as a function wherever one is written, the
+bodiless kind included: a Kotlin primary constructor and a C# 12
+primary constructor or positional record each count one, as the
+classic spelling does (see
+[Primary constructors](#nargs-primary-constructors)). A compiler-
+generated constructor — a class with no parameter list, a Java record
+with no compact constructor — is not written and counts nothing.
 
 ### How to read it
 

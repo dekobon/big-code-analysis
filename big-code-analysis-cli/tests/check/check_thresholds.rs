@@ -2439,6 +2439,94 @@ fn nargs_omits_the_split_for_a_plain_parameter_list() {
         .stdout(predicate::str::contains("own +").not());
 }
 
+/// #1828's reproducers: a Kotlin primary constructor and a C# 12
+/// primary constructor each declare six parameters and were counted
+/// nowhere, so this exact invocation exited 0. Each opens a function
+/// space named after its class, so the offender row is `D::D` /
+/// `C::C`, and the class's methods are not charged — `Sum` declares
+/// none.
+#[test]
+fn nargs_gates_a_primary_constructor_on_its_own_row() {
+    let dir = TempDir::new().unwrap();
+    let kt = write_fixture(
+        &dir,
+        "d.kt",
+        "data class D(val a: Int, val b: Int, val c: Int, val d: Int, val e: Int, val f: Int)\n",
+    );
+    let cs = write_fixture(
+        &dir,
+        "c.cs",
+        "public class C(int a, int b, int c, int d, int e, int f)\n\
+         {\n\
+         \x20   public int Sum() => a + b + c + d + e + f;\n\
+         }\n",
+    );
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &kt,
+            "--paths",
+            &cs,
+            "--threshold",
+            "nargs=5",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("D::D: nargs = 6 (limit 5)"))
+        .stdout(predicate::str::contains("C::C: nargs = 6 (limit 5)"))
+        .stdout(predicate::str::contains("Sum: nargs =").not());
+}
+
+/// A primary constructor's space is its parameter list and nothing
+/// more, so a function-scope marker binds to it only from a row inside
+/// the parentheses — the placement the book's `nargs` section shows.
+/// Both spellings are exercised with the marker on its own row, and
+/// `--no-suppress` restores the two offenders, so a space that stopped
+/// starting at the `(` would be seen here rather than by a reader of
+/// the book.
+#[test]
+fn nargs_suppression_binds_inside_a_primary_constructors_list() {
+    let dir = TempDir::new().unwrap();
+    let kt = write_fixture(
+        &dir,
+        "row.kt",
+        "data class Row(\n\
+         \x20   // bca: suppress(nargs) — a column set, not a signature\n\
+         \x20   val a: Int, val b: Int, val c: Int, val d: Int, val e: Int, val f: Int,\n\
+         )\n",
+    );
+    let cs = write_fixture(
+        &dir,
+        "row.cs",
+        "public record Row(\n\
+         \x20   // bca: suppress(nargs) — a column set, not a signature\n\
+         \x20   int A, int B, int C, int D, int E, int F);\n",
+    );
+    let paths = ["--paths", &kt, "--paths", &cs, "--threshold", "nargs=5"];
+
+    cli(dir.path())
+        .arg("check")
+        .args(paths)
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Row::Row").not());
+
+    cli(dir.path())
+        .arg("check")
+        .args(paths)
+        .arg("--no-suppress")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(
+            "row.kt:1-4: Row::Row: nargs = 6 (limit 5)",
+        ))
+        .stdout(predicate::str::contains(
+            "row.cs:1-3: Row::Row: nargs = 6 (limit 5)",
+        ));
+}
+
 /// A space with no code to measure never breaches an `mi.*` floor, in
 /// the text rows and in the aggregated report alike (#1621). A bodiless
 /// Ruby block has zero Halstead volume, so its MI is the `0.0`

@@ -2315,10 +2315,19 @@ mod tests {
                 1,
                 "the class space owns `: Base(x)` and nothing else"
             );
+            // Both constructors are named after the class (#1828), so
+            // select by position: the primary constructor's parameter
+            // list precedes the body. The base call is its *sibling*,
+            // not its child, so it owns no branch.
+            let rows: Vec<(Option<&str>, u64)> = class
+                .spaces
+                .iter()
+                .map(|s| (s.name.as_deref(), s.metrics.abc.branches()))
+                .collect();
             assert_eq!(
-                child_space(class, "Both").metrics.abc.branches(),
-                1,
-                "the secondary constructor owns `: this(a)` and nothing else"
+                rows,
+                [(Some("Both"), 0), (Some("Both"), 1)],
+                "the primary constructor owns nothing; the secondary owns `: this(a)`"
             );
         });
     }
@@ -2373,8 +2382,9 @@ mod tests {
         // difference — the file totals 3 either way — so a codebase moving
         // to primary constructors shifts per-function `branches_max` /
         // `branches_average` and per-space `abc` thresholds without any
-        // behaviour change. That is deliberate (there is no function to
-        // attribute the call to), and C# has the identical split, pinned by
+        // behaviour change. That is deliberate (the constructor's space is
+        // its parameter list, and the call is not in it — #1828), and C#
+        // has the identical split, pinned by
         // `csharp_base_call_and_constructor_initializer_do_not_double_count`
         // (#1456).
         //

@@ -983,6 +983,47 @@ def test_to_sarif_matches_cli_check_for_nargs_own_parameter_list(
         assert cli_rows == want, f"CLI at nargs={limit}: {cli_rows!r}"
 
 
+def test_to_sarif_matches_cli_check_for_a_primary_constructor(
+    bca_binary: str, tmp_path: Path
+) -> None:
+    """A Kotlin or C# primary constructor opens a function space named
+    after its class (#1828), so the binding — which walks the serialized
+    tree and reads ``nargs.value`` at every Function space — reports it
+    exactly where ``bca check`` does. Before #1828 neither front-end
+    emitted anything for a six-parameter ``data class``.
+    """
+    fixtures = {
+        "d.kt": (
+            "data class D(val a: Int, val b: Int, val c: Int,\n"
+            "             val d: Int, val e: Int, val f: Int)\n",
+            "D::D",
+        ),
+        "c.cs": (
+            "public class C(int a, int b, int c, int d, int e, int f)\n"
+            "{\n"
+            "    public int Sum() => a + b + c + d + e + f;\n"
+            "}\n",
+            "C::C",
+        ),
+    }
+    for name, (text, symbol) in fixtures.items():
+        src = tmp_path / name
+        src.write_text(text)
+        analyzed = bca.analyze(src)
+        assert analyzed is not None, f"{name} must not be skipped"
+        ctor = analyzed["spaces"][0]["spaces"][0]
+        assert (ctor["kind"], ctor["metrics"]["nargs"]["value"]) == ("function", 6), ctor
+        py_rows = _sarif_rows(
+            _parse(bca.to_sarif(analyzed, thresholds={"nargs": 5}))["runs"][0]["results"]
+        )
+        cli_rows = _sarif_rows(
+            _cli_check_sarif(bca_binary, src, threshold="nargs=5")["runs"][0]["results"]
+        )
+        want = [(1, symbol, "nargs 6 exceeds limit 5")]
+        assert py_rows == want, f"binding on {name}: {py_rows!r}"
+        assert cli_rows == want, f"CLI on {name}: {cli_rows!r}"
+
+
 def _sibling_set_sizes(space: FuncSpaceDict) -> list[int]:
     """Every sibling-set size in ``space``'s subtree, its own child list
     first. Lets an ordering test state the shape it needs, so a trimmed

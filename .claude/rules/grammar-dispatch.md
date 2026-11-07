@@ -384,8 +384,11 @@ one reads the bytes. Ruby is the second case: its `block` / `do_block`
 open a space only outside a stabby lambda's own body, and
 `ruby_byte_less_spellings_stay_the_kind_table` pins that the byte-less
 spelling over-approximates there exactly as the pre-row kind list did.
-A byte-less call site is therefore wrong on Elixir *and* Ruby today, and
-on whichever language next gates an opener.
+A byte-less call site is therefore wrong on Elixir, Ruby *and* C# today
+— C#'s primary constructor is a `parameter_list` gated `under` a type
+declaration (#1828), which the known-empty chain cannot see, so the
+byte-less pair answers `(false, Unknown)` where the walk promotes it —
+and on whichever language next gates an opener.
 
 Elixir's byte-less pair is also the worked example of a kind list the
 bypass gate *exempts* on purpose: `is_func_space` and `get_space_kind`

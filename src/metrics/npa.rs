@@ -2344,6 +2344,40 @@ mod tests {
         );
     }
 
+    /// A parameter property is the class's attribute, not its primary
+    /// constructor's — the constructor opens a function space of its own
+    /// since #1828, inside which each parameter is visited, so the count
+    /// is read at the class declaration instead. The class's **own**
+    /// counts carry all three (`a`, `b` public; `c` private) and the
+    /// constructor's own carry none; the private one keeps `class_npa`
+    /// independent of `class_na`. Before the move the class's own
+    /// `class_na` read 0 and the constructor's 3, with only the sums
+    /// unchanged.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_parameter_properties_stay_the_classs() {
+        check_func_space::<KotlinParser, _>(
+            "class C(val a: Int, var b: Int, private val c: Int, d: Int) {
+                val e: Int = d
+            }",
+            "own.kt",
+            |space| {
+                let class = child_space(&space, "C");
+                let own = |s: &FuncSpace| (s.metrics.npa.class_na(), s.metrics.npa.class_npa());
+                assert_eq!(own(class), (4, 3), "a, b, c, e; c is private");
+                assert_eq!(own(&class.spaces[0]), (0, 0), "the constructor owns none");
+                assert_eq!(class.spaces[0].kind, SpaceKind::Function);
+                assert_eq!(
+                    (
+                        class.metrics.npa.class_na_sum(),
+                        class.metrics.npa.class_npa_sum()
+                    ),
+                    (4, 3)
+                );
+            },
+        );
+    }
+
     #[cfg(feature = "kotlin")]
     #[test]
     fn kotlin_primary_constructor_private_param_property() {

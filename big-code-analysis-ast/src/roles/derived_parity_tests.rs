@@ -1081,6 +1081,22 @@ const KNOWN_DISAGREEMENTS: &[(&str, &str, &str, &str)] = &[
         "call",
         "same: no bytes, no `defmodule` arm",
     ),
+    // The C# primary constructor is a `parameter_list` under a type
+    // declaration (#1828): a parent gate the byte-less pair's known-empty
+    // chain cannot see, so both answer the pre-#1828 `false` / `Unknown`
+    // (`csharp_byte_less_spellings_omit_the_primary_constructor`).
+    (
+        "Csharp",
+        "is_func_space",
+        "parameter_list",
+        "the `FuncOpener` row gates the list on a type-declaration parent; the known-empty chain has none",
+    ),
+    (
+        "Csharp",
+        "get_space_kind",
+        "parameter_list",
+        "same: the byte-less spelling forwards with no chain",
+    ),
     // The kind-only `is_string` / `is_call` against the gated row: the
     // Tcl family's braced word is a string only where it is not a
     // script body or a value slot, which the kind table cannot see
