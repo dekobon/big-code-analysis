@@ -896,13 +896,20 @@ check-grammar-build-watch-test:
 	@(cd $(BASE_DIR) && python3 -B -m unittest -q utils/check-grammar-build-watch-test.py)
 
 # utils/check-deny-manifests.sh runs cargo-deny once per tracked Cargo.lock
-# (#1823) and is called only by the two `deny` workflow jobs, because the
-# real run needs the network and a pinned cargo-deny. These self-tests are
-# therefore the only local check of it: they drive it against a stubbed
-# cargo-deny, and fail on a ninth lockfile in the live tree.
+# (#1823). CI's two deny workflows run it for real, and so does
+# `release-check` (#1826); the local gates never do, because the real run
+# needs the network and cargo-deny >= 0.20. These self-tests, with
+# check-tools-test's `--version-check` cases, are therefore its only local
+# check: they drive it against a stubbed cargo-deny, fail on a ninth
+# lockfile in the live tree, and run `release-check` itself, from a copy
+# of this Makefile, to the stage after the audit — so a recipe that
+# stops calling the script, drops a check, or runs on past a red audit
+# fails here rather than at the next tag. That run needs the GNU make 4
+# this Makefile needs; `MAKE` hands it this one, so a tree gated with
+# `gmake` is tested with `gmake` and never with an older system `make`.
 check-deny-manifests-test:
 	@echo "Running check-deny-manifests self-tests..."
-	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-deny-manifests-test.py)
+	@(cd $(BASE_DIR) && MAKE="$(MAKE)" python3 -m unittest -q utils/check-deny-manifests-test.py)
 
 plugin-test:
 	@if command -v node >/dev/null 2>&1 && node -e 'const [a,b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 7) ? 0 : 1)'; then \
@@ -2560,11 +2567,15 @@ verify-changelog:
 	@echo "CHANGELOG.md contains section for [$(VERSION)]"
 
 # release-check: full pre-tag gate. cargo-deny enforces the license /
-# advisory / source allowlists; cargo-about's dry-run renders the
-# per-binary THIRD-PARTY-LICENSES files the release archives ship; the
-# publish dry-runs catch metadata regressions (missing
-# description/license/readme, non-packageable files, version drift)
-# before any external publish fires.
+# advisory / source allowlists against every tracked Cargo.lock, through
+# the `utils/check-deny-manifests.sh` CI's `deny` job runs: the five
+# grammar leaves are published, each resolves its graph from its own
+# lockfile, and a root-only `cargo deny check` read none of those
+# lockfiles (#1826).
+# cargo-about's dry-run renders the per-binary THIRD-PARTY-LICENSES files
+# the release archives ship; the publish dry-runs catch metadata
+# regressions (missing description/license/readme, non-packageable
+# files, version drift) before any external publish fires.
 #
 # Only the five vendored grammar leaves can be dry-run, so they are all
 # that last sentence covers. They carry no internal pins, so `cargo
@@ -2590,21 +2601,23 @@ verify-changelog:
 #
 # cargo-deny and cargo-about are probed by
 # `utils/check-tools.sh --release-only`, which names the missing one
-# and its install command. Left to fail in place, a missing subcommand
-# surfaces as cargo's bare `no such command`, and the obvious remedy
-# for cargo-about installs nothing at all unless `--features cli` is
-# passed (#1226).
+# and its install command, and refuses a cargo-deny older than the 0.20
+# the deny script needs by asking the script itself (`--version-check`).
+# Left to fail in place, a missing cargo-about surfaces as cargo's bare
+# `no such command` after the deny audit has run, and the obvious remedy
+# installs nothing at all unless `--features cli` is passed (#1226).
 #
 # The grammar leaves are then checked for uncommitted changes, because
 # `cargo publish` refuses to package a directory that has any (#1225).
-# Left to fail in place that costs a cargo-deny run and two cargo-about
-# renders first, and cargo's own message offers `--allow-dirty` as the
-# remedy — which would gate content the tag will not carry. The check
-# is scoped and untracked-blind to match what cargo actually rejects:
-# measured, a modified `src/lib.rs` does not stop a leaf packaging, and
-# an untracked file outside the leaf's `include` is never packaged, so
-# neither is worth failing over. cargo stays the backstop for the
-# residue (an untracked file that `include` does cover).
+# Left to fail in place that costs eight cargo-deny runs and two
+# cargo-about renders first, and cargo's own message offers
+# `--allow-dirty` as the remedy — which would gate content the tag will
+# not carry. The check is scoped and untracked-blind to match what cargo
+# actually rejects: measured, a modified `src/lib.rs` does not stop a
+# leaf packaging, and an untracked file outside the leaf's `include` is
+# never packaged, so neither is worth failing over. cargo stays the
+# backstop for the residue (an untracked file that `include` does
+# cover).
 release-check:
 	@if [ -z "$(VERSION)" ]; then \
 	  echo "ERROR: VERSION not set. Usage: make release-check VERSION=0.1.0"; \
@@ -2623,8 +2636,7 @@ release-check:
 	    echo "Do not pass --allow-dirty; it gates content the tag will not carry."; \
 	    exit 1; \
 	  fi
-	@echo "Running cargo deny check..."
-	@cargo deny check
+	@bash $(BASE_DIR)utils/check-deny-manifests.sh advisories bans licenses sources
 	@echo "Generating THIRD-PARTY-LICENSES-bca.md (dry-run)..."
 	@cargo about generate --locked \
 	  --config about.toml \

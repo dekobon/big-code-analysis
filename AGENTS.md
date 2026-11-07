@@ -111,8 +111,9 @@ and `cargo run -p big-code-analysis-web --`.
   runs correctly from anywhere; callers invoke them as `utils/<name>`.
   `check-deny-manifests.sh` (#1823) is a gate `make pre-commit` does
   not run, because it needs the network: the two `deny` workflow jobs
-  call it to run cargo-deny once per tracked `Cargo.lock`, and `make
-  pre-commit` runs only its `*-test.py`, against a stubbed cargo-deny.
+  and `make release-check` (#1826) call it to run cargo-deny once per
+  tracked `Cargo.lock`, and `make pre-commit` runs only its `*-test.py`,
+  against a stubbed cargo-deny.
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
   `patch-coverage.py` and `verify-name-only-churn.py` are not gates:
   they take their paths as arguments or run against the cwd. Nor are

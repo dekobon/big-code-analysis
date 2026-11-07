@@ -298,13 +298,15 @@ for leaf in ccomment mozcpp mozjs preproc tcl; do
 done
 ```
 
-Commit all of them alongside the root lockfile. `fuzz` and `enums` are
-not published, so a stale lockfile there surfaces later, as a red fuzz
-or `enums-check` job on a tree that looks correct. The five grammar
-leaves *are* published, and each carries its own `Cargo.lock` recording
-the leaf at the old version: `make release-check` dry-runs them with
-`cargo publish --locked`, which refuses to touch the stale lockfile and
-fails the gate (the v2.2.0 cut hit exactly this).
+Commit all of them alongside the root lockfile. `make release-check`
+audits each of the eight with `cargo-deny --locked`, which refuses a
+lockfile that no longer matches its manifest, so a stale one fails the
+gate at that stage — `fuzz` and `enums` included, which are not
+published and would otherwise surface only as a red fuzz or
+`enums-check` job. The five grammar leaves *are* published, and their
+`cargo publish --locked` dry-runs later in the gate refuse a stale leaf
+lockfile as well (the v2.2.0 cut hit exactly this, before the audit
+read those lockfiles).
 
 `make check-versions` compares each path package in those seven
 lockfiles with its manifest version. If a bump misses a package, the
@@ -848,17 +850,28 @@ before the first real release.
 
 ### Local tooling
 
-`make release-check` shells out to two cargo subcommands that the
-day-to-day gate never touches,
+`make release-check` needs two tools that the day-to-day gate never
+touches,
 [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) and
 [cargo-about](https://github.com/EmbarkStudios/cargo-about), plus
 [minisign](https://jedisct1.github.io/minisign/) if you verify a
 published release locally:
 
 ```bash
-cargo install --locked cargo-deny
+cargo install --locked cargo-deny@0.20.2
 cargo install --locked cargo-about --features cli
 ```
+
+The cargo-deny version is the one CI pins, not a suggestion. `make
+release-check` audits every tracked `Cargo.lock` through
+`utils/check-deny-manifests.sh` — the root's and the seven excluded
+crates', the five published grammar leaves among them — as CI's `deny`
+job does. That script needs cargo-deny 0.20 or later: 0.20 moved
+`--config` to the top level, a spelling older releases reject. It also
+runs the `cargo-deny` binary from `PATH` rather than through `cargo
+deny`, so `$CARGO_HOME/bin` has to be on `PATH`, ahead of any older
+copy; `utils/check-tools.sh --release-only` names the binary it found
+when it refuses one.
 
 `--features cli` is not optional. cargo-about moved its binary behind
 a non-default `cli` feature in 0.9.0, so `cargo install cargo-about`
@@ -869,8 +882,10 @@ install that did nothing.
 
 `make check-tools` lists both alongside the rest of the toolchain, and
 `make release-check` probes them up front and names whichever is
-missing, so neither failure mode has to be diagnosed from cargo's
-generic error.
+missing or, for cargo-deny, too old, so neither failure mode has to be
+diagnosed from cargo's generic error. The age check is the deny
+script's own (`utils/check-deny-manifests.sh --version-check`), so the
+floor has one copy.
 
 ### Repository secrets
 

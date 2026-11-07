@@ -9,9 +9,12 @@ invocation's argv, so nothing reaches the network or a real cargo-deny.
 The script is run from an unrelated directory, so every test also pins
 that its paths resolve from its own location rather than the cwd.
 
-This is the only verification `make pre-commit` runs: the real gate
-needs the network and runs in the `deny` jobs of `ci.yml` and
-`deny-advisories.yml`.
+This and `utils/check-tools-test.sh`, which runs `--version-check`, are
+the only verification `make pre-commit` runs: the real gate needs the
+network and runs in the `deny` jobs of `ci.yml` and
+`deny-advisories.yml`, and in `make release-check` (#1826). The last is
+run here too, from a copy of the live Makefile against the same stub,
+with a stub `cargo` that stops the recipe at the stage after the audit.
 
 Run with:
     python3 -m unittest -q utils/check-deny-manifests-test.py
@@ -88,12 +91,19 @@ def _manifest_rel(crate_dir: str) -> str:
     return f"{crate_dir}/Cargo.toml" if crate_dir else "Cargo.toml"
 
 
-class DenyManifestsTest(unittest.TestCase):
+class FixtureRepo(unittest.TestCase):
+    """The scratch repository, stub and helpers the suites below share."""
+
     def setUp(self) -> None:
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="bca-deny-manifests-"))
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="bca-deny-manifests-"))
         # Registered before anything else in `setUp` can fail, which
         # `tearDown` would not be reached for.
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        # The physical path: `make -C` and the script's `cd … && pwd`
+        # both resolve symlinks, so under a TMPDIR that is one (macOS's
+        # is) the manifests the audit names would not be the ones the
+        # fixture expects or fails.
+        self.tmp = tmp.resolve()
         self.repo = self.tmp / "repo"
         self.elsewhere = self.tmp / "elsewhere"
         self.elsewhere.mkdir()
@@ -165,6 +175,8 @@ class DenyManifestsTest(unittest.TestCase):
     def _expected_manifests(self, root: pathlib.Path) -> list[str]:
         return sorted(str(root / _manifest_rel(d)) for d in CRATE_DIRS)
 
+
+class DenyManifestsTest(FixtureRepo):
     # --- coverage: every manifest, every check ---
 
     def test_runs_every_check_against_every_manifest(self) -> None:
@@ -295,6 +307,131 @@ class DenyManifestsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self._invocations()), len(CRATE_DIRS))
 
+    # --- --version-check (#1826) ---
+
+    def _loose_copy(self) -> pathlib.Path:
+        """A copy of the script in a directory no git repository holds."""
+        loose = self.tmp / "loose" / "utils"
+        loose.mkdir(parents=True)
+        return pathlib.Path(shutil.copy(SCRIPT_SRC, loose / SCRIPT_SRC.name))
+
+    def test_version_check_audits_nothing_and_needs_no_repository(self) -> None:
+        # `check-tools.sh --release-only` asks this before any network
+        # stage, on a host that may not have the tree's git state at all.
+        loose = self._loose_copy()
+        ceiling = {"GIT_CEILING_DIRECTORIES": str(self.tmp)}
+        # The control: a real run from the same copy needs the repository,
+        # so the pass below is the early exit and not a lucky `git`.
+        control = self._run("advisories", script=loose, **ceiling)
+        self.assertEqual(control.returncode, 2, control.stderr)
+        self.assertIn("git ls-files failed", control.stderr)
+        result = self._run("--version-check", script=loose, **ceiling)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "0.20.2\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self._invocations(), [])
+
+    def test_version_check_refuses_cargo_deny_below_the_floor(self) -> None:
+        result = self._run("--version-check", STUB_DENY_VERSION="0.19.4")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cargo-deny 0.19.4 is older than 0.20", result.stderr)
+        self.assertIn("cargo install --locked cargo-deny@", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(self._invocations(), [])
+
+    def test_version_check_takes_no_other_arguments(self) -> None:
+        # Dropping the extra argument would let `--version-check advisories`
+        # report success for an audit that never ran.
+        result = self._run("--version-check", "advisories")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("--version-check takes no other arguments", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
+    def test_an_option_is_not_forwarded_as_a_check(self) -> None:
+        # Forwarded, `--help` makes each of the eight `cargo-deny check`
+        # runs print its help and exit 0, and the gate reports OK.
+        result = self._run("advisories", "--help")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("unknown option '--help'", result.stderr)
+        self.assertEqual(self._invocations(), [])
+
+    # --- finding cargo-deny (#1826) ---
+
+    def _path_without_cargo_deny(self) -> str:
+        """A PATH holding only what the script runs before the audit.
+
+        Built rather than filtered from the caller's, which may hold a
+        real cargo-deny in any directory.
+        """
+        bare = self.tmp / "bare-bin"
+        bare.mkdir()
+        for tool in ("bash", "dirname"):
+            found = shutil.which(tool)
+            self.assertIsNotNone(found, tool)
+            (bare / tool).symlink_to(str(found))
+        return str(bare)
+
+    def test_cargo_deny_absent_from_path_names_the_install(self) -> None:
+        cargo_home = self.tmp / "cargo-home"
+        cargo_home.mkdir()
+        result = self._run(
+            "--version-check",
+            PATH=self._path_without_cargo_deny(),
+            CARGO_HOME=str(cargo_home),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("cargo-deny not found on PATH", result.stderr)
+        self.assertIn("cargo install --locked cargo-deny@", result.stderr)
+
+    def test_cargo_deny_off_path_is_named_not_reinstalled(self) -> None:
+        # `cargo deny` finds a copy in `$CARGO_HOME/bin` off PATH; this
+        # script does not, and reinstalling would put the new one beside
+        # it, so the refusal names the directory instead of the install.
+        bin_dir = self.tmp / "cargo-home" / "bin"
+        bin_dir.mkdir(parents=True)
+        shutil.copy(self.tmp / "stub-bin" / "cargo-deny", bin_dir / "cargo-deny")
+        result = self._run(
+            "--version-check",
+            PATH=self._path_without_cargo_deny(),
+            CARGO_HOME=str(bin_dir.parent),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(f"but {bin_dir / 'cargo-deny'} exists", result.stderr)
+        self.assertIn("put its directory on PATH", result.stderr)
+        self.assertNotIn("cargo install", result.stderr)
+
+    def test_cargo_deny_off_path_is_found_under_home_when_cargo_home_is_unset(
+        self,
+    ) -> None:
+        # `cargo deny` falls back to `~/.cargo/bin` when CARGO_HOME is not
+        # set, so the off-PATH check must read the same directory. Every
+        # other case sets CARGO_HOME, so this is the only test of the
+        # fallback.
+        bin_dir = pathlib.Path(self.env["HOME"]) / ".cargo" / "bin"
+        bin_dir.mkdir(parents=True)
+        shutil.copy(self.tmp / "stub-bin" / "cargo-deny", bin_dir / "cargo-deny")
+        env = {**self.env, "PATH": self._path_without_cargo_deny()}
+        env.pop("CARGO_HOME", None)
+        result = subprocess.run(
+            ["bash", str(self.script), "--version-check"],
+            cwd=self.elsewhere,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(f"but {bin_dir / 'cargo-deny'} exists", result.stderr)
+        self.assertNotIn("cargo install", result.stderr)
+
+    def test_an_old_cargo_deny_is_named_by_path(self) -> None:
+        # An older copy earlier on PATH outranks a fresh install, so the
+        # remedy must say which binary was judged.
+        result = self._run("--version-check", STUB_DENY_VERSION="0.19.4")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        stub = self.tmp / "stub-bin" / "cargo-deny"
+        self.assertIn(f"it is {stub}, the first cargo-deny on PATH", result.stderr)
+
     def test_unreadable_cargo_deny_version_is_refused(self) -> None:
         # Without this refusal, `[ x -eq 0 ]` errors inside the version
         # `if`, which bash reads as false, and the gate runs a cargo-deny
@@ -318,8 +455,8 @@ class DenyManifestsTest(unittest.TestCase):
         )
 
 
-class WorkflowWiringTest(unittest.TestCase):
-    """Both `deny` jobs go through the script, on one cargo-deny."""
+class WiringTest(unittest.TestCase):
+    """Every caller goes through the script, and every install names one pin."""
 
     # Each workflow and the checks its step must pass: the per-PR job all
     # four, the weekly one the only check that ages.
@@ -327,18 +464,44 @@ class WorkflowWiringTest(unittest.TestCase):
         "ci.yml": set(ALL_CHECKS),
         "deny-advisories.yml": {"advisories"},
     }
-    PIN = re.compile(r"cargo-deny@(\d+\.\d+\.\d+)")
+    # Every file that installs cargo-deny or tells a reader how to; each
+    # must name the release CI runs. The workflows are WORKFLOWS', so a
+    # deny workflow added there is pin-checked too.
+    PIN_SITES = (
+        *(f".github/workflows/{name}" for name in WORKFLOWS),
+        "utils/check-deny-manifests.sh",
+        "RELEASING.md",
+        "Dockerfile",
+    )
+    # Any version a site names, exact or not (`@0.19`, `@^0.20`,
+    # `@latest`), so a second one beside the pin is a second value rather
+    # than no match.
+    PIN = re.compile(r"cargo-deny@([\w.^~=<>*+-]+)")
+    # An install of cargo-deny with no `@version`: a `cargo install` /
+    # `cargo +toolchain install` / `cargo binstall` / `cargo-binstall`
+    # line, an install-action `tool:` list, and an entry of a
+    # backslash-continued install list such as the Dockerfile's. One
+    # pinned mention satisfies PIN, so an unpinned line beside it is seen
+    # only by this.
+    UNPINNED = re.compile(
+        r"(?:\bcargo(?:[ \t]+\+\S+)?[ \t]+b?install\b[^\n]*?\b"
+        r"|\bcargo-binstall\b[^\n]*?\b"
+        r"|\btool:[^\n]*?\b"
+        r"|^[ \t]+(?=cargo-deny[ \t;]*\\?[ \t]*$))"
+        r"cargo-deny(?![@\w-])",
+        re.MULTILINE,
+    )
     # A step's `run:` line, so a commented-out step or a mention in a
     # comment does not count as a call; the group is its arguments.
     RUN = re.compile(
-        r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s+([^#\n]*)", re.M
+        r"^\s*(?:-\s+)?run:\s*\./utils/check-deny-manifests\.sh\s+([^#\n]*)",
+        re.MULTILINE,
     )
 
-    def test_both_workflows_call_the_script_on_one_pinned_cargo_deny(self) -> None:
+    def test_both_workflows_call_the_script(self) -> None:
         # A workflow left on `cargo-deny-action`, or one that stops calling
         # the script, audits the root lockfile alone again — the gap #1823
         # closed — and nothing else would notice.
-        pins: dict[str, set[str]] = {}
         for name, checks in self.WORKFLOWS.items():
             text = (REPO_ROOT / ".github" / "workflows" / name).read_text(
                 encoding="utf-8"
@@ -350,12 +513,196 @@ class WorkflowWiringTest(unittest.TestCase):
                 # script and drop three checks from every PR.
                 self.assertEqual(set(calls[0].split()), checks)
                 self.assertNotIn("cargo-deny-action@", text)
-                pins[name] = set(self.PIN.findall(text))
-                self.assertEqual(len(pins[name]), 1, pins[name])
-        self.assertEqual(pins["ci.yml"], pins["deny-advisories.yml"])
-        # The script's install hint names the same release.
-        hinted = set(self.PIN.findall(SCRIPT_SRC.read_text(encoding="utf-8")))
-        self.assertEqual(hinted, pins["ci.yml"])
+
+    def test_every_install_names_cis_one_pin(self) -> None:
+        # The script refuses a cargo-deny below 0.20, so an install line
+        # that drifts from CI's pin hands the reader one it may refuse,
+        # and an unpinned one installs a release CI has never run. A bump
+        # edits every site; this names any the bump missed.
+        pins: dict[str, set[str]] = {}
+        for rel in self.PIN_SITES:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            pins[rel] = set(self.PIN.findall(text))
+            with self.subTest(file=rel):
+                self.assertEqual(len(pins[rel]), 1, pins[rel])
+                self.assertEqual(self.UNPINNED.findall(text), [])
+        self.assertEqual(len(set().union(*pins.values())), 1, pins)
+
+
+# The `cargo` stub `make release-check` runs against. It answers the
+# `cargo about --version` probe, records a marker for the first
+# `cargo about generate` and fails it, and refuses everything else: the
+# marker proves the recipe got past the audit, and the failure is the
+# cheapest stop before the stages that need a real cargo. `.IGNORE`
+# would carry the recipe past that failure too, so the stub refuses
+# the stages after it rather than letting them reach the host's cargo.
+CARGO_STUB_SOURCE = """\
+#!{python}
+import os, sys
+args = sys.argv[1:]
+if args == ["about", "--version"]:
+    print("cargo-about 0.0.0-stub")
+    sys.exit(0)
+with open(os.environ["STUB_CARGO_LOG"], "a", encoding="utf-8") as log:
+    log.write(" ".join(args) + "\\n")
+if args[:2] == ["about", "generate"]:
+    sys.exit(3)
+print("stub cargo: refusing " + " ".join(args), file=sys.stderr)
+sys.exit(101)
+"""
+
+
+class ReleaseCheckTest(FixtureRepo):
+    """`make release-check` runs the audit, on every lockfile, and stops on red.
+
+    The recipe is executed, from a copy of the live Makefile in the
+    fixture repository, rather than read: a recipe line inside a false
+    conditional, under `.IGNORE`, or behind `-` / `|| true` reads as an
+    audit and is not one, and GNU make is the only reader that says so.
+    The fixture commits, because the recipe refuses dirty grammar leaves
+    before the audit. The stubbed `cargo` fails the first stage after the
+    audit, so the five publish dry-runs and the real `cargo package` of
+    `check-publish-metadata` never run.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        shutil.copy(REPO_ROOT / "Makefile", self.repo / "Makefile")
+        shutil.copy(
+            UTILS_DIR / "check-tools.sh", self.repo / "utils" / "check-tools.sh"
+        )
+        for leaf in ("ccomment", "mozcpp", "mozjs", "preproc", "tcl"):
+            self.assertTrue((self.repo / f"tree-sitter-{leaf}").is_dir(), leaf)
+        self._git("add", "--", ".")
+        self._git(
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-q",
+            "-m",
+            "fixture",
+        )
+        cargo_log = self.tmp / "cargo.log"
+        stub = self.tmp / "stub-bin" / "cargo"
+        stub.write_text(
+            CARGO_STUB_SOURCE.format(python=sys.executable), encoding="utf-8"
+        )
+        stub.chmod(0o755)
+        self.cargo_log = cargo_log
+        self.env["STUB_CARGO_LOG"] = str(cargo_log)
+        # A `make` run beneath `make pre-commit` inherits its parent's
+        # flags and overrides; `-n` or `-k` there would change what this
+        # run proves. A shell start-up file could redirect the stubs.
+        for var in (
+            "MAKEFLAGS",
+            "MFLAGS",
+            "GNUMAKEFLAGS",
+            "MAKEFILES",
+            "MAKEOVERRIDES",
+            "MAKELEVEL",
+            "BASH_ENV",
+            "ENV",
+            "CDPATH",
+        ):
+            self.env.pop(var, None)
+        self.make = self._gnu_make_4()
+
+    def _gnu_make_4(self) -> str:
+        """The GNU make 4 the Makefile needs: the caller's, then PATH's.
+
+        `make check-deny-manifests-test` exports its own `$(MAKE)`, which
+        is how a tree gated with `gmake` keeps gating with it here; run
+        standalone, `gmake` is tried before `make` because a host with
+        both has the system one too old (the Makefile refuses 3.x).
+        """
+        candidates = [os.environ.get("MAKE"), "gmake", "make"]
+        for candidate in candidates:
+            found = shutil.which(candidate) if candidate else None
+            if found is None:
+                continue
+            probe = subprocess.run(
+                [found, "--version"], capture_output=True, text=True, check=False
+            )
+            match = re.match(r"GNU Make (\d+)\.", probe.stdout)
+            if match and int(match.group(1)) >= 4:
+                return found
+        self.skipTest(f"no GNU Make 4 among {candidates}; set MAKE or install gmake")
+
+    def _make_release_check(self, **env: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [self.make, "-C", str(self.repo), "release-check", "VERSION=0.0.0"],
+            env={**self.env, **env},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+
+    def _cargo_calls(self) -> list[str]:
+        if not self.cargo_log.exists():
+            return []
+        return self.cargo_log.read_text(encoding="utf-8").splitlines()
+
+    def _assert_audited_every_manifest(self) -> None:
+        calls = self._invocations()
+        self.assertEqual(
+            sorted(self._manifest_of(argv) for argv in calls),
+            self._expected_manifests(self.repo),
+        )
+        for argv in calls:
+            self.assertEqual(argv[-5:], ["check", *ALL_CHECKS], argv)
+
+    def test_release_check_audits_every_lockfile_before_the_next_stage(self) -> None:
+        # The positive control: the audit ran, on all eight, with all four
+        # checks, and the recipe then reached the stage after it — which
+        # the stub fails, so the run ends there and nowhere else.
+        result = self._make_release_check()
+        self._assert_audited_every_manifest()
+        # The stage, not its arguments: what the next stage renders is the
+        # recipe's business, and the stub refuses anything else anyway.
+        calls = self._cargo_calls()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("about generate "), result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("release-check passed", result.stdout)
+
+    def test_fixture_root_is_the_physical_path(self) -> None:
+        # Under a TMPDIR that is a symlink (macOS's is), a fixture built on
+        # the lexical path expects manifests `make -C` never names, and
+        # its red-audit selector matches none, so that run passes and
+        # reaches the next stage. Reproduced by running this suite with
+        # `TMPDIR` pointing through a symlink: two of three cases failed
+        # before `setUp` resolved the root.
+        self.assertEqual(self.tmp, self.tmp.resolve())
+        self.assertEqual(self.repo, self.repo.resolve())
+
+    def test_release_check_stops_on_a_red_audit(self) -> None:
+        # `-`, `|| true` and `.IGNORE` each let the recipe run on past a
+        # red audit and end in "passed"; make must stop at the audit, after
+        # the script has reported every graph.
+        failing = str(self.repo / "fuzz" / "Cargo.toml")
+        result = self._make_release_check(STUB_DENY_FAIL=failing)
+        self._assert_audited_every_manifest()
+        self.assertIn("failed for 1 of 8 manifests", result.stderr)
+        self.assertIn("  fuzz/Cargo.toml", result.stderr)
+        self.assertEqual(self._cargo_calls(), [])
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("release-check passed", result.stdout)
+
+    def test_release_check_refuses_an_old_cargo_deny_before_auditing(self) -> None:
+        # The tool probe reads the floor from the script, so a 0.19 on PATH
+        # is named up front and no graph is read.
+        result = self._make_release_check(STUB_DENY_VERSION="0.19.4")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("cargo-deny 0.19.4 is older than 0.20", result.stdout)
+        self.assertEqual(self._invocations(), [])
+        self.assertEqual(self._cargo_calls(), [])
 
 
 if __name__ == "__main__":
