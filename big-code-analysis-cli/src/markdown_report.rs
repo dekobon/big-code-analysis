@@ -1936,6 +1936,27 @@ mod tests {
         );
     }
 
+    /// A path cell neutralises Markdown and raw-HTML metacharacters so the
+    /// rendered table shows the path itself. Unescaped, `<img …>` became an
+    /// element under a non-sanitising GFM renderer, `&amp;` collapsed to
+    /// `&`, and `__init__.py` rendered as bold `init.py`.
+    #[test]
+    fn cell_escaping_markup_in_paths() {
+        let path = "pkg/__init__<img src=x onerror=alert(1)>&amp;*.py";
+        let mut f = make_summary("run", path, SpaceKind::Function, LANG::Python);
+        f.cyclomatic = 5.0;
+        let unit = make_summary(path, path, SpaceKind::Unit, LANG::Python);
+        let report = generate_report(&[unit, f], 20, SuppressionPolicy::Honor);
+        assert!(
+            report.contains("pkg/\\_\\_init\\_\\_\\<img src=x onerror=alert(1)>\\&amp;\\*.py"),
+            "path metacharacters not escaped:\n{report}"
+        );
+        assert!(
+            !report.contains("| pkg/__init__<img"),
+            "a raw `<img` must not reach a table cell:\n{report}"
+        );
+    }
+
     #[test]
     fn cell_escaping_backtick() {
         let mut f = make_summary("foo`bar", "src/lib.rs", SpaceKind::Function, LANG::Rust);

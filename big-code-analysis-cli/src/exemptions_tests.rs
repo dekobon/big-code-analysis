@@ -260,8 +260,10 @@ fn a_lineless_baseline_entry_drops_the_line_in_every_format() {
     let md = report
         .render(OutputFormat::Markdown, "")
         .expect("markdown render");
+    // The symbol's underscores are escaped so GFM renders them rather
+    // than reading `_one` as an emphasis opener.
     assert!(
-        md.contains("| src/lonely.rs | - | only_one | cognitive | 21 |"),
+        md.contains("| src/lonely.rs | - | only\\_one | cognitive | 21 |"),
         "got: {md}"
     );
 

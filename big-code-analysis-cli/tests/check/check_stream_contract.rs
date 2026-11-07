@@ -299,8 +299,10 @@ fn summary_file_digest_is_a_separate_artifact() {
         written.contains("bca-step-summary"),
         "the digest keeps its replace markers; got:\n{written}"
     );
+    // A GFM table cell escapes `_` so the symbol renders literally, not
+    // as an emphasis opener.
     assert!(
-        written.contains("a_offender") && written.contains("b_offender"),
+        written.contains("a\\_offender") && written.contains("b\\_offender"),
         "the digest still names every offender; got:\n{written}"
     );
     assert_eq!(
