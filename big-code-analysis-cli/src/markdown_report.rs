@@ -581,16 +581,20 @@ pub(crate) fn write_legend(out: &mut String, level: usize, entries: &[(&str, &st
     }
     let hashes = "#".repeat(level);
     let _ = writeln!(out, "\n{hashes} Legend\n");
+    // Every definition is a `&'static str` this crate authors, written as
+    // Markdown prose (`mi_visual_studio`, `--recent-window`), so it is
+    // emitted as-is: the cell escaper is for untrusted text in a table
+    // cell, and here it would turn `commits_recent` into `commits\_recent`.
     for (header, definition) in entries {
         // Link the header to its hosted metric chapter when one exists, so a
         // one-line legend entry can hand the reader the full explanation
         // (issue #675). VCS / identity headers have no anchor and render bare.
         match hotspot::metric_doc_url(header) {
             Some(url) => {
-                let _ = writeln!(out, "- **[{header}]({url})** — {}", escape_cell(definition));
+                let _ = writeln!(out, "- **[{header}]({url})** — {definition}");
             }
             None => {
-                let _ = writeln!(out, "- **{header}** — {}", escape_cell(definition));
+                let _ = writeln!(out, "- **{header}** — {definition}");
             }
         }
     }
@@ -1460,8 +1464,8 @@ mod tests {
             // Headers with a hosted-docs anchor link to it (issue #675); the
             // rest render bare. Either way the definition follows.
             let bullet = match hotspot::metric_doc_url(header) {
-                Some(url) => format!("- **[{header}]({url})** — {}", escape_cell(definition)),
-                None => format!("- **{header}** — {}", escape_cell(definition)),
+                Some(url) => format!("- **[{header}]({url})** — {definition}"),
+                None => format!("- **{header}** — {definition}"),
             };
             assert!(out.contains(&bullet), "legend missing entry for {header:?}");
         }

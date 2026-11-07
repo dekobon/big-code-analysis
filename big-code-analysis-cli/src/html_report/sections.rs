@@ -299,7 +299,7 @@ pub(crate) fn write_global_actionable_summary(
     let _ = writeln!(
         out,
         "<p class=\"note\">{}</p>",
-        escape_html(advisory.provenance_line())
+        note_html(advisory.provenance_line())
     );
     if counts.all_clear() {
         let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
@@ -333,7 +333,10 @@ pub(crate) fn write_legend_html(out: &mut String, entries: &[(&str, &str)]) {
             ),
             None => escape_html(header).into_owned(),
         };
-        let _ = writeln!(out, "<dt>{term}</dt><dd>{}</dd>", escape_html(tip));
+        // Definitions are crate-authored Markdown prose, like the notes:
+        // one policy for every such string, so a backtick added to a
+        // tooltip tomorrow renders as `<code>` here too.
+        let _ = writeln!(out, "<dt>{term}</dt><dd>{}</dd>", note_html(tip));
     }
     let _ = out.write_str("</dl>\n</details>\n");
 }
@@ -512,13 +515,13 @@ fn write_actionable_summary(
     let _ = writeln!(
         section.out,
         "<p class=\"note\">{}</p>",
-        escape_html(advisory.provenance_line())
+        note_html(advisory.provenance_line())
     );
     let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy, advisory);
     let _ = writeln!(
         section.out,
         "<p class=\"note\">{}</p>",
-        escape_html(&hotspot::actionable_summary_caption(&breakdown))
+        note_html(&hotspot::actionable_summary_caption(&breakdown))
     );
     if counts.all_clear() {
         let _ = section
@@ -559,7 +562,7 @@ fn emit_fully_suppressed_note_html(
     let _ = writeln!(
         section.out,
         "<p class=\"note\">{}</p>",
-        escape_html(&hotspot::fully_suppressed_caption(&title, count))
+        note_html(&hotspot::fully_suppressed_caption(&title, count))
     );
 }
 
@@ -609,7 +612,7 @@ pub(crate) fn write_language_section(
                     let _ = writeln!(
                         section.out,
                         "<p class=\"note\">{}</p>",
-                        escape_html(hotspot::MI_NOTE)
+                        note_html(hotspot::MI_NOTE)
                     );
                 }
             }

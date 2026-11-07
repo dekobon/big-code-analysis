@@ -18,7 +18,7 @@
 use std::fmt::Write as _;
 
 use crate::html_report::{
-    Headings, RankedColumn, write_html_head, write_html_tail, write_legend_html,
+    Headings, RankedColumn, note_html, write_html_head, write_html_tail, write_legend_html,
     write_table_classed_with_tooltips as write_html_table_classed, write_table_with_tooltips,
 };
 use crate::markdown_report::hotspot::{self, Cell};
@@ -61,12 +61,12 @@ struct VcsColumn {
 // (issue #592). Moved here from `html_report::VCS_HEADER_TOOLTIPS` (issue
 // #611) to make `VCS_SPECS` the single source of truth.
 const RISK_TOOLTIP: &str = "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.";
-const COMMITS_RECENT_TOOLTIP: &str = "Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: commits_recent.";
-const COMMITS_LONG_TOOLTIP: &str = "Distinct commits that touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: commits_long.";
-const CHURN_RECENT_TOOLTIP: &str = "Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: churn_recent.";
-const CHURN_LONG_TOOLTIP: &str = "Lines added + deleted to this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: churn_long.";
-const AUTHORS_RECENT_TOOLTIP: &str = "Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: authors_recent.";
-const AUTHORS_LONG_TOOLTIP: &str = "Distinct authors who touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: authors_long.";
+const COMMITS_RECENT_TOOLTIP: &str = "Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: `commits_recent`.";
+const COMMITS_LONG_TOOLTIP: &str = "Distinct commits that touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: `commits_long`.";
+const CHURN_RECENT_TOOLTIP: &str = "Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: `churn_recent`.";
+const CHURN_LONG_TOOLTIP: &str = "Lines added + deleted to this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: `churn_long`.";
+const AUTHORS_RECENT_TOOLTIP: &str = "Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: `authors_recent`.";
+const AUTHORS_LONG_TOOLTIP: &str = "Distinct authors who touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: `authors_long`.";
 const OWNERSHIP_TOOLTIP: &str = "Top-author edit share (0\u{2013}1): fraction of edits by the single most active author; lower means more diluted ownership.";
 const BURST_TOOLTIP: &str =
     "Recency of change (0\u{2013}1): recent commits as a share of long-window commits.";
@@ -77,10 +77,10 @@ const REVERTS_TOOLTIP: &str = "Revert commits touching this file within the long
 const AGE_TOOLTIP: &str =
     "Days since the first in-window commit touching this file (capped at the long window).";
 const LAST_MOD_TOOLTIP: &str = "Days since the most recent in-window commit touching this file.";
-const CHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the recent window (default 90 days, --recent-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_recent.";
-const CHANGE_ENTROPY_LONG_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the long window (default 365 days, --long-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_long.";
-const COCHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the recent window (default 90 days, --recent-window). Higher means coupling to many different partners. Wire key: cochange_entropy_recent.";
-const COCHANGE_ENTROPY_LONG_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the long window (default 365 days, --long-window). Higher means coupling to many different partners. Wire key: cochange_entropy_long.";
+const CHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the recent window (default 90 days, --recent-window). Higher means more diffuse, fault-prone change. Wire key: `change_entropy_recent`.";
+const CHANGE_ENTROPY_LONG_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the long window (default 365 days, --long-window). Higher means more diffuse, fault-prone change. Wire key: `change_entropy_long`.";
+const COCHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the recent window (default 90 days, --recent-window). Higher means coupling to many different partners. Wire key: `cochange_entropy_recent`.";
+const COCHANGE_ENTROPY_LONG_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the long window (default 365 days, --long-window). Higher means coupling to many different partners. Wire key: `cochange_entropy_long`.";
 const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.";
 
 /// Format an integer count as a `Cell::Num` with comma thousands
@@ -626,7 +626,7 @@ fn write_html_body(
     let _ = out.write_str("<div class=\"summary\">\n");
     let _ = writeln!(out, "<p>{}</p>", provenance(report));
     if report.truncated_shallow_clone {
-        let _ = writeln!(out, "<p class=\"note\">{SHALLOW_NOTE}</p>");
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", note_html(SHALLOW_NOTE));
     }
     let _ = out.write_str("</div>\n");
     let specs = active_specs(report);

@@ -27,6 +27,32 @@ pub(crate) fn escape_html(s: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// Render a note that is written once as Markdown prose and shared with
+/// the HTML report: HTML-escape it, then turn each *paired* backtick code
+/// span into `<code>…</code>`. Before this the HTML page showed the
+/// literal backticks ("sourced from the \`bca.toml\` \`[thresholds]\`
+/// table."). An unpaired backtick is left as-is, since there is no span
+/// to close.
+pub(crate) fn note_html(note: &str) -> Cow<'_, str> {
+    let escaped = escape_html(note);
+    let ticks = escaped.matches('`').count();
+    if ticks == 0 || !ticks.is_multiple_of(2) {
+        return escaped;
+    }
+    let mut out = String::with_capacity(escaped.len() + 16);
+    for (i, segment) in escaped.split('`').enumerate() {
+        if i > 0 {
+            out.push_str(if i.is_multiple_of(2) {
+                "</code>"
+            } else {
+                "<code>"
+            });
+        }
+        out.push_str(segment);
+    }
+    Cow::Owned(out)
+}
+
 /// Slugify a heading basis into an HTML `id`/fragment-safe token:
 /// lowercase ASCII, every run of non-`[a-z0-9]` characters collapsed to a
 /// single `-`, with leading/trailing hyphens trimmed. Built from the raw

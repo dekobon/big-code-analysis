@@ -55,7 +55,7 @@ expression: out
 </nav>
 <div class="summary global-actionable">
 <p><strong>Actionable summary (all languages)</strong></p>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <ul>
 <li><strong>5</strong> functions with CC &gt; 10</li>
 <li><strong>4</strong> functions with cognitive complexity &gt; 15</li>
@@ -80,7 +80,7 @@ expression: out
 <p class="note">Files: 1 | SLOC: 120 | PLOC: 25 | Comment ratio: 4.2%</p>
 <p class="note">Average MI (SLOC-weighted): 28.0 (GOOD)</p>
 <h3 id="python-actionable-summary">Actionable Summary</h3>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <ul>
 <li><strong>1</strong> functions with more than 3 parameters</li>
@@ -161,7 +161,7 @@ expression: out
 <p class="note">Files: 2 | SLOC: 280 | PLOC: 265 | Comment ratio: 8.9%</p>
 <p class="note">Average MI (SLOC-weighted): 21.4 (GOOD)</p>
 <h3 id="rust-actionable-summary">Actionable Summary</h3>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <p class="note">Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.</p>
 <ul>
 <li><strong>5</strong> functions with CC &gt; 10</li>

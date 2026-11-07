@@ -153,7 +153,10 @@ impl AdvisoryThresholds {
     }
 
     /// The one-line provenance sentence printed in both formats so the
-    /// advisory numbers are always attributable (issue #630).
+    /// advisory numbers are always attributable (issue #630). Written as
+    /// Markdown: the Markdown renderer emits it as-is and the HTML
+    /// renderer passes it through `html_report::note_html`, which turns
+    /// each paired backtick span into `<code>`.
     pub(crate) fn provenance_line(self) -> &'static str {
         match self.source {
             ThresholdSource::Manifest => {

@@ -489,6 +489,36 @@ mod tests {
         assert_eq!(escaped, "a&amp;b&lt;c&gt;d&quot;e&#39;f");
     }
 
+    /// A note shared with the Markdown report renders its backtick spans
+    /// as `<code>` instead of showing the literal backticks, and is still
+    /// HTML-escaped inside them.
+    #[test]
+    fn note_html_turns_backtick_spans_into_code() {
+        assert_eq!(
+            note_html("sourced from the `bca.toml` `[thresholds]` table."),
+            "sourced from the <code>bca.toml</code> <code>[thresholds]</code> table."
+        );
+        assert_eq!(note_html("x `<y>` z"), "x <code>&lt;y&gt;</code> z");
+        // An odd count of backticks leaves one unpaired, with no span to
+        // close, so the note is left untouched rather than half-converted.
+        assert_eq!(note_html("odd ` tick"), "odd ` tick");
+        assert_eq!(note_html("a `b` `c"), "a `b` `c");
+        assert_eq!(note_html("plain"), "plain");
+        // The advisory provenance line is what motivated this: the HTML
+        // report showed "the `bca.toml` `[thresholds]` table" verbatim.
+        let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
+        assert!(
+            !out.contains("`bca"),
+            "no literal backtick from a shared note may reach the page:\n{out}"
+        );
+        // The fixture renders under the built-in defaults, so the line is
+        // the `Default` provenance wording.
+        assert!(
+            out.contains("(distinct from <code>bca check</code>&#39;s gate)"),
+            "provenance line must render its code span:\n{out}"
+        );
+    }
+
     #[test]
     fn empty_summaries_emit_no_tables() {
         let out = generate_html_report(&[], 20, SuppressionPolicy::Honor);

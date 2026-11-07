@@ -51,7 +51,7 @@ expression: out
 </nav>
 <div class="summary global-actionable">
 <p><strong>Actionable summary (all languages)</strong></p>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <p class="note">No major quality concerns detected.</p>
 </div>
 <h2 id="per-language-overview">Per-language overview</h2>
@@ -70,7 +70,7 @@ expression: out
 <p class="note">Files: 1 | SLOC: 20 | PLOC: 25 | Comment ratio: 25.0%</p>
 <p class="note">Average MI (SLOC-weighted): 50.0 (GOOD)</p>
 <h3 id="python-actionable-summary">Actionable Summary</h3>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <p class="note">No major quality concerns detected.</p>
 <h3 id="python-maintainability-index-hotspots">Maintainability Index hotspots (lowest 5 by MI)</h3>
@@ -135,7 +135,7 @@ expression: out
 <p class="note">Files: 1 | SLOC: 20 | PLOC: 25 | Comment ratio: 25.0%</p>
 <p class="note">Average MI (SLOC-weighted): 50.0 (GOOD)</p>
 <h3 id="rust-actionable-summary">Actionable Summary</h3>
-<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from <code>bca check</code>&#39;s gate).</p>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <p class="note">No major quality concerns detected.</p>
 <h3 id="rust-maintainability-index-hotspots">Maintainability Index hotspots (lowest 5 by MI)</h3>
