@@ -160,6 +160,7 @@ number and the higher number stays as a redirect.
 | [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
 | [115](#115-sharing-the-rule-left-the-list-at-every-caller-sharing-the-list-leaves-the-judgement) | Sharing the rule left the list at every caller; sharing the list leaves the judgement |
 | [116](#116-a-dead-code-census-describes-the-target-it-was-taken-on) | A dead-code census describes the target it was taken on |
+| [117](#117-a-spaces-own-value-is-everything-the-walk-folds-into-it) | A space's own value is everything the walk folds into it |
 
 ---
 
@@ -2614,6 +2615,17 @@ same shape, fixed the same way (#1356) — there the predicate keys on the
 node's own kind, because a method is always a `method_definition` and no
 parent-kind list can be completed.
 
+**Opening a space re-parents what is counted inside it** (#1828). A
+Kotlin `val` parameter property was counted at its own `class_parameter`
+visit and landed on the class because nothing between them opened a
+space; the day the primary constructor opened one, the same count landed
+on the constructor and left the class's own `npa` short by every
+parameter property — 0 for a data class with no body properties. Count
+a child's contribution where its owner is on the stack — Kotlin's
+class-declaration visit; TypeScript scans a constructor's parameter
+properties from the class body for the same reason — not where the
+child happens to be visited.
+
 ---
 
 ## 64. A default/fallback-arm exclusion is per-construct
@@ -3436,8 +3448,11 @@ gates the build, so anyone budgeting from the comment got it wrong. The
 rest were a test's exclusion rationale, a changelog's two scope claims
 and a benchmarking doc's count. Later instances: a Go ABC test citing
 "the Rust/Java rule" for a number backwards in all three languages
-(#1278), and three docs-sweep issues each prescribing a fix that was
-wrong by the time it ran (#1711, #1712, #1713).
+(#1278), three docs-sweep issues each prescribing a fix that was wrong
+by the time it ran (#1711, #1712, #1713), and a review finding that a
+`sealed` class may write `public constructor` — a fixture pinned that
+invalid program until the compiler source said `private` or
+`protected` only (#1828).
 
 **A hedge survived two reviews because it admitted uncertainty**
 (#1417). One of the three sets `Stats::settle_excluded_rows` subtracts
@@ -3740,7 +3755,11 @@ invalid source `^(int a,,)` went 1 → 2 and `^({ int x; })` went 0 → 1.
 Both were kept, because the function channel already reported the same
 through the same helper; the block arm had been the one caller answering
 differently. Recording that in the arm's comment is what stops the next
-reader filing it as a regression.
+reader filing it as a regression. The same open filter counted C#'s
+`params int[] xs` as 3 — the hidden `_parameter_array` lands its pieces
+beside the `parameter` nodes — from the day C# joined it until a
+positive `parameter | params` count pinned the rule hidden (#1828,
+lesson 34).
 
 **One token, several grammatical roles — a denylist admits the role
 nobody listed** (#1274, #1280, #1297, #1383). A bare `<` is a
@@ -5194,5 +5213,44 @@ by an attribute you did not notice — the crate root's
 `cfg_attr(not(feature = "all-languages"), allow(dead_code))` here
 silences every partial-feature build — and "no warnings" cannot tell
 a live lint from a muted one (lesson 80's shape).
+
+---
+
+## 117. A space's own value is everything the walk folds into it
+
+**Lesson:** Before a gate, a threshold or a report admits a new space
+kind, measure that kind's *own* value on inputs that hold none of the
+construct the admission is for. An "own" accessor sums whatever the
+walk bills to the innermost open space — `own_args()` is
+`function_args() + closure_args()`, so it holds the parameters of every
+lambda the language leaves spaceless inside that space — and a
+container's own value can therefore be non-zero with no constructor
+written. Decide where a new count lands on the measured population,
+not on what the number is named. If the construct warrants a space of
+its own, the gate, the report and the suppression binding select
+Function rows and follow; the metrics that count, attribute or divide
+still need auditing one by one.
+
+The number is plausible either way, which is what hides it. A class
+that reads `nargs 6` from three two-parameter comparator fields and no
+constructor is not a finding any per-function test asks about — the function tests
+read function rows — and a plan that says "a container's own count can
+only be its constructor's" reads as reasoning rather than as the
+assumption it is. Nothing in the per-space tests contradicts it until
+one is written against the kind being admitted.
+
+**The container route for primary constructors** (#1828). A Kotlin or
+C# primary constructor opened no space, so its parameters counted
+nowhere. The first design billed them to the class and widened the
+`nargs` gate to containers, on the premise above. Measured before
+implementation: a Kotlin class with one six-parameter field lambda and
+a Java class with three two-parameter comparator fields both read
+`nargs.value 6` with no constructor at all, so a gate at `nargs=5` would
+have flagged that constructor-free class, and any class whose folded
+lambda parameters sum past the limit. The averages were wrong the same
+way — `function_args_average` divides by `nom`'s callables, which the
+constructor was not. The constructor became a `Function` space: the
+gate, the report and the Python binding followed unchanged, while
+`nargs`, `npm` and `npa` each needed their own change (lesson 63).
 
 ---
