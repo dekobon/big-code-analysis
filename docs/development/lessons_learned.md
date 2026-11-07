@@ -158,6 +158,7 @@ number and the higher number stays as a redirect.
 | [112](#112-a-test-double-can-intercept-the-wrong-calls) | A test double can intercept the wrong calls |
 | [113](#113-a-fingerprint-over-a-resolved-function-hashes-its-inputs-not-a-sample-of-its-outputs) | A fingerprint over a resolved function hashes its inputs, not its outputs |
 | [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
+| [115](#115-sharing-the-rule-left-the-list-at-every-caller-sharing-the-list-leaves-the-judgement) | Sharing the rule left the list at every caller; sharing the list leaves the judgement |
 
 ---
 
@@ -898,10 +899,9 @@ pass. Anchor each known-wrong-but-unfixed case in a regression test with
 an inline `FIXME(#NNN)`, so the bug stays visible in CI and the eventual
 fix flips a literal value rather than re-deriving the right one.
 
-Related to lesson 1 (a whole-metric no-op returns zero) and lesson 2
-(aliased kind_ids within one rule). The distinct failure here: an
-*already-implemented* metric has a populated dispatch table that simply
-does not enumerate every kind the grammar emits for the construct.
+The metric is implemented and its dispatch table is populated, so
+nothing reads as missing: the kind the table omits scores zero, exactly
+like a construct that legitimately scores nothing (cf. lessons 1 and 2).
 
 **C/C++ ternary `?:` uncounted for cognitive** (#172, `b2ae93f`). The
 nesting arm listed `ForStatement | WhileStatement | DoStatement |
@@ -1699,16 +1699,16 @@ constructor — while the two-call form correctly failed.
 
 ## 42. `unreachable!()` at a PyO3 FFI boundary surfaces as `PanicException`
 
-**Lesson:** Refines lesson 5 with a PyO3 corollary: at any FFI boundary
-documenting a never-raise contract, even an *unreachable-today* panic
-violates it, because PyO3 re-raises it as `pyo3.PanicException` —
-extending `BaseException` directly, outside the `Exception` hierarchy
-Python callers' handlers cover. Replace `unreachable!()` / `panic!()` /
-`assert!()` on those boundaries with a defensive structured-error
-fallback: a synthetic error in the result slot, or an explicit `Err`
-branch. The fallback should name the broken invariant in its message so
-telemetry surfaces it, but it must not abort the call. Apply to every
-`#[pyfunction]` / `#[pymethods]` documenting partial-success semantics.
+**Lesson:** At any FFI boundary documenting a never-raise contract,
+even an *unreachable-today* panic violates it (cf. lesson 5), because
+PyO3 re-raises it as `pyo3.PanicException` — extending `BaseException`
+directly, outside the `Exception` hierarchy Python callers' handlers
+cover. Replace `unreachable!()` / `panic!()` / `assert!()` on those
+boundaries with a defensive structured-error fallback: a synthetic
+error in the result slot, or an explicit `Err` branch. The fallback
+should name the broken invariant in its message so telemetry surfaces
+it, but it must not abort the call. Apply to every `#[pyfunction]` /
+`#[pymethods]` documenting partial-success semantics.
 
 `except Exception:` — and every narrower form — does not catch it. The
 panic aborts the call, every accumulated result is discarded, and the
@@ -1983,10 +1983,9 @@ legitimately scores nothing.
 
 Both paths add into the same `Stats` field, so any fixture covered by
 *either* reads the right total and passes. The dead path is invisible
-from the result alone. Distinct from lesson 19 (a missing arm in a single
-dispatch table) and lesson 7 (an *upstream* filter masking the code from
-the input): here the arm is present, the input reaches it, and the test
-still passes because a parallel path summed the same count.
+from the result alone: the arm is present, the input reaches it, and
+the test still passes because a parallel path summed the same count
+(cf. lessons 7 and 19).
 
 **C# `csharp_walk_for_conditions` was dead code for every existing test**
 (#370, `6384590`). The `IfStatement` / `WhileStatement` / `DoStatement`
@@ -2579,9 +2578,8 @@ cyclomatic — not per language, and pin a test that a
 method-with-nested-class scores the same class WMC as the nested
 construct hoisted to top level.
 
-Distinct from lesson 50 (two parallel paths summing one field) and lesson
-24 (finalize gating): here a *single* path's cumulative accessor
-over-counts because the tree shape changed under it.
+A single path's cumulative accessor over-counts because the tree shape
+changed under it (cf. lessons 24 and 50).
 
 **Adding anonymous-class spaces exposed a latent double-count** (#463,
 `49ed0b20`). Making Kotlin `object_literal` and Java anonymous-class
@@ -2853,7 +2851,7 @@ possible assertion in tests.
 The lookup returns *a* value for every key, so nothing fails: the second
 context inherits the first's metadata, and an "every header carries a
 tooltip" coverage test passes throughout, because presence is not
-correctness.
+correctness (cf. lesson 22).
 
 **The bus-factor "Files" column inherited the files-analysed tooltip**
 (#610, #611, `7a5a8947`, `391decdd`). The HTML report resolved header
@@ -2867,9 +2865,6 @@ structurally with a `tooltip` field on the shared `Column` / `VcsColumn`
 specs, passed positionally to `write_table_with_tooltips`, which
 simultaneously fixed the ambiguity and gave the Markdown legend the same
 single source the HTML `title=` attributes use.
-
-Related to lesson 22: both are cases where keying on display text
-discards the context that gave the text its meaning.
 
 ---
 
@@ -3116,7 +3111,7 @@ digest so replay reconstructs the output from cached state, and keep the
 transform out of the cache's invalidation fingerprint — it is a
 finalization concern, not a walk concern. Keying the pre-image silently
 couples the cache key to the secret and forces either a re-walk on every
-key change or spilling the pre-image to disk.
+key change or spilling the pre-image to disk (cf. lesson 56).
 
 **Opt-in keyed author hashing had to harden published output without
 breaking the #334 cache-replay invariant** (#956, `4493598a`).
@@ -3132,10 +3127,6 @@ re-finalizes under any key with no re-walk, and
 `keyed_emit_survives_a_cache_round_trip` pins it. Security is unchanged:
 the attacker must hold the key to compute the outer HMAC for any
 candidate, so the public inner digest does not weaken it.
-
-Related to lesson 56: there the digest must *exclude* the dimension it
-tolerates; here the inner digest excludes the key so the cache stays
-key-agnostic while the outer includes it.
 
 ---
 
@@ -3282,30 +3273,25 @@ is put back.
 
 **Lesson:** Before propagating a flag to kill an `O(depth)` ancestor
 lookup, **count the predicates that want ancestry**. One, and a flag is
-right. Several, and propagate the chain — then verify the one
-equivalence that matters (a known chain answers exactly what climbing
-answers) node-by-node against `Node::parent`, on a fixture per grammar
-family that actually consults an ancestor. Give the chain type an
-unknown/fallback variant so unconverted callers stay correct, and pin the
-walker's own bookkeeping with a debug-only assertion: a chain type that
-trusts `chain.last()` unvalidated turns a desynchronised walker into
-wrong answers rather than a failure, and a parity test written against a
-*replica* walker cannot see the real one drift. Then perturb the push as
-well as the pop: a containment assertion written as `is_none_or` passes
-vacuously once the chain is empty, which a walk that pops without
-pushing reaches on its first node, so the push half needs a consumer
-whose answer depends on the parent (#1684, PR #1687: Tcl's
-`keeps_children`, on a braced word that is a literal under `command` and
-a script under `word_list`). A known chain makes each
-step `O(1)`, not the climb: a predicate that walks "until the first
-ancestor that is not X" is still `O(depth)` per node wherever X can
-nest without bound, so propagate the *answer* instead, and add a
-`bench-scaling` probe of that shape before trusting the gate. And
-before deriving a chain for a predicate that lacks one, check whether
-its caller's walk already carries it: the `find` / `count` `call`
-filter had `ancestors` in hand all along, so a `_with_code` spelling
-that forwards by default was cheaper, and linear, where a new
-`Node::parent` climb would have been neither (#1580).
+right. Several, and propagate the chain, then verify node by node
+against `Node::parent` that a known chain answers exactly what climbing
+answers, on a fixture per grammar family that consults an ancestor.
+Give the chain type an unknown variant so unconverted callers stay
+correct, and pin the walker's own bookkeeping with a debug-only
+assertion: a chain trusted unvalidated turns a desynchronised walker
+into wrong answers, and a parity test against a *replica* walker cannot
+see the real one drift. Perturb the push as well as the pop: a walk
+that pops without pushing empties the chain on its first node, where an
+`is_none_or` containment check passes vacuously, so the push half needs
+a consumer whose answer depends on the parent (#1684, PR #1687: Tcl's
+`keeps_children`). A known chain makes each *step* `O(1)`, not the
+climb: a predicate that walks to the first ancestor that is not X is
+still `O(depth)` wherever X nests without bound or its stop is absent,
+so propagate the *answer* and add a `bench-scaling` probe of that
+shape. Before deriving a chain, check whether the caller's walk carries
+one: for the `find` / `count` `call` filter, which had `ancestors` in
+hand, a forwarding `_with_code` spelling was cheaper, and linear, where
+a new `Node::parent` climb would have been neither (#1580).
 
 `tree_sitter` stores no parent pointer — `Node::parent` restarts at the
 root and descends — so any predicate asking a node for an ancestor is
@@ -3316,14 +3302,12 @@ first; *what* you propagate decides how far the fix generalises.
 **The same root cause was fixed three times before the general form
 appeared** (#1052, #1062, #1084). #1052 (`tokens`' per-leaf ancestor
 walk, filed as a DoS vector) and #1062 (`cognitive`'s
-`get_nesting_from_map`) each propagated a derived flag, resolving those
-two call sites and leaving the pattern intact everywhere else. The
-benchmark harness from #1068 then measured three more walks as quadratic
-— `Checker::is_else_if` (16 language impls consult an ancestor),
-`Node::count_specific_ancestors` (reached from `loc` in 8 languages plus
-four checker sites), and `elixir_is_inside_quote_block` — fitting
-`time ~ depth^k` at 1.97, 1.95 and 2.01 against linear controls at
-0.99–1.01 in the same run.
+`get_nesting_from_map`) each propagated a derived flag, fixing two call
+sites and leaving the pattern everywhere else. The #1068 benchmark
+harness then measured three more walks as quadratic,
+`Checker::is_else_if`, `Node::count_specific_ancestors` and
+`elixir_is_inside_quote_block`, fitting `time ~ depth^k` at 1.97, 1.95
+and 2.01 against linear controls at 0.99–1.01 in the same run.
 
 **A chain type with an "unknown" variant makes the blast radius a
 choice** (#1084). `Ancestors` wraps either a known slice — where the
@@ -3343,27 +3327,21 @@ a parent and its child sits at a strictly greater depth.
 the known chain through `binary_expression` ancestors to look for a
 `requires_clause`. On a left-nested `a && a && …` chain that is every
 ancestor, so 8,000 terms took 4.4s in a debug build, and 0.09s once
-reverted. `make
-pre-commit` passed, no `bench-scaling` probe is a C++ boolean chain, and
-a timed review run caught it. The exclusion was reverted, and came
-back in #1533 as walk state — the clause's end byte, recorded when the
-walk enters it — behind three `*/cpp-and-chain` probes that fit 1.97
-with the climb reinstated.
+reverted. `make pre-commit` passed, no `bench-scaling` probe was a C++
+boolean chain, and a timed review run caught it. #1533 restored the
+scoring as walk state, the clause's end byte recorded on entry, behind
+three `*/cpp-and-chain` probes that fit 1.97 with the climb reinstated.
 
 **A stop bounds a climb only where a stop is near** (#1767). #1084's
-`count_specific_ancestors` made each step of the declaration climb
-`O(1)`, and its probe confirmed the walk linear — on a shape whose stop,
-the enclosing `compound_statement`, sat one step up. In a C++ namespace
-nest no `compound_statement` exists above a declaration, so the same
-question climbed to the root from every one: 12.8s for 32,000 levels
-in a release build, where a function nest of the same depth took 0.25s.
-TypeScript's ambient question had no stop at all, and Python cognitive's
-two boolean-operator questions stopped at a `lambda` and a statement
-boundary, neither of which a nested list holds. The fix folds the answer down the chain
-through the walk's `FoldCache`, one step per ancestor per walk. Price a
-stop-bounded climb on a shape where the stop is absent, not only where
-it is adjacent; the probe that passes on the adjacent shape is measuring
-the stop, not the climb.
+`count_specific_ancestors` probe read linear because its stop, the
+enclosing `compound_statement`, sat one step up. A C++ namespace nest
+has none above a declaration, so the climb reached the root from every
+one: 12.8s for 32,000 levels in a release build, against 0.25s for a
+function nest of the same depth. TypeScript's ambient question had no
+stop at all, and Python cognitive's two boolean-operator questions
+stopped at boundaries a nested list never holds. The fix folds the
+answers down the chain through the walk's `FoldCache`. Price a
+stop-bounded climb on a shape where the stop is absent.
 
 ---
 
@@ -3422,19 +3400,17 @@ in #1051. Keying on the end column deletes the branch outright.
 ## 84. A factual claim in prose is untested code
 
 **Lesson:** Treat any sentence stating a checkable fact about the code
-as an assertion you owe evidence for, and get it the same way you would
-for a test: read the parameter type, run the measurement both ways,
-enumerate the call sites with `rg`, verify the panic actually panics.
-Each instance below took under five minutes to settle. Be most
-suspicious of prose in a change that is *itself* fixing a wrong claim,
-of counts ("four call sites", "13 languages"), which are correct when
-written and rot silently, and of a comment saying a fix is *already in
-place*, which ends the search that would have found the gap. A comment
-that **declines** to make a claim ("probably X, but nothing enforces
-it") is the same failure worn as honesty: it reads as a gap someone has
-already logged, so it is never measured. When a claim cannot be
-pinned, write what was measured and under which conditions rather than
-the generalisation it suggests.
+as an assertion you owe evidence for, and get it as you would for a
+test: read the parameter type, run the measurement both ways, enumerate
+the call sites with `rg`, verify the panic panics. Each instance below
+took under five minutes to settle. Be most suspicious of prose in a
+change that is *itself* fixing a wrong claim, of counts ("four call
+sites", "13 languages"), which rot silently, and of a comment saying a
+fix is *already in place*, which ends the search that would have found
+the gap. A comment that **declines** to claim ("probably X, but nothing
+enforces it") is the same failure worn as honesty: it reads as a gap
+someone already logged, so nobody measures it. When a claim cannot be
+pinned, write what was measured and under which conditions.
 
 No gate checks any of it. `cargo test` does not read prose, clippy does
 not evaluate it, and a reviewer's eye slides over a plausible sentence —
@@ -3443,24 +3419,17 @@ rather than that its stated reason is possible.
 
 **Eight wrong claims in one batch, and the cost is a wrong decision**
 (#1059, #1066, #1067, #1084). `node_text`'s safety comment described a
-UTF-8 char-boundary panic its `&[u8]` parameter cannot raise; the fix
-shipped two *new* false claims of the same kind (`get_func_space_name`
-returns `Some("<anonymous>")`, not `None`; `node_text` has 26 call
-sites, not one). `bca.toml`'s `exclude_tests` comment said the option
-does not lower `loc.sloc`; it measured 779 with the manifest against
-845 with `--no-config` (#722 had made it do exactly that), and the file
-carries the `loc.sloc` cap that gates the build, so anyone budgeting
-from the comment got it wrong. A test's exclusion rationale claimed the
-no-op `Loc` grammars have every LOC sub-metric at 0; `sloc` is
-span-derived, so they drift like everything else. A changelog note said the Python
-bindings were unaffected (`PyAst::parse` bypasses `normalize_eol`) and
-the drift was Perl-only (Bash shares the shape); a benchmarking doc
-undercounted the remaining `Node::parent` climbs. The same shape, later:
-a Go ABC test cited "the Rust/Java rule" for a number that was backwards
-in all three languages (#1278), and three docs-sweep issues each
-prescribed a fix that was wrong by the time it ran — a stale pin, a
-`--fix` the Makefile cannot forward, the wrong Sonar appendix
-(#1711, #1712, #1713).
+UTF-8 char-boundary panic its `&[u8]` parameter cannot raise, and the
+fix shipped two *new* false claims of the same kind. `bca.toml`'s
+`exclude_tests` comment said the option does not lower `loc.sloc`; it
+measured 779 with the manifest against 845 with `--no-config` (#722 had
+made it do exactly that), and the file carries the `loc.sloc` cap that
+gates the build, so anyone budgeting from the comment got it wrong. The
+rest were a test's exclusion rationale, a changelog's two scope claims
+and a benchmarking doc's count. Later instances: a Go ABC test citing
+"the Rust/Java rule" for a number backwards in all three languages
+(#1278), and three docs-sweep issues each prescribing a fix that was
+wrong by the time it ran (#1711, #1712, #1713).
 
 **A hedge survived two reviews because it admitted uncertainty**
 (#1417). One of the three sets `Stats::settle_excluded_rows` subtracts
@@ -3471,40 +3440,35 @@ tests, where dropping either sibling fails 3 and 1. The remedy was a
 
 **A stated reason ages independently of its conclusion** (#1316, #1450
 and #1451). Three alterator arms had said since #699 that `CharLiteral`
-is an operand, flattened, and deliberately absent from
-`Checker::is_string`, and Go's rune-literal test cited that as settled
-precedent; the exclusion was true and the operand half had never been
-implemented, and the comment ended every audit that reached it. The fix
-pinned the true half (`c_family_char_literal_is_not_a_string`) so it
-fails if it stops being true, and made the other half true. Paired C# FIXMEs justified leaving a `goto
-case` over-count by citing the parity `conditions == cyclomatic() - 1`;
-gating either side alone breaks **zero** tests, because that parity is
-opt-in fixture policy. `AGENTS.md`'s rule to re-verify a deferred
-issue's premises covers in-source FIXMEs, which are trusted *more* for
-sitting beside the code.
+is an operand, flattened, and absent from `Checker::is_string`, and Go's
+rune-literal test cited that as precedent: the exclusion was true, the
+operand half had never been implemented, and the comment ended every
+audit that reached it. The fix pinned the true half
+(`c_family_char_literal_is_not_a_string`) and made the other true.
+Paired C# FIXMEs justified a `goto case` over-count by the parity
+`conditions == cyclomatic() - 1`; gating either side alone breaks
+**zero** tests, because that parity is opt-in fixture policy.
+`AGENTS.md`'s rule to re-verify a deferred issue's premises covers
+in-source FIXMEs, which are trusted *more* for sitting beside the code.
 
-**A probe's verdict is scoped to the filesystem it ran on** (#1349). A
-batch note called the Python bindings' directory probe dead, "verified
-by probe": on ext4 a directory's `st_size` is 4096, so the reader opens
-it and gets `EISDIR` unaided; on btrfs an empty one is 0, on ZFS 2, on
-NTFS all are 0. `tempfile::tempdir()` lands on whatever `/tmp` is, and
-`analyze_path_raises_is_a_directory_for_an_empty_directory` fails there
-with `None` once the guard goes. It stayed, on the decline path.
+**A probe's verdict is scoped to the environment it ran on** (#1349
+and #1771). A batch note called the Python bindings' directory probe
+dead, "verified by probe": on ext4 a directory's `st_size` is 4096, so
+the reader gets `EISDIR` unaided, while on btrfs an empty one is 0, on
+ZFS 2, and on NTFS all are 0. The guard stayed, and
+`analyze_path_raises_is_a_directory_for_an_empty_directory` fails with
+`None` on those filesystems once it goes. "`git init` runs the hook on
+git 2.55" was true from 2.46 and false on the host's 2.34.1, where an
+init-then-pin hostile-config test would have passed against the unfixed
+helper. The tests PR #1788 landed discriminate through a `user.name`
+sentinel no git version can make vacuous.
 
-**A signature constraint that only the callee honours** (#1748). A
-doc said a future grandparent read "would have to change that core's
-signature, which both public forms call, so neither can grow it
-alone"; either form could call `parent.parent()` before calling the
-core. A signature bounds what the callee reads, not what callers read
-on the way in. Reworded once and still wrong, it fell on the second
-review pass — by reasoning, since no test can see a read that changes
-no answer.
-
-**"`git init` runs the hook on git 2.55"** (#1771, PR #1788) was true from 2.46
-and false on the host's 2.34.1, where an init-then-pin hostile-config
-test would have passed against the unfixed helper; the tests now
-discriminate through a `user.name` sentinel no git version can make
-vacuous.
+**A signature constraint that only the callee honours** (#1748). A doc
+said a future grandparent read would have to change a core's signature
+"which both public forms call, so neither can grow it alone"; either
+form could call `parent.parent()` before calling the core. A signature
+bounds what the callee reads, not what callers read on the way in, and
+no test can see a read that changes no answer.
 
 ---
 
@@ -3687,37 +3651,31 @@ error becomes a plan to edit files that were never affected.
 
 **The same scanner then hid what it was built to find.** Adding string
 and comment spans left char literals unlexed, so a `b'"'` read as an
-unpaired double quote and opened a span running to the next `"` anywhere
-later in the file. `src/vcs/git/diff_parse.rs` probed 4 of its 15 arms.
-A gate whose entire purpose is to catch regions that *read as clean*
-had, in its own implementation, a region that read as clean. Nothing
-currently bailing was hidden, so no count moved — the blindness was to
-future entries, which is the only thing a ratchet exists to catch.
-
-**The sibling gate has the identical gap** (#1192).
-`utils/check-snapshot-anchors.py` classifies string and comment spans
-and not char literals, so a `b'"'` makes every following
-`insta::assert_json_snapshot!` invisible to it. Latent today only
-because no file under `src/metrics/` spells one. Lifting the fix's
-`char_literal_end()` — which must return `None` for a lifetime, since
-`'a` has no closing quote and treating it as a literal swallows the file
-the other way — closes both.
+unpaired double quote and opened a span running to the next `"`
+anywhere later in the file. `src/vcs/git/diff_parse.rs` probed 4 of its
+15 arms. A gate whose entire purpose is to catch regions that *read as
+clean* had, in its own implementation, a region that read as clean.
+Nothing currently bailing was hidden, so no count moved: the blindness
+was to future entries, which is the only thing a ratchet exists to
+catch. The sibling `utils/check-snapshot-anchors.py` had the identical
+gap (#1192), hiding every later `insta::assert_json_snapshot!` behind a
+`b'"'`. Lifting the fix's `char_literal_end()` closed both; it must
+return `None` for a lifetime, since `'a` has no closing quote and
+reading it as a literal swallows the file the other way.
 
 **The third gate in the family, and the proof no pattern would have
 done** (#1219, PR #1221). `utils/check-diagnostic-prefix.py` matched
-raw-string opens with a regex and skipped to the next quote, so three
-shapes opened a span that hid every severity literal until it closed:
-`let p = "dir/r";`, where the closing quote of an ordinary string
-follows an `r`; and an unterminated `r"` inside a trailing `//` or a
-`/* … */` comment, neither of which a scanner that only skips
-*whole-line* comments can see. The first is the one that settles the
-approach — `/` is a legitimate raw-open context, so the character before
-`r` carries no information; what differs is that the `"` **closes** a
-literal. Stripping comments first fails the same way, because
-`"http://x"` truncates mid-literal and opens a phantom span of its own.
-Finding where a comment starts already requires knowing whether you are
-inside a string, which is the lexer. All three were latent: replaying
-both scanners over all 559 tracked Rust files gave identical output.
+raw-string opens by regex, so three shapes opened a span hiding every
+later severity literal: `let p = "dir/r";`, where an ordinary string's
+closing quote follows an `r`, and an unterminated `r"` in a trailing
+`//` or a `/* … */` comment, which a scanner skipping only whole-line
+comments cannot see. The first settles the approach: `/` is a
+legitimate raw-open context, so the character before `r` carries no
+information; what differs is that the `"` **closes** a literal.
+Stripping comments first fails too, since `"http://x"` truncates
+mid-literal, and finding where a comment starts needs to know whether
+you are inside a string, which is the lexer. All three were latent:
+both scanners gave identical output over all 559 tracked Rust files.
 
 **Porting a lexer without porting the shape that makes its tests
 discriminate** (#1219). The port's lifetime fixture used an *even* number
@@ -4087,35 +4045,24 @@ already listed `go` among the helper's needs (#1528).
 
 **A perturbation sweep whose anchor stopped matching perturbs nothing**
 (#1401). Four `CONST.replace(old, new)` anchors fell out of step with a
-rustfmt re-indent, so `replace` returned the constant unchanged and the
-sweep ran the unperturbed code four times, reporting `0 -> []` for arms
-that had each failed a test an hour earlier. The predicate the table
-answered was "does *this file* fail a test", and the file was the
-original. `.claude/rules/testing.md` now asks for `old != new` beside
-`count(old) == 1`. The same batch found the dump-reading form of the
-error: #1706's fixture held every `var` spelling, the arm was written
-for the parent the author came looking for, and the `catch (var e)`
-the whole-branch review surfaced had been in the fixture all along —
-recovered into an `ERROR` by its neighbours, so the one dump that
-would have shown its parent was the one-line fixture nobody wrote.
-`.claude/rules/grammar-dispatch.md` §6 now asks for a row or a stated
-exclusion per dumped parent, dumped alone. The same week, #1720's own
-table of the Rust `for` token's type-syntax parents named three and
-the fix was written with three; the review's one-line dump of `fn f(_:
-impl for<'a> Fn(&'a u8))` showed the fourth, `abstract_type`, which no
-fixture of the issue's had been written to produce.
+rustfmt re-indent, so the sweep ran the unperturbed code and reported
+`0 -> []` for arms that had each failed a test an hour earlier. The
+predicate it answered was "does *this file* fail a test", and the file
+was the original; `.claude/rules/testing.md` now asks for `old != new`.
+A dump read for the parent you came looking for answers an equally
+narrow question: #1706's `catch (var e)` showed its parent only once
+dumped alone, and #1720's fourth `for` parent, `abstract_type`, only in
+the review's one-line dump (`.claude/rules/grammar-dispatch.md` §6).
 
 **"No helper was over the raised limit" measured who offends, not who
 is no longer guarded** (#1747). A path-scoped `cyclomatic = 40` over
-`src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs` was priced with
-`--explain-threshold` at both tiers: 0 new offenders, so "the glob was
-not narrowed". The review read the ratchet instead: every helper
-sharing those files had been gated at 15 / 50k and was now gated at
-40 / 150k, with the nearest at 46.5k effort free to triple before
-anything fires. The predicate *offenders at the new limit* cannot
-express *headroom surrendered*; the pricing that answers the second
-question is the offender set at the **old** limits with the raised
-population released, which is what the comment now reports.
+`src/metrics/{abc,cognitive,cyclomatic,loc}/*.rs`, priced with
+`--explain-threshold`, showed 0 new offenders. Every helper sharing
+those files had moved from 15 / 50k to 40 / 150k, the nearest at 46.5k
+effort and free to triple before anything fires. *Offenders at the new
+limit* cannot express *headroom surrendered*; the pricing that answers
+it takes the offender set at the **old** limits with the raised
+population released, which the comment now reports.
 
 **A relation whose right side contains its left cannot be false**
 (#1700). The derived relation `DocComment ⊆ Comment ∪ DocComment`
@@ -4458,26 +4405,22 @@ down (`Ancestors` carrying a `FoldCache`), audit every place that
 a `children_chain`, a `..self` struct update, a fold's step closure —
 and make each one forward the cache or say why it must not. Forward
 only the caches whose key survives the derivation: one keyed by node
-id does, one keyed by the walk's position does not. A
-derivation that rebuilds the value with the cache field `None` is
-type-correct, answers identically, and silently restores the cost the
-cache exists to remove, on exactly the call paths that reach the
-predicate through the derived value rather than the original. Then
-pin each seam with a counter on the memoised work (not on the answer,
-which is the same either way) and, for a seam that reaches the
-predicate through a derivation, perturb the derivation as well as the
-walk.
+id does, one keyed by the walk's position does not. A derivation that
+rebuilds the value with the cache field `None` is type-correct,
+answers identically, and silently restores the cost the cache exists
+to remove, on exactly the call paths that reach the predicate through
+the derived value rather than the original. Then pin each seam with a
+counter on the memoised work (not on the answer, which is the same
+either way) and, for a seam that reaches the predicate through a
+derivation, perturb the derivation as well as the walk.
 
 The failure hides in the way the forwarding-default trap in
 `.claude/rules/grammar-dispatch.md` section 7 does: the predicate reads
 as memoised at its definition, the walk reads as lending at its
 construction, and the drop sits in a third place neither reader opens.
-A per-seam counter test does catch it — but only on the seam that
-reaches the predicate through the derivation, and only once it exists;
-until then every walk-level perturbation reads as covered. So write the
-counter test per seam before the sweep, confirm each passes clean, and
-perturb the derivation as its own row rather than inferring its
-forwarding from the walks' rows.
+Until a counter test exists on the seam that reaches the predicate
+through the derivation, every walk-level perturbation reads as covered,
+so write one per seam before the sweep and confirm it passes clean.
 
 **Tcl's argument-list scan stayed quadratic under `bca metrics`
 after it was memoised** (#1686, found in plan review). The fix stored
@@ -4493,13 +4436,11 @@ chain and would have memoised; the headline one would not. The
 iterator now forwards the cache, `an_iterated_ancestor_keeps_the_walk_s_memo`
 pins it, and the benchmark table records that dropping it moves only
 the `halstead/` and `ops/` probes to 2.03–2.05 while the dump and
-count rows stay at 1.0.
-
-The audit the lesson prescribes found a second one in the same
-review: `children_chain`'s one caller rebuilt its derived chain with
-`Ancestors::known`, so Doxygen's `conditional_declares` memo (#1613)
-never reached a conditional under an `ERROR`; `Ancestors::below` now
-re-roots the chain with the fold cache carried.
+count rows stay at 1.0. The same review found a second:
+`children_chain`'s one caller rebuilt its chain with `Ancestors::known`,
+so Doxygen's `conditional_declares` memo (#1613) never reached a
+conditional under an `ERROR`; `Ancestors::below` now re-roots the chain
+with the fold cache carried.
 
 **And the fix's first draft carried one cache too many.** `below`
 forwarded the `SiblingCache` as well, which is keyed by depth over the
