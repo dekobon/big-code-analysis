@@ -24,6 +24,18 @@ for historical reference.
 
 ## [Unreleased]
 
+### Changed
+
+- **(breaking), deferred to the next major (3.0):** the MI of a space
+  with no code will serialize as `null` (an omitted key in TOML)
+  instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
+  use `mi::Stats::is_empty()` to tell it apart. The change retires the
+  dict-side copy of that predicate in the Python bindings
+  (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
+  only because the wire cannot yet say "empty". (#1621)
+
+## [2.5.0] - 2026-11-06
+
 ### Added
 
 - **A weekly `cargo-deny check advisories` run** against every
@@ -972,14 +984,6 @@ for historical reference.
   under a parse error are read once per walk through the same
   re-rooting, where they were re-read on every ask. Four scaling probes
   pin the four walks. (#1686)
-
-- **(breaking), deferred to the next major (3.0):** the MI of a space
-  with no code will serialize as `null` (an omitted key in TOML)
-  instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
-  use `mi::Stats::is_empty()` to tell it apart. The change retires the
-  dict-side copy of that predicate in the Python bindings
-  (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
-  only because the wire cannot yet say "empty". (#1621)
 
 - **`--risk-formula percentile` ranks in `O(signals × n log n)`**
   (#1267). The mid-rank pass scanned the whole population twice per
@@ -12905,7 +12909,8 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/dekobon/big-code-analysis/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/dekobon/big-code-analysis/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/dekobon/big-code-analysis/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/dekobon/big-code-analysis/compare/v2.2.0...v2.3.0

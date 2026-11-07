@@ -1,6 +1,6 @@
 # Stability and versioning
 
-`big-code-analysis` is on the `2.x` line (currently `2.4.0`). The
+`big-code-analysis` is on the `2.x` line (currently `2.5.0`). The
 full stability contract lives in [`STABILITY.md`][stability] at the
 root of the repository. That file is the source of truth and is
 updated alongside the changelog at every release; this page is the
@@ -22,7 +22,7 @@ The headlines:
   or a bug fix in a metric definition can shift any metric value on
   any file in any direction, even across a patch bump. Each such
   drift is flagged in the changelog. Pin to an exact version
-  (`big-code-analysis = "= 2.4.0"`) if you need bit-for-bit
+  (`big-code-analysis = "= 2.5.0"`) if you need bit-for-bit
   reproducibility across runs.
 - **The minimum supported Rust version (MSRV) is `1.94`.** Bumping
   the MSRV is treated as a minor-bump

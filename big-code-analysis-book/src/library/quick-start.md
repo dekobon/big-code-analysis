@@ -9,7 +9,7 @@ crate to add the dependency to.
 ```toml
 # Cargo.toml
 [dependencies]
-big-code-analysis = "2.4.0"
+big-code-analysis = "2.5.0"
 ```
 
 The crate uses Rust edition 2024 and pins `rust-version = "1.94"`.

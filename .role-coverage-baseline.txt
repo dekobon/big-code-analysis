@@ -517,7 +517,7 @@
 361 named visible 'statement_identifier'
 362 named visible 'type_identifier'
 
-[Ccomment tree-sitter-ccomment 2.4.0]
+[Ccomment tree-sitter-ccomment 2.5.0]
 1 named visible 'nothing'
 2 named visible 'preproc_continuation_line'
 3 named visible 'preproc_line'
@@ -2822,7 +2822,7 @@
 141 anon hidden '_expression_list_repeat1'
 142 anon hidden '_field_list_repeat1'
 
-[Mozcpp tree-sitter-mozcpp 2.4.0]
+[Mozcpp tree-sitter-mozcpp 2.5.0]
 1 named visible 'identifier'
 2 anon visible '#include'
 3 anon hidden 'preproc_include_token2'
@@ -3324,7 +3324,7 @@
 636 named visible 'statement_identifier'
 637 named visible 'type_identifier'
 
-[Mozjs tree-sitter-mozjs 2.4.0]
+[Mozjs tree-sitter-mozjs 2.5.0]
 1 named visible 'identifier'
 2 named visible 'hash_bang_line'
 3 anon visible 'export'
@@ -4628,7 +4628,7 @@
 432 anon hidden 'nowdoc_body_repeat1'
 433 named visible 'operation'
 
-[Preproc tree-sitter-preproc 2.4.0]
+[Preproc tree-sitter-preproc 2.5.0]
 1 named visible 'identifier'
 2 named visible 'nothing'
 3 named visible 'preproc_continuation_line'
@@ -5414,7 +5414,7 @@
 353 named visible 'shorthand_field_identifier'
 354 named visible 'type_identifier'
 
-[Tcl tree-sitter-tcl 2.4.0]
+[Tcl tree-sitter-tcl 2.5.0]
 1 named visible 'simple_word'
 2 anon visible '\n'
 3 anon visible ';'
