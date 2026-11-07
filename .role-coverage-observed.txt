@@ -2,7 +2,7 @@
 # emitted, with provenance (#1692). Written by
 # `check-role-coverage.py --observe`; informational for the ratchet.
 # A kind absent here is "unobserved", never "unreachable".
-observer bca 2.5.1
+observer bca 2.5.2
 corpus DeepSpeech aa1d28530d531d0d92289bf5f11a49fe516fdc86
 corpus pdf.js 65c4a4b3fe81b20cd262193c55a6f4519362184c
 corpus serde d6de911855d1cc0ad13f87503a79d40dc4490442
@@ -205,7 +205,7 @@ corpus big-code-analysis-output d411e605123cd81b7881d819f03b541799dccebe
 263
 264
 
-[Mozjs tree-sitter-mozjs 2.5.1 sampled attempted=388 parsed=388 failed=0]
+[Mozjs tree-sitter-mozjs 2.5.2 sampled attempted=388 parsed=388 failed=0]
 1
 3
 4
@@ -1005,7 +1005,7 @@ corpus big-code-analysis-output d411e605123cd81b7881d819f03b541799dccebe
 354
 65535
 
-[Tcl tree-sitter-tcl 2.5.1 sampled attempted=2 parsed=2 failed=0]
+[Tcl tree-sitter-tcl 2.5.2 sampled attempted=2 parsed=2 failed=0]
 1
 3
 6
@@ -1459,7 +1459,7 @@ corpus big-code-analysis-output d411e605123cd81b7881d819f03b541799dccebe
 542
 65535
 
-[Mozcpp tree-sitter-mozcpp 2.5.1 sampled attempted=1048 parsed=1048 failed=0]
+[Mozcpp tree-sitter-mozcpp 2.5.2 sampled attempted=1048 parsed=1048 failed=0]
 1
 2
 4
@@ -2645,9 +2645,9 @@ corpus big-code-analysis-output d411e605123cd81b7881d819f03b541799dccebe
 253
 65535
 
-[Ccomment tree-sitter-ccomment 2.5.1 not-sampled attempted=0 parsed=0 failed=0]
+[Ccomment tree-sitter-ccomment 2.5.2 not-sampled attempted=0 parsed=0 failed=0]
 
-[Preproc tree-sitter-preproc 2.5.1 not-sampled attempted=0 parsed=0 failed=0]
+[Preproc tree-sitter-preproc 2.5.2 not-sampled attempted=0 parsed=0 failed=0]
 
 [Perl tree-sitter-perl 1.1.2 sampled attempted=1 parsed=1 failed=0]
 1
