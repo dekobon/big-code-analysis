@@ -55,6 +55,39 @@ pub(crate) struct Report {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) vcs_aggregate: Option<vcs::VcsAggregate>,
     pub(crate) files: Vec<FileEntry>,
+    /// How many entries were ranked before `--top` truncated `files` —
+    /// the tracked files the walk admitted and, under `--include-deleted`,
+    /// the deleted ones appended — so the HTML severity-heat bands
+    /// (`vcs_report::risk_heat_class`) grade each row against the whole
+    /// population rather than the rows shown; with `--top 1` the
+    /// repository's riskiest file was otherwise painted green.
+    /// Presentation state, never serialized. Invariant: at least
+    /// `files.len()`, since truncation only removes.
+    #[serde(skip)]
+    pub(crate) ranked_total: usize,
+}
+
+impl Report {
+    /// The population the risk ranking was drawn from.
+    pub(crate) fn ranked_population(&self) -> usize {
+        debug_assert!(
+            self.ranked_total >= self.files.len(),
+            "ranked_total ({}) below the rows carried ({})",
+            self.ranked_total,
+            self.files.len()
+        );
+        self.ranked_total
+    }
+
+    /// Test-fixture finisher: a report whose population is exactly the
+    /// rows it carries, as an untruncated ranking produces. A struct
+    /// literal cannot read its own `files`, so fixtures write a
+    /// placeholder `ranked_total` and call this.
+    #[cfg(test)]
+    pub(crate) fn with_untruncated_total(mut self) -> Self {
+        self.ranked_total = self.files.len();
+        self
+    }
 }
 
 /// Entry point for `Command::Vcs`.
@@ -102,7 +135,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         warn("shallow clone detected — history is truncated, so counts are lower bounds");
     }
 
-    let entries = rank(&globals, &index, args.top, args.include_deleted);
+    let (entries, ranked_total) = rank(&globals, &index, args.top, args.include_deleted);
     let report = Report {
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
@@ -111,6 +144,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         truncated_shallow_clone: index.truncated_shallow_clone(),
         vcs_aggregate: index.vcs_aggregate(),
         files: entries,
+        ranked_total,
     };
 
     crate::die_unless_broken_pipe(emit(&report, &args), "writing vcs output");
@@ -144,7 +178,7 @@ pub(crate) fn reject_cache_flags_with_subcommand(args: &VcsArgs) -> Result<(), &
 pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<DefaultReport> {
     let index = default_aggregate_index(globals)?;
     let options = Options::default();
-    let entries = rank(globals, &index, top, false);
+    let (entries, ranked_total) = rank(globals, &index, top, false);
     let report = Report {
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
@@ -153,6 +187,7 @@ pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<D
         truncated_shallow_clone: index.truncated_shallow_clone(),
         vcs_aggregate: index.vcs_aggregate(),
         files: entries,
+        ranked_total,
     };
     Some(DefaultReport {
         report,
@@ -320,13 +355,14 @@ fn resolve_author_hash_key(args: &VcsArgs) -> Option<AuthorHashKey> {
 
 /// Select the tracked files the global filters admit, sort them by risk
 /// score (descending; path as a stable tie-break), and truncate to the
-/// top `top` (0 = all).
+/// top `top` (0 = all). Also returns how many files were ranked before
+/// truncation, for [`Report::ranked_total`].
 fn rank(
     globals: &GlobalOpts,
     index: &vcs::HistoryIndex,
     top: usize,
     include_deleted: bool,
-) -> Vec<FileEntry> {
+) -> (Vec<FileEntry>, usize) {
     // Reuse the standard walk so `--paths/--include/--exclude/--no-ignore`
     // behave exactly as elsewhere; intersect the result with the tracked
     // set (untracked / binary files are simply absent from the index).
@@ -361,8 +397,9 @@ fn rank(
         append_deleted_entries(&mut entries, &covered, globals, index);
     }
 
+    let ranked_total = entries.len();
     vcs::rank_by_risk(&mut entries, top, |e| (e.path.as_str(), e.vcs.risk_score));
-    entries
+    (entries, ranked_total)
 }
 
 /// Append entries for files present in the index but absent from the
@@ -837,7 +874,9 @@ mod tests {
             vcs_aggregate: None,
             // `b.rs` has no AST entry below, so it must stay `None`.
             files: vec![file_entry("src/a.rs", 40), file_entry("src/b.rs", 10)],
-        };
+            ranked_total: 0,
+        }
+        .with_untruncated_total();
         let mut default = DefaultReport {
             report,
             workdir: Some(workdir_root),
@@ -880,7 +919,9 @@ mod tests {
             truncated_shallow_clone: false,
             vcs_aggregate: None,
             files: vec![file_entry("src/a.rs", 40)],
-        };
+            ranked_total: 0,
+        }
+        .with_untruncated_total();
         let mut default = DefaultReport {
             report,
             workdir: None,
@@ -908,7 +949,9 @@ mod tests {
             truncated_shallow_clone: false,
             vcs_aggregate: None,
             files: vec![entry],
-        };
+            ranked_total: 0,
+        }
+        .with_untruncated_total();
         let mut default = DefaultReport {
             report,
             workdir: Some(workdir_root),
@@ -932,7 +975,9 @@ mod tests {
             truncated_shallow_clone: false,
             vcs_aggregate: None,
             files: vec![entry],
-        };
+            ranked_total: 0,
+        }
+        .with_untruncated_total();
         let dir = tempfile::tempdir().expect("tempdir");
         let out = dir.path().join("vcs.csv");
         write_csv(&report, Some(out.as_path())).expect("write_csv to temp file");

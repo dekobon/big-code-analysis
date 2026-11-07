@@ -8,11 +8,11 @@ _Long window 365d, recent window 90d, risk formula v1. Risk is ordinal: only rel
 
 | Rank | File               | Risk | Commits (recent) | Churn (recent) | Authors (recent) | Ownership | Bug fixes | Hotspot |
 | ---: | ------------------ | ---: | ---------------: | -------------: | ---------------: | --------: | --------: | ------: |
-|    1 | src/hot.rs         |  9.4 |               50 |          2,000 |                2 |      0.75 |         4 |   123.0 |
+|    1 | src/hot.rs         |  9.4 |               50 |          2,000 |                2 |      0.75 |         4 | 748,436 |
 |    2 | src/warm.rs        |  6.1 |               20 |            800 |                2 |      0.75 |         4 |         |
 |    3 | docs/with\|pipe.md |  2.0 |                1 |             40 |                2 |      0.75 |         4 |         |
 
-Full per-file change-history record (all columns): re-run with `--format csv` or `--format json`.
+Full per-file change-history record (all columns): run `bca vcs --format csv` or `bca vcs --format json` (no Hotspot column), or `bca metrics --vcs` for the per-file block including it.
 
 ## Bus factor
 

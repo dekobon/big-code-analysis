@@ -93,6 +93,15 @@ fn num_cell(n: u64) -> Cell {
     Cell::Num(thousands(usize::try_from(n).unwrap_or(usize::MAX)))
 }
 
+/// A hotspot score as a [`num_cell`]: rounded to the nearest integer (the
+/// product of two integers in every score this crate computes), negative
+/// or NaN clamped to zero rather than wrapped. Scores stay far below
+/// 2^53, so the `f64 -> u64` cast is exact.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn hotspot_cell(score: f64) -> Cell {
+    num_cell(score.round().max(0.0) as u64)
+}
+
 /// The change-history columns, defined once for both formats, with a leading
 /// Rank column. Order and content mirror the structured CSV record. HTML
 /// renders the full set (it is genuinely sortable, so the page is the
@@ -248,14 +257,15 @@ const VCS_SPECS: &[VcsColumn] = &[
         align: Align::Right,
         // Rendered only when some row carries a score (see `active_specs`); in a
         // mixed report (the normal `report --vcs` join) the column survives on the
-        // scored rows and `unwrap_or_default` blanks each unscored (`None`) row.
+        // scored rows and each unscored (`None`) row renders blank.
+        // The score is an integer cyclomatic count times an integer churn,
+        // so it takes the thousands formatter the sibling counts use
+        // (`748,436` rather than `748436.0`); the rounding only matters
+        // for a score a caller computed from a fractional complexity.
         cell: |_, e| {
-            Cell::Num(
-                e.vcs
-                    .hotspot_score
-                    .map(|h| format!("{h:.1}"))
-                    .unwrap_or_default(),
-            )
+            e.vcs
+                .hotspot_score
+                .map_or(Cell::Num(String::new()), hotspot_cell)
         },
         tooltip: Some(HOTSPOT_TOOLTIP),
         in_markdown: true,
@@ -294,8 +304,13 @@ fn markdown_specs(report: &Report) -> Vec<&'static VcsColumn> {
 }
 
 /// Appended after the curated Markdown table, pointing the reader at the
-/// structured formats for the columns Markdown omits (issue #621).
-const MARKDOWN_FULL_RECORD_POINTER: &str = "Full per-file change-history record (all columns): re-run with `--format csv` or `--format json`.";
+/// structured formats for the columns Markdown omits (issue #621). Names
+/// the command that takes those formats: `bca report` accepts only
+/// `markdown` / `html`, so the earlier "re-run with `--format csv`" sent a
+/// `report --vcs` reader to an argument error. Plain `bca vcs` ranks the
+/// same files but carries no Hotspot column (that needs the AST join);
+/// `bca metrics --vcs` emits the full block per file including it.
+const MARKDOWN_FULL_RECORD_POINTER: &str = "Full per-file change-history record (all columns): run `bca vcs --format csv` or `bca vcs --format json` (no Hotspot column), or `bca metrics --vcs` for the per-file block including it.";
 
 /// Header of the column that carries the severity-heat tint in the HTML
 /// report. Matched structurally against [`VCS_SPECS`] (see
@@ -330,8 +345,8 @@ fn risk_column_index() -> Option<usize> {
         .position(|c| c.header == RISK_COLUMN_HEADER)
 }
 
-/// Severity-heat CSS class for the risk cell of the `row`-th file in a
-/// report of `n_rows` risk-ranked files, or `None` when no band applies.
+/// Severity-heat CSS class for the risk cell of the `row`-th file among
+/// `n_rows` risk-ranked files, or `None` when no band applies.
 ///
 /// The band is a function of *rank*, not the raw `risk_score`:
 /// `report.files` is sorted by descending risk, so `row` (0-based) is the
@@ -339,9 +354,14 @@ fn risk_column_index() -> Option<usize> {
 /// slices maps the top rows to band 0 (most severe) and the bottom rows to
 /// the last band (least severe), independent of the absolute values.
 ///
-/// Edge case: a single row has no ranking to express, so it gets the
-/// least-severe band (a lone file should not look alarming); `n_rows == 0`
-/// never calls this (no rows are rendered).
+/// `n_rows` is the ranked *population* ([`Report::ranked_population`]),
+/// not the rendered row count: a `--top N` table shows the N riskiest
+/// files, and grading them against each other painted the repository's
+/// single riskiest file green under `--top 1`.
+///
+/// Edge case: a single ranked file has no ranking to express, so it gets
+/// the least-severe band (a lone file should not look alarming);
+/// `n_rows == 0` never calls this (no rows are rendered).
 fn risk_heat_class(row: usize, n_rows: usize) -> Option<&'static str> {
     if n_rows <= 1 {
         return HEAT_CLASSES.last().copied();
@@ -643,7 +663,10 @@ fn write_html_body(
         // Hotspot column never shifts the Risk column, so the index stays
         // valid against the active spec set.
         let risk_col = risk_column_index();
-        let n_rows = rows.len();
+        // Grade against every file that was ranked, not only the rows
+        // `--top` left: the 41st–50th riskiest files in a top-50 table
+        // are not the repository's least risky.
+        let n_rows = report.ranked_population();
         // The table arrives pre-ranked by Risk descending (`report.files`
         // is risk-ranked), so announce that as the initial sort on the Risk
         // column's `<th>` — the existing CSS arrow then shows on first
@@ -766,10 +789,11 @@ mod tests {
             truncated_shallow_clone: false,
             vcs_aggregate: Some(sample_aggregate()),
             files: vec![
-                entry("src/hot.rs", 9.4, 50, Some(123.0)),
+                entry("src/hot.rs", 9.4, 50, Some(748_436.0)),
                 entry("src/warm.rs", 6.1, 20, None),
                 entry("docs/with|pipe.md", 2.0, 1, None),
             ],
+            ranked_total: 3,
         }
     }
 
@@ -1092,6 +1116,7 @@ mod tests {
     fn empty_report_emits_message_not_table() {
         let report = Report {
             files: Vec::new(),
+            ranked_total: 0,
             // No matched files means no authorship to aggregate, so the
             // bus-factor section is absent too.
             vcs_aggregate: None,
@@ -1120,9 +1145,18 @@ mod tests {
         let html = render_html(&report);
         assert!(md.contains("| Hotspot |"), "Markdown keeps Hotspot header");
         assert!(html.contains(">Hotspot</th>"), "HTML keeps Hotspot header");
-        // `Some(123.0)` formats with one decimal place.
-        assert!(md.contains("123.0"), "Markdown renders the hotspot value");
-        assert!(html.contains("123.0"), "HTML renders the hotspot value");
+        // The score is an integral product (cyclomatic sum × churn), so it
+        // takes the thousands separator the count columns use rather than
+        // the bare `748436.0` it rendered as before.
+        assert!(
+            md.contains("| 748,436 |"),
+            "Markdown renders the hotspot value:\n{md}"
+        );
+        assert!(
+            html.contains("<td class=\"numeric\">748,436</td>"),
+            "HTML renders the hotspot value:\n{html}"
+        );
+        assert!(!md.contains("748436.0"), "no bare float rendering survives");
         // The legend documents the rendered column.
         assert!(
             legend_entries(&specs)
@@ -1130,6 +1164,43 @@ mod tests {
                 .any(|(h, _)| *h == HOTSPOT_HEADER),
             "legend keeps the Hotspot entry when the column renders"
         );
+    }
+
+    /// The full-record pointer names commands the CLI accepts. Its
+    /// previous wording told a `bca report` reader to re-run with
+    /// `--format csv`, which `report` rejects; nothing pinned it, so it
+    /// stayed wrong. Each command the text names is parsed through the
+    /// real clap definition, and the one it must not name is shown to
+    /// fail.
+    #[test]
+    fn full_record_pointer_names_commands_the_cli_accepts() {
+        use clap::Parser as _;
+        for name in [
+            "--format csv",
+            "--format json",
+            "bca vcs",
+            "bca metrics --vcs",
+        ] {
+            assert!(
+                MARKDOWN_FULL_RECORD_POINTER.contains(name),
+                "pointer must mention {name:?}: {MARKDOWN_FULL_RECORD_POINTER}"
+            );
+        }
+        for argv in [
+            vec!["bca", "vcs", "--format", "csv"],
+            vec!["bca", "vcs", "--format", "json"],
+            vec!["bca", "metrics", "--vcs"],
+        ] {
+            assert!(
+                crate::Cli::try_parse_from(&argv).is_ok(),
+                "the pointer names {argv:?}, which the CLI must accept"
+            );
+        }
+        assert!(
+            crate::Cli::try_parse_from(["bca", "report", "--format", "csv"]).is_err(),
+            "`report` takes no csv format, so the pointer must not send a reader there"
+        );
+        assert!(!MARKDOWN_FULL_RECORD_POINTER.contains("bca report"));
     }
 
     #[test]
@@ -1143,6 +1214,7 @@ mod tests {
                 entry("src/a.rs", 9.0, 30, None),
                 entry("src/b.rs", 4.0, 10, None),
             ],
+            ranked_total: 2,
             ..rich_report()
         };
         let specs = active_specs(&report);
@@ -1152,12 +1224,15 @@ mod tests {
         );
         let md = render_markdown(&report);
         let html = render_html(&report);
+        // The column, its header and its legend entry are gone; the
+        // full-record pointer still *names* the Hotspot column to say
+        // `bca vcs` lacks it, so the check is on the table cells.
         assert!(
-            !md.contains("Hotspot"),
-            "Markdown must omit the Hotspot column entirely"
+            !md.contains("| Hotspot |") && !md.contains("**Hotspot**"),
+            "Markdown must omit the Hotspot column entirely:\n{md}"
         );
         assert!(
-            !html.contains("Hotspot"),
+            !html.contains(">Hotspot</th>") && !html.contains("<dt>Hotspot</dt>"),
             "HTML must omit the Hotspot column entirely (header + legend)"
         );
         // A still-rendered column proves the table itself is intact.
@@ -1458,6 +1533,7 @@ mod tests {
             files: (0..5)
                 .map(|i| entry(&format!("f{i}.rs"), 98.0 - f64::from(i), 5 - i, None))
                 .collect(),
+            ranked_total: 5,
             ..rich_report()
         };
         let html = render_html(&report);
@@ -1482,6 +1558,7 @@ mod tests {
             files: (0..5)
                 .map(|i| entry(&format!("f{i}.rs"), 10.0 + f64::from(i), i + 1, None))
                 .collect(),
+            ranked_total: 5,
             ..rich_report()
         };
         assert_eq!(
@@ -1489,6 +1566,69 @@ mod tests {
             (0..5).map(|i| format!("risk-heat-{i}")).collect::<Vec<_>>(),
             "band must follow row position, not raw risk_score magnitude",
         );
+    }
+
+    /// The heat band grades a row against every file that was ranked, not
+    /// only the rows `--top` kept: a `--top 1` table carries the
+    /// repository's riskiest file, which used to be painted the
+    /// least-severe band because it was the last of one row.
+    #[test]
+    fn risk_heat_grades_against_the_ranked_population_not_the_rows_shown() {
+        let top_one = Report {
+            vcs_aggregate: None,
+            files: vec![entry("worst.rs", 98.0, 5, None)],
+            ranked_total: 50,
+            ..rich_report()
+        };
+        assert_eq!(
+            risk_heat_classes(&render_html(&top_one)),
+            vec!["risk-heat-0".to_owned()],
+            "the riskiest of 50 files must take the most-severe band"
+        );
+        // Ten rows of a hundred: every shown row sits in the top tenth,
+        // so all ten land in band 0 rather than spreading over five.
+        let top_ten = Report {
+            vcs_aggregate: None,
+            files: (0..10)
+                .map(|i| entry(&format!("f{i}.rs"), 98.0 - f64::from(i), 10 - i, None))
+                .collect(),
+            ranked_total: 100,
+            ..rich_report()
+        };
+        assert_eq!(
+            risk_heat_classes(&render_html(&top_ten)),
+            vec!["risk-heat-0".to_owned(); 10]
+        );
+        // A repository with one tracked file has no ranking to express,
+        // so its lone row reads least-severe.
+        let lone = Report {
+            vcs_aggregate: None,
+            files: vec![entry("only.rs", 98.0, 5, None)],
+            ranked_total: 1,
+            ..rich_report()
+        };
+        assert_eq!(lone.ranked_population(), 1);
+        assert_eq!(
+            risk_heat_classes(&render_html(&lone)),
+            vec!["risk-heat-4".to_owned()]
+        );
+    }
+
+    /// `ranked_population` guards its invariant — the recorded population
+    /// is never smaller than the rows carried, since truncation only
+    /// removes — with a `debug_assert!`. This proves the guard fires on
+    /// the state it exists to reject, so it is a live check and not a
+    /// comment (a dev build is what the test suite and `make pre-commit`
+    /// run under).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "ranked_total (1) below the rows carried (3)")]
+    fn ranked_population_rejects_a_total_below_the_rows_carried() {
+        let report = Report {
+            ranked_total: 1,
+            ..rich_report()
+        };
+        let _ = report.ranked_population();
     }
 
     #[test]

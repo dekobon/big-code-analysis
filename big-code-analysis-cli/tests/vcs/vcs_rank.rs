@@ -785,6 +785,85 @@ fn vcs_html_writes_a_single_self_contained_file() {
     assert!(html.contains("src/work.rs"));
 }
 
+/// The HTML risk-heat band grades a row against every file that was
+/// ranked, not only the rows `--top` kept. With three tracked files and
+/// `--top 1`, the one row shown is the repository's riskiest file and
+/// must take the most-severe band; before the fix it was graded as the
+/// last of one row and painted the least-severe one. Driven through the
+/// binary so the pre-truncation count recorded in `rank()` is what is
+/// tested, for both the standalone `vcs` page and the `report --vcs`
+/// section.
+#[test]
+fn vcs_top_one_heats_the_riskiest_file_as_most_severe() {
+    let now = now();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let git = |secs: i64, args: &[&str]| git_at(dir.path(), secs, args);
+    git(now, &["init", "-q", "-b", "main"]);
+    git(now, &["config", "commit.gpgsign", "false"]);
+    std::fs::create_dir(dir.path().join("src")).expect("mkdir");
+    for name in ["a", "b", "c"] {
+        std::fs::write(
+            dir.path().join(format!("src/{name}.rs")),
+            format!("fn {name}() {{}}\n"),
+        )
+        .expect("write");
+    }
+    git(now - 200 * DAY, &["add", "."]);
+    git(now - 200 * DAY, &["commit", "-q", "-m", "add three"]);
+    // Only `a.rs` changes recently, so it ranks first by risk.
+    std::fs::write(
+        dir.path().join("src/a.rs"),
+        "fn a() {}\nfn a2() {}\nfn a3() {}\n",
+    )
+    .expect("write");
+    git(now - 5 * DAY, &["commit", "-aqm", "fix bug in a"]);
+
+    let risk_cell = |html: &str| -> String {
+        let body = html.rsplit_once("</style>").map_or(html, |(_, b)| b);
+        let row = body
+            .split("<tr>")
+            .find(|r| r.contains("src/a.rs"))
+            .expect("a.rs row");
+        let start = row.find("risk-heat-").expect("heated risk cell");
+        row[start..start + "risk-heat-N".len()].to_owned()
+    };
+
+    let out = dir.path().join("vcs.html");
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--top",
+            "1",
+            "--format",
+            "html",
+            "--output",
+            out.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+    let html = std::fs::read_to_string(&out).expect("read html");
+    assert!(!html.contains("src/b.rs"), "--top 1 shows one row:\n{html}");
+    assert_eq!(risk_cell(&html), "risk-heat-0");
+
+    let report = cli()
+        .current_dir(dir.path())
+        .args(["report", "html", "--vcs", "--top", "1", "--paths", "."])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report = String::from_utf8(report).expect("utf8 html");
+    let section = report
+        .split(">Change-history risk</h2>")
+        .nth(1)
+        .expect("change-history section");
+    assert_eq!(risk_cell(section), "risk-heat-0");
+}
+
 #[test]
 fn vcs_json_output_writes_a_single_file() {
     // Regression guard for the `--output` semantics fix: structured
