@@ -4530,13 +4530,14 @@ the one it holds. `Ancestors::known`'s contract is that `chain.last()`
 is the queried node's parent; a chain that is correct for the body is
 off by one for every member, and a predicate reading the parent answers
 for the grandparent. Build the derived chain inside the arm that has
-already decided the node is a body, never before it: the derivation is
-an `O(depth)` copy, and placed ahead of the kind test it runs for every
-node the walk visits. Where qualifying nodes themselves sit at every
-depth and no consumer reads past `parent`, hand a one-entry chain
-(`Ancestors::below(&[node])`) instead, and say beside it what the first
-depth-reading consumer must widen. Do not let "the predicate reads no
-chain today" stand in for the right chain.
+already decided the node is a body, never before it: the derivation
+allocates (an `O(depth)` copy until #1805), and placed ahead of the
+kind test it runs for every node the walk visits. Where qualifying
+nodes themselves sit at every depth and no consumer reads past
+`parent`, hand a one-entry chain (`Ancestors::below(&[node])`) instead,
+and say beside it what the first depth-reading consumer must widen. Do
+not let "the predicate reads no chain today" stand in for the right
+chain.
 
 The failure is invisible by construction. A predicate that reads no
 ancestry answers the same under any chain, so the wrong one passes every
@@ -4590,9 +4591,9 @@ that validation).
 Ruby's `ruby_documented_core` reproduced both halves in the same PR —
 an `of_children` ahead of the wrapper test, then a `descend` into the
 core itself, so `parent(core)` was the core. Its chain must end in the
-*wrapper*, so `[node]` is not available there; it copies only on a
-wrapper hit, and `core_is_asked_with_its_own_chain` pins `parent(core)`
-to the tree's and no copy for an unwrapped core.
+*wrapper*, so `[node]` is not available there; it derives a chain only
+on a wrapper hit, and `core_is_asked_with_its_own_chain` pins
+`parent(core)` to the tree's and no derivation for an unwrapped core.
 
 ---
 

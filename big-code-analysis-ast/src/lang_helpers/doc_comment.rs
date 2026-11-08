@@ -395,23 +395,20 @@ fn read_past_error<'a, T: Checker>(
 /// Whether a child of the parse error `error` is a doc target: a
 /// declaration parsed amid code the grammar could not place, which the
 /// error then stands in for as Doxygen's `doxygen_target` reads one.
-/// `ancestors` is the error's chain. Errors are rare, so the copy of the
-/// chain its children are judged with costs nothing on the common path;
-/// it is re-rooted with [`Ancestors::below`] so the walk's memo travels
-/// with it, and Doxygen's conditionals under the error are read once
-/// per walk like any other (#1686 review). Without a chain the children
-/// are judged with none, which a target test that climbs pays for at
-/// `O(depth)`; every production walk lends one, so only a test reaches
-/// that fallback.
+/// `ancestors` is the error's chain, and its children are judged with
+/// [`Ancestors::of_children`] of it, which borrows the walk's chain and
+/// carries the walk's memo, so Doxygen's conditionals under the error
+/// are read once per walk like any other (#1686 review). Without a
+/// chain the children are judged with none, which a target test that
+/// climbs pays for at `O(depth)`; every production walk lends one, so
+/// only a test reaches that fallback.
 fn error_holds_target<'a, T: Checker>(
     error: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    let chain = ancestors.children_chain(error);
-    let inside = chain
-        .as_deref()
-        .map_or_else(Ancestors::unknown, |chain| ancestors.below(chain));
+    let under = ancestors.of_children(error);
+    let inside = under.get();
     error
         .children()
         .any(|child| child.is_named() && T::is_doc_target(&child, code, inside))

@@ -80,6 +80,21 @@ for historical reference.
 
 ### Fixed
 
+- **`npa` and `npm` stay linear in nested containers** (#1805). Each
+  member walk reads a container's body (a class, struct, interface or
+  module) under a chain of the body's ancestors, which
+  `Ancestors::of_children` built once per body as a copy of the walk's
+  whole chain plus the body. That copy was `O(depth)`, so a file of `n`
+  nested containers cost `Σ depth`, quadratic in the nest, in every
+  language whose `npa` or `npm` reads a body: 32,000 nested Ruby
+  classes took 1.77 s under either metric with the copy, against
+  0.31 s for `loc`. The derived chain now borrows the walk's chain and
+  owns only the entries below it, and the same file takes 0.23 s.
+  Doc-target classification under a parse error and Ruby's doc targets
+  derive their chains the same way. Metric values are unchanged.
+  `ChildAncestors` and `Ancestors` keep their signatures. New scaling
+  probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
+  `loc` control price it.
 - **`make role-coverage-observe` samples the same files at any checkout
   depth** (#1836). It walked each corpus directory, so a checkout with
   the corpora's own submodules initialised — as the benchmarking guide's

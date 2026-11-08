@@ -19,10 +19,12 @@ use crate::lang_helpers::ruby::{YardScope, ruby_yard_reads};
 /// answers for the core and not for the wrapper it sits in (lesson
 /// 103): `node`'s own chain when `node` is the core, else `node`'s
 /// extended by each wrapper descended through, ending in the core's
-/// parent. The copy is made on the first wrapper hit and not before —
-/// an unwrapped statement, the common case, borrows — since a copy per
-/// question is `O(depth)` and a documented statement at each nesting
-/// level made that quadratic (`loc/ruby-nested-doc-constants`).
+/// parent. The chain is derived on the first wrapper hit and not
+/// before, so an unwrapped statement, the common case, borrows the chain
+/// it was asked with and allocates nothing. A derivation per question
+/// was an `O(depth)` copy before #1805, which a documented statement at
+/// each nesting level made quadratic (`loc/ruby-nested-doc-constants`);
+/// it is one small allocation now.
 fn ruby_documented_core<'a, 'c>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, 'c>,
@@ -176,8 +178,11 @@ mod tests {
     /// entry is the core's real parent, through a `then` wrapper, a
     /// modifier's `body`, a `body_statement` and a `block_body` alike —
     /// and `of_children` plus `descend` have no off-by-one that would
-    /// hand the core its *children's* chain. An unwrapped statement
-    /// borrows the chain it was asked with; only a wrapper hit copies.
+    /// hand the core its *children's* chain. The depth agrees as well:
+    /// it feeds the fold-cache slots the YARD scope fold reads, so a
+    /// length off by one across the seam of a derived chain would store
+    /// them one depth out (#1805). An unwrapped statement borrows the
+    /// chain it was asked with; only a wrapper hit derives one.
     #[cfg(feature = "ruby")]
     #[test]
     fn core_is_asked_with_its_own_chain() {
@@ -204,10 +209,17 @@ mod tests {
                 node.kind(),
                 core.kind()
             );
+            assert_eq!(
+                asked.depth(),
+                Some(std::iter::successors(core.parent(), Node::parent).count()),
+                "{}: {} asked at the wrong depth",
+                node.kind(),
+                core.kind()
+            );
             if core.id() == node.id() {
                 assert!(
                     core_chain.is_none(),
-                    "{}: copied for an unwrapped core",
+                    "{}: derived a chain for an unwrapped core",
                     node.kind()
                 );
                 unwrapped += 1;
@@ -227,6 +239,6 @@ mod tests {
         );
         assert!(unwrapped > 20, "{unwrapped}");
         // Every wrapper shape is in the fixture: `then` → modifier →
-        // method is two hops, so the chain grew twice from one copy.
+        // method is two hops, so the chain grew twice from one derivation.
     }
 }

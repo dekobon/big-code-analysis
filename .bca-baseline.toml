@@ -311,19 +311,19 @@ value = 43.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 596.0
+value = 585.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "nom"
-value = 38.0
+value = 37.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "wmc"
-value = 70.0
+value = 69.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"

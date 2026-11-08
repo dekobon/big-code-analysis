@@ -619,3 +619,54 @@ fn the_metric_walk_reads_each_tcl_command_word_once() {
         "one word read per command, plus the arm gate's six grandparent reads"
     );
 }
+
+/// The member walks derive a chain per container body, never per node
+/// they visit (#1696, lesson 103): over a class whose one method holds a
+/// `depth`-deep expression, the `npa` and `npm` walks derive the same
+/// number of chains at any depth.
+///
+/// The scaling probe `npa/java-deep-expression` priced a build hoisted
+/// ahead of the body-kind test while that build was an `O(depth)` copy;
+/// since #1805 it is one allocation, a constant factor whose exponent
+/// stays under the bound, so only this counter tells a per-body
+/// derivation from a per-node one. Compared across two depths rather
+/// than against a fixed count, so the test pins the invariant and not
+/// today's number of consumers; a per-node build grows the second count
+/// by the parentheses added.
+#[cfg(feature = "java")]
+#[test]
+fn the_member_walks_derive_a_chain_per_body_not_per_node() {
+    use crate::node::child_chains_derived;
+
+    let class = |depth: usize| {
+        format!(
+            "class C {{ int x; int f() {{ return {}1{}; }} }}\n",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        )
+    };
+    let derived = |depth: usize| {
+        let ast = crate::test_support::parse_named(crate::LANG::Java, "C.java", &class(depth));
+        let nodes = ast.root_node().preorder().count();
+        let before = child_chains_derived::observed();
+        ast.metrics(
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Npa, crate::Metric::Npm]),
+        )
+        .expect("the walk must yield a top-level space");
+        (child_chains_derived::observed() - before, nodes)
+    };
+    let (shallow, shallow_nodes) = derived(2);
+    let (deep, deep_nodes) = derived(200);
+    assert!(
+        deep_nodes > shallow_nodes + 300,
+        "the deep fixture must visit many more nodes: {shallow_nodes} vs {deep_nodes}"
+    );
+    assert!(
+        shallow > 0,
+        "the member walks derive a chain for the class body"
+    );
+    assert_eq!(
+        shallow, deep,
+        "a chain was derived per visited node, not per container body (#1696)"
+    );
+}

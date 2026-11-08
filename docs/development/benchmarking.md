@@ -240,10 +240,13 @@ Read it as follows.
 | `halstead/elixir-repeated-guards` | Elixir | depth | `ElixirCode::get_paying_role` billing `when` without the `Guard` row's position climb, which is per token and quadratic on a nested-`when` chain (#1695) | linear |
 | `cyclomatic/elixir-repeated-guards` | Elixir | depth | the `Guard` row's position climb, memoised per `when` operator under `MemoQuestion::GuardOperator` so a nested-`when` chain is climbed once per walk rather than once per token (#1695) | linear |
 | `cognitive/nested-and` | Python | depth | `python_apply_boolean_operator` asking whether *any* enclosing `boolean_operator` already paid, stopping at the first, where counting them all was quadratic in the chain (#1695) | linear |
-| `npa/java-deep-expression` | Java | depth | the member walks' per-body chain (`Ancestors::of_children`), built inside the body arms rather than for every node the walk visits (#1696) | linear |
+| `npa/java-deep-expression` | Java | depth | the member walks over a deep expression in a class body: no `O(depth)` work per visited node, which the per-body chain (`Ancestors::of_children`) was while it was a copy built for every node (#1696); since #1805 a per-node build would be one allocation, a constant factor this does not price | linear |
 | `npm/ruby-nested-if-defs` | Ruby | depth | the Ruby member walk reading a `def` through nested conditionals on one moved ancestor chain (`ChildAncestors::descend` / `ascend`) rather than a chain copy per level (#1401) | linear |
 | `npm/ruby-wide-private-defs` | Ruby | width | the same walk reading each `private` call's argument list and re-filing the name it declares as one deferred `(covered, bit)` on the name's index entry, applied once at the tally, rather than a write per declaration — half the names distinct, half one name redefined, so both halves of the index are on the ladder (#1401) | linear |
 | `npa/ruby-nested-if-attrs` | Ruby | depth | the attribute walk on the shared class-body walk, reading an `attr_*` and an `@ivar` assignment through nested conditionals and asking the `Member` row under the held chain (#1719) | linear |
+| `npa/ruby-nested-classes` | Ruby | depth | the chain every member walk derives per container body (`Ancestors::of_children`), borrowing the walk's chain and owning only the body rather than copying the whole chain per class (#1805) | linear |
+| `npm/ruby-nested-classes` | Ruby | depth | the same derivation under the method walk (#1805) | linear |
+| `loc/ruby-nested-classes` | Ruby | depth | metric control for the two rows above: the same nest under a metric that derives no chain per class body | linear |
 | `npa/cpp-wide-class-members` | C++ | width | a shape control for the C++ member walks: `cpp_declares_function` is asked of every field and static data member template by both consumers and must read only the member's own declarator chain — a walk that re-sought siblings or read a `template_declaration`'s neighbours would show here (#1299) | linear |
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
@@ -260,8 +263,7 @@ See [The ranking pass](#ranking-pass).
 
 ### The control probes
 
-The thirteen control probes are what make the other readings mean
-something.
+The control probes are what make the other readings mean something.
 
 - `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
   **metric** controls.
@@ -274,6 +276,9 @@ something.
   `count/tcl-nested-braces` is the same kind of control for
   `find/tcl-nested-braces`: the walk `bca find` runs, without the
   render that follows it.
+  `loc/ruby-nested-classes` is one for `npa/ruby-nested-classes` and
+  `npm/ruby-nested-classes`: the same nested classes under a metric
+  that derives no chain per class body.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
@@ -744,6 +749,33 @@ checks cannot see an exporter that collapses to a root, so the
 *exported* node count or depth must grow with the size too, on the
 ladder itself.
 
+`npa/ruby-nested-classes` and `npm/ruby-nested-classes` guard
+[#1805][nested-containers]. Every member walk reads a container's body
+under the chain `Ancestors::of_children` derives for it, once per
+container, and that chain was a copy of the walk's whole chain plus the
+body. One copy per container is `O(depth)`, so `n` nested containers
+cost `Σ depth`: quadratic in the nest, in every language whose `npa` or
+`npm` reads a body (nested C++ `struct`s and Java classes showed it as
+well). A derived chain now reads the walk's chain in place and owns only
+what it adds below it. Deriving from the walk's chain is one allocation
+of one entry; deriving from a derived chain copies the entries that one
+added, which every caller bounds by a fixed structural nesting; and an
+unbounded descent still moves one held chain with
+`ChildAncestors::descend` / `ascend`.
+
+The two probes needed a taller ladder than the one that suited the
+copy #1699 removed. With the copy present they read 1.39-1.51 on
+4 000 / 8 000 / 16 000, straddling the bound (`npa` crossed it on two
+runs of three), and 2.18-2.19 on `NESTED_CONTAINER_DEPTHS`
+(8 000 / 16 000 / 32 000), where the copied chain outgrows cache;
+without it they read 1.05-1.19 there.
+`loc/ruby-nested-classes` reads 1.22-1.28 either way, the drift of a
+walk under a chain 64 000 entries deep. The per-change guard is
+`of_children_borrows_the_walk_s_chain_and_owns_only_what_it_adds` in
+`big-code-analysis-ast/src/node/ancestors.rs`, which pins that a
+derived chain's upper run *is* the walk's slice rather than a copy of
+it.
+
 ### Child scans, and where the allocation actually was {#child-scans}
 
 `Node::children` builds a `tree_sitter::TreeCursor`, which heap-allocates
@@ -1083,3 +1115,4 @@ treating it as a regression.
 [dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
 [tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
 [find-render]: https://github.com/dekobon/big-code-analysis/issues/1416
+[nested-containers]: https://github.com/dekobon/big-code-analysis/issues/1805

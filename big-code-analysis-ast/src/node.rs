@@ -18,7 +18,9 @@ mod parser_cache;
 pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
-pub use ancestors::{GateLane, NodeQuestion, WIDE_PARENT, fold_steps, sibling_cache_reads};
+pub use ancestors::{
+    GateLane, NodeQuestion, WIDE_PARENT, child_chains_derived, fold_steps, sibling_cache_reads,
+};
 
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;

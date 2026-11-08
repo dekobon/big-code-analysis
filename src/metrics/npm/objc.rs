@@ -51,8 +51,7 @@ impl Npm for ObjcCode {
             return;
         }
         let mut methods = 0;
-        let under = ancestors.of_children(node);
-        let members = under.get();
+        let mut under = ancestors.of_children(node);
         for child in node.children() {
             match child.kind_id().into() {
                 // `@interface` lists `method_declaration`s as direct
@@ -69,15 +68,18 @@ impl Npm for ObjcCode {
                 // `qualified_protocol_interface_declaration`. Both wrappers
                 // are descended one level for method nodes (free C
                 // functions and `@synthesize`, also wrapped by the former,
-                // are not methods, so they are skipped).
+                // are not methods, so they are skipped). The one held chain
+                // moves into each wrapper and back, rather than deriving a
+                // chain per wrapped member.
                 // role-bypass: allow(DocTarget) — the two wrappers descended for
                 // their methods; not whether either takes a doc comment
                 ImplementationDefinition | QualifiedProtocolInterfaceDeclaration => {
-                    let in_wrapper = members.of_children(&child);
+                    under.descend(&child);
                     methods += child
                         .children()
-                        .filter(|inner| objc_is_method(inner, code, in_wrapper.get()))
+                        .filter(|inner| objc_is_method(inner, code, under.get()))
                         .count();
+                    under.ascend();
                 }
                 _ => {}
             }

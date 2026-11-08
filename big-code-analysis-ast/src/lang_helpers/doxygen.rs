@@ -385,12 +385,16 @@ fn children_declare<'a, T: DoxygenRow>(
 /// entry, the conditional itself, so a gate reading `parent` takes the
 /// conditional and not the nest's parent — with the walk's fold cache
 /// carried, no sibling cache, and no allocation (the entry is the
-/// caller's local). It is `parent` and nothing more: a chain of the
-/// real depth would cost a copy of the prefix per conditional, which
-/// across independent conditionals at growing depths is quadratic, and
-/// no C-family `DocTarget` gate reads past `parent` — one that folded
-/// or counted depth through this one-entry chain would answer off the
-/// wrong depth, so the first such gate must widen this, not reuse it.
+/// caller's local). It is `parent` and nothing more.
+/// `conditional_declares` reads a whole nest under the chain of the
+/// conditional it was asked about, so a nested conditional's real chain
+/// is not at hand, and deriving one per level with
+/// `Ancestors::of_children` copies every level derived so far,
+/// quadratic in a deep nest; a held chain moved along the nest would
+/// not be. No C-family `DocTarget` gate reads past `parent` — one that
+/// folded or counted depth through this one-entry chain would answer
+/// off the wrong depth, so the first such gate must widen this, not
+/// reuse it.
 /// With no chain known (`Ancestors::unknown`) the gate climbs, which is
 /// exact and allocation-free as well.
 fn chain_below<'a, 'c>(

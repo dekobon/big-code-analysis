@@ -8,29 +8,41 @@ use std::collections::HashMap;
 use super::Node;
 use crate::checker::Checker;
 
+mod chain;
+
+use chain::{Chain, HeldChain};
+
 /// The chain of a node's children, held by a consumer that reads them
 /// without descending: what [`Ancestors::of_children`] builds. A
 /// consumer that does descend, into wrappers whose statements it reads
 /// as the body's own, moves it with [`descend`](Self::descend) and
 /// [`ascend`](Self::ascend) rather than building one per level.
+///
+/// It borrows the walk's chain and owns only the entries below it, so
+/// it holds the walk's `Vec` immutably for as long as it lives (#1805).
 #[derive(Debug)]
 pub struct ChildAncestors<'tree, 'chain> {
-    chain: Option<Vec<Node<'tree>>>,
-    /// The chain's length as built: the node's own ancestry plus the
-    /// node. [`ascend`](Self::ascend) never pops below it.
-    floor: usize,
-    above: Ancestors<'tree, 'chain>,
+    /// `None` without a known chain, where every answer climbs.
+    chain: Option<HeldChain<'tree, 'chain>>,
+    folds: Option<&'chain FoldCache>,
 }
 
 impl<'tree> ChildAncestors<'tree, '_> {
     /// The children's [`Ancestors`], with the walk's fold cache carried
-    /// and its sibling cache deliberately not — the children are nodes
-    /// the walk has not recorded.
+    /// — and with it the visited node its word slots serve — and its
+    /// sibling cache deliberately not: the children are nodes the walk
+    /// has not recorded. Neither does an [`iter`](Ancestors::iter) from
+    /// it regain the sibling cache once it climbs back into the walk's
+    /// own chain.
     #[inline]
     #[must_use]
     pub fn get(&self) -> Ancestors<'tree, '_> {
         match &self.chain {
-            Some(chain) => self.above.below(chain),
+            Some(chain) => Ancestors {
+                chain: Some(chain.view()),
+                siblings: None,
+                folds: self.folds,
+            },
             None => Ancestors::unknown(),
         }
     }
@@ -40,23 +52,14 @@ impl<'tree> ChildAncestors<'tree, '_> {
     /// [`ascend`](Self::ascend). A consumer that reads a body's
     /// statements through the wrappers they sit in — Ruby's `npm` under
     /// an `if`, a `begin`, a call's argument list — keeps one chain and
-    /// moves it, where building a fresh [`Ancestors::of_children`] at
-    /// each level copies the whole chain per level, `O(depth)` each and
-    /// all of them live at once (#1401 review). Without a known chain
-    /// there is nothing to move and the answers keep climbing.
+    /// moves it, where deriving a fresh [`Ancestors::of_children`] from
+    /// the last at each level copies every level derived so far, all of
+    /// them live at once (#1401 review). Without a known chain there is
+    /// nothing to move and the answers keep climbing.
     #[inline]
     pub fn descend(&mut self, child: &Node<'tree>) {
         if let Some(chain) = &mut self.chain {
-            debug_assert!(
-                chain.last().is_none_or(|parent| {
-                    parent.id() != child.id()
-                        && parent.start_byte() <= child.start_byte()
-                        && child.end_byte() <= parent.end_byte()
-                }),
-                "descended into a {} node the chain's last entry does not contain",
-                child.kind()
-            );
-            chain.push(*child);
+            chain.descend(child);
         }
     }
 
@@ -67,13 +70,7 @@ impl<'tree> ChildAncestors<'tree, '_> {
     #[inline]
     pub fn ascend(&mut self) {
         if let Some(chain) = &mut self.chain {
-            debug_assert!(
-                chain.len() > self.floor,
-                "ascended above the node this chain was built for"
-            );
-            if chain.len() > self.floor {
-                chain.pop();
-            }
+            chain.ascend();
         }
     }
 }
@@ -91,9 +88,13 @@ impl<'tree> ChildAncestors<'tree, '_> {
 /// Callers that reached a node some other way pass
 /// [`Ancestors::unknown`], which climbs with [`Node::parent`]: the same
 /// answers at the original cost.
+///
+/// A chain derived below the walk's ([`of_children`](Self::of_children))
+/// reads the walk's chain in place and the entries it adds after it, as
+/// one chain at the same depths (#1805).
 #[derive(Clone, Copy, Debug)]
 pub struct Ancestors<'tree, 'chain> {
-    chain: Option<&'chain [Node<'tree>]>,
+    chain: Option<Chain<'tree, 'chain>>,
     siblings: Option<&'chain SiblingCache<'tree>>,
     folds: Option<&'chain FoldCache>,
 }
@@ -117,7 +118,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     #[must_use]
     pub const fn known(chain: &'chain [Node<'tree>]) -> Self {
         Self {
-            chain: Some(chain),
+            chain: Some(Chain::flat(chain)),
             siblings: None,
             folds: None,
         }
@@ -170,8 +171,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// statements read while the module is visited — is computed and
     /// not stored, so it cannot evict the visited node's answer. A
     /// derived chain ([`of_children`](Self::of_children), `below`,
-    /// [`iter`](Self::iter)) carries the same cache and so the same
-    /// visit.
+    /// [`iter`](Self::iter), the `outer` a fold step is handed) carries
+    /// the same cache and so the same visit.
     #[must_use]
     pub fn for_walk(
         chain: &'chain [Node<'tree>],
@@ -226,7 +227,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         // borrowed and runs unmemoised instead (`FoldCache::fold`).
         let step_at = |state: u8, depth: usize| {
             let outer = Ancestors {
-                chain: Some(&chain[..depth]),
+                chain: Some(chain.above(depth)),
                 siblings: self.siblings,
                 folds: self.folds,
             };
@@ -368,9 +369,11 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     }
 
     /// Whether the chain is known — a walk handed it in — rather than
-    /// the climbing [`Ancestors::unknown`]. A caller that would derive a
-    /// chain for a node's children ([`below`](Self::below)) has nothing
-    /// to derive from otherwise, and the climb is already exact.
+    /// the climbing [`Ancestors::unknown`]. A caller about to replace the
+    /// chain with [`below`](Self::below) checks it first: the climb is
+    /// already exact, where a replacing chain is exact only for what it
+    /// holds. [`of_children`](Self::of_children) needs no check, since it
+    /// derives an unknown chain from an unknown one.
     pub(crate) const fn is_known(self) -> bool {
         self.chain.is_some()
     }
@@ -448,45 +451,41 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// [`Node::parent`] climb the chain exists to remove.
     #[inline]
     pub fn depth(self) -> Option<usize> {
-        self.chain.map(<[Node<'tree>]>::len)
-    }
-
-    /// The chain of `node`'s children, `self` being `node`'s own: a copy
-    /// extended by `node`, for a predicate that looks into a node the walk
-    /// has not descended into yet. `None` without a known chain, where
-    /// [`Ancestors::unknown`] gives the same answers by climbing. Pair it
-    /// with [`Ancestors::below`], which keeps the walk's caches on the
-    /// derived chain.
-    pub(crate) fn children_chain(self, node: &Node<'tree>) -> Option<Vec<Node<'tree>>> {
-        self.chain
-            .map(|chain| [chain, std::slice::from_ref(node)].concat())
+        self.chain.map(Chain::len)
     }
 
     /// The chain of `node`'s children, held: `self` extended by `node`,
     /// for a consumer that holds a body's chain and asks a row about the
-    /// body's *members* — `npa` and `npm` over a class body — and, where
+    /// body's *members* — `npa` and `npm` over a class body, a parse
+    /// error's children asked whether they are doc targets — and, where
     /// it reads through a member's own children, moves the chain with
-    /// [`ChildAncestors::descend`] rather than building another. A row's gate reads the chain it is handed as
-    /// the queried node's own, so handing it the body's instead answers
-    /// from the wrong parent the moment a `Member` or `FuncOpener` row
-    /// grows a gate; the comment "the row reads no chain" was the only
-    /// guard before this. The one allocation is per body, `O(depth)`,
-    /// never per node; without a known chain the result climbs, as
-    /// [`Ancestors::unknown`] does. Read it with
-    /// [`ChildAncestors::get`].
+    /// [`ChildAncestors::descend`] rather than building another. A row's
+    /// gate reads the chain it is handed as the queried node's own, so
+    /// handing it the body's instead answers from the wrong parent the
+    /// moment a `Member` or `FuncOpener` row grows a gate; the comment
+    /// "the row reads no chain" was the only guard before this. Without a
+    /// known chain the result climbs, as [`Ancestors::unknown`] does.
+    /// Read it with [`ChildAncestors::get`].
+    ///
+    /// The walk's chain is borrowed, not copied: from it this is one
+    /// allocation of one entry, whatever the depth. From a chain itself
+    /// derived it copies the entries that one added below the walk's,
+    /// which every caller bounds by a fixed structural nesting. A copy of
+    /// the whole chain per container was quadratic in nested containers
+    /// (#1805).
     #[must_use]
     pub fn of_children(self, node: &Node<'tree>) -> ChildAncestors<'tree, 'chain> {
-        let chain = self.children_chain(node);
+        child_chains_derived::record();
         ChildAncestors {
-            floor: chain.as_ref().map_or(0, Vec::len),
-            chain,
-            above: self,
+            chain: self.chain.map(|chain| HeldChain::below(chain, *node)),
+            folds: self.folds,
         }
     }
 
-    /// `self` re-rooted on `chain`, a [`children_chain`](Self::children_chain)
-    /// the caller holds, with the walk's [`FoldCache`] carried over and
-    /// its [`SiblingCache`] deliberately not.
+    /// `self` re-rooted on `chain`, which replaces its chain rather than
+    /// extending it, with the walk's [`FoldCache`] carried over and its
+    /// [`SiblingCache`] deliberately not. Doxygen hands a conditional's
+    /// children a chain of that one entry this way (`chain_below`).
     ///
     /// The fold cache is per walk, not per chain, so a derived chain
     /// reads and stores through the same one. Rebuilding with
@@ -502,6 +501,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// `class {` with a hundred stray `@` after it made exactly that
     /// `ERROR` (#1686 review). Without the cache the lookup seeks, which
     /// is what it did before and all an unrecorded node can offer.
+    /// [`ChildAncestors::get`] drops it for the same reason.
     #[inline]
     #[must_use]
     pub(crate) const fn below<'below>(
@@ -512,7 +512,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         'chain: 'below,
     {
         Ancestors {
-            chain: Some(chain),
+            chain: Some(Chain::flat(chain)),
             siblings: None,
             folds: self.folds,
         }
@@ -788,7 +788,7 @@ impl<'tree> SiblingCache<'tree> {
 // The deepest depth at or above `from` whose slot still holds the state of
 // the ancestor the chain has there, or 0 when none does: a node fixes its
 // ancestry, so a matching id is an exact state.
-fn deepest_stored(slots: &[(usize, u8)], chain: &[Node<'_>], from: usize) -> usize {
+fn deepest_stored(slots: &[(usize, u8)], chain: Chain<'_, '_>, from: usize) -> usize {
     (1..=from)
         .rev()
         .find(|&depth| slots[depth].0 == chain[depth].id())
@@ -1091,7 +1091,7 @@ impl FoldCache {
     fn fold(
         &self,
         lane: FoldLane,
-        chain: &[Node<'_>],
+        chain: Chain<'_, '_>,
         end: usize,
         init: u8,
         step: impl Fn(u8, usize) -> u8,
@@ -1132,6 +1132,16 @@ impl FoldCache {
 // crate's tests through `test-support`, since most walks that lend the
 // cache live there.
 crate::observation::counter!(fold_steps, cfg(any(test, feature = "test-support")));
+
+// Chains derived with `Ancestors::of_children`, so a test can see a walk
+// derive one per container body rather than one per node it visits: a
+// derivation is one allocation since #1805, so a build hoisted ahead of
+// the body-kind test (lesson 103, #1696) is a constant factor the scaling
+// gate cannot price, and this counter is what tells the two apart.
+crate::observation::counter!(
+    child_chains_derived,
+    cfg(any(test, feature = "test-support"))
+);
 
 // Sibling lookups answered from a walk's `SiblingCache` rather than by a
 // seek. The two answer identically, so only this tells a walk that lends
@@ -1189,7 +1199,7 @@ enum AncestorSource<'tree, 'chain> {
     /// this iterator, and dropping the [`FoldCache`] here left that
     /// question unmemoised on every walk that lent one (#1686).
     Chain(
-        &'chain [Node<'tree>],
+        Chain<'tree, 'chain>,
         Option<&'chain SiblingCache<'tree>>,
         Option<&'chain FoldCache>,
     ),
@@ -1225,6 +1235,228 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 mod tests {
     use super::*;
     use crate::node::Tree;
+
+    // `node`'s ancestors' ids, nearest first, climbed with `Node::parent`:
+    // the reference every chain a holder derives must reproduce.
+    #[cfg(any(
+        feature = "cpp",
+        feature = "java",
+        feature = "kotlin",
+        feature = "ruby",
+        feature = "rust"
+    ))]
+    fn climbed_ids(node: &Node) -> Vec<usize> {
+        std::iter::successors(node.parent(), Node::parent)
+            .map(|ancestor| ancestor.id())
+            .collect()
+    }
+
+    // Asserts that `ancestors` describes `node`'s whole ancestry as the
+    // climb does: its depth, its parent, every ancestor `iter` yields
+    // and that ancestor's own chain, its previous sibling and both
+    // sibling runs.
+    #[cfg(any(
+        feature = "cpp",
+        feature = "java",
+        feature = "kotlin",
+        feature = "ruby",
+        feature = "rust"
+    ))]
+    fn assert_describes<'t>(ancestors: Ancestors<'t, '_>, node: &Node<'t>) {
+        let kind = node.kind();
+        let climbed = climbed_ids(node);
+        let id = |node: Option<Node>| node.map(|node| node.id());
+        assert_eq!(ancestors.depth(), Some(climbed.len()), "{kind}: depth");
+        assert_eq!(
+            id(ancestors.parent(node)),
+            id(node.parent()),
+            "{kind}: parent"
+        );
+        let mut iterated = Vec::new();
+        for (ancestor, above) in ancestors.iter(node) {
+            assert_eq!(
+                (id(above.parent(&ancestor)), above.depth()),
+                (
+                    id(ancestor.parent()),
+                    Some(climbed.len() - 1 - iterated.len())
+                ),
+                "{kind}: the chain `iter` yields with its {} ancestor",
+                ancestor.kind()
+            );
+            iterated.push(ancestor.id());
+        }
+        assert_eq!(iterated, climbed, "{kind}: ancestry");
+        assert_eq!(
+            id(ancestors.previous_sibling(node)),
+            id(node.previous_sibling()),
+            "{kind}: previous sibling"
+        );
+        let (before, after): (Vec<usize>, Vec<usize>) =
+            node.parent().map_or_else(Default::default, |parent| {
+                let siblings: Vec<usize> = parent.children().map(|child| child.id()).collect();
+                let at = siblings
+                    .iter()
+                    .position(|&sibling| sibling == node.id())
+                    .expect("a node is among its parent's children");
+                (
+                    siblings[..at].iter().rev().copied().collect(),
+                    siblings[at + 1..].to_vec(),
+                )
+            });
+        let ids = |nodes: &mut dyn Iterator<Item = Node>| nodes.map(|n| n.id()).collect::<Vec<_>>();
+        assert_eq!(
+            ids(&mut ancestors.siblings_before(node)),
+            before,
+            "{kind}: before"
+        );
+        assert_eq!(
+            ids(&mut ancestors.siblings_after(node)),
+            after,
+            "{kind}: after"
+        );
+    }
+
+    // Every chain a holder derives below the walk's, at every node of
+    // `source`, checked against the climb for each node it describes:
+    // one level (`of_children` of the walk's chain), two (`of_children`
+    // of a derived chain) and moved (`descend` into each child, then
+    // `ascend` back to the floor). Returns how many nodes two levels down
+    // were checked, so a caller can tell its fixture nests.
+    #[cfg(any(
+        feature = "cpp",
+        feature = "java",
+        feature = "kotlin",
+        feature = "ruby",
+        feature = "rust"
+    ))]
+    fn check_derived_ancestry<L: crate::traits::LanguageInfo>(
+        source: &[u8],
+        recovers: bool,
+    ) -> usize {
+        let mut checked = 0;
+        let check = |node: &Node<'_>, chain: &[Node<'_>]| {
+            let walk = Ancestors::known(chain);
+            let under = walk.of_children(node);
+            let mut held = walk.of_children(node);
+            for child in node.children() {
+                assert_describes(under.get(), &child);
+                let nested = under.get().of_children(&child);
+                held.descend(&child);
+                for grandchild in child.children() {
+                    assert_describes(nested.get(), &grandchild);
+                    assert_describes(held.get(), &grandchild);
+                    checked += 1;
+                }
+                held.ascend();
+                assert_describes(held.get(), &child);
+            }
+        };
+        if recovers {
+            crate::test_support::for_each_node_with_chain_tolerating_errors::<L>(source, check);
+        } else {
+            crate::test_support::for_each_node_with_chain::<L>(source, check);
+        }
+        checked
+    }
+
+    /// Every chain derived below a walk's — one level, two levels, and
+    /// moved with `descend` / `ascend` — answers every ancestry question
+    /// as climbing with `Node::parent` does: depth, parent, each ancestor
+    /// `iter` yields with that ancestor's own chain, the previous
+    /// sibling and both sibling runs (#1805). A view that misread the
+    /// seam between the walk's borrowed chain and the entries a holder
+    /// owns — an index off by one there, an `iter` that dropped or
+    /// repeated the entry either side — answers one of them wrong.
+    /// Rust, Ruby, C++ and Java nest the containers the member walks
+    /// derive chains for.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_in_rust() {
+        let source = b"mod a {\n    struct S { x: i32, y: (i32, u8) }\n    impl S {\n        fn f(&self, v: i32) -> i32 { if v > 0 { g(v) } else { h(1, 2) } }\n    }\n}\n";
+        let checked = check_derived_ancestry::<crate::langs::RustCode>(source, false);
+        assert!(checked > 50, "the fixture must nest: {checked}");
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_in_ruby() {
+        let source = b"class A\n  class B\n    attr_reader :x\n    # Doc.\n    def m(a)\n      if a then b end\n    end\n  end\nend\n";
+        let checked = check_derived_ancestry::<crate::langs::RubyCode>(source, false);
+        assert!(checked > 20, "the fixture must nest: {checked}");
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_in_cpp() {
+        let source = b"namespace n { struct A { struct B { int x; void f(); }; }; }\n";
+        let checked = check_derived_ancestry::<crate::langs::CppCode>(source, false);
+        assert!(checked > 20, "the fixture must nest: {checked}");
+    }
+
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_in_java() {
+        let source = b"class A { class B { int x; void f() { if (x > 0) { g(); } } } }\n";
+        let checked = check_derived_ancestry::<crate::langs::JavaCode>(source, false);
+        assert!(checked > 20, "the fixture must nest: {checked}");
+    }
+
+    // Whether `source` parses into a tree holding an `ERROR`, a zero-width
+    // node at its parent's start, and one at its parent's end: the
+    // recovery shapes the parity checks below need present. Only a
+    // zero-width child at an edge tells `descend`'s non-strict
+    // containment check from a strict one, so one inside its parent
+    // would not do.
+    #[cfg(any(feature = "kotlin", feature = "rust"))]
+    fn recovery_shapes<L: crate::traits::LanguageInfo>(source: &[u8]) -> (bool, bool, bool) {
+        let tree = Tree::new::<L>(source);
+        let nodes: Vec<Node> = tree.get_root().preorder().collect();
+        let zero_width_at = |edge: &dyn Fn(&Node, &Node) -> bool| {
+            nodes.iter().any(|node| {
+                node.start_byte() == node.end_byte()
+                    && node.parent().is_some_and(|parent| edge(node, &parent))
+            })
+        };
+        (
+            nodes.iter().any(Node::is_error),
+            zero_width_at(&|node, parent| node.start_byte() == parent.start_byte()),
+            zero_width_at(&|node, parent| node.end_byte() == parent.end_byte()),
+        )
+    }
+
+    /// The same parity under recovery: an `ERROR` the parser could not
+    /// place, and a `;` it inserted as a zero-width node at its parent's
+    /// end. `descend`'s containment check compares identity and
+    /// non-strict spans, so a zero-width child at either edge is still
+    /// contained.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_under_recovery() {
+        let source =
+            b"fn f() { let x = ; }\nfn g() { let y = 1 }\nmod m { struct S { a: (i32, u8) } }\n";
+        let (error, _, at_end) = recovery_shapes::<crate::langs::RustCode>(source);
+        assert!(
+            error && at_end,
+            "the fixture must hold an ERROR and a zero-width node at its parent's end"
+        );
+        let checked = check_derived_ancestry::<crate::langs::RustCode>(source, true);
+        assert!(checked > 20, "the fixture must nest: {checked}");
+    }
+
+    /// Kotlin's `vararg: Int` holds the other edge: an identifier the
+    /// parser inserted as a zero-width node at its parent's start.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn a_derived_chain_describes_the_whole_ancestry_around_a_zero_width_start() {
+        let source = b"fun f(vararg: Int, b: Int) {}\n";
+        let (error, at_start, _) = recovery_shapes::<crate::langs::KotlinCode>(source);
+        assert!(
+            !error && at_start,
+            "the fixture must hold a zero-width node at its parent's start and no ERROR"
+        );
+        let checked = check_derived_ancestry::<crate::langs::KotlinCode>(source, true);
+        assert!(checked > 10, "the fixture must nest: {checked}");
+    }
 
     /// A chain that lends no `SiblingCache` reaching `previous_sibling`'s
     /// scan under a wide parent trips the debug assertion there, rather
@@ -1357,6 +1589,41 @@ mod tests {
                     "{} at depth {depth}, skip {skip}",
                     node.kind()
                 );
+                // The same chain as a derived one holds it, split between
+                // the walk's run and the run below it at every depth, so
+                // `skip` lands either side of the seam and on it. The
+                // cached fold reads the slots the flat folds above stored,
+                // so a depth read off by one across the seam changes the
+                // answer. The crossing step folds on another lane through
+                // its `outer`, a chain cut from the split one.
+                let crossing = |state: u8, ancestor: &Node, outer: Ancestors, below: &Node| {
+                    step(state, ancestor, outer, below).wrapping_add(outer.fold_down(
+                        ancestor,
+                        0,
+                        FoldLane::DocScope,
+                        3,
+                        step,
+                    ))
+                };
+                let crossed =
+                    Ancestors::unknown().fold_down(&node, skip, FoldLane::InsideQuote, 7, crossing);
+                for split in 0..=chain.len() {
+                    let (upper, lower) = chain.split_at(split);
+                    let segmented = Ancestors {
+                        chain: Some(Chain { upper, lower }),
+                        siblings: None,
+                        folds: Some(&cache),
+                    };
+                    assert_eq!(
+                        (
+                            segmented.fold_down(&node, skip, FoldLane::DocInBody, 7, step),
+                            segmented.fold_down(&node, skip, FoldLane::InsideQuote, 7, crossing),
+                        ),
+                        (climbed, crossed),
+                        "{} at depth {depth}, skip {skip}, split {split}",
+                        node.kind()
+                    );
+                }
                 queried += 1;
             }
             chain.push(node);
@@ -1366,6 +1633,89 @@ mod tests {
         assert!(
             queried > 100,
             "the fixture must exercise a real walk: {queried}"
+        );
+    }
+
+    /// A node reached through a flat chain and through a derived one
+    /// folds through the same depth slots (#1805): a state stored
+    /// through either is read back through the other, so neither refolds
+    /// an ancestor the other folded. Counted from a cache seeded by a
+    /// cold fold of the whole ancestry, so a reused slot shows as steps
+    /// not taken rather than as a count that would read zero anyway. The
+    /// step at the queried node itself depends on that node and is never
+    /// stored, so every query still calls it once; `fold_steps` counts
+    /// only the stored ones, which is why the two counts differ by one.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_flat_and_a_derived_chain_share_the_fold_slots() {
+        use std::cell::Cell;
+        let tree = Tree::new::<crate::langs::RustCode>(
+            b"mod a { mod b { fn f() { let x = (1 + 2) * 3; } } }\n",
+        );
+        let node = tree
+            .get_root()
+            .preorder()
+            .find(|node| {
+                node.kind() == "binary_expression"
+                    && node
+                        .child(0)
+                        .is_some_and(|lhs| lhs.kind() == "integer_literal")
+            })
+            .expect("the fixture holds `1 + 2`");
+        let child = node.child(0).expect("the `1`");
+        let chain = climbed_chain(&node);
+        let depth = chain.len();
+        assert!(depth > 6, "the fixture must nest: {depth}");
+        let calls = Cell::new(0_usize);
+        let step = |state: u8, ancestor: &Node, _: Ancestors, below: &Node| {
+            calls.set(calls.get() + 1);
+            state
+                .wrapping_mul(31)
+                .wrapping_add(ancestor.kind_id().to_le_bytes()[0])
+                .wrapping_add(below.kind_id().to_le_bytes()[0].rotate_left(3))
+        };
+        let lane = FoldLane::DocInBody;
+        let at_node = Ancestors::unknown().fold_down(&node, 0, lane, 7, step);
+        let at_child = Ancestors::unknown().fold_down(&child, 0, lane, 7, step);
+        // A fold's answer, the steps it stored and the step calls it made.
+        let counted = |fold: &dyn Fn() -> u8| {
+            let (steps, before) = (fold_steps::observed(), calls.get());
+            let answer = fold();
+            (answer, fold_steps::observed() - steps, calls.get() - before)
+        };
+
+        let cache = FoldCache::default();
+        let walk = Ancestors::known(&chain).with_folds(&cache);
+        assert_eq!(
+            counted(&|| walk.fold_down(&node, 0, lane, 7, step)),
+            (at_node, depth - 1, depth),
+            "cold, every ancestor below the root is folded and stored"
+        );
+        for split in 0..=depth {
+            let (upper, lower) = chain.split_at(split);
+            let segmented = Ancestors {
+                chain: Some(Chain { upper, lower }),
+                siblings: None,
+                folds: Some(&cache),
+            };
+            assert_eq!(
+                counted(&|| segmented.fold_down(&node, 0, lane, 7, step)),
+                (at_node, 0, 1),
+                "split at {split}, every stored state is read back"
+            );
+        }
+        let under = walk.of_children(&node);
+        assert_eq!(
+            counted(&|| under.get().fold_down(&child, 0, lane, 7, step)),
+            (at_child, 1, 2),
+            "one level down, the node's own depth is folded and stored"
+        );
+        let flat: Vec<Node> = chain.iter().copied().chain([node]).collect();
+        let flat_walk = Ancestors::known(&flat).with_folds(&cache);
+        assert_eq!(
+            counted(&|| flat_walk.fold_down(&child, 0, lane, 7, step)),
+            (at_child, 0, 1),
+            "and the walk's own chain at the child reads that slot back"
         );
     }
 
@@ -1605,7 +1955,8 @@ mod tests {
     /// asked of a braced word's *parent* through this iterator, and an
     /// iterator that dropped the cache left it unmemoised on every walk
     /// that lent one (#1686). Restoring `folds: None` in
-    /// `AncestorIter::next` fails the last assertion.
+    /// `AncestorIter::next` fails the `expect` on the iterated ancestor's
+    /// memo.
     #[cfg(feature = "rust")]
     #[test]
     fn an_iterated_ancestor_keeps_the_walk_s_memo() {
@@ -1647,27 +1998,23 @@ mod tests {
             .expect("an iterated ancestor's chain keeps the lent cache");
         assert_eq!(memo.get(&leaf), Some(true));
 
-        // The other derivation: a chain extended *downward* for a node
-        // the walk has not reached, re-rooted with `below`, reads the
-        // same memo. Rebuilding it with `Ancestors::known` instead
-        // answers `None` here, which is what `error_holds_target` did
-        // before #1686.
-        let children = walk
-            .children_chain(&leaf)
-            .expect("a known chain extends downward");
-        assert_eq!(children.len(), chain.len() + 1);
-        let below = walk.below(&children);
-        assert_eq!(below.depth(), Some(chain.len() + 1));
-        let memo = below
+        // The other derivations: a chain extended *downward* for a node
+        // the walk has not reached, and one re-rooted with `below`, read
+        // the same memo. Rebuilding with `Ancestors::known` instead
+        // answers `None`, which is what `error_holds_target` did before
+        // #1686.
+        let under = walk.of_children(&leaf);
+        let derived = under.get();
+        assert_eq!(derived.depth(), Some(chain.len() + 1));
+        let memo = derived
+            .node_memo(MemoQuestion::ArgumentSlotsReadable)
+            .expect("a chain derived with `of_children` keeps the lent cache");
+        assert_eq!(memo.get(&leaf), Some(true));
+        let memo = walk
+            .below(&chain[..1])
             .node_memo(MemoQuestion::ArgumentSlotsReadable)
             .expect("a chain re-rooted with `below` keeps the lent cache");
         assert_eq!(memo.get(&leaf), Some(true));
-        assert!(
-            Ancestors::known(&children)
-                .node_memo(MemoQuestion::ArgumentSlotsReadable)
-                .is_none(),
-            "a chain rebuilt with `known` carries nothing, which is why `below` exists"
-        );
     }
 
     /// The word slot serves the node the walk is visiting and no other
@@ -1729,8 +2076,8 @@ mod tests {
 
         let under = walk.of_children(&a);
         assert_eq!(under.get().classified(slot, &b, computes(2)), 2);
-        let children = walk.children_chain(&a).expect("a known chain extends");
-        assert_eq!(walk.below(&children).classified(slot, &b, computes(2)), 2);
+        let replaced = [root, a];
+        assert_eq!(walk.below(&replaced).classified(slot, &b, computes(2)), 2);
         let (_, above) = walk.iter(&b).next().expect("b has a parent");
         assert_eq!(above.classified(slot, &b, computes(2)), 2);
         let folded = walk.fold_down(&a, 0, FoldLane::DocInBody, 0, |_, _, outer, _| {
@@ -1817,14 +2164,165 @@ mod tests {
         );
     }
 
+    /// A chain derived with `of_children` borrows the walk's chain in
+    /// place — the same slice, not a copy of it — and owns only what it
+    /// adds: the body, and below a derived chain the levels that one
+    /// added. A copy of the walk's chain per container made `n` nested
+    /// containers cost `Σ depth` (#1805); the scaling probes price that
+    /// out of band, and this is the per-change guard. Reinstating the
+    /// copy fails the first assertion. A root's children derive from the
+    /// empty chain the walk holds there, and a leaf's from its own like
+    /// any other node, describing nothing.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn of_children_borrows_the_walk_s_chain_and_owns_only_what_it_adds() {
+        // Where a slice starts and how long it is: equal for two slices
+        // only when one is the other, not a copy of it.
+        fn at(nodes: &[Node]) -> (usize, usize) {
+            (nodes.as_ptr().addr(), nodes.len())
+        }
+        // A derived chain's borrowed run, and the ids of the run it owns.
+        fn view(under: &ChildAncestors<'_, '_>) -> ((usize, usize), Vec<usize>) {
+            let chain = under
+                .get()
+                .chain
+                .expect("a known chain derives a known one");
+            (at(chain.upper), chain.lower.iter().map(Node::id).collect())
+        }
+        let tree = Tree::new::<crate::langs::RustCode>(b"struct S { a: (i32, u8) }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the struct item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "field_declaration_list")
+            .expect("the field list");
+        let field = body
+            .children()
+            .find(|child| child.kind() == "field_declaration")
+            .expect("a field");
+
+        let chain = [root, item];
+        let walk = Ancestors::known(&chain);
+        let under = walk.of_children(&body);
+        assert_eq!(
+            view(&under),
+            (at(&chain), vec![body.id()]),
+            "the walk's chain is borrowed in place and only the body is owned"
+        );
+        let nested = under.get().of_children(&field);
+        assert_eq!(
+            view(&nested),
+            (at(&chain), vec![body.id(), field.id()]),
+            "a nested derivation still borrows the walk's chain, copying what the first added"
+        );
+
+        let empty: [Node; 0] = [];
+        let at_root = Ancestors::known(&empty).of_children(&root);
+        assert_eq!(view(&at_root), (at(&empty), vec![root.id()]));
+        assert_eq!(at_root.get().parent(&item).map(|p| p.id()), Some(root.id()));
+        let leaf = item.child(0).expect("the `struct` keyword");
+        assert_eq!(leaf.child_count(), 0, "the keyword is a leaf");
+        let under_leaf = walk.of_children(&leaf);
+        assert_eq!(view(&under_leaf), (at(&chain), vec![leaf.id()]));
+    }
+
+    /// A derived chain carries the walk's fold cache, one level down and
+    /// two — its node memos, its folds and the visited node's word slot —
+    /// and drops the walk's sibling cache, which never recorded the
+    /// nodes it describes. The drop holds on the chains `iter` yields
+    /// even once they climb back into the walk's own chain, where the
+    /// cache did record the parent: those siblings are sought too. The
+    /// root is the one wide parent, so a lookup through the walk's own
+    /// chain reads the recorded array.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_derived_chain_keeps_the_fold_cache_and_drops_the_sibling_cache() {
+        use std::cell::Cell;
+        let source = "fn a() { b(); }\n".repeat(WIDE_PARENT + 1);
+        let tree = Tree::new::<crate::langs::RustCode>(source.as_bytes());
+        let root = tree.get_root();
+        let member = root.child(0).expect("the first fn item");
+        let block = member
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("its body");
+        let statement = block.child(1).expect("the call statement");
+        let mut siblings = SiblingCache::default();
+        siblings.record(&root, 0, root.children());
+        let folds = FoldCache::default();
+        let chain = [root];
+        let walk = Ancestors::for_walk(&chain, &member, &folds).with_siblings(&siblings);
+        assert!(
+            matches!(walk.lookup(&member), Lookup::Wide(_, Some(0))),
+            "the walk's own chain reads the recorded root"
+        );
+        let question = MemoQuestion::ArgumentSlotsReadable;
+        walk.node_memo(question)
+            .expect("the walk lent a cache")
+            .set(&member, true);
+        let runs = Cell::new(0_usize);
+        let classify = || {
+            runs.set(runs.get() + 1);
+            4
+        };
+        assert_eq!(
+            walk.classified(WordSlot::TclCommandWord, &member, classify),
+            4
+        );
+
+        let under = walk.of_children(&member);
+        let nested = under.get().of_children(&block);
+        for (depth, derived, child) in [(2, under.get(), block), (3, nested.get(), statement)] {
+            assert_eq!(derived.depth(), Some(depth));
+            assert!(derived.memoises_folds(), "at depth {depth}: folds");
+            assert_eq!(
+                derived
+                    .node_memo(question)
+                    .and_then(|memo| memo.get(&member)),
+                Some(true),
+                "at depth {depth}: the walk's node memo"
+            );
+            assert_eq!(
+                derived.classified(WordSlot::TclCommandWord, &member, classify),
+                4
+            );
+            assert!(
+                derived.siblings.is_none(),
+                "at depth {depth}: no sibling cache"
+            );
+            let (_, above) = derived
+                .iter(&child)
+                .find(|(ancestor, _)| ancestor.id() == member.id())
+                .expect("the member is on every derived chain");
+            assert_eq!(above.depth(), Some(1), "the walk's own chain, root alone");
+            assert!(
+                matches!(above.lookup(&member), Lookup::Narrow(Some(_))),
+                "at depth {depth}: iterating back into the walk's chain regains no sibling cache"
+            );
+        }
+        assert_eq!(
+            runs.get(),
+            1,
+            "the visited node's word slot served every derived ask"
+        );
+    }
+
     /// `descend` / `ascend` move a held chain into a child and back
-    /// (#1401): under the child, the child's children name it as their
-    /// parent at one more depth; after ascending, the body's own
-    /// members do again. Without a known chain there is no chain to
-    /// move, so the depth stays unknown and the answers keep climbing.
-    /// The floor's debug assertion is `ascending_past_the_floor_is_caught`;
-    /// the release-build clamp behind it runs only where that
-    /// assertion is compiled out, so no test in the gate observes it.
+    /// (#1401): under the child, the child's children read their whole
+    /// ancestry from it, one more depth down; after ascending, the
+    /// body's own members do again. The descent goes through every level
+    /// the tree has, the `if`'s `expression_statement` included: a chain
+    /// that skipped one passed the containment check `descend` makes and
+    /// the depth-and-parent assertions this made before. A holder derived
+    /// from a moved holder moves the same way within a floor of its own,
+    /// what it inherited plus its node, and is back on the ancestry it
+    /// was built with after one ascend: a floor counted too high would
+    /// refuse that pop. Without a known chain there is no chain to move,
+    /// so the depth stays unknown and the answers keep climbing. The
+    /// floor's debug assertions are `ascending_past_the_floor_is_caught`
+    /// and `ascending_past_an_inherited_floor_is_caught`; the
+    /// release-build clamp behind them runs only where those assertions
+    /// are compiled out, so no test in the gate observes it.
     #[cfg(feature = "rust")]
     #[test]
     fn descend_and_ascend_move_the_held_chain_within_its_floor() {
@@ -1835,11 +2333,11 @@ mod tests {
             .children()
             .find(|child| child.kind() == "block")
             .expect("the body");
-        let conditional = body
+        let statement = body
             .children()
             .find(|child| child.kind() == "expression_statement")
-            .and_then(|stmt| stmt.child(0))
-            .expect("the if");
+            .expect("the if's statement");
+        let conditional = statement.child(0).expect("the if");
         let consequence = conditional
             .children()
             .find(|child| child.kind() == "block")
@@ -1853,26 +2351,27 @@ mod tests {
         let mut under = Ancestors::known(&chain).of_children(&body);
         assert_eq!(under.get().depth(), Some(3), "root, item, body");
 
+        under.descend(&statement);
         under.descend(&conditional);
         under.descend(&consequence);
-        assert_eq!(under.get().depth(), Some(5), "root, item, body, if, block");
-        assert_eq!(
-            under.get().parent(&call).map(|p| p.id()),
-            Some(consequence.id()),
-            "under the consequence, its statements name it as their parent"
-        );
+        assert_describes(under.get(), &call);
 
+        under.ascend();
         under.ascend();
         under.ascend();
         assert_eq!(under.get().depth(), Some(3), "back at the body");
-        assert_eq!(
-            under.get().parent(&conditional).map(|p| p.id()),
-            Some(body.id()),
-            "the body's members name the body again"
-        );
+        assert_describes(under.get(), &statement);
+
+        let mut outer = Ancestors::known(&chain[..1]).of_children(&item);
+        outer.descend(&body);
+        let mut inner = outer.get().of_children(&statement);
+        inner.descend(&conditional);
+        assert_describes(inner.get(), &consequence);
+        inner.ascend();
+        assert_describes(inner.get(), &conditional);
 
         let mut unknown = Ancestors::unknown().of_children(&body);
-        unknown.descend(&conditional);
+        unknown.descend(&statement);
         assert_eq!(
             unknown.get().depth(),
             None,
@@ -1886,9 +2385,6 @@ mod tests {
         );
     }
 
-    /// The floor is the chain as built: an `ascend` with nothing to undo
-    /// leaves the body's chain in place rather than popping the body —
-    /// a debug build trips the assertion, which is what this pins.
     /// `descend` takes the chain into a child of its last entry and
     /// nothing else: a walker that descends into a sibling, or into the
     /// node already on top, would have every later gate read a parent
@@ -1909,6 +2405,123 @@ mod tests {
         under.descend(&g);
     }
 
+    /// `of_children` derives the children's chain of a node the chain
+    /// describes and nothing else: asked of a grandchild under the root's
+    /// chain — lesson 103's hazard, the derivation hoisted ahead of the
+    /// test that names the body — every gate under it would read a parent
+    /// the node does not have. A debug build trips the same containment
+    /// check `descend` and `checked` make, naming the kind; under
+    /// `--cfg chain_audit` the exact parent check fires first, with its
+    /// own message. Only the derivation can raise either;
+    /// `Ancestors::known` checks nothing.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[cfg_attr(
+        chain_audit,
+        should_panic(
+            expected = "derived a chain for the children of a block node that is not its own"
+        )
+    )]
+    #[cfg_attr(
+        not(chain_audit),
+        should_panic(
+            expected = "derived a chain for the children of a block node its last entry does not contain"
+        )
+    )]
+    fn deriving_below_a_chain_that_is_not_the_node_s_is_caught() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() {}\nfn g() {}\n");
+        let root = tree.get_root();
+        let g = root.child(1).expect("the second fn item");
+        let f_body = root
+            .child(0)
+            .expect("the first fn item")
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("its body");
+        let chain = [root, g];
+        let _ = Ancestors::known(&chain).of_children(&f_body);
+    }
+
+    /// A derivation inherits at most two entries below the walk's chain
+    /// (`MAX_INHERITED_RUN`): every production site derives through one
+    /// level of fixed nesting, and two is the allowance for a parse
+    /// error's children judged through a `then` wrapper. One derived per
+    /// wrapper level from the last copies every level so far and is
+    /// quadratic in the nest again (#1805); the fourth level trips the
+    /// bound. The message carries the count, so only the last derivation
+    /// here can raise the one expected.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "derived from a chain 3 levels below the walk's")]
+    fn deriving_once_per_level_is_caught() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { if a { g(); } }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the fn item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the body");
+        let statement = body
+            .children()
+            .find(|child| child.kind() == "expression_statement")
+            .expect("the if's statement");
+        let conditional = statement.child(0).expect("the if");
+        let chain = [root];
+        let under_item = Ancestors::known(&chain).of_children(&item);
+        let under_body = under_item.get().of_children(&body);
+        let under_statement = under_body.get().of_children(&statement);
+        let _ = under_statement.get().of_children(&conditional);
+    }
+
+    /// In a release build the floor clamps instead of asserting: an
+    /// `ascend` with nothing to undo leaves the body's chain in place, so
+    /// a consumer that over-ascends still reads the ancestry of the
+    /// body's children, never of the body's siblings, and every later
+    /// `descend` / `ascend` pair still balances on it. The no-pop outcome
+    /// at the floor is reachable only where the debug assertion is
+    /// compiled out, so `cargo test --release` is what runs this; the two
+    /// `ascending_past_*` tests are its debug-build counterpart, and the
+    /// coverage job, a debug run, cannot see this branch by construction.
+    #[cfg(feature = "rust")]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn ascending_past_the_floor_clamps_in_release() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { if a { g(); } }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the fn item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the body");
+        let statement = body
+            .children()
+            .find(|child| child.kind() == "expression_statement")
+            .expect("the if's statement");
+
+        let chain = [root, item];
+        let mut under = Ancestors::known(&chain).of_children(&body);
+        under.ascend();
+        under.ascend();
+        assert_eq!(under.get().depth(), Some(3), "clamped at the body");
+        assert_describes(under.get(), &statement);
+
+        under.descend(&statement);
+        assert_eq!(under.get().depth(), Some(4), "and still moves");
+        under.ascend();
+        assert_describes(under.get(), &statement);
+
+        let mut outer = Ancestors::known(&chain[..1]).of_children(&item);
+        outer.descend(&body);
+        let mut inner = outer.get().of_children(&statement);
+        inner.ascend();
+        assert_describes(inner.get(), &statement.child(0).expect("the if"));
+    }
+
+    /// The floor is the chain as built: an `ascend` with nothing to undo
+    /// leaves the body's chain in place rather than popping the body —
+    /// a debug build trips the assertion, which is what this pins on a
+    /// holder derived from the walk's own chain, the shape every member
+    /// walk holds.
     #[cfg(all(feature = "rust", debug_assertions))]
     #[test]
     #[should_panic(expected = "ascended above the node this chain was built for")]
@@ -1919,5 +2532,35 @@ mod tests {
         let chain = [root];
         let mut under = Ancestors::known(&chain).of_children(&item);
         under.ascend();
+    }
+
+    /// A holder derived from a moved holder has a floor of its own: what
+    /// it inherited plus its node. At that floor one ascend trips the
+    /// assertion rather than popping into the levels it inherited — a
+    /// floor of one entry, its node alone, would let that ascend take its
+    /// node and the next answer come from the wrong parent. That it moves
+    /// within the floor is `descend_and_ascend_move_the_held_chain_within_its_floor`,
+    /// so the only ascend here is the one that must trip.
+    #[cfg(all(feature = "rust", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "ascended above the node this chain was built for")]
+    fn ascending_past_an_inherited_floor_is_caught() {
+        let tree = Tree::new::<crate::langs::RustCode>(b"fn f() { if a { g(); } }\n");
+        let root = tree.get_root();
+        let item = root.child(0).expect("the fn item");
+        let body = item
+            .children()
+            .find(|child| child.kind() == "block")
+            .expect("the body");
+        let statement = body
+            .children()
+            .find(|child| child.kind() == "expression_statement")
+            .expect("the if's statement");
+
+        let chain = [root];
+        let mut outer = Ancestors::known(&chain).of_children(&item);
+        outer.descend(&body);
+        let mut inner = outer.get().of_children(&statement);
+        inner.ascend();
     }
 }

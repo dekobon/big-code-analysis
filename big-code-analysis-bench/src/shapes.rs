@@ -934,6 +934,20 @@ pub fn ruby_nested_if_attrs(depth: usize) -> String {
     source
 }
 
+/// Ruby: `depth` nested classes, each declaring one attribute and one
+/// method before the next class opens. Every level is a container whose
+/// body the member walks read, and each adds one attribute and one
+/// method: with the members only in the innermost class the readings
+/// would hold at one whatever the depth.
+#[must_use]
+pub fn ruby_nested_classes(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "class C\nattr_reader :a\ndef m; end\n".repeat(depth),
+        "end\n".repeat(depth)
+    )
+}
+
 /// Lua: a module block, then `width` units of a tagless `---` block
 /// directly under a call — no item follows it, so the first-block test
 /// scans back — and a documented function, whose block is the reading.
@@ -1842,6 +1856,21 @@ const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 /// not past it, and 1.81 here (#1699 review). A probe that passes with
 /// the defect present is no probe; these sizes are where it goes red.
 const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
+
+/// Depths for the three `ruby-nested-classes` probes, one rung above
+/// [`CONDITIONAL_PER_DEPTH_DEPTHS`]. The copy they price is the walk's
+/// chain per class body, and a class body walk is cheap beside it only
+/// once the chain outgrows cache: with the copy present they read
+/// 1.39–1.51 on that ladder, straddling the bound (`npa` was over it on
+/// two runs of three), and 2.18–2.19 here; with the chain borrowed,
+/// 0.99–1.12 there and 1.05–1.19 here (#1805). The `loc` control reads
+/// 1.22–1.28 here, the cache drift of a 64,000-entry chain. The
+/// regressed top cell is 1.8 s, inside `MAX_CELL_WALK`. The clean cells
+/// of the three probes take about 1.2 s per pass, and a gate run walks
+/// every cell ten times (calibration, two warm-up rounds, seven
+/// measured), so they cost about 12 s of it, close to half its walk
+/// time: the top rung is what separates the copy from the bound.
+const NESTED_CONTAINER_DEPTHS: [usize; 3] = [8_000, 16_000, 32_000];
 
 /// Depths for `find/tcl-nested-braces` and its control, the same two
 /// rungs above [`LINEAR_DEPTHS`] and for the same reason. A renderer
@@ -2953,12 +2982,16 @@ pub const PROBES: &[Probe] = &[
         max_exponent: LINEAR_BOUND,
         rationale: "#1696 review: the member walks ask the `Member` and \
                     `FuncOpener` rows under each member's own chain, built \
-                    by `Ancestors::of_children` — an `O(depth)` copy per \
-                    body. Built before the body test, it ran for every \
+                    by `Ancestors::of_children` — then an `O(depth)` copy \
+                    per body. Built before the body test, it ran for every \
                     node the walk visits and a 64,000-deep expression took \
                     3–6 s in each of `npa` and `npm`; built inside the body \
-                    arms, 0.04 s. The reading is the one field and one \
-                    method, which the expression's depth does not touch.",
+                    arms, 0.04 s. Since #1805 the derivation borrows the \
+                    walk's chain, so building it per node would cost one \
+                    allocation per node: a constant factor this probe no \
+                    longer prices as a change of class. The reading is the \
+                    one field and one method, which the expression's depth \
+                    does not touch.",
     },
     Probe {
         name: "npa/cpp-wide-class-members",
@@ -3355,7 +3388,7 @@ pub const PROBES: &[Probe] = &[
                     conditional with a context whose `parent` is the \
                     conditional, built from one local and no copy of the \
                     walk's chain. A copy of the chain per conditional — \
-                    `children_chain`, the first shape this took — is \
+                    `children_chain`, the first shape this took — was \
                     `O(depth)` each, and independent conditionals at \
                     growing depths made it quadratic: 1.81 measured \
                     with the copy at these sizes, 0.94 without (1.50 \
@@ -3663,9 +3696,11 @@ pub const PROBES: &[Probe] = &[
                     conditional, loop and `begin` at class scope, moving one \
                     ancestor chain down and back up as it enters and leaves \
                     each wrapper. Built afresh per level with \
-                    `Ancestors::of_children`, the chain copy is `O(depth)` \
-                    per wrapper and the walk quadratic; moved, it is one \
-                    push and pop. The reading is one method per level.",
+                    `Ancestors::of_children`, the chain was an `O(depth)` \
+                    copy per wrapper, and since #1805 copies every level \
+                    derived so far: quadratic over the nest either way. \
+                    Moved, it is one push and pop. The reading is one \
+                    method per level.",
     },
     Probe {
         name: "npm/ruby-wide-private-defs",
@@ -3716,6 +3751,71 @@ pub const PROBES: &[Probe] = &[
                     climbs from the root and the walk measured quadratic \
                     (exponent 1.98 against 1.10). The reading is two \
                     attributes per level.",
+    },
+    Probe {
+        name: "npa/ruby-nested-classes",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa],
+            reading: |m| m.npa.class_na_sum(),
+        },
+        render: ruby_nested_classes,
+        sizes: NESTED_CONTAINER_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1805: every member walk reads a container's body \
+                    under `Ancestors::of_children`, once per container. \
+                    Built as a copy of the walk's chain plus the body, \
+                    that is `O(depth)` per class and quadratic over a \
+                    nest; borrowing the walk's chain and owning only the \
+                    body makes it one allocation per class. With the copy \
+                    reinstated this reads 2.18–2.19, and 1.11–1.19 without; \
+                    on `CONDITIONAL_PER_DEPTH_DEPTHS` the copy read \
+                    1.49–1.51, straddling the bound, which is why the \
+                    ladder is taller. Every language's member walks \
+                    derive the chain the same way; Ruby's class nest is \
+                    the shape that prices it. The reading is one \
+                    attribute per level.",
+    },
+    Probe {
+        name: "npm/ruby-nested-classes",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npm],
+            reading: |m| m.npm.class_nm_sum(),
+        },
+        render: ruby_nested_classes,
+        sizes: NESTED_CONTAINER_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1805: the method walk on the same shape and the same \
+                    per-container chain as `npa/ruby-nested-classes`. With \
+                    the copy reinstated this reads 2.18–2.19, and 1.05–1.07 \
+                    without; 1.39–1.45 on `CONDITIONAL_PER_DEPTH_DEPTHS`, \
+                    under the bound with the defect present. The reading \
+                    is one method per level.",
+    },
+    Probe {
+        name: "loc/ruby-nested-classes",
+        lang: LANG::Ruby,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.ploc(),
+        },
+        render: ruby_nested_classes,
+        sizes: NESTED_CONTAINER_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1805: metric control for the two `ruby-nested-classes` \
+                    rows: the same nest under a metric that derives no \
+                    chain for a class body, so what they read above it is \
+                    the member walks' own. It reads 1.22–1.28 with and \
+                    without the copy: the drift of a walk under a chain of \
+                    64,000 entries, which the two probes ride on as well. \
+                    The reading is the physical rows, four per level.",
     },
     Probe {
         name: "loc/lua-tagless-blocks",
@@ -4865,15 +4965,74 @@ mod tests {
         }
     }
 
+    // Named nodes only: a grammar may give a keyword token the kind of
+    // the node it opens, as tree-sitter-ruby does `class`.
     fn count_kind(ast: &Ast, kind: &str) -> usize {
         let mut stack = vec![ast.as_tree_sitter().root_node()];
         let mut n = 0;
         while let Some(node) = stack.pop() {
-            n += usize::from(node.kind() == kind);
+            n += usize::from(node.is_named() && node.kind() == kind);
             let mut cursor = node.walk();
             stack.extend(node.children(&mut cursor));
         }
         n
+    }
+
+    /// The three `ruby-nested-classes` probes share one shape and
+    /// ladder, which parses into exactly one named `class` per level at
+    /// every rung, not only at the first, where the generic checks
+    /// parse: a parser limit reached at scale would leave the top rungs
+    /// timing error recovery under a plausible exponent. Each level holds
+    /// one attribute, one method and four physical rows (#1805), read
+    /// exactly at a small size and at the first rung as the sibling probe
+    /// tests read theirs; the scaling gate prints the reading at every
+    /// rung. Walking every probe at every rung cost several seconds of an
+    /// unoptimised test run for no further guarantee.
+    #[test]
+    fn ruby_nested_classes_probes_parse_one_class_per_level_at_every_rung() {
+        let probes: Vec<(&Probe, u64)> = [
+            ("npa/ruby-nested-classes", 1),
+            ("npm/ruby-nested-classes", 1),
+            ("loc/ruby-nested-classes", 4),
+        ]
+        .into_iter()
+        .map(|(name, per_level)| {
+            let probe = PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"));
+            (probe, per_level)
+        })
+        .collect();
+        let (first, _) = probes[0];
+        for (probe, _) in &probes {
+            assert_eq!(
+                (probe.lang, (probe.render)(3), probe.sizes),
+                (first.lang, (first.render)(3), first.sizes),
+                "{}: the probes must share one shape and ladder",
+                probe.name
+            );
+        }
+        for size in first.sizes {
+            let ast = parse(first, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "the shape parses cleanly at {size}");
+            assert_eq!(
+                count_kind(&ast, "class"),
+                size,
+                "one class per level at {size}"
+            );
+        }
+        for size in [3, first.sizes[0]] {
+            let ast = parse(first, size);
+            for (probe, per_level) in &probes {
+                let reading = probe
+                    .workload
+                    .walk(&ast, probe.workload.options())
+                    .expect("metrics walk");
+                assert_eq!(reading, per_level * size as u64, "{} at {size}", probe.name);
+            }
+        }
     }
 
     /// `cognitive/python-wide-if-siblings`: every `if` is a direct child of
