@@ -2998,9 +2998,8 @@ async fn build_temp_repo_ignores_the_hosts_global_and_system_config() {
 /// repository holds one commit and the trend repository two, each on
 /// `main` with its files tracked. The target the child-process tests
 /// below re-run, so it spawns no server. Spelled through the prelude
-/// because `use super::*` brings `actix_web::test` into scope, and a
-/// bare `#[test]` would resolve to that module rather than the
-/// attribute.
+/// because this file imports `actix_web::test`, whose async-test
+/// attribute macro a bare `#[test]` would resolve to.
 #[core::prelude::v1::test]
 fn fixtures_build_their_repos() {
     let vcs = build_temp_repo();
@@ -3031,14 +3030,33 @@ fn git_output(repo: &std::path::Path, args: &[&str]) -> String {
 }
 
 /// A `git` independent of the fixtures under test, for building and
-/// reading the victim repository: every inherited `GIT_*` removed and
-/// the host's configuration kept away, so the oracle cannot share a
-/// defect with the fixtures' own `git`.
+/// reading the victim repository: its own removal of every inherited
+/// `GIT_*` — not [`fixture_git`]'s, so the oracle cannot share a defect
+/// with the constructor it judges — and the host's configuration kept
+/// away, the per-user ignore and attributes files included, since those
+/// are read whatever the global and system variables say and a host
+/// `XDG_CONFIG_HOME/git/ignore` of `*` would fail the victim's `git add`
+/// before the child under test ever ran.
 fn clean_git(dir: &std::path::Path, args: &[&str]) -> String {
-    let out = fixture_git()
+    let mut cmd = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if is_git_var(&key) {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
         .arg("-C")
         .arg(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@x",
+            "-c",
+            "core.excludesFile=/dev/null",
+            "-c",
+            "core.attributesFile=/dev/null",
+        ])
         .args(args)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")

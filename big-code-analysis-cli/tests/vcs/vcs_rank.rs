@@ -133,7 +133,7 @@ fn clean_git(dir: &Path, args: &[&str]) -> String {
     let out = cmd
         .arg("-C")
         .arg(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+        .args(CLEAN_GIT_CONFIG)
         .args(args)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -146,6 +146,22 @@ fn clean_git(dir: &Path, args: &[&str]) -> String {
     );
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
+
+/// `-c` pins for [`clean_git`]: an identity for its commits, and the
+/// per-user ignore and attributes files off, since those are read
+/// whatever the global and system variables say and a host
+/// `XDG_CONFIG_HOME/git/ignore` of `*.rs` would fail the victim's `git
+/// add` before the child under test ever ran.
+const CLEAN_GIT_CONFIG: [&str; 8] = [
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@x",
+    "-c",
+    "core.excludesFile=/dev/null",
+    "-c",
+    "core.attributesFile=/dev/null",
+];
 
 /// Re-runs [`fixture_git_builds_the_two_commit_repo`] in a child test
 /// binary with `vars` exported, and asserts that it passed. A test

@@ -608,14 +608,33 @@ mod tests {
     }
 
     /// A `git` independent of the fixture under test, for building and
-    /// reading the victim repository: every inherited `GIT_*` removed
-    /// and the host's configuration kept away, so the oracle cannot
-    /// share a defect with the fixture's own `git`.
+    /// reading the victim repository: its own removal of every inherited
+    /// `GIT_*` — not [`fixture_git`]'s, so the oracle cannot share a
+    /// defect with the constructor it judges — and the host's
+    /// configuration kept away, the per-user ignore and attributes files
+    /// included, since those are read whatever the global and system
+    /// variables say and a host `XDG_CONFIG_HOME/git/ignore` of `*` would
+    /// fail the victim's `git add` before the child under test ever ran.
     fn clean_git(dir: &Path, args: &[&str]) -> String {
-        let out = fixture_git()
+        let mut cmd = std::process::Command::new("git");
+        for (key, _) in std::env::vars_os() {
+            if is_git_var(&key) {
+                cmd.env_remove(key);
+            }
+        }
+        let out = cmd
             .arg("-C")
             .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@x",
+                "-c",
+                "core.excludesFile=/dev/null",
+                "-c",
+                "core.attributesFile=/dev/null",
+            ])
             .args(args)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
