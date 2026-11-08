@@ -289,8 +289,8 @@ fn past_python_bare_run(node: &Node, code: &[u8]) -> Option<usize> {
 // line, whose rows are comment rows (#415) — unless code precedes the
 // string on it (`x = 1; """doc""" \`), where the run is that code's as
 // after any statement. With none, the line holds no code yet and is what
-// the rows after the run make it, as `GapScan::classify` reads a C-family
-// `/* … */` before a `\` through `only_comments_before`.
+// the rows after the run make it, as the C family's `BareRowIndex` reads
+// a `/* … */` before a `\` (#1818).
 //
 // A run that starts a line — after no `\`, or after one a `#` comment
 // swallowed — can start it inside a bare string's parentheses (#1610),
@@ -543,9 +543,9 @@ fn python_backslash_after_bare_string<'a>(
 }
 
 // Whether code precedes the bare string statement whose `\` `line`
-// records on its logical line, so the run is that code's — what
-// `GapScan::only_comments_before` asks of the row before a C-family bare
-// row. The nearest token before the statement decides, at the deepest
+// records on its logical line, so the run is that code's — the question
+// the C family's `BareRowIndex` settles for a bare row (#1818). The
+// nearest token before the statement decides, at the deepest
 // level that has one: the descent's, then the holder's (its siblings
 // before, continuing the run's), then each of the run's ancestors' among
 // its own siblings; a level with no token before its node leaves the
