@@ -54,6 +54,7 @@ mod dispatch;
 mod exemptions;
 mod format_util;
 mod formats;
+mod gfm;
 mod html_report;
 mod manifest;
 mod markdown_report;

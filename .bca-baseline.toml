@@ -641,7 +641,7 @@ value = 49443.19551903411
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 583.0
+value = 566.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"

@@ -13,7 +13,8 @@ use big_code_analysis::SuppressionPolicy;
 
 use super::advisory::AdvisoryThresholds;
 use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
-use super::{Align, FunctionSummary, escape_cell, escape_name, thousands, write_table};
+use super::{Align, FunctionSummary, thousands, write_table};
+use crate::gfm::{escape_gfm_cell, escape_name};
 
 pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
     let totals = super::LanguageTotals::from_units(units);
@@ -70,13 +71,13 @@ pub(super) fn emit_section_md(
 }
 
 /// Escape a [`Cell`] for Markdown: identifiers get backtick-wrapped
-/// (`escape_name`), paths get GFM-escaped (`escape_cell`), pre-formatted
-/// numerics pass through raw — reproducing the per-cell escaping the
-/// hand-written section writers used.
+/// (`escape_name`), paths get GFM-escaped (`escape_gfm_cell`),
+/// pre-formatted numerics pass through raw — reproducing the per-cell
+/// escaping the hand-written section writers used.
 pub(crate) fn render_cell_md(cell: Cell) -> String {
     match cell {
         Cell::Name(s) => escape_name(&s),
-        Cell::Path(s) | Cell::Text(s) => escape_cell(&s),
+        Cell::Path(s) | Cell::Text(s) => escape_gfm_cell(&s),
         Cell::Num(s) => s,
     }
 }

@@ -35,6 +35,7 @@ use big_code_analysis::{
 use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
 use crate::formats::write_buffered;
+use crate::gfm::escape_gfm_cell;
 use crate::thresholds::Violation;
 
 /// Aggregated CI/IDE output formats accepted by `bca check
@@ -557,49 +558,6 @@ fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)]
             MetricScalar(v.limit()),
         );
     }
-}
-
-/// Escape a GFM table cell so its text renders verbatim. `|` is the
-/// column separator, and a literal `\` is escaped too so that a path
-/// `a\|b` renders as itself rather than as `a\` followed by a column
-/// break — one backslash per metacharacter, never two, so a `\` already
-/// in the cell can never pair with the one added for a following `|`.
-/// Newlines and carriage returns are collapsed to a single space —
-/// multi-line cells would break the table layout entirely.
-///
-/// The remaining escapes keep a path's *identity* intact in the rendered
-/// output: `<` opens raw HTML (`a<img src=x onerror=…>.py` became an
-/// element under a non-sanitising renderer), `&` starts an entity
-/// (`a&amp;b.py` displayed as `a&b.py`), and `` ` `` / `*` / `_` / `~` /
-/// `[` / `]` open code spans, emphasis, strikethrough and links
-/// (`__init__.py` rendered as bold `init.py`). GFM honours a backslash
-/// before any ASCII punctuation, so each renders as the literal character.
-///
-/// `markdown_report::escape_cell`, `vcs_report` and `exemptions` all
-/// route here so every GFM-table emitter in this crate shares one
-/// escaping policy (see issue #439).
-pub(crate) fn escape_gfm_cell(s: &str) -> String {
-    let needs_escape = |ch: char| {
-        matches!(
-            ch,
-            '\\' | '|' | '<' | '&' | '`' | '*' | '_' | '~' | '[' | ']'
-        )
-    };
-    // Size for every escape up front: `_` is in most identifiers and
-    // paths, so the plain `s.len()` guess reallocated on most cells.
-    let escapes = s.chars().filter(|&ch| needs_escape(ch)).count();
-    let mut out = String::with_capacity(s.len() + escapes);
-    for ch in s.chars() {
-        if needs_escape(ch) {
-            out.push('\\');
-            out.push(ch);
-        } else if matches!(ch, '\n' | '\r') {
-            out.push(' ');
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
@@ -1356,45 +1314,5 @@ mod tests {
         );
         // Exactly one begin marker survives.
         assert_eq!(after_second.matches(STEP_SUMMARY_BEGIN_MARKER).count(), 1);
-    }
-
-    #[test]
-    fn escape_gfm_cell_escapes_pipe_and_collapses_newlines() {
-        // Path containing `|` (legal on Unix) would otherwise split
-        // the GFM cell into two columns and corrupt the table layout.
-        assert_eq!(escape_gfm_cell("a|b"), "a\\|b");
-        // Newlines inside a cell would also break the row; collapse
-        // to a single space so the table stays well-formed.
-        assert_eq!(escape_gfm_cell("a\nb\rc"), "a b c");
-    }
-
-    #[test]
-    fn escape_gfm_cell_escapes_backslash_before_pipe() {
-        // A literal `\` in a path must round-trip as `\` in the
-        // rendered cell. If we only escape `|`, then the input
-        // `a\|b` (literal backslash + pipe) becomes `a\\|b` — which
-        // GFM renders as `a\` followed by a column break, splitting
-        // the cell. Escaping `\` to `\\` first makes the same input
-        // become `a\\\|b`, which renders as the literal `a\|b`.
-        assert_eq!(escape_gfm_cell("a\\b"), "a\\\\b");
-        assert_eq!(escape_gfm_cell("a\\|b"), "a\\\\\\|b");
-    }
-
-    /// A path's Markdown and HTML metacharacters must render as the
-    /// literal path: unescaped, `<img …>` became an element under a
-    /// non-sanitising GFM renderer, `&amp;` collapsed to `&`, and
-    /// `__init__.py` rendered as bold `init.py`.
-    #[test]
-    fn escape_gfm_cell_neutralises_markup_in_paths() {
-        assert_eq!(
-            escape_gfm_cell("a<img src=x onerror=alert(1)>.py"),
-            "a\\<img src=x onerror=alert(1)>.py"
-        );
-        assert_eq!(escape_gfm_cell("a&amp;b.py"), "a\\&amp;b.py");
-        assert_eq!(escape_gfm_cell("__init__.py"), "\\_\\_init\\_\\_.py");
-        assert_eq!(escape_gfm_cell("x*y~z`w[v].rs"), "x\\*y\\~z\\`w\\[v\\].rs");
-        // Ordinary paths are untouched: no escape is spent on a `.`, `/`,
-        // `-` or `#`, which GFM renders literally in a cell.
-        assert_eq!(escape_gfm_cell("src/a-b.c#1.rs"), "src/a-b.c#1.rs");
     }
 }

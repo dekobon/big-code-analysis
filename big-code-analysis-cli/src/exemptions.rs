@@ -29,8 +29,8 @@ use big_code_analysis::{
 
 use crate::OutputFormat;
 use crate::baseline::DiffEntry;
-use crate::check_format::escape_gfm_cell;
 use crate::format_util::{MetricScalar, strip_path_prefix};
+use crate::gfm::escape_gfm_cell;
 
 /// Per-file marker batch streamed from the walk worker pool to the
 /// post-walk aggregator. `path` is the raw UTF-8 path as walked; no

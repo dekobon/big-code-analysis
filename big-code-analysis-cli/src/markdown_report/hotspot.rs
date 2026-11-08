@@ -69,7 +69,7 @@ pub(crate) enum Source {
 /// correctly. The payload is already value-formatted; only escaping differs:
 /// HTML escapes every kind uniformly via `escape_html`; Markdown wraps a
 /// [`Cell::Name`] in backticks (`escape_name`), GFM-escapes a [`Cell::Path`]
-/// or [`Cell::Text`] (`escape_cell`), and emits a [`Cell::Num`] raw.
+/// or [`Cell::Text`] (`escape_gfm_cell`), and emits a [`Cell::Num`] raw.
 #[derive(Clone)]
 pub(crate) enum Cell {
     /// A function or class identifier.

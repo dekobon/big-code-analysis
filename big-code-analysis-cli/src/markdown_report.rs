@@ -230,42 +230,6 @@ fn extract_summaries_inner(
 // Report generation
 // ---------------------------------------------------------------------------
 
-/// Escape a value for a GFM table cell. Delegates to the crate's single
-/// GFM-cell escaper so backslash, pipe, and newline handling stay in sync
-/// with the `check` report (issue #439 — the previous local copy escaped
-/// `|` and newlines but not `\`, corrupting backslash-bearing paths).
-fn escape_cell(s: &str) -> String {
-    crate::check_format::escape_gfm_cell(s)
-}
-
-/// Escape an identifier for display inside a backtick code span in a GFM
-/// table cell. Unlike [`escape_cell`], this must **not** double literal
-/// backslashes: inside a code span GFM treats content literally and never
-/// processes backslash escapes, so `escape_cell`'s `\` → `\\` rule (correct
-/// for a bare cell) would render a doubled backslash (issue #846). The only
-/// characters that still need handling inside the span are the backtick
-/// (replaced with the modifier-letter U+02CB so it cannot close the span),
-/// the pipe (GFM's table parser strips `\|` → `|` *before* code-span parsing,
-/// so it renders correctly), and line breaks (collapsed to a space so a
-/// multi-line name cannot break the table layout).
-///
-/// `pub(crate)` so the provenance footer can reuse this single code-span
-/// escaping policy for the seed paths it renders (issue #848).
-pub(crate) fn escape_name(s: &str) -> String {
-    let mut span = String::with_capacity(s.len() + 2);
-    span.push('`');
-    for ch in s.chars() {
-        match ch {
-            '`' => span.push('\u{02CB}'),
-            '|' => span.push_str("\\|"),
-            '\n' | '\r' => span.push(' '),
-            _ => span.push(ch),
-        }
-    }
-    span.push('`');
-    span
-}
-
 /// Format an integer with comma thousands separators (`15973` -> `15,973`).
 /// `pub(crate)` so the VCS report's churn / commit counts share this one
 /// formatter with the AST tables and cannot drift (issue #618). The HTML
@@ -1108,6 +1072,7 @@ fn write_language_section(
 )]
 mod tests {
     use super::*;
+    use crate::gfm::escape_gfm_cell;
     use big_code_analysis::{CodeMetrics, FuncSpace, SpaceKind};
 
     /// Collapse runs of spaces to a single space so assertions can match
@@ -1569,7 +1534,7 @@ mod tests {
         for lang in LANG::into_enum_iter() {
             let display = language_display_name(lang.name());
             assert_eq!(
-                escape_cell(&display),
+                escape_gfm_cell(&display),
                 display.as_ref(),
                 "{} would render escaped in the Markdown overview",
                 lang.name()
@@ -2350,42 +2315,6 @@ mod tests {
         // rather than panicking — the graceful path for a future variant
         // not yet reflected in this build.
         assert_eq!(language_display_name("klingon"), "Klingon");
-    }
-
-    #[test]
-    fn escape_cell_escapes_backslash_before_pipe() {
-        // Regression for #439: a Windows-style path must render literally.
-        // `\` is a GFM escape introducer, so an unescaped `src\main.rs`
-        // renders as `srcmain.rs` (the `\m` is consumed). Escaping `\` to
-        // `\\` keeps the backslash visible.
-        assert_eq!(escape_cell("src\\main.rs"), "src\\\\main.rs");
-        // `\` is escaped first so the cell cannot break out of the column:
-        // `a\|b` becomes `a\\\|b` (escaped backslash + escaped pipe), not
-        // `a\\|b` (which would split the cell).
-        assert_eq!(escape_cell("a\\|b"), "a\\\\\\|b");
-        // A trailing backslash must not consume the closing column border.
-        assert_eq!(escape_cell("dir\\"), "dir\\\\");
-        // Newlines still collapse to a single space — a cell cannot hold a
-        // raw line break.
-        assert_eq!(escape_cell("a\nb\rc"), "a b c");
-    }
-
-    #[test]
-    fn escape_name_wraps_in_backticks() {
-        assert_eq!(escape_name("hello"), "`hello`");
-        assert_eq!(escape_name("a|b"), "`a\\|b`");
-        assert_eq!(escape_name("a`b"), "`a\u{02CB}b`");
-        assert_eq!(escape_name("a\nb"), "`a b`");
-        // A literal backslash must NOT be doubled inside a code span: GFM
-        // treats span content literally, so `escape_cell`'s `\` → `\\` rule
-        // would render a visible doubled backslash (issue #846). A PHP-style
-        // fully-qualified name `Foo\Bar` must keep its single backslash.
-        assert_eq!(escape_name("Foo\\Bar"), "`Foo\\Bar`");
-        // A backslash adjacent to a pipe stays single (one `\`) while the
-        // pipe still gets its `\|` table escape — input chars a \ | b become
-        // span content a \ \ | b, i.e. the literal backslash plus the pipe's
-        // own `\|`.
-        assert_eq!(escape_name("a\\|b"), "`a\\\\|b`");
     }
 
     #[test]

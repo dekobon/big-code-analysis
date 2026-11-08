@@ -103,11 +103,7 @@ impl Provenance<'_> {
 /// emphasis (issue #848); the rest of the sentence is literal.
 pub(crate) fn push_markdown_footer(out: &mut String, prov: &Provenance<'_>) {
     let _ = writeln!(out, "\n---\n");
-    let _ = writeln!(
-        out,
-        "_{}_",
-        prov.sentence(crate::markdown_report::escape_name)
-    );
+    let _ = writeln!(out, "_{}_", prov.sentence(crate::gfm::escape_name));
 }
 
 /// Append the HTML provenance footer: a `<footer class="provenance">` block
