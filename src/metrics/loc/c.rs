@@ -40,8 +40,11 @@ impl Loc for CCode {
             DeclarationList | FieldDeclarationList | TranslationUnit => {}
             // A `string_literal` continued across rows (`"…\` + newline) can
             // span multiple rows; credit every spanned row to PLOC to match
-            // Python's #415 decision (#778).
-            StringLiteral => {
+            // Python's #415 decision (#778). A `char_literal` is spliced the
+            // same way (`'\` + newline + `\` + newline + `a'`), and its
+            // `escape_sequence` starts on the row above the bare one, so the
+            // leaf credit alone left that row to `blank` (#1816).
+            StringLiteral | CharLiteral => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             Comment => {

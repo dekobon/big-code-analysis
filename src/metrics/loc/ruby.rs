@@ -44,8 +44,22 @@ impl Loc for RubyCode {
             }
             // A Ruby string literal (`"…"` / `'…'` / `%q{…}`) or a heredoc
             // body can span several rows; credit every spanned row to PLOC to
-            // match Python's #415 decision (#778).
-            R::String | R::HeredocBody => {
+            // match Python's #415 decision (#778). A `%w[]` / `%i[]` array,
+            // a regex, a quoted symbol (`:"…"`) and a backtick command are
+            // literals of the same shape and own their rows the same way: an
+            // empty row between an array's words is covered by no child, and
+            // a `\` + newline inside the others is an `escape_sequence` (or,
+            // in a non-interpolating array, the word's own `string_content`)
+            // that starts on the row above, so the leaf credit alone left the
+            // row to `blank` (#1816). The uppercase `%W` / `%I` spellings
+            // parse to the same `string_array` / `symbol_array` kinds.
+            R::String
+            | R::HeredocBody
+            | R::StringArray
+            | R::SymbolArray
+            | R::Regex
+            | R::DelimitedSymbol
+            | R::Subshell => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             // The `then` wrapper of an `if` / `elsif` / `unless` / `when` /

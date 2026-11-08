@@ -40,8 +40,11 @@ impl Loc for CppCode {
             DeclarationList | FieldDeclarationList | TranslationUnit => {}
             // A `raw_string_literal` (`R"(…)"`) or a `string_literal` written
             // across adjacent lines can span multiple rows; credit every
-            // spanned row to PLOC to match Python's #415 decision (#778).
-            RawStringLiteral | StringLiteral => {
+            // spanned row to PLOC to match Python's #415 decision (#778). A
+            // `char_literal` is spliced the same way, and its
+            // `escape_sequence` starts on the row above the bare one, so the
+            // leaf credit alone left that row to `blank` (#1816).
+            RawStringLiteral | StringLiteral | CharLiteral => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             Comment => {

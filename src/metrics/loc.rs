@@ -9051,10 +9051,22 @@ EOF
         // `gcc -E` defines `X` as empty: the comment runs through both
         // continued rows, `int z = 1;` included, and its node spans them.
         (b"#define X // c \\\n\\\nint z = 1;\n", (3, 1, 3, 0), 0),
-        // FIXME(#1816): (3, 3, 0, 0). No arm routes `char_literal`, and the
-        // `escape_sequence` spanning the bare row starts on the row above
-        // it.
-        (b"char c = '\\\n\\\na';\n", (3, 2, 0, 1), 1),
+        // #1816: the `char_literal` arm credits its rows as the string
+        // arm does; the `escape_sequence` spanning the bare row starts on
+        // the row above it, so the leaf credit alone read `(3, 2, 0, 1)`.
+        (b"char c = '\\\n\\\na';\n", (3, 3, 0, 0), 1),
+        (b"char c = '\\\r\n\\\r\na';\r\n", (3, 3, 0, 0), 1),
+        // Two bare rows, and a blank row after the literal that must stay
+        // blank: `blank()` subtracts PLOC and comment-only rows, saturating
+        // at zero, so a tuple with no blank row cannot show a row credited
+        // twice.
+        (b"char c = '\\\n\\\n\\\na';\n", (4, 4, 0, 0), 2),
+        (b"char c = '\\\n\\\na';\n\n", (4, 3, 0, 1), 2),
+        (b"char c = '\\\n\\\na';\n\nint z;\n", (5, 4, 0, 1), 2),
+        // Controls: a one-row char literal, and a `\n` escape inside one,
+        // which spans no row.
+        (b"char c = 'a';\n", (1, 1, 0, 0), 0),
+        (b"char c = '\\n';\nint z;\n", (2, 2, 0, 0), 0),
     ];
 
     #[cfg(feature = "c")]
@@ -9138,20 +9150,124 @@ EOF
                 // the heredoc and string arms credit it.
                 (b"x = <<~EOS\n  a\n\\\n  b\nEOS\n", (5, 5, 0, 0), 0),
                 (b"x = \"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 0),
-                // FIXME(#1816): (3, 3, 0, 0). No arm routes `string_array`,
-                // and `%w[]` holds no `escape_sequence`: `\` + newline stays
-                // in the word's `string_content`, which starts on the row
-                // above the bare row.
-                (b"x = %w[a\\\n\\\nb]\n", (3, 2, 0, 1), 1),
-                // FIXME(#1816): (3, 3, 0, 0). No arm routes `regex`, a quoted
-                // symbol (`delimited_symbol`) or a command (`subshell`), and
-                // the `escape_sequence` spanning the bare row starts on the
-                // row above it.
-                (b"x = /ab\\\n\\\ncd/\n", (3, 2, 0, 1), 1),
-                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
-                (b"x = `ab\\\n\\\ncd`\n", (3, 2, 0, 1), 1),
+                // #1816: the array arm credits its rows. `%w[]` holds no
+                // `escape_sequence` — `\` + newline stays in the word's
+                // `string_content`, which starts on the row above the bare
+                // row — so the leaf credit alone read `(3, 2, 0, 1)`.
+                (b"x = %w[a\\\n\\\nb]\n", (3, 3, 0, 0), 1),
+                // #1816: the regex, quoted symbol (`delimited_symbol`) and
+                // command (`subshell`) arms credit their rows; the
+                // `escape_sequence` spanning the bare row starts on the row
+                // above it, so each read `(3, 2, 0, 1)`.
+                (b"x = /ab\\\n\\\ncd/\n", (3, 3, 0, 0), 1),
+                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 1),
+                (b"x = `ab\\\n\\\ncd`\n", (3, 3, 0, 0), 1),
+                (b"x = /ab\\\r\n\\\r\ncd/\r\n", (3, 3, 0, 0), 1),
             ],
         );
+    }
+
+    /// #1816: an empty row between a `%w[]` / `%W[]` / `%i[]` / `%I[]`
+    /// array's words is covered by no child — the words are
+    /// `bare_string` / `bare_symbol` nodes on their own rows and the
+    /// separators are hidden — so only the array node's range credit
+    /// reaches it. Not a bare-row case: the row holds nothing, so
+    /// `credit_bare_continuation_rows` never sees it. Every fixture passes
+    /// `ruby -c`.
+    ///
+    /// expected: every row of the literal is code (`(3, 3, 0, 0)`,
+    /// `(5, 5, 0, 0)`), as a `"…"` string spanning the same rows reads;
+    /// LLOC is 0 because Ruby's arm counts no assignment. Before the fix
+    /// each three-row array read `(3, 2, 0, 1)` and each five-row one
+    /// `(5, 4, 0, 1)`. The rows with a blank row *after* the literal pin
+    /// that the interior credit stops at the closing delimiter: `blank()`
+    /// saturates at zero, so without that row a double credit would hide.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_array_literal_rows_are_code() {
+        let fixtures: &[(&[u8], LocRows)] = &[
+            (b"x = %w[a\n\nb]\n", (3, 3, 0, 0)),
+            (b"x = %W[a\n\nb]\n", (3, 3, 0, 0)),
+            (b"x = %i[a\n\nb]\n", (3, 3, 0, 0)),
+            (b"x = %I[a\n\nb]\n", (3, 3, 0, 0)),
+            (b"x = %w[\n  a\n\n  b\n]\n", (5, 5, 0, 0)),
+            (b"x = %W[\n  a\n\n  b\n]\n", (5, 5, 0, 0)),
+            (b"x = %i[\n  a\n\n  b\n]\n", (5, 5, 0, 0)),
+            (b"x = %I[\n  a\n\n  b\n]\n", (5, 5, 0, 0)),
+            // Two empty rows inside, and alternate delimiters.
+            (b"x = %w(a\n\n\nb)\n", (4, 4, 0, 0)),
+            (b"x = %i{a\n\n\nb}\n", (4, 4, 0, 0)),
+            // A blank row after the literal stays blank.
+            (b"x = %w[a\n\nb]\n\n", (4, 3, 0, 1)),
+            (b"x = %w[a\n\nb]\n\ny = 1\n", (5, 4, 0, 1)),
+            // CRLF, and a closing delimiter at EOF with no newline.
+            (b"x = %w[a\r\n\r\nb]\r\n", (3, 3, 0, 0)),
+            (b"x = %w[a\n\nb]", (3, 3, 0, 0)),
+            // Controls: a one-row array, and the string twin of the
+            // three-row shape.
+            (b"x = %w[a b]\n", (1, 1, 0, 0)),
+            (b"x = \"a\n\nb\"\n", (3, 3, 0, 0)),
+        ];
+        for &(source, expected) in fixtures {
+            let loc = metrics_verbatim(
+                crate::LANG::Ruby,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            )
+            .loc;
+            let text = String::from_utf8_lossy(source);
+            assert_eq!(loc_rows(&loc), expected, "{text:?}");
+            assert_eq!(loc.lloc(), 0, "{text:?}: Ruby counts no assignment");
+            assert_eq!(loc.dloc(), 0, "{text:?}");
+        }
+    }
+
+    /// #1816's Ruby literals inside a method: the rows are the method's
+    /// own code, so the nested space reads them too.
+    ///
+    /// expected: the method spans rows 1–6 and every one is code; the
+    /// unit adds nothing. Before the fix the empty array row read blank
+    /// in both.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_array_literal_rows_in_a_method_are_its_code() {
+        assert_nested_continuation(
+            crate::LANG::Ruby,
+            b"def f\n  x = %w[a\n\nb]\n  x\nend\n",
+            (6, 6, 0, 0),
+        );
+    }
+
+    /// A `%W[]` array whose interpolation holds a comment: the array's
+    /// range credit makes the comment's row code *and* the comment makes
+    /// it a comment, as the string twin reads (the interpolation is the
+    /// literal's text to the array arm, where Elixir's token-level credit
+    /// leaves such a row comment-only). Pinned so the two readings stay
+    /// deliberate. `ruby -c` accepts both.
+    ///
+    /// expected: five rows, the four of the literal code, the `# note`
+    /// row also a comment, the trailing empty row blank — `(5, 4, 1, 1)`
+    /// — and the string twin the same.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_array_interpolation_comment_row_is_code_and_comment() {
+        for source in [
+            &b"x = %W[a#{\n# note\n1\n}b]\n\n"[..],
+            b"x = \"a#{\n# note\n1\n}b\"\n\n",
+        ] {
+            let loc = metrics_verbatim(
+                crate::LANG::Ruby,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            )
+            .loc;
+            assert_eq!(
+                loc_rows(&loc),
+                (5, 4, 1, 1),
+                "{:?}",
+                String::from_utf8_lossy(source)
+            );
+        }
     }
 
     /// A bare row continuing the last statement of a method's body is the
@@ -9215,14 +9331,73 @@ EOF
                 // Control: the bare row is inside a heredoc's
                 // `quoted_content`, which its arm credits.
                 (b"x = \"\"\"\nab\n\\\ncd\n\"\"\"\n", (5, 5, 0, 0), 0),
-                // FIXME(#1816): (3, 3, 0, 0). The bare row is inside an
-                // `escape_sequence` leaf that starts on the row above it,
-                // and the leaf-gated catch-all credits only that row. A
-                // quoted atom holds the same leaf.
-                (b"x = \"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
-                (b"x = ~s(ab\\\n\\\ncd)\n", (3, 2, 0, 1), 1),
-                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 2, 0, 1), 1),
+                // #1816: the bare row is inside an `escape_sequence` leaf
+                // that starts on the row above it; the leaf-gated
+                // catch-all credited only that row, reading `(3, 2, 0, 1)`,
+                // and now credits the rows the leaf runs on to under a
+                // string, charlist, sigil, quoted atom or quoted keyword.
+                (b"x = \"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 1),
+                (b"x = 'ab\\\n\\\ncd'\n", (3, 3, 0, 0), 1),
+                (b"x = ~s(ab\\\n\\\ncd)\n", (3, 3, 0, 0), 1),
+                (b"x = :\"ab\\\n\\\ncd\"\n", (3, 3, 0, 0), 1),
+                (b"x = [\"ab\\\n\\\ncd\": 1]\n", (3, 3, 0, 0), 1),
+                (b"x = \"ab\\\r\n\\\r\ncd\"\r\n", (3, 3, 0, 0), 1),
+                // Two bare rows; a blank row after the literal stays blank.
+                (b"x = \"ab\\\n\\\n\\\ncd\"\n", (4, 4, 0, 0), 2),
+                (b"x = \"ab\\\n\\\ncd\"\n\n", (4, 3, 0, 1), 2),
+                (b"x = \"ab\\\n\\\ncd\"\n\ny = 1\n", (5, 4, 0, 1), 2),
+                // Controls: a one-row escape spans nothing, and an
+                // interpolation's comment row stays comment-only — the
+                // credit is per leaf, not the whole literal.
+                (b"x = \"a\\nb\"\ny = 1\n", (2, 2, 0, 0), 0),
+                (b"x = \"a#{\n# note\n1\n}b\"\n\n", (5, 3, 1, 1), 0),
             ],
+        );
+    }
+
+    /// #1816's Elixir literals keep their logical line: a bare string
+    /// expression is one statement whatever its rows, and an assignment
+    /// whose value is one is one too. Pinned beside the row fix because
+    /// routing `E::String` through the range arm would have skipped the
+    /// LLOC branch (the comment on `elixir.rs`'s `quoted_content` arm).
+    ///
+    /// expected: `x = "…"` is one `binary_operator` under `source`, so
+    /// LLOC 1; the bare `"…"` statement is one `string` under `source`,
+    /// LLOC 1; both read `(3, 3, 0, 0)` and DLOC 0.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_spliced_literal_keeps_its_logical_line() {
+        for source in [
+            &b"x = \"ab\\\n\\\ncd\"\n"[..],
+            b"\"ab\\\n\\\ncd\"\n",
+            b"x = :\"ab\\\n\\\ncd\"\n",
+            b"x = [\"ab\\\n\\\ncd\": 1]\n",
+        ] {
+            let loc = metrics_verbatim(
+                crate::LANG::Elixir,
+                source,
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            )
+            .loc;
+            let text = String::from_utf8_lossy(source);
+            assert_eq!(loc_rows(&loc), (3, 3, 0, 0), "{text:?}");
+            assert_eq!(loc.lloc(), 1, "{text:?}");
+            assert_eq!(loc.dloc(), 0, "{text:?}");
+        }
+    }
+
+    /// #1816's Elixir escape inside a function body: the rows are the
+    /// function's own code.
+    ///
+    /// expected: the `def` spans rows 1–5 and every one is code; before
+    /// the fix the bare row read blank in the unit and the function.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_spliced_literal_rows_in_a_function_are_its_code() {
+        assert_nested_continuation(
+            crate::LANG::Elixir,
+            b"def f do\n  \"ab\\\n\\\ncd\"\nend\n",
+            (5, 5, 0, 0),
         );
     }
 

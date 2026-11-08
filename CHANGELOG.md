@@ -95,6 +95,21 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **`loc` credits every row of a Ruby, Elixir or C-family literal**
+  (#1816). A row inside a literal that reached neither PLOC nor CLOC
+  fell to `blank = sloc - ploc - cloc`, which #1260 fixed for strings and
+  heredocs; the same shape survived in the literals no arm routed. Ruby's
+  `%w[]` / `%W[]` / `%i[]` / `%I[]` arrays (an empty row between two
+  words is covered by no child), its regexes, quoted symbols (`:"…"`)
+  and backtick commands, Elixir's strings, charlists, sigils, quoted
+  atoms and quoted keywords (a `\` + newline + `\` + newline is one
+  `escape_sequence` leaf spanning two rows, which the content arm never
+  saw), and the four C-family grammars' `char_literal` (`'\` + newline +
+  `\` + newline + `a'`) each read one row of code short, and one row
+  blank, per such row. Each now credits the rows its literal spans:
+  `x = %w[a` / `` / `b]` reads `ploc 3, blank 0` rather than `ploc 2,
+  blank 1`. PLOC and `blank` move for files holding one of these shapes;
+  no integration corpus does. LLOC and DLOC are unchanged.
 - **The test suites' scratch git repositories no longer inherit a
   `GIT_DIR`** (#1846). Every fixture that builds a repository through the
   `git` CLI — the library's `tests/common/vcs_fixture.rs`, the CLI's

@@ -44,8 +44,11 @@ impl Loc for ObjcCode {
             DeclarationList | FieldDeclarationList | InstanceVariables | TranslationUnit => {}
             // A `string_literal` continued across rows can span multiple rows;
             // credit every spanned row to PLOC to match Python's #415 decision
-            // (#778). ObjC has no raw string literals.
-            StringLiteral => {
+            // (#778). ObjC has no raw string literals. A `char_literal` is
+            // spliced the same way, and its `escape_sequence` starts on the
+            // row above the bare one, so the leaf credit alone left that row
+            // to `blank` (#1816).
+            StringLiteral | CharLiteral => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             Comment => {

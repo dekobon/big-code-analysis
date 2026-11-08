@@ -129,6 +129,28 @@ impl Loc for ElixirCode {
                 if node.child_count() == 0 {
                     check_comment_ends_on_code_line(stats, start);
                     stats.ploc.lines.insert(start);
+                    // A `\` + newline + `\` + newline inside a string-like
+                    // literal is one `escape_sequence` leaf spanning two
+                    // rows, which the `quoted_content` arm never sees: the
+                    // start row is credited above, and the rows it runs on
+                    // to are the literal's too (#1816). Gated on the parent
+                    // so a recovery leaf outside a literal credits only its
+                    // own row, as before. `quoted_content`'s owners are the
+                    // same five, by the grammar's `_quoted_i_*` rules.
+                    if node.kind_id() == E::EscapeSequence
+                        && ancestors.parent(node).is_some_and(|p| {
+                            matches!(
+                                p.kind_id().into(),
+                                E::String
+                                    | E::Charlist
+                                    | E::Sigil
+                                    | E::QuotedAtom
+                                    | E::QuotedKeyword
+                            )
+                        })
+                    {
+                        add_string_interior_ploc(node, stats, start);
+                    }
                 }
             }
         }
