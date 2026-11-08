@@ -96,6 +96,12 @@ perturbations whenever two guards merge into one predicate.
 - **Prove a reachability probe can fire** with a throwaway
   `#[should_panic]` test before reading zero fires as a finding; a
   `debug_assert!` in a release build is dead.
+- **A `#[should_panic]` test holds only the call that must panic.**
+  `expected` matches the first panic carrying the message, so setup
+  that can trip the same assertion passes the test on the wrong call:
+  a floor counted too high panicked on the *first* `ascend` of a
+  descend-then-ascend test and survived the suite (#1805). Pin the
+  states that must not panic in an ordinary test.
 
 ### Coverage measures execution, not discrimination
 
