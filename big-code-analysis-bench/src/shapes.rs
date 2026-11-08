@@ -2863,14 +2863,18 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.cloc(),
         },
         render: c_comment_chain,
-        sizes: LINEAR_WIDTHS,
+        sizes: SLOT_SCAN_WIDTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1818: one logical line of `width` comment-only rows \
                     and `width` bare rows, every bare row a comment. The \
                     per-walk index settles the line once; reading it back \
                     from each bare row to its start, or forward to its end, \
-                    is `width` per row. The reading is the comment rows, \
-                    half of them the bare ones.",
+                    is `width` per row. On `LINEAR_WIDTHS` that rescan \
+                    fitted 1.41 against 1.01 clean — a quadratic term over \
+                    a cheap walk, the `SPACE_MERGE_WIDTHS` case — so the \
+                    ladder is the taller one, where it fits 1.90 against \
+                    1.05. The reading is the comment rows, half of them \
+                    the bare ones.",
     },
     Probe {
         name: "loc/c-unclosed-comment-rows",
