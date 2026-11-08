@@ -728,6 +728,7 @@ fn fixture_git_ignores_the_hosts_global_and_system_config() {
 /// removal loop over the inherited `GIT_*` variables, so a defect in
 /// the fixture's loop cannot reach it (the two share only the
 /// `is_git_var` prefix test), and the host's configuration kept away.
+#[cfg(unix)]
 fn clean_git(dir: &std::path::Path, args: &[&str]) -> String {
     let mut cmd = std::process::Command::new("git");
     for (key, _) in std::env::vars_os() {
@@ -757,6 +758,7 @@ fn clean_git(dir: &std::path::Path, args: &[&str]) -> String {
 /// whatever the global and system variables say and a host
 /// `XDG_CONFIG_HOME/git/ignore` of `*.rs` would fail the victim's `git
 /// add` before the child under test ever ran.
+#[cfg(unix)]
 const CLEAN_GIT_CONFIG: [&str; 8] = [
     "-c",
     "user.name=t",
@@ -769,6 +771,7 @@ const CLEAN_GIT_CONFIG: [&str; 8] = [
 ];
 
 /// The victim's HEAD and index, read through [`clean_git`].
+#[cfg(unix)]
 fn victim_state(dir: &std::path::Path) -> (String, String) {
     (
         clean_git(dir, &["rev-parse", "HEAD"]),
@@ -781,6 +784,7 @@ fn victim_state(dir: &std::path::Path) -> (String, String) {
 /// process's environment without `unsafe`, and the fixture reads it
 /// through `Command`, so the variables are set on a child instead. The
 /// name is module-qualified: libtest's `--exact` matches the full path.
+#[cfg(unix)]
 fn rerun_single_commit_with(vars: &[(&str, std::path::PathBuf)]) {
     let child = format!(
         "{}::single_commit_one_file",
@@ -830,16 +834,6 @@ fn fixture_git_ignores_an_inherited_repository() {
     );
 }
 
-/// `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
-/// exports, replaces the object store git reads; once the quarantine it
-/// names is gone, discovery itself fails with `not a git repository`.
-/// The single-commit test is re-run in a child with it naming a
-/// directory whose parent does not exist either: `git init` creates one
-/// missing level of an object directory, so a path one level down would
-/// let the unscrubbed fixture succeed. Kept apart from the repository
-/// case above: a fixture that failed to start would leave that case's
-/// victim untouched for the wrong reason. Verified by revert: without
-/// the scrub the child's `git init` fails.
 /// `is_git_var` reads the name's first four bytes, so a short name, a
 /// name that merely starts `GIT` (`GITHUB_TOKEN`) and an empty one are
 /// not git's; a lowercase spelling is on Windows alone, where
@@ -857,6 +851,16 @@ fn is_git_var_reads_the_prefix_as_the_host_does() {
     assert_eq!(is_git_var(OsStr::new("git_dir")), cfg!(windows));
 }
 
+/// `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
+/// exports, replaces the object store git reads; once the quarantine it
+/// names is gone, discovery itself fails with `not a git repository`.
+/// The single-commit test is re-run in a child with it naming a
+/// directory whose parent does not exist either: `git init` creates one
+/// missing level of an object directory, so a path one level down would
+/// let the unscrubbed fixture succeed. Kept apart from the repository
+/// case above: a fixture that failed to start would leave that case's
+/// victim untouched for the wrong reason. Verified by revert: without
+/// the scrub the child's `git init` fails.
 #[cfg(unix)]
 #[test]
 fn fixture_git_ignores_an_inherited_object_directory() {

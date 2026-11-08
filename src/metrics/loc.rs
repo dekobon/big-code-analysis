@@ -509,12 +509,11 @@ pub struct Stats {
     /// hint the walk copies into every space it opens (#1821), `true` by
     /// default. Since #1818 the walk reads the hint once, before its
     /// first node, to decide whether to build the bare-row credit at
-    /// all, so nothing reads this copy; it stays because removing a
-    /// field of a `Stats` is held for the next major (`STABILITY.md`),
-    /// and because it is in `PartialEq` on purpose: two spaces of one
-    /// file always agree, and a walk with LOC unselected never writes
-    /// it, so the unselected-metric contract (`MetricsOptions::with_only`)
-    /// holds by typed `==` too. Not an output: `Display`, the wire shape
+    /// all, so nothing reads this copy. It stays for the compute-side
+    /// `PartialEq` it is in on purpose (`STABILITY.md`, "Per-metric
+    /// `Stats`"; #1821): two spaces of one file always agree, and a walk
+    /// with LOC unselected never writes it, so the unselected-metric
+    /// contract (`MetricsOptions::with_only`) holds by typed `==` too. Not an output: `Display`, the wire shape
     /// and every accessor ignore it; only `PartialEq` (and `Debug`) see
     /// it, so two spaces with identical rows from files that differ on
     /// this hint compare unequal (pinned by
@@ -9050,31 +9049,33 @@ EOF
         // `(5, 2, 2, 1)`, `(5, 2, 2, 1)` and `(4, 2, 1, 1)` before: the
         // lookup refused a continued row, and ran out of its three-child
         // window on the wide one. `gcc -E -C -P` keeps each chain as one
-        // comment line before `int z;`.
-        (b"/* a */ \\\n/* b */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 1),
-        (b"\\\n/* c */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 1),
+        // comment line before `int z;`. The third element is `blank`
+        // before #1801, as for every row of this table, not before
+        // #1818: with no bare-row credit at all the bare rows read blank.
+        (b"/* a */ \\\n/* b */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 2),
+        (b"\\\n/* c */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 3),
         (
             b"/* a */ /* b */ /* c */ /* d */ \\\n\\\n\nint z;\n",
             (4, 1, 2, 1),
-            1,
+            2,
         ),
         // Longer chains and a wider row, past any window.
         (
             b"/* a */ \\\n/* b */ \\\n/* c */ \\\n/* d */ \\\n\\\n\nint z;\n",
             (7, 1, 5, 1),
-            1,
+            2,
         ),
         (
             b"/* a */ /* b */ /* c */ /* d */ /* e */ /* f */ \\\n\\\n\nint z;\n",
             (4, 1, 2, 1),
-            1,
+            2,
         ),
         // Indented, where the comment's own span cannot establish the
         // row start.
         (
             b"  /* a */ /* b */ /* c */ \\\n  \\\n\nint z;\n",
             (4, 1, 2, 1),
-            1,
+            2,
         ),
         // The chain joined by code is code; code before the chain on the
         // same logical line is too.
@@ -9082,25 +9083,25 @@ EOF
         (
             b"int a = 1; \\\n/* b */ \\\n\\\n\nint z;\n",
             (5, 3, 1, 1),
-            1,
+            2,
         ),
         // A bare row between two comment rows of one chain.
         (
             b"/* a */ \\\n\\\n/* b */ \\\n\\\n\nint z;\n",
             (6, 1, 4, 1),
-            2,
+            3,
         ),
         // CRLF spelling of the first case.
         (
             b"/* a */ \\\r\n/* b */ \\\r\n\\\r\n\r\nint z;\r\n",
             (5, 1, 3, 1),
-            1,
+            2,
         ),
         // A block comment whose own newline is not spliced ends the
         // chain: the bare row after it joins the comment's last physical
         // row only, which is comment-only; code before that newline on
         // the line is forgotten.
-        (b"int a; /* x\ny */ \\\n\\\n\nint z;\n", (5, 2, 3, 1), 1),
+        (b"int a; /* x\ny */ \\\n\\\n\nint z;\n", (5, 2, 3, 1), 2),
         (b"/* x\ny */ \\\n\\\nint z;\n", (4, 2, 2, 0), 1),
         // A row that itself continues the directive is code to the bare
         // row after it, comment or not.

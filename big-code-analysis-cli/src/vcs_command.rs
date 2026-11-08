@@ -1170,8 +1170,7 @@ def outer(x):
     /// `add` and `commit` wrote into the checkout running the test
     /// (#1846). The caller's environment and the fixture's own identity
     /// go on after, so what a caller means to set still reaches git.
-    /// Mirrors `tests/common/git_fixture.rs`, which a unit test cannot
-    /// reach.
+    /// Mirrors `tests/common/git_fixture.rs`.
     fn fixture_git() -> std::process::Command {
         let mut cmd = std::process::Command::new("git");
         for (key, _) in std::env::vars_os() {
@@ -1206,7 +1205,7 @@ def outer(x):
     /// and are read whatever the first two say — pinned to `/dev/null`.
     /// The per-repository pins in [`blame_fixture_with_env`] cannot
     /// cover `git init` itself (#1771). Mirrors
-    /// `tests/common/git_fixture.rs`, which a unit test cannot reach.
+    /// `tests/common/git_fixture.rs`.
     fn isolated_git_env() -> [(&'static str, &'static str); 7] {
         [
             ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -1414,6 +1413,7 @@ def outer(x):
     /// read whatever the global and system variables say and a host
     /// `XDG_CONFIG_HOME/git/ignore` of `*` would fail the victim's `git
     /// add` before the child under test ever ran.
+    #[cfg(unix)]
     fn clean_git(dir: &Path, args: &[&str]) -> String {
         let mut cmd = std::process::Command::new("git");
         for (key, _) in std::env::vars_os() {
@@ -1453,6 +1453,7 @@ def outer(x):
     /// and the fixture reads it through `Command`, so the variables are
     /// set on a child instead. The name is module-qualified: libtest's
     /// `--exact` matches the full path.
+    #[cfg(unix)]
     fn rerun_fixture_test_with(vars: &[(&str, std::path::PathBuf)]) {
         let child = format!(
             "{}::blame_fixture_builds_the_two_commit_repo",

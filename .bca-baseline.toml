@@ -1239,12 +1239,6 @@ value = 5.0
 
 [[entry]]
 path = "src/metrics/loc/shared.rs"
-qualified = "GapScan<'_, 'a>"
-metric = "wmc"
-value = 59.0
-
-[[entry]]
-path = "src/metrics/loc/shared.rs"
 qualified = "credit_bare_continuation_rows"
 metric = "nargs"
 value = 5.0

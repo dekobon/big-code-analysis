@@ -784,19 +784,13 @@ impl<'a> GapScan<'_, 'a> {
         let Some(last) = continuing_backslash(self.code, row_start) else {
             return self.spliced_into(row_start, next);
         };
-        // A `\` in padding follows code, since a `#` comment swallows its
-        // row's `\`, unless a C-family `/* … */` left it on a row of
-        // comments alone. Those comments are then the line's text however
-        // empty the rows after them are.
+        // A `\` in padding follows code: every `Gap` grammar's comment
+        // token takes its row's `\` (a `#` comment runs to the row's end,
+        // Ruby's `=begin … =end` to its own), so only a non-comment token
+        // can leave one in padding. The C family, whose `/* … */` can,
+        // answers from the index above (#1818).
         if last >= gap_start {
-            return if self.only_comments_before(last) {
-                match self.spliced_into(row_start, next) {
-                    BareRow::Blank => BareRow::Comment,
-                    class => class,
-                }
-            } else {
-                BareRow::Code
-            };
+            return BareRow::Code;
         }
         let in_comment = self.holder_of(last).is_some_and(|holder| {
             holder
@@ -810,38 +804,6 @@ impl<'a> GapScan<'_, 'a> {
             // a logical line of its own.
             (true, false) => self.spliced_into(row_start, next),
         }
-    }
-
-    // Whether the row ending in the padding `\` at byte `last` holds only
-    // comments before it and starts its logical line. Its tokens are the
-    // children before the gap, nearest first. A row that continues an
-    // earlier one, or holds more tokens than the window keeps, counts as
-    // code: the rows before it are not walked back.
-    fn only_comments_before(&self, last: usize) -> bool {
-        let line_start = self
-            .code
-            .get(..last)
-            .and_then(|row| row.iter().rposition(|&byte| byte == b'\n'))
-            .map_or(0, |newline| newline.saturating_add(1));
-        if continuing_backslash(self.code, line_start).is_some() {
-            return false;
-        }
-        // The first child that settles it, nearest first: one ending before
-        // the row leaves only the comments already passed, a comment
-        // covering the row's start makes all of it comment text, and any
-        // other token is code.
-        self.before
-            .iter()
-            .find_map(|&child| match child {
-                // Fewer children than slots: only padding precedes the
-                // root's first child, but any other node may follow a token
-                // of an ancestor's on the row.
-                None => Some(self.parent.is_none() || line_start >= self.node.start_byte()),
-                Some(child) if child.end_byte() <= line_start => Some(true),
-                Some(child) if !self.comments.lists(child) => Some(false),
-                Some(child) => (child.start_byte() <= line_start).then_some(true),
-            })
-            .unwrap_or(false)
     }
 
     // What the logical line a run of bare rows starts at byte `row_start`
@@ -1007,8 +969,7 @@ pub(super) fn continuing_backslash(code: &[u8], row_start: usize) -> Option<usiz
 
 // The first byte of the row holding byte `at`, when only horizontal
 // space precedes `at` on it: the bare-row test of a node's own row, for
-// a grammar that keeps the `\` as a node (Python). The row-start scan is
-// `GapScan::only_comments_before`'s too (#1818 owns that region).
+// a grammar that keeps the `\` as a node (Python).
 pub(super) fn bare_row_start(code: &[u8], at: usize) -> Option<usize> {
     let row_start = code
         .get(..at)

@@ -3046,6 +3046,7 @@ fn git_output(repo: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> St
 /// read whatever the global and system variables say and a host
 /// `XDG_CONFIG_HOME/git/ignore` of `*` would fail the victim's `git
 /// add` before the child under test ever ran.
+#[cfg(unix)]
 fn clean_git(dir: &std::path::Path, args: &[&str]) -> String {
     let mut cmd = std::process::Command::new("git");
     for (key, _) in std::env::vars_os() {
@@ -3084,6 +3085,7 @@ fn clean_git(dir: &std::path::Path, args: &[&str]) -> String {
 /// own process's environment without `unsafe`, and the fixtures read it
 /// through `Command`, so the variables are set on a child instead. The
 /// name is module-qualified: libtest's `--exact` matches the full path.
+#[cfg(unix)]
 fn rerun_fixture_test_with(vars: &[(&str, std::path::PathBuf)]) {
     let child = format!(
         "{}::fixtures_build_their_repos",

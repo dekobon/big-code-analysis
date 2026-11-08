@@ -429,8 +429,9 @@ fn compute_per_node<'a, T: MetricSuite>(
     if selected.contains(Metric::Loc) {
         // The bare-row credit reads only the node's gaps and writes
         // only PLOC / CLOC rows; `compute`'s `init` writes the SLOC
-        // span. Neither reads what the other writes, so the credit
-        // runs first, as it did inside each language's `compute`.
+        // span. Neither reads what the other writes, so the credit may
+        // run first (each language's `compute` used to run it after
+        // its `init`, with the same result).
         if let Some(bare_rows) = bare_rows {
             loc::credit_bare_continuation_rows(
                 node,
