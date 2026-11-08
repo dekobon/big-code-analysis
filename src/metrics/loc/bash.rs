@@ -24,16 +24,6 @@ impl Loc for BashCode {
         use Bash::*;
 
         let start = init(node, stats, is_func_space);
-        credit_bare_continuation_rows(
-            node,
-            code,
-            ancestors,
-            stats,
-            BareRowComments {
-                is_comment: crate::roles::bash::comment::lists_kind,
-                continued: false,
-            },
-        );
 
         match node.kind_id().into() {
             Program => {}
@@ -205,5 +195,14 @@ impl Loc for BashCode {
                 }
             }
         }
+    }
+
+    // A `#` comment takes its row's `\` with it, so a bare row after
+    // one starts a logical line of its own.
+    fn bare_rows() -> Option<BareRowPolicy> {
+        Some(BareRowPolicy::Gap(BareRowComments {
+            is_comment: crate::roles::bash::comment::lists_kind,
+            continued: false,
+        }))
     }
 }

@@ -364,13 +364,19 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
 /// call site cannot transpose them — they are all same-typed flags
 /// about the node currently being visited.
 #[derive(Clone, Copy)]
-struct NodeFacts {
+struct NodeFacts<'w> {
     /// This node opens a new [`FuncSpace`].
     func_space: bool,
     /// Whether this node lies inside a comment subtree — the node
     /// **itself** or any ancestor is a comment. Contrast
     /// [`Walk::in_comment`], which covers ancestors only (#1052).
     in_comment: bool,
+    /// The walk's bare-row credit for `loc` (`None` where the language
+    /// has none, or the file holds no `\` row), built once before the
+    /// first node and read for every node ahead of `Loc::compute`
+    /// (#1818). Carried here rather than as an argument of its own: it
+    /// is per-walk, not per-space, so it belongs to no `State`.
+    bare_rows: Option<&'w loc::BareRows>,
 }
 
 // Per-node metric dispatch. Each `compute` call is paired with a bit
@@ -387,13 +393,14 @@ fn compute_per_node<'a, T: MetricSuite>(
     node: &Node<'a>,
     code: &'a [u8],
     options: MetricsOptions,
-    facts: NodeFacts,
+    facts: NodeFacts<'_>,
     ancestors: Ancestors<'a, '_>,
     nesting_map: &mut NestingMap,
 ) {
     let NodeFacts {
         func_space,
         in_comment,
+        bare_rows,
     } = facts;
     let selected = options.metrics;
     let last = &mut state.space;
@@ -419,6 +426,19 @@ fn compute_per_node<'a, T: MetricSuite>(
         T::Halstead::compute(node, code, ancestors, &mut state.halstead_maps);
     }
     if selected.contains(Metric::Loc) {
+        // The bare-row credit reads only the node's gaps and writes
+        // only PLOC / CLOC rows; `compute`'s `init` writes the SLOC
+        // span. Neither reads what the other writes, so the credit
+        // runs first, as it did inside each language's `compute`.
+        if let Some(bare_rows) = bare_rows {
+            loc::credit_bare_continuation_rows(
+                node,
+                code,
+                ancestors,
+                &mut last.metrics.loc,
+                bare_rows,
+            );
+        }
         T::Loc::compute(node, code, ancestors, &mut last.metrics.loc, func_space);
     }
     if selected.contains(Metric::Nom) {
@@ -463,11 +483,11 @@ impl SpaceSeed {
     /// `Default` — the contract [`MetricsOptions::with_only`] states,
     /// pinned by `an_unselected_loc_keeps_its_default_bare_row_hint`.
     /// Otherwise one pass of [`loc::may_hold_bare_rows`] over the whole
-    /// source, for every grammar: the nine `Loc` impls that call the
-    /// scan are the ones that read it, and the fourteen that do not pay
-    /// the pass too — ~0.4 ns/byte, an upper bound of 0.6% per file
-    /// measured on `main` at #1821, below what gating it per grammar
-    /// would buy.
+    /// source, for every grammar: the nine `Loc` impls with a bare-row
+    /// policy (`Loc::bare_rows`) are the ones that read it, and the
+    /// fourteen without pay the pass too — ~0.4 ns/byte, an upper bound
+    /// of 0.6% per file measured on `main` at #1821, below what gating
+    /// it per grammar would buy.
     fn for_walk(selected: MetricSet, code: &[u8]) -> Self {
         Self {
             selected,
@@ -890,6 +910,13 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
 
     let seed = SpaceSeed::for_walk(selected, code);
     push_synthetic_unit_root::<T>(&mut state_stack, &node, code, seed);
+    // Once per walk, ahead of every node: the C family's index reads
+    // the whole file, and a file with no `\` row (the seed's hint)
+    // builds nothing (#1818, #1821).
+    let bare_rows = selected
+        .contains(Metric::Loc)
+        .then(|| loc::BareRows::for_walk(T::Loc::bare_rows(), &node, code, seed.bare_rows_possible))
+        .flatten();
 
     stack.push((node, Walk::default()));
 
@@ -968,6 +995,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
                 NodeFacts {
                     func_space,
                     in_comment: subtree_in_comment,
+                    bare_rows: bare_rows.as_ref(),
                 },
                 ancestors,
                 &mut nesting_map,

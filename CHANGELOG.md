@@ -95,6 +95,23 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **`loc` reads a C-family bare `\` row after a chain of comment-only
+  rows as a comment** (#1818). Translation phase 2 splices a comment
+  row's trailing `\` too, so `/* a */ \` + `/* b */ \` + `\` + an empty
+  row is one comment line to `gcc -E -C -P`; bca read the bare row as
+  code, in two cases: where the comment row before it itself continued
+  an earlier row (the lookup refused a continued row), and where that
+  row held more than three comments (the lookup ran out of its window).
+  The four C-family grammars now settle every bare row's class once per
+  logical line, from one forward read of the file taken before the
+  walk — code anywhere on the line makes it code, comments alone a
+  comment, nothing blank — and the gap scan reads that index where it
+  read its neighbours. `(sloc, ploc, cloc, blank)` for the first shape
+  moves from `(5, 2, 2, 1)` to `(5, 1, 3, 1)`; no integration corpus
+  holds one. Bash, Ruby, Elixir, Tcl and iRules keep their scan
+  unchanged, and the nine languages now declare their bare-row policy
+  on `Loc::bare_rows` for the walk to run ahead of each `compute`, in
+  place of each calling the scan.
 - **`loc` credits every row of a Ruby, Elixir or C-family literal**
   (#1816). A row inside a literal that reached neither PLOC nor CLOC
   fell to `blank = sloc - ploc - cloc`, which #1260 fixed for strings and

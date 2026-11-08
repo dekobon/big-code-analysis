@@ -24,17 +24,6 @@ impl Loc for RubyCode {
         use Ruby as R;
 
         let start = init(node, stats, is_func_space);
-        // A `#` comment ends with its row: `ruby` runs the row after `# c \`.
-        credit_bare_continuation_rows(
-            node,
-            code,
-            ancestors,
-            stats,
-            BareRowComments {
-                is_comment: crate::roles::ruby::comment::lists_kind,
-                continued: false,
-            },
-        );
 
         match node.kind_id().into() {
             R::Program => {}
@@ -122,5 +111,13 @@ impl Loc for RubyCode {
                 stats.ploc.lines.insert(start);
             }
         }
+    }
+
+    // A `#` comment ends with its row: `ruby` runs the row after `# c \`.
+    fn bare_rows() -> Option<BareRowPolicy> {
+        Some(BareRowPolicy::Gap(BareRowComments {
+            is_comment: crate::roles::ruby::comment::lists_kind,
+            continued: false,
+        }))
     }
 }

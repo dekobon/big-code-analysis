@@ -40,17 +40,6 @@ impl Loc for ElixirCode {
         use Elixir as E;
 
         let start = init(node, stats, is_func_space);
-        // `elixir_tokenizer` ends a `#` comment at the newline, `\` or not.
-        credit_bare_continuation_rows(
-            node,
-            code,
-            ancestors,
-            stats,
-            BareRowComments {
-                is_comment: crate::roles::elixir::comment::lists_kind,
-                continued: false,
-            },
-        );
 
         match node.kind_id().into() {
             // Root of the file — handled by `init` above.
@@ -154,5 +143,13 @@ impl Loc for ElixirCode {
                 }
             }
         }
+    }
+
+    // `elixir_tokenizer` ends a `#` comment at the newline, `\` or not.
+    fn bare_rows() -> Option<BareRowPolicy> {
+        Some(BareRowPolicy::Gap(BareRowComments {
+            is_comment: crate::roles::elixir::comment::lists_kind,
+            continued: false,
+        }))
     }
 }

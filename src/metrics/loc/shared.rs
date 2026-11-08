@@ -457,7 +457,7 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     stats: &mut Stats,
-    comments: BareRowComments,
+    bare_rows: &BareRows,
 ) {
     if !stats.bare_rows_possible {
         return;
@@ -477,10 +477,62 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
         before: [None; CHILDREN_BEFORE_A_GAP],
         code,
         stats,
-        comments,
+        comments: bare_rows.policy.comments(),
+        index: bare_rows.index.as_ref(),
         previous_bare: None,
     };
     scan.scan(node);
+}
+
+/// How a language's bare `\`-continuation rows are credited: the
+/// grammar's comment kinds, and whether what a row *is* comes from the
+/// gap scan's own reading of its neighbours (`Gap`) or from the
+/// per-walk [`BareRowIndex`] (`Indexed`, the C family, whose `/* … */`
+/// can leave a `\` on a row of comments alone, so a bare row's class is
+/// the whole logical line's and no window of neighbours settles it,
+/// #1818).
+#[derive(Clone, Copy)]
+pub(crate) enum BareRowPolicy {
+    Gap(BareRowComments),
+    Indexed(BareRowComments),
+}
+
+impl BareRowPolicy {
+    pub(crate) fn comments(self) -> BareRowComments {
+        match self {
+            Self::Gap(comments) | Self::Indexed(comments) => comments,
+        }
+    }
+}
+
+/// One walk's bare-row credit: the language's policy and, under
+/// `Indexed`, the index built once for the file. Built by the walk
+/// before its first node from [`Loc::bare_rows`], and only when the
+/// file can hold such a row (`Stats::bare_rows_possible`, #1821), so
+/// a file with none never pays for the index.
+pub(crate) struct BareRows {
+    policy: BareRowPolicy,
+    index: Option<BareRowIndex>,
+}
+
+impl BareRows {
+    /// The credit for `root`'s walk, or `None` where the language has
+    /// no bare rows in padding or `code` holds none.
+    pub(crate) fn for_walk(
+        policy: Option<BareRowPolicy>,
+        root: &Node<'_>,
+        code: &[u8],
+        possible: bool,
+    ) -> Option<Self> {
+        let policy = policy.filter(|_| possible)?;
+        let index = match policy {
+            BareRowPolicy::Gap(_) => None,
+            BareRowPolicy::Indexed(comments) => {
+                Some(BareRowIndex::build(root, code, comments.is_comment))
+            }
+        };
+        Some(Self { policy, index })
+    }
 }
 
 // The grammar's comment row, as its `lists_kind`, and whether a `\` ending
@@ -509,7 +561,7 @@ pub(super) enum BareRow {
 // What the row read so far holds, for the bare-row test: optional
 // horizontal whitespace, one `\`, and an optional `\r` before the newline.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum RowShape {
+pub(super) enum RowShape {
     Blank,
     Backslash,
     BackslashCr,
@@ -517,7 +569,7 @@ enum RowShape {
 }
 
 impl RowShape {
-    fn step(self, byte: u8) -> Self {
+    pub(super) fn step(self, byte: u8) -> Self {
         match (self, byte) {
             (Self::Blank, b'\\') => Self::Backslash,
             (Self::Blank, _) if is_horizontal_space(byte) => Self::Blank,
@@ -526,7 +578,7 @@ impl RowShape {
         }
     }
 
-    fn is_bare(self) -> bool {
+    pub(super) fn is_bare(self) -> bool {
         matches!(self, Self::Backslash | Self::BackslashCr)
     }
 }
@@ -545,7 +597,7 @@ const FORM_FEED: u8 = 0x0c;
 
 // Whether `byte` may indent a bare row, or stand between a row's last
 // token and its newline, as the grammars skip it.
-fn is_horizontal_space(byte: u8) -> bool {
+pub(super) fn is_horizontal_space(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | VERTICAL_TAB | FORM_FEED)
 }
 
@@ -601,6 +653,10 @@ struct GapScan<'s, 'a> {
     code: &'s [u8],
     stats: &'s mut Stats,
     comments: BareRowComments,
+    // Under `BareRowPolicy::Indexed`, what every bare row in the file
+    // is, settled once per logical line; `classify` reads it instead of
+    // the neighbour lookups below.
+    index: Option<&'s BareRowIndex>,
     // The last bare row credited and what as: a run of bare rows is
     // whatever its first one is.
     previous_bare: Option<(usize, BareRow)>,
@@ -707,7 +763,9 @@ impl<'a> GapScan<'_, 'a> {
 
     // What the bare `row` is: what the row before it continues onto it,
     // or, when that row continues nothing, what the logical line it starts
-    // becomes.
+    // becomes. Under an index, the logical line's settled answer; the
+    // lookups below read only a window of the row's neighbours, which a
+    // C-family chain of comment-only rows outruns (#1818).
     fn classify(
         &self,
         row: usize,
@@ -715,6 +773,11 @@ impl<'a> GapScan<'_, 'a> {
         gap_start: usize,
         next: Option<&Cursor<'a>>,
     ) -> BareRow {
+        if let Some(index) = self.index
+            && let Some(class) = index.class(row)
+        {
+            return class;
+        }
         if let Some((bare_row, class)) = self.previous_bare
             && bare_row.saturating_add(1) == row
         {

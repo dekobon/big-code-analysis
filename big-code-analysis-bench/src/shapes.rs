@@ -449,6 +449,37 @@ pub fn c_unclosed_spliced_comments(width: usize) -> String {
     "{\n\\\n/* a */ /* b */\n".repeat(width)
 }
 
+/// C: one logical line of `width` comment-only rows, each continued by
+/// its `\` and each followed by a row holding only `\`, then an empty
+/// row, then `int z;`.
+///
+/// Every bare row is a comment: the chain holds no code, and the row it
+/// all joins is empty (#1818). The class of each is the whole line's,
+/// settled once by the per-walk index. A scan that read the line back
+/// from each bare row (the rows before it, to find the code it would
+/// continue) or forward (the comments after it, to find the line's end)
+/// reads `O(width)` per row and is quadratic in the chain; the pre-#1818
+/// bounded lookup was linear and wrong, so this probe guards the index's
+/// cost, not the bug. The `int z;` keeps the reading off the construct.
+#[must_use]
+pub fn c_comment_chain(width: usize) -> String {
+    format!("{}\nint z;\n", "/* c */ \\\n\\\n".repeat(width))
+}
+
+/// C: `width` units, each a `{` that never closes, a row of three block
+/// comments ending in `\`, a row holding only `\`, and an empty row.
+///
+/// [`c_comment_chain`] under the flat root `ERROR` the unclosed braces
+/// leave, with each unit its own logical line: the index's comment
+/// spans come from a cursor walk that visits each node once, where a
+/// lookup from the gap's owner reads the root's width per bare row
+/// (`loc/c-unclosed-spliced-comments`). Three comments on the row, one
+/// past the window the old lookup kept.
+#[must_use]
+pub fn c_unclosed_comment_rows(width: usize) -> String {
+    "{\n/* a */ /* b */ /* c */ \\\n\\\n\n".repeat(width)
+}
+
 /// JavaScript: `function f() { function f() { … 1; … } }`.
 ///
 /// The linear control for [`nested_arrows`]: one function per nesting
@@ -2823,6 +2854,44 @@ pub const PROBES: &[Probe] = &[
                     half of them the bare ones.",
     },
     Probe {
+        name: "loc/c-comment-chain",
+        lang: LANG::C,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: c_comment_chain,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1818: one logical line of `width` comment-only rows \
+                    and `width` bare rows, every bare row a comment. The \
+                    per-walk index settles the line once; reading it back \
+                    from each bare row to its start, or forward to its end, \
+                    is `width` per row. The reading is the comment rows, \
+                    half of them the bare ones.",
+    },
+    Probe {
+        name: "loc/c-unclosed-comment-rows",
+        lang: LANG::C,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: c_unclosed_comment_rows,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1818: `width` comment-only rows of three comments each \
+                    under one flat root `ERROR`, each continued onto a bare \
+                    row that joins an empty row. The index's comment spans \
+                    are one cursor walk; a per-row lookup from the gap's \
+                    owner scans the root's children each time. The reading \
+                    is the comment rows, half of them the bare ones.",
+    },
+    Probe {
         name: "loc/python-long-bare-run",
         lang: LANG::Python,
         axis: Axis::Width,
@@ -4397,6 +4466,7 @@ mod tests {
         "loc/tcl-unclosed-continued-comments",
         "loc/elixir-unclosed-spliced-comments",
         "loc/c-unclosed-spliced-comments",
+        "loc/c-unclosed-comment-rows",
     ];
 
     /// Probes whose shape recovers *inside* a command rather than at
@@ -4794,6 +4864,10 @@ mod tests {
             ("loc/tcl-unclosed-continued-comments", 2),
             ("loc/elixir-unclosed-spliced-comments", 3),
             ("loc/c-unclosed-spliced-comments", 2),
+            // #1818: before the index each unit's bare row read code,
+            // `1 × size`.
+            ("loc/c-comment-chain", 2),
+            ("loc/c-unclosed-comment-rows", 2),
         ] {
             let probe = PROBES
                 .iter()

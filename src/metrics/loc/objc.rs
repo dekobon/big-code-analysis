@@ -24,17 +24,6 @@ impl Loc for ObjcCode {
         use Objc::*;
 
         let start = init(node, stats, is_func_space);
-        // Translation phase 2 splices a comment row's trailing `\` too.
-        credit_bare_continuation_rows(
-            node,
-            code,
-            ancestors,
-            stats,
-            BareRowComments {
-                is_comment: crate::roles::objc::comment::lists_kind,
-                continued: true,
-            },
-        );
 
         match node.kind_id().into() {
             // ObjC has no raw string literals. `instance_variables` is
@@ -113,5 +102,15 @@ impl Loc for ObjcCode {
                 }
             }
         }
+    }
+
+    // Translation phase 2 splices a comment row's trailing `\` too, so
+    // a bare row after a row of `/* … */` alone is what the whole logical
+    // line becomes: the index settles that once per line (#1818).
+    fn bare_rows() -> Option<BareRowPolicy> {
+        Some(BareRowPolicy::Indexed(BareRowComments {
+            is_comment: crate::roles::objc::comment::lists_kind,
+            continued: true,
+        }))
     }
 }

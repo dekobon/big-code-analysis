@@ -22,16 +22,6 @@ impl Loc for TclCode {
         is_func_space: bool,
     ) {
         let start = init(node, stats, is_func_space);
-        credit_bare_continuation_rows(
-            node,
-            code,
-            ancestors,
-            stats,
-            BareRowComments {
-                is_comment: crate::roles::tcl::comment::lists_kind,
-                continued: true,
-            },
-        );
 
         match node.kind_id().into() {
             // Tcl is the only grammar family here that surfaces the row
@@ -105,5 +95,14 @@ impl Loc for TclCode {
                 stats.ploc.lines.insert(start);
             }
         }
+    }
+
+    // The grammar's comment token stops at the row's end, but the
+    // interpreter continues the comment through a trailing `\`.
+    fn bare_rows() -> Option<BareRowPolicy> {
+        Some(BareRowPolicy::Gap(BareRowComments {
+            is_comment: crate::roles::tcl::comment::lists_kind,
+            continued: true,
+        }))
     }
 }

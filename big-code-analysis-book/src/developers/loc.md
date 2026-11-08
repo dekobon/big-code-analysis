@@ -126,3 +126,18 @@ the grammar surfaces its row terminator as a *token* rather than as
 extra, as the Tcl family does, that token's start row is the row it
 terminates, so the catch-all credits comment-only and blank rows to
 PLOC. Give such tokens an explicit no-op arm.
+
+If the grammar splices `\` + newline away in the lexer (an
+[`extras`](https://tree-sitter.github.io/tree-sitter/creating-parsers/3-writing-the-grammar.html#the-grammar-dsl)
+entry such as `/\\\r?\n/`), a row holding only `\` surfaces no node,
+and no arm can credit it. Declare the language's comment kinds on
+`Loc::bare_rows` instead: the walk then runs the shared gap scan
+(`shared.rs`, `credit_bare_continuation_rows`) ahead of each
+`compute`, which credits such a row to the innermost space as the
+logical line it continues. Choose `BareRowPolicy::Gap` where a comment
+never continues past its row (Bash, Ruby, Elixir) or where it does but
+only as the comment's own text (Tcl, iRules); choose
+`BareRowPolicy::Indexed` where a block comment can leave a `\` on a row
+of comments alone, as in the C family, so that what a bare row is
+depends on the whole logical line and is settled once per file
+(`continuation.rs`).

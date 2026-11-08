@@ -1138,9 +1138,22 @@ where
         stats: &mut Stats,
         is_func_space: bool,
     );
+
+    /// How a bare `\`-continuation row in padding is credited for this
+    /// language, or `None` where the grammar keeps the row inside a
+    /// node (Python's `line_continuation`, which its arm bills) or has
+    /// no such row. The walk reads this once, before the first node,
+    /// and runs the credit for every node ahead of [`compute`](Self::compute):
+    /// the nine languages that splice `\` + newline away in the lexer
+    /// name their comment kinds here rather than each calling the scan.
+    fn bare_rows() -> Option<BareRowPolicy> {
+        None
+    }
 }
 
+mod continuation;
 mod shared;
+pub(crate) use continuation::BareRowIndex;
 pub(crate) use shared::*;
 
 // Real defaults — Loc counts on these "languages" would conflate
@@ -9028,6 +9041,66 @@ EOF
         // Still a row of comments alone when indented: read past the
         // comment to the code that ended a row earlier.
         (b"int a;\n  /* c */ \\\n\\\n\nint b;\n", (5, 2, 2, 1), 2),
+        // #1818: a chain of comment-only rows, each continued by its `\`,
+        // is one logical line with no code yet, and the bare row that
+        // continues the chain is a comment where the row it joins is
+        // empty. The row before the bare one continuing an earlier row
+        // (the first two) and a row of four comments (the third) read
+        // `(5, 2, 2, 1)`, `(5, 2, 2, 1)` and `(4, 2, 1, 1)` before: the
+        // lookup refused a continued row, and ran out of its three-child
+        // window on the wide one. `gcc -E -C -P` keeps each chain as one
+        // comment line before `int z;`.
+        (b"/* a */ \\\n/* b */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 1),
+        (b"\\\n/* c */ \\\n\\\n\nint z;\n", (5, 1, 3, 1), 1),
+        (
+            b"/* a */ /* b */ /* c */ /* d */ \\\n\\\n\nint z;\n",
+            (4, 1, 2, 1),
+            1,
+        ),
+        // Longer chains and a wider row, past any window.
+        (
+            b"/* a */ \\\n/* b */ \\\n/* c */ \\\n/* d */ \\\n\\\n\nint z;\n",
+            (7, 1, 5, 1),
+            1,
+        ),
+        (
+            b"/* a */ /* b */ /* c */ /* d */ /* e */ /* f */ \\\n\\\n\nint z;\n",
+            (4, 1, 2, 1),
+            1,
+        ),
+        // Indented, where the comment's own span cannot establish the
+        // row start.
+        (
+            b"  /* a */ /* b */ /* c */ \\\n  \\\n\nint z;\n",
+            (4, 1, 2, 1),
+            1,
+        ),
+        // The chain joined by code is code; code before the chain on the
+        // same logical line is too.
+        (b"/* a */ \\\n/* b */ \\\n\\\nint z;\n", (4, 2, 2, 0), 1),
+        (
+            b"int a = 1; \\\n/* b */ \\\n\\\n\nint z;\n",
+            (5, 3, 1, 1),
+            1,
+        ),
+        // A bare row between two comment rows of one chain.
+        (
+            b"/* a */ \\\n\\\n/* b */ \\\n\\\n\nint z;\n",
+            (6, 1, 4, 1),
+            2,
+        ),
+        // CRLF spelling of the first case.
+        (
+            b"/* a */ \\\r\n/* b */ \\\r\n\\\r\n\r\nint z;\r\n",
+            (5, 1, 3, 1),
+            1,
+        ),
+        // A block comment whose own newline is not spliced ends the
+        // chain: the bare row after it joins the comment's last physical
+        // row only, which is comment-only; code before that newline on
+        // the line is forgotten.
+        (b"int a; /* x\ny */ \\\n\\\n\nint z;\n", (5, 2, 3, 1), 1),
+        (b"/* x\ny */ \\\n\\\nint z;\n", (4, 2, 2, 0), 1),
         // A row that itself continues the directive is code to the bare
         // row after it, comment or not.
         (
@@ -10136,6 +10209,67 @@ EOF
                 String::from_utf8_lossy(source)
             );
         }
+    }
+
+    /// #1818: the C-family bare-row index is built exactly once per
+    /// walk, and only where the walk can use it. The output cannot tell
+    /// one build from one per node — each build answers the same — so
+    /// the count is what pins it, read on this thread, which is the
+    /// counter's. Rows: a C file with a bare row under `loc` builds one;
+    /// under `mi` alone too, since `mi` resolves to `loc`; the same file
+    /// under `cyclomatic` alone, a C file with no `\` row (the #1821
+    /// hint), and a Ruby file with one (`Gap` policy) build none; two
+    /// walks of one file build two, so no state outlives a walk.
+    ///
+    /// Perturbations: building the index per node in
+    /// `credit_bare_continuation_rows` fails the first row (hundreds for
+    /// one); dropping the `bare_rows_possible` gate in `BareRows::for_walk`
+    /// fails the no-`\` row; dropping the `selected.contains(Loc)` gate
+    /// in `metrics_inner` fails the `cyclomatic` row.
+    #[cfg(all(feature = "c", feature = "ruby"))]
+    #[test]
+    fn c_family_bare_row_index_is_built_once_per_walk() {
+        use crate::Metric;
+        let bare: &[u8] = b"/* a */ \\\n/* b */ \\\n\\\n\nint z;\n";
+        let plain: &[u8] = b"/* a */\nint z;\n";
+        let builds = |lang: crate::LANG, source: &[u8], only: &[Metric], walks: usize| {
+            let before = continuation::bare_row_indexes_built::observed();
+            for _ in 0..walks {
+                let _ = metrics_verbatim(lang, source, MetricsOptions::default().with_only(only));
+            }
+            continuation::bare_row_indexes_built::observed() - before
+        };
+        assert_eq!(builds(crate::LANG::C, bare, &[Metric::Loc], 1), 1, "C, loc");
+        assert_eq!(
+            builds(crate::LANG::C, bare, &[Metric::Mi], 1),
+            1,
+            "C, mi resolves to loc"
+        );
+        assert_eq!(
+            builds(crate::LANG::C, bare, &[Metric::Cyclomatic], 1),
+            0,
+            "C, loc off"
+        );
+        assert_eq!(
+            builds(crate::LANG::C, plain, &[Metric::Loc], 1),
+            0,
+            "C, no bare row"
+        );
+        assert_eq!(
+            builds(
+                crate::LANG::Ruby,
+                b"x = 1 + \\\n\\\n  2\n",
+                &[Metric::Loc],
+                1
+            ),
+            0,
+            "Ruby, gap policy"
+        );
+        assert_eq!(
+            builds(crate::LANG::C, bare, &[Metric::Loc], 2),
+            2,
+            "two walks, two builds"
+        );
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the

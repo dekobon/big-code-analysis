@@ -1109,7 +1109,7 @@ value = 5.0
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 567.0
+value = 572.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -1236,6 +1236,12 @@ path = "src/metrics/loc/rust.rs"
 qualified = "RustCode::compute"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "src/metrics/loc/shared.rs"
+qualified = "GapScan<'_, 'a>"
+metric = "wmc"
+value = 59.0
 
 [[entry]]
 path = "src/metrics/loc/shared.rs"
@@ -1403,7 +1409,7 @@ value = 5.0
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 metric = "halstead.effort"
-value = 65026.971670080056
+value = 72082.35237399318
 
 [[entry]]
 path = "src/spaces/compute.rs"
@@ -1415,7 +1421,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 132824.9183071509
+value = 146153.16425874401
 
 [[entry]]
 path = "src/spaces/compute.rs"
