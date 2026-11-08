@@ -42,8 +42,8 @@ use crate::node::Cursor;
 crate::observation::counter!(bare_row_indexes_built);
 
 /// What a bare row is, or that a row is not bare.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum RowClass {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowClass {
     NotBare,
     Code,
     Comment,
@@ -62,24 +62,17 @@ impl RowClass {
 }
 
 /// The class of every bare row in one file.
-pub(crate) struct BareRowIndex {
+pub(super) struct BareRowIndex {
     rows: Vec<RowClass>,
 }
 
 impl BareRowIndex {
     /// Reads `code`, taking comment text from the comment nodes under
     /// `root` (the kinds `is_comment` lists).
-    pub(crate) fn build(root: &Node<'_>, code: &[u8], is_comment: fn(u16) -> bool) -> Self {
+    pub(super) fn build(root: &Node<'_>, code: &[u8], is_comment: fn(u16) -> bool) -> Self {
         bare_row_indexes_built::record();
         let spans = comment_spans(root, is_comment);
-        let mut index = Indexer {
-            rows: Vec::new(),
-            pending: Vec::new(),
-            code_seen: false,
-            comment_seen: false,
-            row_start: 0,
-            shape: RowShape::Blank,
-        };
+        let mut index = Indexer::default();
         let mut comments = spans.iter().copied().peekable();
         for (at, &byte) in code.iter().enumerate() {
             while comments.peek().is_some_and(|&(_, end)| end <= at) {
@@ -107,6 +100,7 @@ impl BareRowIndex {
 // The forward read: the rows classified so far, the bare rows of the
 // current logical line awaiting its end, what that line has held, and
 // where the current physical row began and what it holds.
+#[derive(Default)]
 struct Indexer {
     rows: Vec<RowClass>,
     pending: Vec<usize>,

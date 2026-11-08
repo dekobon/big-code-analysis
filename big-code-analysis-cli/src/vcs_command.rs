@@ -1406,14 +1406,14 @@ def outer(x):
         assert_eq!(read(&["log", "-1", "--format=%an %D"]), "Ada HEAD -> main");
     }
 
-    /// A `git` independent of the fixture under test, for building and
-    /// reading the victim repository: its own removal of every inherited
-    /// `GIT_*` — not [`fixture_git`]'s, so the oracle cannot share a
-    /// defect with the constructor it judges — and the host's
-    /// configuration kept away, the per-user ignore and attributes files
-    /// included, since those are read whatever the global and system
-    /// variables say and a host `XDG_CONFIG_HOME/git/ignore` of `*` would
-    /// fail the victim's `git add` before the child under test ever ran.
+    /// The `git` that builds and reads the victim repository: its own
+    /// removal loop over the inherited `GIT_*` variables, so a defect in
+    /// [`fixture_git`]'s loop cannot reach it (the two share only the
+    /// `is_git_var` prefix test), and the host's configuration kept away,
+    /// the per-user ignore and attributes files included, since those are
+    /// read whatever the global and system variables say and a host
+    /// `XDG_CONFIG_HOME/git/ignore` of `*` would fail the victim's `git
+    /// add` before the child under test ever ran.
     fn clean_git(dir: &Path, args: &[&str]) -> String {
         let mut cmd = std::process::Command::new("git");
         for (key, _) in std::env::vars_os() {

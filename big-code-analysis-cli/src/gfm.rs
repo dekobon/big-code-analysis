@@ -101,9 +101,10 @@ mod tests {
         // Path containing `|` (legal on Unix) would otherwise split
         // the GFM cell into two columns and corrupt the table layout.
         assert_eq!(escape_gfm_cell("a|b"), "a\\|b");
-        // Newlines inside a cell would also break the row; each becomes
-        // a space so the table stays well-formed.
+        // Newlines inside a cell would also break the row; each
+        // line-break byte becomes one space, so a CRLF pair is two.
         assert_eq!(escape_gfm_cell("a\nb\rc"), "a b c");
+        assert_eq!(escape_gfm_cell("a\r\nb"), "a  b");
     }
 
     #[test]
@@ -116,6 +117,15 @@ mod tests {
         // become `a\\\|b`, which renders as the literal `a\|b`.
         assert_eq!(escape_gfm_cell("a\\b"), "a\\\\b");
         assert_eq!(escape_gfm_cell("a\\|b"), "a\\\\\\|b");
+        // Regression for #439: a Windows-style path must render
+        // literally. GFM keeps a backslash before a non-punctuation
+        // character such as `m`, so `src\main.rs` would survive on its
+        // own; the escape is for the `\` that precedes a punctuation
+        // character or a `|`, and the policy escapes every `\` so the
+        // two cases cannot drift.
+        assert_eq!(escape_gfm_cell("src\\main.rs"), "src\\\\main.rs");
+        // A trailing backslash must not consume the closing column border.
+        assert_eq!(escape_gfm_cell("dir\\"), "dir\\\\");
     }
 
     /// A path's Markdown and HTML metacharacters must render as the
@@ -134,25 +144,6 @@ mod tests {
         // Ordinary paths are untouched: no escape is spent on a `.`, `/`,
         // `-` or `#`, which GFM renders literally in a cell.
         assert_eq!(escape_gfm_cell("src/a-b.c#1.rs"), "src/a-b.c#1.rs");
-    }
-
-    #[test]
-    fn escape_cell_escapes_backslash_before_pipe() {
-        // Regression for #439: a Windows-style path must render literally.
-        // GFM keeps a backslash before a non-punctuation character such
-        // as `m`, so `src\main.rs` would survive on its own; the escape is
-        // for the `\` that precedes a punctuation character or a `|`, and
-        // the policy escapes every `\` so the two cases cannot drift.
-        assert_eq!(escape_gfm_cell("src\\main.rs"), "src\\\\main.rs");
-        // `\` is escaped first so the cell cannot break out of the column:
-        // `a\|b` becomes `a\\\|b` (escaped backslash + escaped pipe), not
-        // `a\\|b` (which would split the cell).
-        assert_eq!(escape_gfm_cell("a\\|b"), "a\\\\\\|b");
-        // A trailing backslash must not consume the closing column border.
-        assert_eq!(escape_gfm_cell("dir\\"), "dir\\\\");
-        // Each line-break byte becomes one space: a CRLF pair is two.
-        assert_eq!(escape_gfm_cell("a\nb\rc"), "a b c");
-        assert_eq!(escape_gfm_cell("a\r\nb"), "a  b");
     }
 
     #[test]

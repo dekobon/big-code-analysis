@@ -119,10 +119,10 @@ fn fixture_git_builds_the_two_commit_repo() {
     );
 }
 
-/// A `git` independent of the fixture under test, for building and
-/// reading the victim repository: every inherited `GIT_*` removed and
-/// the host's configuration kept away, so the oracle cannot share a
-/// defect with the fixture's own `git`.
+/// The `git` that builds and reads the victim repository: its own
+/// removal loop over the inherited `GIT_*` variables, so a defect in
+/// the fixture's loop cannot reach it (the two share only the
+/// `is_git_var` prefix test), and the host's configuration kept away.
 fn clean_git(dir: &Path, args: &[&str]) -> String {
     let mut cmd = std::process::Command::new("git");
     for (key, _) in std::env::vars_os() {

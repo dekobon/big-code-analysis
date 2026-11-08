@@ -144,8 +144,9 @@ impl Loc for BashCode {
             // blank row as code. Telling the two apart needs the operator
             // position, not the child spans; until then the literal's rows
             // win, since they belong to valid input in both shapes. A
-            // bare-`\` prefix row is credited by
-            // `credit_bare_continuation_rows` above either way (#1445).
+            // bare-`\` prefix row is credited by the walk's
+            // `credit_bare_continuation_rows`, ahead of this arm, either
+            // way (#1445).
             HeredocRedirect => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);

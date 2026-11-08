@@ -504,18 +504,20 @@ pub struct Stats {
     space_count: usize,
     blank_min: usize,
     blank_max: usize,
-    /// Whether the file may hold a bare `\`-continuation row, so
-    /// `credit_bare_continuation_rows` has anything to find (#1821). A
-    /// per-file hint the walk copies into every space it opens from
-    /// [`may_hold_bare_rows`] over the whole source; `true` by default so
-    /// a `Stats` built outside the walk still scans. Kept in `PartialEq`
-    /// on purpose: two spaces of one file always agree, and a walk with
-    /// LOC unselected never writes it, so the unselected-metric contract
-    /// (`MetricsOptions::with_only`) holds by typed `==` too. Not an
-    /// output: `Display`, the wire shape and every accessor ignore it;
-    /// only `PartialEq` (and `Debug`) see it, so two spaces with
-    /// identical rows from files that differ on this hint compare
-    /// unequal (pinned by
+    /// Whether the file may hold a bare `\`-continuation row, as
+    /// [`may_hold_bare_rows`] over the whole source answers: a per-file
+    /// hint the walk copies into every space it opens (#1821), `true` by
+    /// default. Since #1818 the walk reads the hint once, before its
+    /// first node, to decide whether to build the bare-row credit at
+    /// all, so nothing reads this copy; it stays because removing a
+    /// field of a `Stats` is held for the next major (`STABILITY.md`),
+    /// and because it is in `PartialEq` on purpose: two spaces of one
+    /// file always agree, and a walk with LOC unselected never writes
+    /// it, so the unselected-metric contract (`MetricsOptions::with_only`)
+    /// holds by typed `==` too. Not an output: `Display`, the wire shape
+    /// and every accessor ignore it; only `PartialEq` (and `Debug`) see
+    /// it, so two spaces with identical rows from files that differ on
+    /// this hint compare unequal (pinned by
     /// `loc_stats_partial_eq_sees_the_bare_row_hint_the_wire_form_omits`).
     bare_rows_possible: bool,
 }
@@ -617,8 +619,8 @@ impl Stats {
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.blank_min = self.blank_min.min(other.blank_min);
         self.blank_max = self.blank_max.max(other.blank_max);
-        // `bare_rows_possible` is read only during the walk, and nothing
-        // reads it after, so there is nothing to fold.
+        // `bare_rows_possible` is the walk's per-file hint, the same in
+        // every space, so there is nothing to fold.
     }
 
     /// Seeds the bare-row hint from the walk; see the field's doc.
@@ -1153,7 +1155,6 @@ where
 
 mod continuation;
 mod shared;
-pub(crate) use continuation::BareRowIndex;
 pub(crate) use shared::*;
 
 // Real defaults — Loc counts on these "languages" would conflate
@@ -10007,7 +10008,7 @@ EOF
     }
 
     /// A no-`\` fixture and its twin holding one bare row, per grammar
-    /// that calls `credit_bare_continuation_rows`: the first skips the
+    /// with a `Loc::bare_rows` policy: the first skips the
     /// scan (no `bare_row_scans` recorded) and the second runs it, and
     /// each reads the rows it did before #1821. The deltas are read on
     /// this thread, which is the counter's.

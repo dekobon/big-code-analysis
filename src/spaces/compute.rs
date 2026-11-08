@@ -360,9 +360,10 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
 }
 
 /// Per-node classification the walker derives once and the metrics
-/// consume. Bundled rather than passed as loose `bool`s so the
-/// call site cannot transpose them — they are all same-typed flags
-/// about the node currently being visited.
+/// consume, with the one per-walk input `loc` reads per node. Bundled
+/// rather than passed as loose arguments so the call site cannot
+/// transpose the two `bool`s, which are same-typed flags about the node
+/// currently being visited.
 #[derive(Clone, Copy)]
 struct NodeFacts<'w> {
     /// This node opens a new [`FuncSpace`].
@@ -913,10 +914,12 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
     // Once per walk, ahead of every node: the C family's index reads
     // the whole file, and a file with no `\` row (the seed's hint)
     // builds nothing (#1818, #1821).
-    let bare_rows = selected
-        .contains(Metric::Loc)
-        .then(|| loc::BareRows::for_walk(T::Loc::bare_rows(), &node, code, seed.bare_rows_possible))
-        .flatten();
+    let bare_rows = loc::BareRows::for_walk(
+        T::Loc::bare_rows(),
+        &node,
+        code,
+        selected.contains(Metric::Loc) && seed.bare_rows_possible,
+    );
 
     stack.push((node, Walk::default()));
 

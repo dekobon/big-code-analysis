@@ -52,6 +52,7 @@
     clippy::cast_sign_loss
 )]
 
+use super::continuation::BareRowIndex;
 use super::*;
 use crate::lang_helpers::{
     bound_doc_run, documents_unbound, documents_where_it_sits, leading_doc_run,
@@ -388,7 +389,8 @@ pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
 // `  grep b` reported `ploc 2, blank 1` for one three-row command.
 //
 // C, C++, Mozcpp, Objective-C, Ruby and Elixir splice it the same way,
-// some inside a wider extras pattern, and call this too (#1801). That
+// some inside a wider extras pattern, and declare a policy on
+// `Loc::bare_rows` too (#1801). That
 // covers `#define`: a bare row between the name or parameters and the
 // body is padding in the directive, before `preproc_arg` starts, not
 // macro text the `PreprocArg` range credits, and so is one after a
@@ -445,12 +447,12 @@ pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
 // the external scanner takes as padding before a string start has no
 // node and never reaches this (#1825).
 //
-// A file with no row the scan could credit skips it at every node, before
-// the per-node bails below: the walk seeds `Stats::bare_rows_possible`
-// from `may_hold_bare_rows` over the whole source once (#1821). The exit
-// changes no output — `GapScan`
-// writes `stats` only in `credit`, which runs only for a bare row — so
-// `bare_row_scans` is what a test observes.
+// A file with no row the scan could credit skips it at every node: the
+// walk reads `may_hold_bare_rows` over the whole source once and builds
+// no `BareRows` for it, so this is never called (#1821). The exit
+// changes no output — `GapScan` writes `stats` only in `credit`, which
+// runs only for a bare row — so `bare_row_scans` is what a test
+// observes.
 #[inline]
 pub(crate) fn credit_bare_continuation_rows<'a>(
     node: &Node<'a>,
@@ -459,9 +461,6 @@ pub(crate) fn credit_bare_continuation_rows<'a>(
     stats: &mut Stats,
     bare_rows: &BareRows,
 ) {
-    if !stats.bare_rows_possible {
-        return;
-    }
     let parent = ancestors.parent(node);
     let is_root = parent.is_none();
     if !is_root
@@ -498,7 +497,7 @@ pub(crate) enum BareRowPolicy {
 }
 
 impl BareRowPolicy {
-    pub(crate) fn comments(self) -> BareRowComments {
+    fn comments(self) -> BareRowComments {
         match self {
             Self::Gap(comments) | Self::Indexed(comments) => comments,
         }
@@ -560,8 +559,9 @@ pub(super) enum BareRow {
 
 // What the row read so far holds, for the bare-row test: optional
 // horizontal whitespace, one `\`, and an optional `\r` before the newline.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum RowShape {
+    #[default]
     Blank,
     Backslash,
     BackslashCr,
