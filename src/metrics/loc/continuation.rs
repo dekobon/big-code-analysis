@@ -109,7 +109,7 @@ impl Indexer {
         self.shape = self.shape.step(byte);
         if commented {
             self.comment_seen = true;
-        } else if is_code(code, at) {
+        } else if is_code(code, at, byte) {
             self.code_seen = true;
         }
     }
@@ -144,17 +144,18 @@ impl Indexer {
     }
 }
 
-// Whether the byte at `at`, outside any comment, is code: anything but
-// the padding the grammars skip, a `\r`, and the one `\` a newline
+// Whether `byte`, at `at` and outside any comment, is code: anything
+// but the padding the grammars skip, a `\r`, and the one `\` a newline
 // splices away. A `\` that is not that — mid-row, or the first of an
 // even run before a newline — is a stray token, which is code.
-fn is_code(code: &[u8], at: usize) -> bool {
-    match code.get(at..).unwrap_or_default() {
-        [b'\\', b'\n', ..] | [b'\\', b'\r', b'\n', ..] => false,
-        [b'\\', ..] => true,
-        [byte, ..] => !is_horizontal_space(*byte) && *byte != b'\r',
-        [] => false,
+fn is_code(code: &[u8], at: usize, byte: u8) -> bool {
+    if byte == b'\\' {
+        return !matches!(
+            code.get(at.saturating_add(1)..).unwrap_or_default(),
+            [b'\n', ..] | [b'\r', b'\n', ..]
+        );
     }
+    !is_horizontal_space(byte) && byte != b'\r'
 }
 
 // Whether the newline at `newline` is spliced: the row's last byte

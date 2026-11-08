@@ -122,22 +122,18 @@ impl Loc for ElixirCode {
                     // literal is one `escape_sequence` leaf spanning two
                     // rows, which the `quoted_content` arm never sees: the
                     // start row is credited above, and the rows it runs on
-                    // to are the literal's too (#1816). Gated on the parent
-                    // so a recovery leaf outside a literal credits only its
-                    // own row, as before. `quoted_content`'s owners are the
-                    // same five, by the grammar's `_quoted_i_*` rules.
-                    if node.kind_id() == E::EscapeSequence
-                        && ancestors.parent(node).is_some_and(|p| {
-                            matches!(
-                                p.kind_id().into(),
-                                E::String
-                                    | E::Charlist
-                                    | E::Sigil
-                                    | E::QuotedAtom
-                                    | E::QuotedKeyword
-                            )
-                        })
-                    {
+                    // to are the literal's too (#1816). The grammar's
+                    // `_quoted_i_*` rules give the leaf exactly five parents
+                    // — `string`, `charlist`, `sigil`, `quoted_atom` and
+                    // `quoted_keyword`, each a literal that owns its rows
+                    // (`escape_sequence_parents_are_the_literals` pins the
+                    // set against a grammar bump) — so no parent gate is
+                    // needed for valid input. Under recovery the leaf can
+                    // sit directly in an `ERROR` (`def f do "a\` + `\` +
+                    // `end`, where the string swallows `end`): the rows are
+                    // still the literal text the writer typed, so they are
+                    // credited there too, where a gate left them blank.
+                    if node.kind_id() == E::EscapeSequence {
                         add_string_interior_ploc(node, stats, start);
                     }
                 }

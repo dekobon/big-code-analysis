@@ -543,4 +543,59 @@ mod tests {
         assert_eq!(tokens.len(), 3);
         assert_eq!(paid, tokens[1..]);
     }
+
+    /// The parents an `escape_sequence` can have, as the grammar's
+    /// `node-types.json` declares them: the five quoted literals, each of
+    /// which owns every row it spans. The root crate's `loc` arm credits
+    /// a spanning escape's interior rows on that basis with no parent
+    /// gate (#1816), so a grammar bump that gives the leaf a sixth parent
+    /// — one that is not a literal, or a wrapper between the leaf and
+    /// its literal — must change this list and that arm together. A
+    /// parent can also reach the leaf through a supertype whose
+    /// `subtypes` list it, so the leaf's supertypes are collected first
+    /// and a parent naming any of them counts; today none does.
+    // test-lang-gates: hand-written(elixir) — reads the grammar crate's
+    //     `NODE_TYPES`, which exists only under the `elixir` feature
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn escape_sequence_parents_are_the_literals() {
+        let node_types: serde_json::Value = serde_json::from_str(tree_sitter_elixir::NODE_TYPES)
+            .expect("the grammar crate ships valid node-types.json");
+        let types = node_types.as_array().into_iter().flatten();
+        let mut names: std::collections::BTreeSet<&str> = ["escape_sequence"].into();
+        for t in types.clone() {
+            let subtypes = t["subtypes"].as_array().into_iter().flatten();
+            if subtypes.clone().any(|s| s["type"] == "escape_sequence")
+                && let Some(name) = t["type"].as_str()
+            {
+                names.insert(name);
+            }
+        }
+        let parents: std::collections::BTreeSet<&str> = types
+            .filter(|t| {
+                let children = t["children"]["types"].as_array().into_iter().flatten();
+                let fields = t["fields"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|(_, f)| f["types"].as_array().into_iter().flatten());
+                children
+                    .chain(fields)
+                    .any(|c| c["type"].as_str().is_some_and(|n| names.contains(n)))
+            })
+            .filter_map(|t| t["type"].as_str())
+            .collect();
+        assert_eq!(
+            parents,
+            [
+                "charlist",
+                "quoted_atom",
+                "quoted_keyword",
+                "sigil",
+                "string"
+            ]
+            .into_iter()
+            .collect()
+        );
+    }
 }

@@ -8978,7 +8978,8 @@ EOF
     /// #1801's fixtures for the four C-family grammars, each of which lists
     /// `\s|\\\r?\n` among its extras, so a bare `\` row in padding has no
     /// node, as in Bash. Every fixture passes `gcc -x c`, `g++ -x c++` and
-    /// `clang -x objective-c` with `-fsyntax-only`.
+    /// `clang -x objective-c` with `-fsyntax-only`, except the one marked
+    /// as a stray `\` the compilers reject and the grammar recovers.
     ///
     /// expected: translation phase 2 splices each `\` + newline before
     /// anything else is read, so a bare row in padding is its logical line:
@@ -9032,6 +9033,17 @@ EOF
         // `int z = 1;`; the `\` is no token, so the comment row stays
         // comment-only.
         (b"/* c */ \\\n\\\nint z = 1;\n", (3, 2, 1, 0), 1),
+        // An even run after a comment: phase 2 removes the last `\` and
+        // leaves a stray `\`, which `gcc` rejects ("stray '\\' in
+        // program"; the table's one invalid fixture) and the grammar
+        // recovers as an `ERROR` token. To the index it is code on a
+        // line that otherwise holds only the comment, so the bare row
+        // it continues is code, not a comment: `(4, 2, 2, 1)` if the
+        // stray read as nothing. A `\\` followed by a space before the
+        // newline splices nothing, and the bare row after it joins the
+        // empty row and is blank.
+        (b"/* c */ \\\\\n\\\n\nint z;\n", (4, 3, 1, 1), 2),
+        (b"int a; \\\\ \n\\\n\nint z;\n", (4, 2, 0, 2), 2),
         // A row of comments alone before its `\` starts a line with no
         // code, which the rows after it decide: `gcc -E -C -P` keeps
         // `/* c */ // d` as one comment line, and an empty row adds nothing
@@ -9426,6 +9438,13 @@ EOF
                 // credit is per leaf, not the whole literal.
                 (b"x = \"a\\nb\"\ny = 1\n", (2, 2, 0, 0), 0),
                 (b"x = \"a#{\n# note\n1\n}b\"\n\n", (5, 3, 1, 1), 0),
+                // Recovery: an unterminated string swallows `end`, and the
+                // grammar leaves the string's tokens directly in an
+                // `ERROR` with no `string` parent. The escape's rows are
+                // still the literal text the writer typed, so they are
+                // code; a credit gated on a literal parent read the bare
+                // row blank here, `(3, 2, 0, 1)`.
+                (b"def f do \"a\\\n\\\nend\n", (3, 3, 0, 0), 1),
             ],
         );
     }
