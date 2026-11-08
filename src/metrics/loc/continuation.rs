@@ -34,36 +34,16 @@
 
 use super::shared::{RowShape, is_horizontal_space};
 use super::*;
-use crate::node::Cursor;
 
 // Indexes built, for the test that pins one build per walk: the output
 // cannot tell one from a build per node, which would be the walk's
 // node count times the file.
 crate::observation::counter!(bare_row_indexes_built);
 
-/// What a bare row is, or that a row is not bare.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RowClass {
-    NotBare,
-    Code,
-    Comment,
-    Blank,
-}
-
-impl RowClass {
-    fn bare(self) -> Option<BareRow> {
-        match self {
-            Self::NotBare => None,
-            Self::Code => Some(BareRow::Code),
-            Self::Comment => Some(BareRow::Comment),
-            Self::Blank => Some(BareRow::Blank),
-        }
-    }
-}
-
-/// The class of every bare row in one file.
+/// The class of every bare row in one file, `None` for a row that is
+/// not bare. `Option<BareRow>` has a niche, so this is one byte per row.
 pub(super) struct BareRowIndex {
-    rows: Vec<RowClass>,
+    rows: Vec<Option<BareRow>>,
 }
 
 impl BareRowIndex {
@@ -71,9 +51,8 @@ impl BareRowIndex {
     /// `root` (the kinds `is_comment` lists).
     pub(super) fn build(root: &Node<'_>, code: &[u8], is_comment: fn(u16) -> bool) -> Self {
         bare_row_indexes_built::record();
-        let spans = comment_spans(root, is_comment);
         let mut index = Indexer::default();
-        let mut comments = spans.iter().copied().peekable();
+        let mut comments = comment_spans(root, is_comment).into_iter().peekable();
         for (at, &byte) in code.iter().enumerate() {
             while comments.peek().is_some_and(|&(_, end)| end <= at) {
                 comments.next();
@@ -93,7 +72,7 @@ impl BareRowIndex {
     /// What bare `row` is; `None` for a row that is not bare, which the
     /// scan never asks about.
     pub(super) fn class(&self, row: usize) -> Option<BareRow> {
-        self.rows.get(row).and_then(|class| class.bare())
+        self.rows.get(row).copied().flatten()
     }
 }
 
@@ -102,7 +81,7 @@ impl BareRowIndex {
 // where the current physical row began and what it holds.
 #[derive(Default)]
 struct Indexer {
-    rows: Vec<RowClass>,
+    rows: Vec<Option<BareRow>>,
     pending: Vec<usize>,
     code_seen: bool,
     comment_seen: bool,
@@ -130,7 +109,7 @@ impl Indexer {
         self.shape = self.shape.step(byte);
         if commented {
             self.comment_seen = true;
-        } else if is_code(code, at, byte) {
+        } else if is_code(code, at) {
             self.code_seen = true;
         }
     }
@@ -139,7 +118,7 @@ impl Indexer {
     // logical line settles it, bare ones pending until then.
     fn end_row(&mut self) {
         let row = self.rows.len();
-        self.rows.push(RowClass::NotBare);
+        self.rows.push(None);
         if self.shape.is_bare() {
             self.pending.push(row);
         }
@@ -149,15 +128,15 @@ impl Indexer {
     // line held.
     fn settle(&mut self) {
         let class = if self.code_seen {
-            RowClass::Code
+            BareRow::Code
         } else if self.comment_seen {
-            RowClass::Comment
+            BareRow::Comment
         } else {
-            RowClass::Blank
+            BareRow::Blank
         };
         for row in self.pending.drain(..) {
             if let Some(slot) = self.rows.get_mut(row) {
-                *slot = class;
+                *slot = Some(class);
             }
         }
         self.code_seen = false;
@@ -165,15 +144,17 @@ impl Indexer {
     }
 }
 
-// Whether `byte`, outside any comment, is code: anything but the
-// padding the grammars skip, a `\r`, and the one `\` a newline splices
-// away. A `\` that is not that — mid-row, or the first of an even run
-// before a newline — is a stray token, which is code.
-fn is_code(code: &[u8], at: usize, byte: u8) -> bool {
-    if byte == b'\\' {
-        return !at_splice(code, at);
+// Whether the byte at `at`, outside any comment, is code: anything but
+// the padding the grammars skip, a `\r`, and the one `\` a newline
+// splices away. A `\` that is not that — mid-row, or the first of an
+// even run before a newline — is a stray token, which is code.
+fn is_code(code: &[u8], at: usize) -> bool {
+    match code.get(at..).unwrap_or_default() {
+        [b'\\', b'\n', ..] | [b'\\', b'\r', b'\n', ..] => false,
+        [b'\\', ..] => true,
+        [byte, ..] => !is_horizontal_space(*byte) && *byte != b'\r',
+        [] => false,
     }
-    !is_horizontal_space(byte) && byte != b'\r'
 }
 
 // Whether the newline at `newline` is spliced: the row's last byte
@@ -186,22 +167,13 @@ fn splices(code: &[u8], row_start: usize, newline: usize) -> bool {
     row.last() == Some(&b'\\')
 }
 
-// Whether the `\` at `at` is the one a newline splices away: followed
-// by LF or CRLF.
-fn at_splice(code: &[u8], at: usize) -> bool {
-    matches!(
-        code.get(at.saturating_add(1)..).unwrap_or_default(),
-        [b'\n', ..] | [b'\r', b'\n', ..]
-    )
-}
-
 // The byte spans of the comment nodes under `root`, in source order.
 // A cursor walk rather than `descendant` lookups: each node is visited
 // once, so the collection is linear in the tree, under a flat `ERROR`
 // included.
 fn comment_spans(root: &Node<'_>, is_comment: fn(u16) -> bool) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
-    let mut cursor: Cursor<'_> = root.cursor();
+    let mut cursor = root.cursor();
     loop {
         let node = cursor.node();
         let comment = is_comment(node.kind_id());

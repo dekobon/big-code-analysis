@@ -773,9 +773,7 @@ impl<'a> GapScan<'_, 'a> {
         gap_start: usize,
         next: Option<&Cursor<'a>>,
     ) -> BareRow {
-        if let Some(index) = self.index
-            && let Some(class) = index.class(row)
-        {
+        if let Some(class) = self.index.and_then(|index| index.class(row)) {
             return class;
         }
         if let Some((bare_row, class)) = self.previous_bare

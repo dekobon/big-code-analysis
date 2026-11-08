@@ -2957,19 +2957,7 @@ fn assert_no_user_name(repo: &std::path::Path, env: &[(&str, &str)]) {
 /// isolation the fixtures use, trimmed. A bare read-back would inherit
 /// the host's configuration, where a `log.decorate = full` changes `%D`.
 fn git_head(repo: &std::path::Path, format: &str, env: &[(&str, &str)]) -> String {
-    let out = fixture_git()
-        .args(["log", "-1", &format!("--format={format}")])
-        .current_dir(repo)
-        .envs(env.iter().copied())
-        .envs(isolated_git_env())
-        .output()
-        .expect("spawn git log");
-    assert!(
-        out.status.success(),
-        "git log failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    git_output(repo, &["log", "-1", &format!("--format={format}")], env)
 }
 
 /// The `/vcs` fixture's `git` must not read the host's configuration,
@@ -3004,20 +2992,25 @@ async fn build_temp_repo_ignores_the_hosts_global_and_system_config() {
 fn fixtures_build_their_repos() {
     let vcs = build_temp_repo();
     assert_eq!(git_head(vcs.path(), "%an %D", &[]), "Ada HEAD -> main");
-    assert_eq!(git_output(vcs.path(), &["ls-files"]), "work.rs");
+    assert_eq!(git_output(vcs.path(), &["ls-files"], &[]), "work.rs");
     let trend = build_trend_repo();
     assert_eq!(
-        git_output(trend.path(), &["rev-list", "--count", "HEAD"]),
+        git_output(trend.path(), &["rev-list", "--count", "HEAD"], &[]),
         "2"
     );
-    assert_eq!(git_output(trend.path(), &["ls-files"]), "early.rs\nlate.rs");
+    assert_eq!(
+        git_output(trend.path(), &["ls-files"], &[]),
+        "early.rs\nlate.rs"
+    );
 }
 
-/// `git <args>` in `repo` through the fixtures' isolation, trimmed.
-fn git_output(repo: &std::path::Path, args: &[&str]) -> String {
+/// `git <args>` in `repo` under `env` plus the fixtures' isolation,
+/// trimmed.
+fn git_output(repo: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> String {
     let out = fixture_git()
         .args(args)
         .current_dir(repo)
+        .envs(env.iter().copied())
         .envs(isolated_git_env())
         .output()
         .expect("spawn git");
