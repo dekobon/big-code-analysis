@@ -162,6 +162,12 @@ body compiles to green with zero assertions off target. Put the gate on
 the function's attribute stack. Mirror the production code's platform
 logic in fixtures (`bca{EXE}`), not one OS's spelling.
 
+The forward trap: a private helper called only from `#[cfg(unix)]`
+tests is dead code on every other target, and CI builds the test
+targets there under `-D warnings`. Gate the helper as the test is
+gated (`derived_parity_tests.rs`'s `rerun_listing_test_with`); a
+`make pre-commit` on the host that has the callers cannot see it.
+
 ### Gate a feature-gated fixture table on the union of its rows
 
 - A fixture table built from `#[cfg(feature = …)]` rows needs both

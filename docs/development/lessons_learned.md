@@ -160,6 +160,7 @@ number and the higher number stays as a redirect.
 | [114](#114-a-fallback-that-rebuilds-what-you-withheld-answers-as-if-you-had-not) | A fallback that rebuilds what you withheld answers as if you had not |
 | [115](#115-sharing-the-rule-left-the-list-at-every-caller-sharing-the-list-leaves-the-judgement) | Sharing the rule left the list at every caller; sharing the list leaves the judgement |
 | [116](#116-a-dead-code-census-describes-the-target-it-was-taken-on) | A dead-code census describes the target it was taken on |
+| [117](#117-a-gap-is-scanned-before-the-tokens-that-decide-it) | A gap is scanned before the tokens that decide it |
 
 ---
 
@@ -5195,5 +5196,38 @@ by an attribute you did not notice — the crate root's
 `cfg_attr(not(feature = "all-languages"), allow(dead_code))` here
 silences every partial-feature build — and "no warnings" cannot tell
 a live lint from a muted one (lesson 80's shape).
+
+---
+
+## 117. A gap is scanned before the tokens that decide it
+
+**Lesson:** When a per-node walk answers a question about the padding
+*between* a node's children — a bare `\` row, a blank run, anything no
+token covers — and the answer depends on the logical line the padding
+belongs to, do not read the line from the gap's neighbours. The scan
+of one node sees its children as spans, not tokens: a sibling that
+*ends* a row is opaque, a child's own gaps are scanned on a later
+visit, and any window of "the N children before the gap" is a bound a
+long enough line outruns. Settle the per-line answer once, in a pass
+over the whole source taken before the first node, and have the gap
+scan look it up. A lookup that is linear and wrong cannot be caught by
+a scaling probe; the value tables and an exact build counter are what
+pin it (cf. lesson 52).
+
+**The `/* a */ \` + `/* b */ \` + `\` chain read its bare row as code**
+(#1818). `GapScan` decided a bare row from the three children before
+its gap and refused outright any comment row that itself continued an
+earlier row, so the bare row after the second comment read as code,
+and a row of four comments ran the window out the same way; the
+pre-fix tuples were `(5, 2, 2, 1)` and `(4, 2, 1, 1)` against
+`(5, 1, 3, 1)` and `(4, 1, 2, 1)`. The issue's sketch widened the
+window to a `comment-only-so-far` flag carried through
+`GapScan::scan`; it would have read a sibling `declaration` as one
+span and known nothing of the tokens inside it. The fix is
+`BareRowIndex` (`src/metrics/loc/continuation.rs`): one cursor walk
+collects the comment spans, one forward pass over the bytes settles
+every bare row's class at its logical line's end, built once in
+`metrics_inner` and read by `classify` in O(1); an exact
+`bare_row_indexes_built == 1` pins that it is not rebuilt per node.
 
 ---
