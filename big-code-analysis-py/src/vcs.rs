@@ -725,5 +725,28 @@ mod tests {
             "GIT_OBJECT_DIRECTORY",
             gone.path().join("gone").join("quarantine"),
         )]);
+        // Pins the path, not only the child's success: a git that created
+        // both levels, or a scrub that dropped the variable only after
+        // `init`, would pass the rerun and leave the directory behind.
+        assert!(
+            !gone.path().join("gone").exists(),
+            "the fixture's git used the inherited object directory"
+        );
+    }
+
+    /// `is_git_var` reads the name's first four bytes, so a short name, a
+    /// name that merely starts `GIT` (`GITHUB_TOKEN`) and an empty one are
+    /// not git's; a lowercase spelling is on Windows alone, where
+    /// environment names are case-insensitive. Host-independent, so the
+    /// Windows branch runs there while the child reruns stay unix-only.
+    #[test]
+    fn is_git_var_reads_the_prefix_as_the_host_does() {
+        use std::ffi::OsStr;
+        assert!(is_git_var(OsStr::new("GIT_DIR")));
+        assert!(is_git_var(OsStr::new("GIT_")));
+        assert!(!is_git_var(OsStr::new("GITHUB_TOKEN")));
+        assert!(!is_git_var(OsStr::new("GIT")));
+        assert!(!is_git_var(OsStr::new("")));
+        assert_eq!(is_git_var(OsStr::new("git_dir")), cfg!(windows));
     }
 }
