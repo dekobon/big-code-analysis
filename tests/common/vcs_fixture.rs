@@ -187,19 +187,20 @@ fn configure(dir: &Path) {
 
 /// Run `git <args>` in `dir` with extra environment, asserting success.
 ///
-/// The host's global and system configuration are switched off for every
-/// call, and after `env` so no caller can switch them back on. The
-/// per-repository pins in [`configure`] cannot cover the commands that
-/// create the repository: `git clone` fires `reference-transaction` and
-/// `post-checkout` before there is a repository to pin, and `git init`
-/// fires `reference-transaction` too on a git whose `init` writes `HEAD`
-/// through a ref transaction (2.46 and later), so a contributor's global
-/// `core.hooksPath` used to reach them. `core.excludesFile` and
-/// `core.attributesFile` are pinned as well: their defaults
-/// (`$XDG_CONFIG_HOME/git/ignore` and `…/attributes`) are not
-/// configuration files, so the first two variables leave them live, and
-/// an `ignore` of `*` makes `git add -A` stage nothing (#1771). Git for
-/// Windows maps `/dev/null` to `NUL`.
+/// Every `GIT_*` variable the test process inherited is dropped first
+/// (see [`command`]), then `env` is applied, then the host's global and
+/// system configuration are switched off, after `env` so no caller can
+/// switch them back on. The per-repository pins in [`configure`] cannot
+/// cover the commands that create the repository: `git clone` fires
+/// `reference-transaction` and `post-checkout` before there is a
+/// repository to pin, and `git init` fires `reference-transaction` too
+/// on a git whose `init` writes `HEAD` through a ref transaction (2.46
+/// and later), so a contributor's global `core.hooksPath` used to reach
+/// them. `core.excludesFile` and `core.attributesFile` are pinned as
+/// well: their defaults (`$XDG_CONFIG_HOME/git/ignore` and
+/// `…/attributes`) are not configuration files, so the first two
+/// variables leave them live, and an `ignore` of `*` makes `git add -A`
+/// stage nothing (#1771). Git for Windows maps `/dev/null` to `NUL`.
 fn run_git(dir: &Path, args: &[&str], env: &[(&str, &str)]) {
     let status = command(dir, args, env).status().expect("spawn git");
     assert!(status.success(), "git {args:?} failed");
@@ -232,9 +233,27 @@ pub fn assert_no_user_name(dir: &Path, env: &[(&str, &str)]) {
     );
 }
 
+/// A `git` for the fixture, built in three layers: the inherited `GIT_*`
+/// variables removed, then `env`, then the isolation pins.
+///
+/// The removal comes first because git exports `GIT_DIR` and
+/// `GIT_INDEX_FILE` to its hooks, and `GIT_DIR` to `git rebase --exec`
+/// in a linked worktree; inherited, they outrank `current_dir`, so the
+/// fixture's `init`, `add` and `commit` wrote into the checkout running
+/// the test (#1846). `GIT_CONFIG_PARAMETERS` likewise outranks the pins
+/// below. Every `GIT_*` goes, as `fixture_git` in the AST crate's
+/// `roles/derived_parity_tests.rs` drops them, so an inherited variable
+/// this list never names cannot reach the fixture either; `env` then
+/// restores what a caller means to set, which is how `commit_with_env`
+/// still carries its author and dates.
 fn command(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(dir);
+    for (key, _) in std::env::vars_os() {
+        if is_git_var(&key) {
+            cmd.env_remove(key);
+        }
+    }
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -246,4 +265,20 @@ fn command(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
         .env("GIT_CONFIG_KEY_1", "core.attributesFile")
         .env("GIT_CONFIG_VALUE_1", "/dev/null");
     cmd
+}
+
+/// Whether `key` names a `GIT_*` variable. Byte-wise on the encoded
+/// name, so a non-UTF-8 name is still read; ASCII-case-insensitive on
+/// Windows, where environment names are, so `git_dir` reaches the same
+/// variable `GIT_DIR` does.
+pub fn is_git_var(key: &std::ffi::OsStr) -> bool {
+    let bytes = key.as_encoded_bytes();
+    let Some(prefix) = bytes.get(..4) else {
+        return false;
+    };
+    if cfg!(windows) {
+        prefix.eq_ignore_ascii_case(b"GIT_")
+    } else {
+        prefix == b"GIT_"
+    }
 }

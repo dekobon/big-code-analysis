@@ -13,8 +13,13 @@
 //! cross workspace members, so the twelve lines are repeated here
 //! rather than published.
 //!
-//! Each call sets, *after* the caller's environment so no caller can
-//! switch them back on:
+//! Each call first drops every `GIT_*` variable the test process
+//! inherited: git exports `GIT_DIR` and `GIT_INDEX_FILE` to its hooks,
+//! and `GIT_DIR` to `git rebase --exec` in a linked worktree, and
+//! inherited they outrank `current_dir`, so a fixture's `init`, `add`
+//! and `commit` wrote into the checkout running the test (#1846). Then
+//! it applies the caller's environment, and then, *after* it so no
+//! caller can switch them back on:
 //!
 //! - `GIT_CONFIG_GLOBAL=/dev/null` — no `~/.gitconfig`, and no
 //!   `$XDG_CONFIG_HOME/git/config` either, since git reads the XDG file
@@ -137,6 +142,11 @@ pub fn assert_no_user_name(dir: &Path, env: &[(&str, &str)]) {
 fn command(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(dir);
+    for (key, _) in std::env::vars_os() {
+        if is_git_var(&key) {
+            cmd.env_remove(key);
+        }
+    }
     cmd.envs(env.iter().copied());
     cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -146,6 +156,22 @@ fn command(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Command {
         .env("GIT_CONFIG_KEY_1", "core.attributesFile")
         .env("GIT_CONFIG_VALUE_1", "/dev/null");
     cmd
+}
+
+/// Whether `key` names a `GIT_*` variable. Byte-wise on the encoded
+/// name, so a non-UTF-8 name is still read; ASCII-case-insensitive on
+/// Windows, where environment names are, so `git_dir` reaches the same
+/// variable `GIT_DIR` does.
+pub fn is_git_var(key: &std::ffi::OsStr) -> bool {
+    let bytes = key.as_encoded_bytes();
+    let Some(prefix) = bytes.get(..4) else {
+        return false;
+    };
+    if cfg!(windows) {
+        prefix.eq_ignore_ascii_case(b"GIT_")
+    } else {
+        prefix == b"GIT_"
+    }
 }
 
 /// A host whose git configuration breaks every fixture that reads it.

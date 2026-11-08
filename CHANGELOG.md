@@ -95,6 +95,22 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **The test suites' scratch git repositories no longer inherit a
+  `GIT_DIR`** (#1846). Every fixture that builds a repository through the
+  `git` CLI — the library's `tests/common/vcs_fixture.rs`, the CLI's
+  integration and unit fixtures, the web server's `/vcs` and `/vcs/trend`
+  fixtures and their read-backs, and the Python bindings' unit fixture —
+  pinned the host's configuration away but kept every other inherited
+  `GIT_*` variable. Git exports `GIT_DIR` and `GIT_INDEX_FILE` to its
+  hooks, and `GIT_DIR` to `git rebase --exec` in a linked worktree;
+  inherited, they outrank the fixture's working directory, so its `init`,
+  `add` and `commit` wrote into the checkout running the tests. Each
+  fixture now drops every inherited `GIT_*` variable before applying its
+  own, as the AST crate's corpus fixture has since #1845, and each suite
+  re-runs its fixture in a child process with `GIT_DIR` and
+  `GIT_INDEX_FILE` naming a victim repository, which must come through
+  untouched, and with `GIT_OBJECT_DIRECTORY` naming a directory that does
+  not exist. Test-only; no shipped behaviour changes.
 - **`make role-coverage-observe` samples the same files at any checkout
   depth** (#1836). It walked each corpus directory, so a checkout with
   the corpora's own submodules initialised — as the benchmarking guide's

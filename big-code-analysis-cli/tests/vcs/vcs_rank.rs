@@ -99,6 +99,131 @@ fn fixture_git_ignores_the_hosts_global_and_system_config() {
     );
 }
 
+/// The fixture alone, read back through its own `git`: two commits on
+/// `main`, the file tracked. The target the child-process tests below
+/// re-run, so it spawns no `bca` — what a redirected `bca` would read is
+/// the production walker's question, not the fixture's.
+#[test]
+fn fixture_git_builds_the_two_commit_repo() {
+    use crate::common::git_fixture::git_output;
+
+    let repo = repo_two_commits();
+    assert_eq!(
+        git_output(repo.path(), &["rev-list", "--count", "HEAD"], &[]),
+        "2"
+    );
+    assert_eq!(git_output(repo.path(), &["ls-files"], &[]), "src/work.rs");
+    assert_eq!(
+        git_output(repo.path(), &["log", "-1", "--format=%an %D"], &[]),
+        "Ada HEAD -> main"
+    );
+}
+
+/// A `git` independent of the fixture under test, for building and
+/// reading the victim repository: every inherited `GIT_*` removed and
+/// the host's configuration kept away, so the oracle cannot share a
+/// defect with the fixture's own `git`.
+fn clean_git(dir: &Path, args: &[&str]) -> String {
+    let mut cmd = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if crate::common::git_fixture::is_git_var(&key) {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@x"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Re-runs [`fixture_git_builds_the_two_commit_repo`] in a child test
+/// binary with `vars` exported, and asserts that it passed. A test
+/// cannot set its own process's environment without `unsafe`, and the
+/// fixture reads it through `Command`, so the variables are set on a
+/// child instead. The name is module-qualified: libtest's `--exact`
+/// matches the full path.
+fn rerun_fixture_test_with(vars: &[(&str, std::path::PathBuf)]) {
+    let child = format!(
+        "{}::fixture_git_builds_the_two_commit_repo",
+        module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .expect("the test module is nested under the crate root")
+    );
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", &child, "--format", "pretty"])
+        .envs(vars.iter().map(|(k, v)| (k, v)))
+        .output()
+        .expect("spawn the child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "{child} must pass with {vars:?} inherited; stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A hook, and `git rebase --exec` in a linked worktree, export `GIT_DIR`
+/// and `GIT_INDEX_FILE`, and both outrank `current_dir` (#1846). The
+/// fixture test is re-run in a child with that pair naming another
+/// repository: the child must pass, and that repository must come
+/// through untouched. Verified by revert: without the scrub in
+/// `git_fixture::command` the child's `init`, `add` and `commit` land in
+/// the victim — its HEAD moves and its index lists `src/work.rs`.
+#[cfg(unix)]
+#[test]
+fn fixture_git_ignores_an_inherited_repository() {
+    let victim = tempfile::tempdir().expect("tempdir");
+    std::fs::write(victim.path().join("keep.rs"), "fn keep() {}\n").expect("write");
+    clean_git(victim.path(), &["init", "-q", "-b", "main"]);
+    clean_git(victim.path(), &["add", "keep.rs"]);
+    clean_git(victim.path(), &["commit", "-q", "-m", "victim"]);
+    let state = || {
+        (
+            clean_git(victim.path(), &["rev-parse", "HEAD"]),
+            clean_git(victim.path(), &["ls-files", "-s"]),
+        )
+    };
+    let before = state();
+    assert!(before.1.contains("keep.rs"), "the victim tracks keep.rs");
+    let git_dir = victim.path().join(".git");
+    rerun_fixture_test_with(&[
+        ("GIT_DIR", git_dir.clone()),
+        ("GIT_INDEX_FILE", git_dir.join("index")),
+    ]);
+    assert_eq!(state(), before, "the inherited repository was written to");
+}
+
+/// `GIT_OBJECT_DIRECTORY`, which a `receive-pack` quarantine hook
+/// exports, replaces the object store git reads; once the quarantine it
+/// names is gone, discovery itself fails with `not a git repository`.
+/// The fixture test is re-run in a child with it naming a directory
+/// whose parent does not exist either: `git init` creates one missing
+/// level of an object directory, so a path one level down would let the
+/// unscrubbed fixture succeed. Kept apart from the repository case
+/// above: a fixture that failed to start would leave that case's victim
+/// untouched for the wrong reason. Verified by revert: without the
+/// scrub the child's `git init` fails.
+#[cfg(unix)]
+#[test]
+fn fixture_git_ignores_an_inherited_object_directory() {
+    let gone = tempfile::tempdir().expect("tempdir");
+    rerun_fixture_test_with(&[(
+        "GIT_OBJECT_DIRECTORY",
+        gone.path().join("gone").join("quarantine"),
+    )]);
+}
+
 #[test]
 fn vcs_json_ranks_the_tracked_file() {
     let repo = repo_two_commits();
