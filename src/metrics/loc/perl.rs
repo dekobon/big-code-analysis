@@ -67,6 +67,14 @@ impl Loc for PerlCode {
             // PLOC to match Python's #415 decision (#778). `HeredocBodyStatement`
             // / `HeredocContent` are the body of a `<<EOT … EOT` heredoc; the
             // quoted forms span rows when their literal text contains newlines.
+            // A `qw()` list and the five pattern forms own their rows the
+            // same way: an empty row between two `qw` words is covered by
+            // no child, and a pattern's text is one `regex_pattern_content`
+            // leaf credited at its start row, so a `\` + newline + `\` +
+            // newline inside it, or an empty row in a replacement half,
+            // fell to `blank` (#1816, the Perl shape of Ruby's `%w[]` and
+            // regex). Each has an opening token the catch-all credits on
+            // its row, so the helper's same-row skip is safe here too.
             P::HeredocBodyStatement
             | P::HeredocContent
             | P::StringSingleQuoted
@@ -74,7 +82,13 @@ impl Loc for PerlCode {
             | P::StringQQuoted
             | P::StringQqQuoted
             | P::BacktickQuoted
-            | P::CommandQxQuoted => {
+            | P::CommandQxQuoted
+            | P::WordListQw
+            | P::RegexPatternQr
+            | P::PatternMatcherM
+            | P::PatternMatcher
+            | P::SubstitutionPatternS
+            | P::TransliterationTrOrY => {
                 add_multiline_string_ploc(node, ancestors, stats, start);
             }
             P::Comments | P::PodStatement => {
@@ -219,5 +233,99 @@ mod tests {
         for (source, expected) in cases {
             assert_eq!(loc_of(source), *expected, "{source}");
         }
+    }
+
+    /// #1816's Perl shape: a `qw()` list and the five pattern forms span
+    /// rows whose interior reaches no child — an empty row between two
+    /// `qw` words is covered by nothing, and a pattern's text is one
+    /// `regex_pattern_content` leaf credited at its start row — so each
+    /// such row fell to `blank = sloc - ploc - cloc`. Every fixture
+    /// passes `perl -c` (5.34).
+    ///
+    /// expected: every row of the literal is code, as the string twin
+    /// `q(a` / `` / `b)` already read; `dloc` 0 throughout. Before the
+    /// fix each three-row literal read `ploc` one short and `blank` 1,
+    /// the five-row `qw` `(5, 4, 0, 0, 1)` and the substitution with a
+    /// blank in each half `(5, 3, 0, 0, 2)`. The rows with an empty row
+    /// *outside* the literal pin that the credit stops at the closing
+    /// delimiter: `blank()` saturates at zero, so a credit one row too
+    /// far would hide without them. Perturbed: dropping any one of the
+    /// six kinds from the arm fails that kind's rows alone.
+    ///
+    /// Not pinned: an unterminated `qw(` at EOF is a flat `ERROR` with no
+    /// `word_list_qw` node, so its empty row stays blank — a recovery
+    /// shape, not this policy's (`grammar_dispatch.md` §6).
+    #[test]
+    fn perl_literal_rows_are_code() {
+        // (source, [sloc, ploc, cloc, dloc, blank])
+        let cases: &[(&str, [u64; 5])] = &[
+            // `qw()`: an empty row between words, the two-empty-row and
+            // five-row shapes, alternate delimiters, CRLF, EOF.
+            ("my @x = qw(a\n\nb);\n", [3, 3, 0, 0, 0]),
+            ("my @x = qw(a\n\n\nb);\n", [4, 4, 0, 0, 0]),
+            ("my @x = qw(\n  a\n\n  b\n);\n", [5, 5, 0, 0, 0]),
+            ("my @x = qw[a\n\nb];\n", [3, 3, 0, 0, 0]),
+            ("my @x = qw{a\n\nb};\n", [3, 3, 0, 0, 0]),
+            ("my @x = qw(a\r\n\r\nb);\r\n", [3, 3, 0, 0, 0]),
+            ("my @x = qw(a\n\nb)", [3, 3, 0, 0, 0]),
+            // The five pattern forms, each with `\` + newline + `\` +
+            // newline inside the pattern.
+            ("my $r = qr/ab\\\n\\\ncd/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ m/ab\\\n\\\ncd/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ /ab\\\n\\\ncd/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ s/ab\\\n\\\ncd/e/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ tr/ab\\\n\\\ncd/xy/;\n", [3, 3, 0, 0, 0]),
+            // An empty row in the replacement half alone, and in both
+            // halves: the two halves are separate content sequences.
+            ("$x =~ s/ab/x\n\ny/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ tr/ab/x\n\ny/;\n", [3, 3, 0, 0, 0]),
+            ("$x =~ s/ab\\\n\\\ncd/x\n\ny/;\n", [5, 5, 0, 0, 0]),
+            // An empty row outside the literal stays blank.
+            ("my @x = qw(a\n\nb);\n\nmy $y = 1;\n", [5, 4, 0, 0, 1]),
+            ("$x =~ /ab\\\n\\\ncd/;\n\nmy $y = 1;\n", [5, 4, 0, 0, 1]),
+            // Controls: a one-row list; a `#` inside `qw()` is a word to
+            // perl and to the grammar, so that row was already code; the
+            // `q()` twin of the first shape.
+            ("my @x = qw(a b);\nmy $y = 1;\n", [2, 2, 0, 0, 0]),
+            ("my @x = qw(a\n# word\nb);\n", [3, 3, 0, 0, 0]),
+            ("my $s = q(a\n\nb);\n", [3, 3, 0, 0, 0]),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(loc_of(source), *expected, "{source}");
+        }
+    }
+
+    /// A `(?{ … })` code block inside a pattern is Perl code to perl, and
+    /// a `#` in it a comment; the grammar holds the whole pattern as one
+    /// `regex_pattern_content` leaf and emits no `comments` node there,
+    /// as it emits none inside the `qq{}` and `"…"` interpolations that
+    /// read the same way today. The rows are code to this policy; what
+    /// `cloc` should read for the `# c` row is the grammar's gap, not
+    /// pinned here (lesson 6).
+    #[test]
+    fn perl_pattern_code_block_rows_are_code() {
+        let [sloc, ploc, _cloc, _dloc, blank] = loc_of("$x =~ /a(?{\n# c\n1\n})b/;\n");
+        assert_eq!((sloc, ploc, blank), (4, 4, 0));
+    }
+
+    /// The literal inside a `sub`: its rows are the sub's own code, so
+    /// the nested space reads them, not only the file.
+    ///
+    /// expected: the `sub` is the file's six rows, `sub f {` through `}`,
+    /// and every one is code, in the unit and in the function; before
+    /// the fix both read the empty row blank, `(6, 5, 0, 1)`.
+    #[test]
+    fn perl_literal_rows_in_a_sub_are_its_code() {
+        let options = MetricsOptions::default().with_only(&[Metric::Loc]);
+        let source = b"sub f {\n  my @x = qw(a\n\nb);\n  return @x;\n}\n";
+        let unit = crate::test_support::space_verbatim(LANG::Perl, source, options);
+        let rows = |loc: &crate::loc::Stats| (loc.sloc(), loc.ploc(), loc.cloc(), loc.blank());
+        assert_eq!(rows(&unit.metrics.loc), (6, 6, 0, 0), "file");
+        let sub = unit
+            .spaces
+            .iter()
+            .find(|s| s.name.as_deref() == Some("f"))
+            .expect("the sub opens a space");
+        assert_eq!(rows(&sub.metrics.loc), (6, 6, 0, 0), "sub f");
     }
 }

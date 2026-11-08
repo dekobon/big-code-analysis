@@ -112,21 +112,26 @@ for historical reference.
   unchanged, and the nine languages now declare their bare-row policy
   on `Loc::bare_rows` for the walk to run ahead of each `compute`, in
   place of each calling the scan.
-- **`loc` credits every row of a Ruby, Elixir or C-family literal**
-  (#1816). A row inside a literal that reached neither PLOC nor CLOC
-  fell to `blank = sloc - ploc - cloc`, which #1260 fixed for strings and
-  heredocs; the same shape survived in the literals no arm routed. Ruby's
-  `%w[]` / `%W[]` / `%i[]` / `%I[]` arrays (an empty row between two
-  words is covered by no child), its regexes, quoted symbols (`:"…"`)
+- **`loc` credits every row of a Ruby, Elixir, Perl or C-family
+  literal** (#1816). A row inside a literal that reached neither PLOC nor
+  CLOC fell to `blank = sloc - ploc - cloc`, which #1260 fixed for strings
+  and heredocs; the same shape survived in the literals no arm routed.
+  Ruby's `%w[]` / `%W[]` / `%i[]` / `%I[]` arrays (an empty row between
+  two words is covered by no child), its regexes, quoted symbols (`:"…"`)
   and backtick commands, Elixir's strings, charlists, sigils, quoted
   atoms and quoted keywords (a `\` + newline + `\` + newline is one
   `escape_sequence` leaf spanning two rows, which the content arm never
-  saw), and the four C-family grammars' `char_literal` (`'\` + newline +
-  `\` + newline + `a'`) each read one row of code short, and one row
-  blank, per such row. Each now credits the rows its literal spans:
-  `x = %w[a` / `` / `b]` reads `ploc 3, blank 0` rather than `ploc 2,
-  blank 1`. PLOC and `blank` move for files holding one of these shapes;
-  no integration corpus does. LLOC and DLOC are unchanged.
+  saw), Perl's `qw()` lists (the same empty-row shape as `%w[]`) and its
+  five pattern forms `qr//`, `m//`, bare `//`, `s///` and `tr///` (the
+  pattern text is one `regex_pattern_content` leaf credited at its start
+  row, so a `\` + newline + `\` + newline inside it, or an empty row in
+  a replacement half, reached nothing), and the four C-family grammars'
+  `char_literal` (`'\` + newline + `\` + newline + `a'`) each read one
+  row of code short, and one row blank, per such row. Each now credits
+  the rows its literal spans: `x = %w[a` / `` / `b]` reads `ploc 3,
+  blank 0` rather than `ploc 2, blank 1`. PLOC and `blank` move for
+  files holding one of these shapes; no integration corpus does. LLOC
+  and DLOC are unchanged.
 - **The Rust test suites' scratch git repositories no longer inherit a
   `GIT_DIR`** (#1846). The Rust fixtures that build a repository through
   the `git` CLI — the library's `tests/common/vcs_fixture.rs`, the CLI's
