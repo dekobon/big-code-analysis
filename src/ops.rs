@@ -560,6 +560,31 @@ mod tests {
         );
     }
 
+    /// A parenthesised docstring's parentheses are discarded with it
+    /// (#1610), with a `\` run and a comment between the `(` and the
+    /// string too (#1830): the `(` is no `()` operator and the string no
+    /// operand, so the file lists nothing. Before #1830 the first listed
+    /// `["()"]`; the second, with the `\` directly before the string
+    /// eaten by the scanner (#1825), listed nothing already.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_docstring_parens_after_a_continuation_are_not_operators() {
+        check_ops(
+            LANG::Python,
+            "( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n",
+            "foo.py",
+            &mut [],
+            &mut [],
+        );
+        check_ops(
+            LANG::Python,
+            "( \\\n\\\n\"\"\"doc\"\"\" )\n",
+            "foo.py",
+            &mut [],
+            &mut [],
+        );
+    }
+
     /// #1486: Python bills a call's parentheses the way the JS family
     /// does — one `()` entry for the pair, rendered as the pair. Before
     /// it, Python reported no operator here at all.

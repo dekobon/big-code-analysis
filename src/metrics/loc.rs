@@ -2814,6 +2814,19 @@ line two
             ("other object in __init__", b"class C:\n    def __init__(self, o):\n        o.x = 1\n        \"\"\"No.\"\"\"\n", 1, 0),
             ("self attribute in another method", b"class C:\n    def m(self):\n        self.x = 1\n        \"\"\"No.\"\"\"\n", 1, 0),
             ("__init__ outside a class", b"def __init__(self):\n    self.x = 1\n    \"\"\"No.\"\"\"\n", 1, 0),
+            // A `\` after the `(` is a named extra inside `parameters`,
+            // read past like a comment there, so the receiver is still
+            // `self` (#1830; measured dloc 0 before).
+            ("__init__ with a continued signature", b"class C:\n    def __init__( \\\n      self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
+            ("__init__ with a commented signature", b"class C:\n    def __init__(  # noqa\n      self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 2, 1),
+            // A bare `\` row joining a comment between two statements is
+            // a `line_continuation` sibling of both, skipped like the
+            // comment when reading "directly after" (#1830; each measured
+            // one less dloc before, the `\` ending the run or the scan).
+            ("attribute docstring after a continued comment", b"x = 1\n\\\n# c\n\"\"\"X.\"\"\"\n", 3, 1),
+            ("class attribute docstring after a continued comment", b"class C:\n    x = 1\n    \\\n    # c\n    \"\"\"X.\"\"\"\n", 3, 1),
+            ("module docstring after a continued comment", b"\\\n# c\n\"\"\"M.\"\"\"\nx = 1\n", 3, 1),
+            ("additional docstrings across continued comments", b"x = 1\n\"\"\"X.\"\"\"\n\\\n# c\n\"\"\"More.\"\"\"\n\\\n# d\n\"\"\"Still.\"\"\"\n", 7, 3),
             // A module or class attribute docstring follows a name, or a
             // tuple holding one; Sphinx records none after a subscript or
             // another object's attribute.
@@ -3014,6 +3027,29 @@ line two
                 "parenthesized assigned string",
                 b"x = (\"\"\"a\nb\"\"\")\n",
                 [2, 2, 0, 0, 0],
+            ),
+            // expected: as "comment inside the parentheses" — the `(`
+            // and `)` rows and the string's are docstring rows; the
+            // comment row and the bare `\` row (the string's logical
+            // line, #1819) are comment rows only. The `\` nodes before
+            // the string are named extras the value is read past
+            // (#1830): measured [4, 3, 2, 0, 0] before, the parentheses
+            // not the string's.
+            (
+                "continuation and comment before the string",
+                b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n",
+                [4, 0, 4, 2, 0],
+            ),
+            (
+                "continuation before the string in a function",
+                b"def f():\n    ( \\\n    \\\n    # c\n    \"\"\"doc\"\"\" )\n    return 1\n",
+                [6, 2, 4, 2, 0],
+            ),
+            // A bytes literal there is a bare string, no docstring.
+            (
+                "continuation before a bytes string",
+                b"( \\\n\\\n# c\nb\"\"\"doc\"\"\" )\n",
+                [4, 0, 4, 0, 0],
             ),
         ];
         let row = |source: &[u8]| {
@@ -9787,21 +9823,122 @@ EOF
                 // `x =`, code, so (3, 3, 0, 0); the scanner eats the `\`
                 // and the row stays blank. Locked as-is (lesson 19).
                 (b"x = \\\n\\\n'a'\n", (3, 2, 0, 1), 1),
-                // FIXME(#1830): pins the wrong value. `OP COMMENT NL
-                // STRING OP NEWLINE`, one `Expr(Constant)`: a
-                // parenthesised docstring whose `(` row ends in a `\`,
+                // `OP COMMENT NL STRING OP NEWLINE`, one `Expr(Constant)`:
+                // a parenthesised docstring whose `(` row ends in a `\`,
                 // with a bare row and a comment before the string. Both
-                // `line_continuation` nodes are in the tree (not #1825),
-                // but `unparenthesized_once` takes the parenthesis's
-                // first named non-comment child as its value — the first
-                // `\` — so the parentheses are not seen as the string's:
-                // their rows fall to the catch-all, and the bare row
-                // continues the non-bare `( \` row before it, which the
-                // bare-string lookup missed, so it is Code too: three
-                // code rows. Every row is the string's (#415, #1610,
-                // #1819), so (4, 0, 4, 0).
-                // Locked as-is so the fix shows up here (lesson 19).
-                (b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 3, 2, 0), 0),
+                // `line_continuation` nodes are in the tree (not #1825).
+                // The `(` and `)` rows are the string's (#1610), the
+                // comment row a comment, and the bare row continues the
+                // `( \` row — the string's `(` is the holder — on a line
+                // with no code before the string, joining the comment:
+                // every row is the string's (#415, #1819). Measured
+                // (4, 3, 2, 0) before #1830: the parenthesis's value
+                // was read as its first named non-comment child, the
+                // first `\`, so the parentheses were not the string's
+                // and both their rows and the run fell to code.
+                // Perturbation (`utils/perturb.py`, `-p big-code-analysis
+                // --lib --no-fail-fast -- python`): reading the value past
+                // comments alone again fails this test, the PEP 257
+                // table's `__init__( \` case, the parenthesised-docstring
+                // table and the Halstead and ops tests (and the AST
+                // crate's own parenthesis test); dropping the `LPAREN`
+                // holder fails this test and the parenthesised-docstring
+                // table.
+                (b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 0, 4, 0), 0),
+                // The same with the run starting a line inside the
+                // parentheses, `OP NL COMMENT NL STRING NL OP NEWLINE`:
+                // the parenthesis finder answers for a run before the
+                // string too. Measured (5, 2, 3, 0) before #1830.
+                (b"(\n\\\n# c\n\"\"\"doc\"\"\"\n)\n", (5, 0, 5, 0), 0),
+                // `OP OP STRING OP NL OP NEWLINE`: the run joins an inner
+                // parenthesis of the string's, which opens the string's
+                // line as a `)` closes it. Measured (4, 4, 1, 0) before
+                // #1830. The twin whose run starts a line, `OP NL OP
+                // STRING OP NL OP NEWLINE`, is the one shape where the
+                // parenthesis finder's answer for a run before the string
+                // shows: a run joining a comment or an empty row is a
+                // comment either way. Perturbation: reading the inner
+                // parenthesis as any other token fails exactly these two
+                // rows; the finder refusing a run before the string
+                // fails exactly the second.
+                (b"( \\\n\\\n(\"\"\"doc\"\"\")\n)\n", (4, 0, 4, 0), 0),
+                (b"(\n\\\n(\"\"\"doc\"\"\")\n)\n", (4, 0, 4, 0), 0),
+                // The inner parenthesis is stepped over and the row read
+                // on, as past a `)`: `OP OP STRING OP OP OP NAME OP
+                // NUMBER NEWLINE` — a `;` starts `x=1` on the joined row,
+                // code; `… OP OP OP COMMENT NEWLINE` — the `;` is code
+                // by itself; and the same under two parentheses. The
+                // after-string twin, `(("doc")` / `\` / `); x=1`, read
+                // right already and is the control. Measured (3, 1, 3, 0)
+                // before the follow-up to #1830, which returned Comment
+                // at the inner parenthesis without reading past it.
+                (b"(\n\\\n(\"doc\")); x=1\n", (3, 2, 2, 0), 0),
+                (b"(\n\\\n(\"doc\")); # c\n", (3, 2, 2, 0), 0),
+                (b"((\n\\\n(\"doc\"))); x=1\n", (3, 2, 2, 0), 0),
+                (b"((\"doc\")\n\\\n); x=1\n", (3, 2, 2, 0), 0),
+                // Runs before and after the string in one parenthesis,
+                // `OP COMMENT NL STRING OP NEWLINE`: the parenthesis's
+                // memoised answer serves both, and each reads its own
+                // next token. Measured (6, 4, 2, 0) before #1830.
+                (
+                    b"( \\\n\\\n# c\n\"\"\"doc\"\"\" \\\n\\\n)\n",
+                    (6, 0, 6, 0),
+                    0,
+                ),
+                // An empty row ends the first run and a second run
+                // starts a line before the string; comments on both
+                // sides of it. `OP NL COMMENT NL STRING COMMENT NL OP
+                // NEWLINE`. Measured (7, 3, 3, 1) before #1830.
+                (
+                    b"( \\\n\\\n\n\\\n# c\n\"\"\"doc\"\"\" # d\n)\n",
+                    (7, 0, 6, 1),
+                    1,
+                ),
+                // Doubly parenthesised, `OP OP COMMENT NL STRING OP OP
+                // NEWLINE`; a comment taking the `(` row's `\`, `OP
+                // COMMENT NL COMMENT NL STRING OP NEWLINE`, after which
+                // the run starts a line; a concatenation, `… STRING
+                // STRING OP …`. Measured (4, 3, 2, 0), (4, 2, 4, 0) and
+                // (4, 3, 2, 0) before #1830.
+                (b"(( \\\n\\\n# c\n\"\"\"doc\"\"\" ))\n", (4, 0, 4, 0), 0),
+                (b"( # a \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 0, 4, 0), 0),
+                (
+                    b"( \\\n\\\n# c\n\"\"\"doc\"\"\" \"more\" )\n",
+                    (4, 0, 4, 0),
+                    0,
+                ),
+                // A bytes and an f-string are bare strings too, if no
+                // docstring (#415). Measured (4, 3, 2, 0) before #1830.
+                (b"( \\\n\\\n# c\nb\"\"\"doc\"\"\" )\n", (4, 0, 4, 0), 0),
+                (b"( \\\n\\\n# c\nf\"\"\"doc\"\"\" )\n", (4, 0, 4, 0), 0),
+                // CRLF, and no newline at EOF. Measured (4, 3, 2, 0)
+                // before #1830, both.
+                (
+                    b"( \\\r\n\\\r\n# c\r\n\"\"\"doc\"\"\" )\r\n",
+                    (4, 0, 4, 0),
+                    0,
+                ),
+                (b"( \\\n\\\n# c\n\"\"\"doc\"\"\" )", (4, 0, 4, 0), 0),
+                // `NAME OP NUMBER OP OP COMMENT NL STRING OP NEWLINE`:
+                // code before the string on its logical line makes the
+                // run that code's; the comment, string and `)` rows keep
+                // their classes. Measured (4, 3, 2, 0) before #1830 —
+                // the same value, with the `( \` row code for the wrong
+                // reason, so the `x=1;` row is what this pins.
+                (b"x=1; ( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n", (4, 2, 3, 0), 0),
+                // Controls: the same prefix before a value, an argument
+                // and a tuple — no bare string, and the run continues
+                // code. Unchanged by #1830.
+                (b"x = ( \\\n\\\n# c\n\"a\" )\n", (4, 3, 1, 0), 0),
+                (b"foo( \\\n\\\n# c\n\"a\" )\n", (4, 3, 1, 0), 0),
+                (b"( \\\n\\\n# c\n\"a\", \"b\" )\n", (4, 3, 1, 0), 0),
+                // Controls from #1830's report, each a `\` the scanner
+                // eats before the string start (#1825), so no
+                // `line_continuation` node is before the string and the
+                // parenthesis was never confused. Unchanged.
+                (b"( \\\n\\\n\"\"\"doc\"\"\" )\n", (3, 0, 2, 1), 1),
+                (b"(\n\\\n\"\"\"doc\"\"\"\n)\n", (4, 0, 3, 1), 1),
+                (b"( # c\n\\\n\"\"\"doc\"\"\"\n)\n", (4, 0, 3, 1), 1),
             ],
         );
     }

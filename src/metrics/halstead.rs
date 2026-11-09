@@ -6121,11 +6121,16 @@ end",
         // `("""doc""")` must bill what `"""doc"""` bills: neither the
         // string nor its `(`. Operators: `def`, `(` of the parameter list,
         // `:`, `return`; operands: `f`, `1`.
-        let sources: [&[u8]; 4] = [
+        // The last two put a `\` run before the string, a named extra
+        // the parenthesis's value is read past as a comment is (#1830):
+        // each billed `(` too before, [5, 5, 2, 2].
+        let sources: [&[u8]; 6] = [
             b"def f():\n    \"\"\"doc\"\"\"\n    return 1\n",
             b"def f():\n    (\"\"\"doc\"\"\")\n    return 1\n",
             b"def f():\n    ((\"doc\"))\n    return 1\n",
             b"def f():\n    (\n        # c\n        \"doc\" \"more\"\n    )\n    return 1\n",
+            b"def f():\n    ( \\\n    \\\n    # c\n    \"\"\"doc\"\"\" )\n    return 1\n",
+            b"def f():\n    (( \\\n    \\\n    \"\"\"doc\"\"\" ))\n    return 1\n",
         ];
         for source in sources {
             let h = crate::test_support::metrics_verbatim(

@@ -80,6 +80,25 @@ for historical reference.
 
 ### Fixed
 
+- **Python reads a parenthesised docstring past a `\` before it**
+  (#1830). tree-sitter-python keeps a `\` + newline as a *named*
+  `line_continuation` extra, and every selector of "the first real
+  child" skipped only the other extra, the comment: the value of
+  `( \` / `\` / `# c` / `"""doc""" )` was read as the first `\`, so the
+  parentheses were not the docstring's (#1610), the `(` and `)` rows and
+  the bare `\` row were code, and Halstead billed a `()` operator. The
+  same filter in `__init__`'s parameter list made `def __init__( \` +
+  `self):` resolve no receiver, so attribute docstrings in that body
+  were not `dloc`, and in the statement-sibling scans a bare `\` row
+  joining a comment between two statements ended a docstring run. Every
+  selector now skips both extras, and the LOC walk's bare-run finder
+  reads a run before the string as the string's line as it did one
+  after it. For a Python file with these shapes `ploc` falls and `cloc`
+  rises by the rows of the `\` run and the parentheses, `dloc` rises
+  where the string is in a documentation position, and `()` leaves the
+  operator list; no other file moves, and no corpus snapshot did. New
+  scaling probe `loc/python-bare-runs-before-string` prices the
+  parenthesis's memoised answer across a wide prefix of such runs.
 - **`npa` and `npm` stay linear in nested containers** (#1805). Each
   member walk reads a container's body (a class, struct, interface or
   module) under a chain of the body's ancestors, which

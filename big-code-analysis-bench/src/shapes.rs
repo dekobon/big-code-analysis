@@ -435,6 +435,26 @@ pub fn python_separated_bare_runs(width: usize) -> String {
     format!("( \"\"\"doc\"\"\"\n{})\nx = 1\n", "\\\n\n".repeat(width))
 }
 
+/// Python: `width` separate one-row bare `\` runs *before* the string
+/// inside a parenthesised bare string's parentheses, each joining a
+/// comment row, then the string, the `)` and a retained `x = 1`.
+///
+/// [`python_separated_bare_runs`] with the runs ahead of the string: a
+/// `\` run and a comment are named extras the parenthesis's value is
+/// read past (#1830), so each run's head asks the same per-parenthesis
+/// question, and that question's own descent to the string crosses the
+/// whole `width`-wide prefix. The memo under
+/// `NodeQuestion::BareStringParenthesisLine` answers it once; asked per
+/// run, the descent is quadratic in `width`. The `x = 1` keeps the
+/// reading off the construct under test.
+#[must_use]
+pub fn python_bare_runs_before_string(width: usize) -> String {
+    format!(
+        "(\n{}\"\"\"doc\"\"\"\n)\nx = 1\n",
+        "\\\n# c\n".repeat(width)
+    )
+}
+
 /// C: `width` units of a `{` that never closes, each followed by a row
 /// holding only `\` and a row holding two block comments.
 ///
@@ -2965,6 +2985,32 @@ pub const PROBES: &[Probe] = &[
                     run read forward makes its row blank, and 1852f4e8 read 2.",
     },
     Probe {
+        name: "loc/python-bare-runs-before-string",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_bare_runs_before_string,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1830: `width` separate bare `\\` runs, each joining a \
+                    comment row, *before* the string inside one parenthesised \
+                    bare string's parentheses. Both extras are named, and the \
+                    parenthesis's value is read past them, so each run's head \
+                    asks the parenthesis's memoised question \
+                    (`NodeQuestion::BareStringParenthesisLine`) whose own \
+                    descent crosses the whole prefix; asked per run it is \
+                    quadratic in `width`, 2.08 against \
+                    1.02 with the memo. The reading is the comment \
+                    rows: the parentheses', the string's, the `width` \
+                    comments and the `width` bare rows — the last `width` the \
+                    runs alone supply, since the pre-#1830 reading made them \
+                    code.",
+    },
+    Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         axis: Axis::Depth,
@@ -4956,6 +5002,42 @@ mod tests {
                 .walk(&ast, probe.workload.options())
                 .expect("metrics walk");
             assert_eq!(reading, size as u64 + 2, "at {size}");
+        }
+    }
+
+    /// `loc/python-bare-runs-before-string` (#1830) reads its runs:
+    /// `size` runs of one `line_continuation` each, all before the
+    /// string under one parenthesis, and the reading is the `(` row,
+    /// the string's, the `)`'s, the `size` comment rows and the `size`
+    /// bare rows — `2 × size + 3` comment rows, the last `size` the
+    /// runs' own: before #1830 the parenthesis was not the string's, so
+    /// both parenthesis rows and every bare row were code, reading
+    /// `size + 1`. The retained `x = 1` reaches `cloc` on no reading.
+    #[test]
+    fn python_bare_runs_before_string_probe_reads_its_runs() {
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == "loc/python-bare-runs-before-string")
+            .expect("loc/python-bare-runs-before-string is a probe");
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "the shape parses cleanly at {size}");
+            assert_eq!(
+                count_kind(&ast, "line_continuation"),
+                size,
+                "one node per run at {size}"
+            );
+            assert_eq!(
+                count_kind(&ast, "parenthesized_expression"),
+                1,
+                "every run shares one parenthesis at {size}"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            assert_eq!(reading, 2 * size as u64 + 3, "at {size}");
         }
     }
 

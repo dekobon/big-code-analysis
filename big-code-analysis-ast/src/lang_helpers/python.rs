@@ -219,13 +219,37 @@ fn unparenthesized(node: Node) -> Node {
 }
 
 /// The expression one `parenthesized_expression` holds, or `None` when
-/// `node` is not one, read with `cursor`.
+/// `node` is not one, read with `cursor`: its first named child that is
+/// no extra, so an `ERROR` the grammar recovered to is still its value.
 fn unparenthesized_once<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<Node<'a>> {
     if node.kind_id() != Python::ParenthesizedExpression {
         return None;
     }
-    node.children_with(cursor)
-        .find(|child| child.is_named() && child.kind_id() != Python::Comment)
+    node.children_with(cursor).find(not_extra)
+}
+
+/// Whether `node` is a named child that spells an expression or a
+/// statement rather than one of the grammar's two extras. Both extras
+/// are *named* nodes, so `is_named` alone takes the first `\` of
+/// `( \` / `\` / `"""doc"""` as the parenthesis's value and reads the
+/// string as none (#1830); every selector of "the first real child"
+/// skips both.
+fn not_extra(node: &Node) -> bool {
+    node.is_named()
+        && !matches!(
+            node.kind_id().into(),
+            Python::Comment | Python::LineContinuation
+        )
+}
+
+/// Whether `statement` is a bare string statement: an
+/// `expression_statement` whose sole value is a `string` or
+/// `concatenated_string`, past any parentheses around it. Asked of a
+/// node alone, with no chain — the LOC walk's `\` finder descends to a
+/// statement that is a sibling's descendant (#1819).
+#[must_use]
+pub fn python_is_bare_string_statement(statement: &Node) -> bool {
+    statement_string(statement).is_some()
 }
 
 /// The string a bare string statement holds, past any parentheses.
@@ -340,7 +364,7 @@ fn documentation_run<'a>(
     let mut first = statement;
     for sibling in statement_ancestors
         .siblings_before(&statement)
-        .filter(|sibling| sibling.is_named() && sibling.kind_id() != Python::Comment)
+        .filter(not_extra)
     {
         if !is_string_statement(&sibling, code) {
             return attributes.documented_by(&sibling, code).then_some(first);
@@ -364,7 +388,7 @@ pub fn python_documentation_string_run(
     };
     if outer
         .siblings_after(&statement)
-        .find(|sibling| sibling.is_named() && sibling.kind_id() != Python::Comment)
+        .find(not_extra)
         .is_some_and(|next| is_string_statement(&next, code))
     {
         return;
@@ -503,14 +527,15 @@ fn is_class_init(function: &Node, up: AncestorIter<'_, '_>, code: &[u8]) -> bool
             .is_some_and(|class| class.kind_id() == Python::ClassDefinition)
 }
 
-/// The name of `function`'s first parameter, typed or not. A comment is a
-/// named extra, and formatters put one right after the `(` of an exploded
-/// signature (`def __init__(  # noqa: PLR0913`), so it is skipped.
+/// The name of `function`'s first parameter, typed or not. The extras
+/// are named, and formatters put a comment right after the `(` of an
+/// exploded signature (`def __init__(  # noqa: PLR0913`), a `\` too
+/// (`def __init__( \`), so both are skipped.
 fn first_parameter_name<'code>(function: &Node, code: &'code [u8]) -> Option<&'code [u8]> {
     let first = function
         .child_by_field_name("parameters")?
         .children()
-        .find(|child| child.is_named() && child.kind_id() != Python::Comment)?;
+        .find(not_extra)?;
     let name = if first.kind_id() == Python::TypedParameter {
         first.children().find(Node::is_named)?
     } else {
@@ -899,6 +924,17 @@ mod tests {
             (nest(3, "f\"x\""), 3 * 3),
             (format!("x = {}\n", nest(1_000, "\"s\"")), 0),
             (format!("{}\n(\"s\"\n", nest(2, "\"s\"")), 2 * 3),
+            // A `\` run and a comment before the string: both extras are
+            // named, and the value is the string past them (#1830).
+            // Measured 0 before the fix, every one of the four.
+            ("( \\\n\\\n# c\n\"\"\"doc\"\"\" )\n".to_owned(), 3),
+            ("( \\\n\\\n# c\n(\"\"\"doc\"\"\") )\n".to_owned(), 2 * 3),
+            ("( \\\n\\\n(\"\"\"doc\"\"\")\n)\n".to_owned(), 2 * 3),
+            ("( \\\n\\\n# c\n\"\"\"doc\"\"\" \\\n\\\n)\n".to_owned(), 3),
+            // The same prefix before a name and before a tuple: no bare
+            // string, so the extras are skipped to a value that is none.
+            ("( \\\n\\\n# c\nx )\n".to_owned(), 0),
+            ("( \\\n\\\n# c\n\"a\", \"b\" )\n".to_owned(), 0),
         ];
         for (source, documenting) in cases {
             let answers = bare_string_parenthesis_answers(&source);

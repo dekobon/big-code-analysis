@@ -18,7 +18,7 @@ use super::shared::{
 use super::*;
 use crate::lang_helpers::python::{
     python_documentation_string_run, python_is_bare_statement_value, python_is_bare_string,
-    python_is_bare_string_parenthesis, python_sphinx_doc_comment,
+    python_is_bare_string_parenthesis, python_is_bare_string_statement, python_sphinx_doc_comment,
 };
 
 impl Loc for PythonCode {
@@ -379,9 +379,10 @@ fn forward_python_run<'a>(
 // `;` starts another statement on it, code; an empty row leaves it as it
 // is, the Blank reading `GapScan::classify` maps to Comment too. A
 // string there concatenates and takes the `\` with it (no node);
-// anything else is a SyntaxError — except the string's own `)` (#1610),
-// which no C-family line has: it closes the string, and the line is
-// what follows it.
+// anything else is a SyntaxError — except the string's own parentheses
+// (#1610), which no C-family line has: a `)` closes the string, and the
+// line is what follows it; a `(` before the string (#1830) opens it, and
+// the line is the string's.
 fn python_bare_string_run<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -396,26 +397,30 @@ fn python_bare_string_run<'a>(
 }
 
 // Whether the run headed by `node` sits inside a bare string statement's
-// parentheses (#1610), after the string, with no code before the string
-// on its logical line. The run's parent is one of the statement's
-// `parenthesized_expression`s, and the answer is that parenthesis's
-// alone: every run it holds is on the string's line. So it is asked of
-// the parenthesis, memoised per parenthesis under the walk's cache, and
-// what it reads at the run's own level is nothing — before the string
-// there are only the string's `(` and comments, which
-// `python_code_among` skips, so the levels above the parenthesis
+// parentheses (#1610), before or after the string, with no code before
+// the string on its logical line. The run's parent is one of the
+// statement's `parenthesized_expression`s, and the answer is that
+// parenthesis's alone: every run it holds is on the string's line. So it
+// is asked of the parenthesis, memoised per parenthesis under the walk's
+// cache, and what it reads at the run's own level is nothing — before
+// the string there are only the string's `(`, comments and `\` splices,
+// which `python_code_among` skips, so the levels above the parenthesis
 // answer, climbed from it as `python_code_before_string` climbs from a
 // run. Reading the holder off the siblings before the run and climbing
 // from there walked every earlier run and comment in the parenthesis,
 // once per run, quadratic in the runs it holds (fourth re-review of
 // #1819; `loc/python-separated-bare-runs` prices it).
 //
-// The run is after the string whenever the parenthesis is the string's
-// at all: `python_is_bare_string_parenthesis` reads the statement's
-// value down each parenthesis's first named non-comment child, and a
-// `line_continuation` is named, so a run before the string rejects the
-// parenthesis (and so the string's own `(` and `)`, #1830 — a fix there
-// must hand this finder another O(1) way to tell the two apart).
+// Which side of the string the run is on, the memo need not say: the
+// caller reads the line forward from the run's own next token, which no
+// other run shares, and only the token differs — a comment, an empty
+// row or the string's `)` after it; a comment, an empty row or an inner
+// parenthesis of the string's before it (#1830,
+// `python_past_string_parentheses`). Until #1830 a run before the string
+// made `python_is_bare_string_parenthesis` read the `\` as the
+// parenthesis's value and answer no; `loc/python-bare-runs-before-string`
+// prices the string's parentheses asked once per run across a wide
+// prefix of them.
 fn python_run_inside_bare_string_parentheses<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -437,6 +442,15 @@ fn python_run_inside_bare_string_parentheses<'a>(
 // parenthesis. Each parenthesis is a sibling of the run or of one of its
 // ancestors — the run sits inside the innermost it closes — so the walk
 // steps up a level where one runs out, at most the 200 CPython nests.
+//
+// A run before the string (`( \` + `\` + `("""doc""")`, #1830) joins an
+// inner parenthesis of the string's instead — between the string's `(`
+// and the string only its parentheses, comments and `\` splices are
+// grammatical, and a `\` right before the string itself leaves no node
+// (#1825), so the string is never the token here. The inner parenthesis
+// is stepped over whole, as a `)` is, and the row is read on past it:
+// `("doc")); x=1` holds code after the string's closing parentheses as
+// `); x=1` after the string does.
 fn python_past_string_parentheses<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -450,10 +464,13 @@ fn python_past_string_parentheses<'a>(
             .siblings_after(&at)
             .filter(|sibling| sibling.kind_id() != Python::LineContinuation);
         for sibling in tokens {
-            let closes = sibling.kind_id() == Python::RPAREN
-                && sibling.start_byte() == after
+            let strings_own = sibling.start_byte() == after
+                && matches!(
+                    sibling.kind_id().into(),
+                    Python::RPAREN | Python::ParenthesizedExpression
+                )
                 && python_is_bare_string_parenthesis(&sibling, chain);
-            if !closes {
+            if !strings_own {
                 return python_token_row(&sibling);
             }
             after = past_line_padding(code, sibling.end_byte());
@@ -495,10 +512,11 @@ struct BareStringBackslash<'a> {
 // before the `\` is the last of the sibling before the run: the string
 // itself, a concatenation's fragment or an inner parenthesis when the
 // `\` sits inside the parentheses of a parenthesised bare string
-// (`("""doc""" \` + `\` + `)`, `(("""doc""") \`, #1610); otherwise the
-// statement, or a `def` or `if` whose body ends with it, which the
-// descent along last children reaches, as it cannot through a chain the
-// walk has not built.
+// (`("""doc""" \` + `\` + `)`, `(("""doc""") \`, #1610), or the
+// string's own `(` when the run comes before the string (`( \` + `\` +
+// `"""doc"""`, #1830); otherwise the statement, or a `def` or `if` whose
+// body ends with it, which the descent along last children reaches, as
+// it cannot through a chain the walk has not built.
 fn python_backslash_after_bare_string<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -512,7 +530,9 @@ fn python_backslash_after_bare_string<'a>(
     // The holder shares the run's parent, so the run's chain is its own.
     let inside = match holder.kind_id().into() {
         Python::String | Python::ConcatenatedString => python_is_bare_string(&holder, ancestors),
-        Python::ParenthesizedExpression => python_is_bare_string_parenthesis(&holder, ancestors),
+        Python::ParenthesizedExpression | Python::LPAREN => {
+            python_is_bare_string_parenthesis(&holder, ancestors)
+        }
         _ => false,
     };
     if inside {
@@ -625,38 +645,6 @@ fn python_code_among<'a>(
         .next()
         .map(|token| past_line_padding(code, token.end_byte()) == next.start_byte())
 }
-
-// Whether `statement` is an `expression_statement` whose sole child is a
-// string, past any parentheses around it: the shape `Checker::is_comment`'s
-// bare-string reading and the `String` arm agree on, asked of the node
-// alone — the chain-reading helpers answer for a node on the walk's
-// chain, and this one is a sibling's descendant.
-fn python_is_bare_string_statement(statement: &Node) -> bool {
-    if statement.kind_id() != Python::ExpressionStatement || statement.child_count() != 1 {
-        return false;
-    }
-    let mut value = statement.child(0);
-    // CPython nests at most 200 parentheses (`MAXLEVEL`); the same cap
-    // bounds `python_is_bare_string_parenthesis`'s descent.
-    for _ in 0..=PYTHON_MAX_PARENTHESES {
-        match value.map(|current| current.kind_id().into()) {
-            Some(Python::String | Python::ConcatenatedString) => return true,
-            Some(Python::ParenthesizedExpression) => {
-                value = value.and_then(|paren| {
-                    paren
-                        .children()
-                        .find(|child| child.is_named() && child.kind_id() != Python::Comment)
-                });
-            }
-            _ => return false,
-        }
-    }
-    false
-}
-
-// `MAXLEVEL` of CPython's tokenizer (`Parser/lexer/state.h`): how many
-// parentheses one expression may nest in.
-const PYTHON_MAX_PARENTHESES: usize = 200;
 
 // Whether byte `last`, the `\` ending the row before `node`'s, is inside
 // a comment. The comment may be the sibling before `node` or nested in
