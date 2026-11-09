@@ -9967,6 +9967,73 @@ f() {
         assert_eq!(operands("def f do\n  a = [\"k\": 1]\nend\n"), (5, 5));
     }
 
+    /// The operator side of the quoted atom (#1858), the half #1816
+    /// left alone: `quoted_atom` is `seq(":", …)` with a standalone `:`
+    /// leaf, where the bare `atom` is one token and Ruby's `:"a b"`
+    /// opens with a single `:"` leaf its getter bills nothing for, so
+    /// only the quoted spelling billed an operator for its `:`. The
+    /// parent guard in `get_op_type` suppresses that leaf; a `:"q"`,
+    /// its string twin `"q"` and the bare `:q` now bill the same
+    /// operators on the same statement shape, interpolating or not.
+    ///
+    /// expected: `def f do\n  a = :"q"\nend` — `def` and `f` are
+    /// operands (a macro-shaped call's target), so the operators are
+    /// `=`, `do`, `end` → n1 = 3, N1 = 3, the set `"q"` and `:q`
+    /// already produce. Without the guard the quoted atom added `:`
+    /// → 4 / 4.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_quoted_atom_colon_is_not_an_operator_1858() {
+        let operators = |src: &str| {
+            let ops = ops_of::<ElixirParser>(src, "foo.ex");
+            let mut unique: Vec<&str> = ops
+                .operators
+                .iter()
+                .map(String::as_str)
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            unique.sort_unstable();
+            let h = crate::test_support::metrics_verbatim(
+                crate::LANG::Elixir,
+                src.as_bytes(),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Halstead]),
+            )
+            .halstead;
+            assert_eq!(
+                (unique.len() as u64, ops.operators.len() as u64),
+                (h.unique_operators(), h.total_operators()),
+                "ops store and metrics store disagree for {src:?}"
+            );
+            (
+                unique.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                h.unique_operators(),
+                h.total_operators(),
+            )
+        };
+        let quoted = operators("def f do\n  a = :\"q\"\nend\n");
+        assert_eq!(
+            quoted,
+            (vec!["=".into(), "do".into(), "end".into()], 3, 3),
+            "quoted atom"
+        );
+        assert_eq!(
+            quoted,
+            operators("def f do\n  a = \"q\"\nend\n"),
+            "quoted atom vs its string twin"
+        );
+        assert_eq!(
+            quoted,
+            operators("def f do\n  a = :q\nend\n"),
+            "quoted atom vs the bare atom"
+        );
+        assert_eq!(
+            operators("def f(name) do\n  a = :\"q #{name}\"\nend\n"),
+            operators("def f(name) do\n  a = \"q #{name}\"\nend\n"),
+            "interpolating quoted atom vs its string twin"
+        );
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_sigil_delimiters_are_not_operators() {

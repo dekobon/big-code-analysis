@@ -107,9 +107,24 @@ for historical reference.
   the `a` inside — where it billed the literal *and* the `a`, so N2
   falls by one per interpolating quoted atom or keyword, η2 by one per
   distinct such literal, and MI moves with them. The quoted atom's `:`
-  still bills as an operator, as before. The plain forms and the bare
-  `atom` / `keyword` tokens are unchanged. No integration corpus holds
-  either form.
+  billed as an operator until #1858, below. The plain forms and the
+  bare `atom` / `keyword` tokens are unchanged. No integration corpus
+  holds either form.
+- **Halstead no longer bills the `:` of an Elixir quoted atom as an
+  operator** (#1858). `quoted_atom` is `seq(":", …)` with a standalone
+  `:` leaf, where the bare `atom` is one token whose `:` reaches no
+  arm and Ruby's `:"a b"` symbol opens with a single `:"` leaf its
+  getter bills nothing for, so `a = :"q"` billed `:` and `=` while
+  `a = :q`, `a = "q"` and Ruby's `a = :"q"` billed only `=`: the same
+  value scored differently by spelling and by language, the shape
+  #1256 removed for sigil delimiters. The `:` is now suppressed
+  exactly when its parent is the quoted atom, the compound-leaf guard
+  the sigil delimiters use; a `:` anywhere else still counts. N1 falls
+  by one per quoted atom, η1 by one in a file whose only `:` operators
+  were quoted atoms', and MI moves with the Halstead volume. A
+  `quoted_keyword`'s trailing `:` is a token kind of its own, not the
+  `:` operator, and was never billed. No integration corpus holds a
+  quoted atom.
 - **`loc` reads a C-family bare `\` row after a chain of comment-only
   rows as a comment** (#1818). Translation phase 2 splices a comment
   row's trailing `\` too, so `/* a */ \` + `/* b */ \` + `\` + an empty

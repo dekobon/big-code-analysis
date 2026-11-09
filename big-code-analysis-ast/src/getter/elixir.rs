@@ -191,6 +191,25 @@ impl Getter for ElixirCode {
             {
                 TokenRole::Unknown
             }
+            // A quoted atom's opening `:`. The quoting is spelling, not
+            // semantics — `:"a b"` names the same kind of value `:a`
+            // does — but only the quoted form surfaces its `:` as a
+            // leaf: the bare `atom` is one `token(seq(":", …))`, so its
+            // `:` reaches no arm, and Ruby's `:"a b"` opens with a
+            // single `:"` token its getter bills nothing for. Counting
+            // this leaf made `n1`/`N1` rise by one per quoted atom
+            // against both twins (#1858); the literal is the operand
+            // (below) and the `:` is suppressed exactly when its parent
+            // is the quoted atom, the compound-leaf guard of
+            // grammar-dispatch §5 the sigil arm above applies. A
+            // `quoted_keyword` needs none: its trailing `:` is the
+            // grammar's own `quoted_keyword_token1` kind, not `COLON`,
+            // and reaches no operator arm. A `:` outside a quoted atom
+            // (a `::` is its own kind) falls through to the operator arm
+            // and still counts.
+            E::COLON if ancestors.parent_has_kind(node, E::QuotedAtom as u16) => {
+                TokenRole::Unknown
+            }
             // Reserved-word keywords that have dedicated token kinds in
             // the grammar — block delimiters, exception clauses, and
             // word-form logical / membership operators. `fn` is not
