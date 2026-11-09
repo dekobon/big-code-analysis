@@ -149,11 +149,17 @@ role_table! {
     // (`:"a b"`, Ruby's `delimited_symbol`) and `quoted_keyword` (the
     // `"a b":` key of a pair), each a quote-delimited body of
     // `quoted_content`, `escape_sequence` and `interpolation` like a
-    // `string`'s. The bare `atom` and `keyword` are single tokens with
-    // no such body, so unlike Ruby's `simple_symbol` they are not here.
+    // `string`'s. The bare forms are excluded below, where Ruby's
+    // `simple_symbol` is claimed (#1856).
     StringLit {
         owns [String, Charlist, Sigil, QuotedAtom, QuotedKeyword]
         wraps [Interpolation]
+        excludes [
+            Atom "a single token with no quoted body; the getter bills it as an operand on its own",
+            Keyword "a single token with no quoted body; the getter bills it as an operand on its own",
+            Atom2 "the hidden `_atom` choice over `atom` and `quoted_atom`, which reaches no node",
+            Keyword2 "the hidden `_keyword` choice over `keyword` and `quoted_keyword`, which reaches no node",
+        ]
     }
 
     NullSafe { absent "Elixir has no `?.` or `??`" }

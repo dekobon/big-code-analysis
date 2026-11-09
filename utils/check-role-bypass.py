@@ -91,7 +91,10 @@ DEFAULT_BASELINE = REPO_ROOT / ".role-bypass-baseline.txt"
 
 # The consumer boundary (#1692): per-language dispatch files, the
 # dispatcher modules that hold their macros, and the shared kind-set
-# macros. Paths relative to the repository root.
+# macros. Paths relative to the repository root. `src/metrics/loc/` and
+# `src/metrics/nargs.rs` stay outside by design: an arm there names a
+# kind to say which rows it credits, a per-kind policy no role expresses,
+# not membership restated (`roles/mod.rs`, "What the bypass lint does not scan").
 BOUNDARY = (
     "src/metrics/abc.rs",
     "src/metrics/abc/",
