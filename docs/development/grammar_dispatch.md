@@ -143,7 +143,9 @@ last pair fails quietly: a space the walker opens but the getter leaves
 block and nothing diffs. Cross-walk the `_with_code` spellings, which
 are what the walk calls: the byte-less defaults forward to them and
 agree everywhere except the languages that override (Elixir's
-keyword-text containers, Ruby's lambda-body blocks), which is exactly
+keyword-text containers, Ruby's lambda-body blocks, C#'s primary
+constructor — a `parameter_list` gated `under` a type declaration
+(#1828), which the known-empty chain cannot see), which is exactly
 where the answer matters. `tests/parity/ops_metrics_space_parity.rs`
 keeps `bca ops` and `bca metrics` opening the same spaces.
 

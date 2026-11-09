@@ -244,10 +244,20 @@ role_table! {
     // expression-bodied form (`has_no_accessors`). A lambda and an
     // anonymous method (`delegate { }`) are closures that open a space
     // too, as Rust's and Go's do.
+    //
+    // A C# 12 primary constructor and a positional record's constructor
+    // have no node of their own: the grammar hangs their
+    // `parameter_list` directly under the type declaration, the one
+    // place a parameter list is not a callable's `parameters` field
+    // (`node-types.json`: `class_declaration`, `struct_declaration`
+    // and `record_declaration` carry it as a child; an interface and
+    // an enum cannot). That list is the constructor (#1828). Its
+    // superclass call sits in the sibling `base_list`, outside it.
     FuncOpener {
         owns [
             MethodDeclaration(callable opens Function),
             ConstructorDeclaration(callable opens Function),
+            ParameterList(callable opens Function under [ClassDeclaration, StructDeclaration, RecordDeclaration]),
             DestructorDeclaration(callable opens Function),
             LocalFunctionStatement(callable opens Function),
             AccessorDeclaration(callable opens Function),

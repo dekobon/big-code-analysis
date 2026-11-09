@@ -415,7 +415,8 @@
 //!   `block` under a stabby lambda) answers exactly and only a byte
 //!   gate is dropped. The chain-less pair disagrees with the walk
 //!   wherever a gate reads what it drops — Elixir's text-gated `call`
-//!   openers, Ruby's `block` — and the derived parity suite pins each
+//!   openers, Ruby's `block`, C#'s `parameter_list` under a type
+//!   declaration (#1828) — and the derived parity suite pins each
 //!   such disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
 //!   language's pair asserts `!TEXT_GATED && !CHAIN_GATED` on its
 //!   `FuncOpener` and `Container` rows at build time (#1793).

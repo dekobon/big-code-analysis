@@ -342,8 +342,8 @@ impl Abc for KotlinCode {
             // `delegation_specifiers` — outside every member, and a
             // *sibling* of the `primary_constructor` node rather than its
             // child — so the innermost enclosing space is the **class**.
-            // (Verified by perturbation: labelling `PrimaryConstructor` a
-            // `SpaceKind::Function` moves nothing, precisely because the
+            // (`PrimaryConstructor` *is* a `SpaceKind::Function` since
+            // #1828, and this moved nothing, precisely because the
             // delegation specifier is not inside it.) A
             // `SecondaryConstructor`, which `KotlinCode::get_space_kind`
             // does label a function, takes its `: super(x)` with it.

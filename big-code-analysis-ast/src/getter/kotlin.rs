@@ -156,6 +156,12 @@ impl Getter for KotlinCode {
     /// `<get>` / `<set>` are Kotlin's own spelling of the accessor
     /// keywords; `<init>` is what the JVM calls the constructor an
     /// `init` block compiles into.
+    ///
+    /// A primary constructor carries no name of its own — the grammar
+    /// gives `primary_constructor` no `name` field — so it takes its
+    /// class's, as a secondary constructor's `constructor` keyword
+    /// stands for the class it is in (#1828). The default would name
+    /// it `<anonymous>`, which `bca check` reads as a closure.
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,
         code: &'a [u8],
@@ -167,6 +173,9 @@ impl Getter for KotlinCode {
             Kotlin::Getter => Some("<get>"),
             Kotlin::Setter => Some("<set>"),
             Kotlin::AnonymousInitializer => Some("<init>"),
+            Kotlin::PrimaryConstructor => ancestors
+                .parent(node)
+                .and_then(|class| crate::getter::default_func_space_name(&class, code, ancestors)),
             _ => crate::getter::default_func_space_name(node, code, ancestors),
         }
     }

@@ -75,10 +75,29 @@ impl Checker for CsharpCode {
     // `FuncOpener` row (every callable, the closures, and an indexer or
     // property gated to its accessor-less form — #464, #472) and the
     // `Container` row are what the walk promotes, and `opens_space`
-    // labels them. The rows read no bytes and no chain (the accessor
-    // gate reads the node's children), so the byte-less spelling
-    // forwards with none and answers the same.
-    impl_byte_less_func_space!(csharp);
+    // labels them. The rows read no bytes (the accessor gate reads the
+    // node's children), but since #1828 the opener row reads the chain:
+    // a `parameter_list` opens a space only under a type declaration,
+    // where it is the primary constructor. So this byte-less spelling
+    // is hand-written, as Ruby's is, and forwards with a *known-empty*
+    // chain — the node read as if it were the root, so the parent gate
+    // sees no type declaration and the list answers `false`, the
+    // pre-#1828 answer for every parameter list. Not
+    // `Ancestors::unknown()`, which climbs through `Node::parent` and
+    // would answer the gated result here. The walk calls the
+    // `_with_code` one. Where Ruby's gate over-approximates under the
+    // empty chain, this one under-approximates;
+    // `csharp_byte_less_spellings_omit_the_primary_constructor`
+    // (`roles/space_tree_tests.rs`) pins the disagreement by value.
+    fn is_func_space(node: &Node) -> bool {
+        const _: () = assert!(
+            !crate::roles::csharp::func_opener::TEXT_GATED
+                && !crate::roles::csharp::container::TEXT_GATED
+                && !crate::roles::csharp::container::CHAIN_GATED,
+            "a space-opening row reads bytes; the byte-less spelling cannot forward with none"
+        );
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
+    }
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
@@ -108,12 +127,10 @@ impl Checker for CsharpCode {
     impl_row_predicates!(csharp, call, is_call, is_call_with_code);
     impl_row_predicates!(csharp, string_lit, is_string, is_string_with_code);
 
-    fn is_non_arg(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Csharp::LPAREN | Csharp::COMMA | Csharp::RPAREN
-        )
-    }
+    // No `is_non_arg`: `impl NArgs for CsharpCode` counts a parameter
+    // list positively (`parameter` and `params`), since the grammar
+    // flattens a `params` array into the list, so the trait's negative
+    // filter is never consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/csharp.rs`: an `if_statement` whose
     // previous sibling is the bare `else` token (no clause wrapper), read

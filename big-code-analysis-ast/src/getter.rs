@@ -75,8 +75,8 @@ macro_rules! get_operator {
 // `FuncOpener` and `Container` rows (#1696), the Getter half of
 // `checker.rs`'s `impl_byte_less_func_space!`: forwards with no bytes
 // and a known-empty chain, which the build asserts neither row reads
-// (#1793). Ruby and Elixir keep hand-written spellings for the reasons
-// given there.
+// (#1793). Ruby, C# and Elixir keep hand-written spellings for the
+// reasons given there.
 macro_rules! impl_byte_less_space_kind {
     ($roles:ident) => {
         fn get_space_kind(node: &Node) -> SpaceKind {
@@ -1228,14 +1228,17 @@ mod ancestor_tests {
     /// `get_func_space_name` must name a space the same whether it reads
     /// the walker's ancestor chain or climbs with `Node::parent`.
     ///
-    /// Two grammars consult an ancestor here, for different reasons:
+    /// Four grammars consult an ancestor here, for different reasons:
     /// the JS family names an anonymous `function` / arrow from the
-    /// `pair` or `variable_declarator` holding it, and Elixir skips
-    /// naming a `def` that sits inside a `quote` template. #1088 moved
-    /// both onto the chain.
+    /// `pair` or `variable_declarator` holding it, Elixir skips
+    /// naming a `def` that sits inside a `quote` template, and Kotlin
+    /// and C# name a primary constructor after the class holding it
+    /// (#1828). #1088 moved the first two onto the chain.
     #[cfg(any(
+        feature = "csharp",
         feature = "elixir",
         feature = "javascript",
+        feature = "kotlin",
         feature = "mozjs",
         feature = "typescript",
     ))]
@@ -1273,8 +1276,10 @@ mod ancestor_tests {
     }
 
     #[cfg(all(
+        feature = "csharp",
         feature = "elixir",
         feature = "javascript",
+        feature = "kotlin",
         feature = "mozjs",
         feature = "typescript",
     ))]
@@ -1309,6 +1314,19 @@ mod ancestor_tests {
             "elixir",
             b"defmodule Foo do\n  defmacro multi do\n    quote do\n      def a, do: 1\n    end\n  end\nend\n",
             &["Foo", "multi"],
+        );
+        // A primary constructor is named from its parent class; `Inner`
+        // is nested so the parent is not the root, and `m` keeps the
+        // field-less default.
+        assert_name_parity::<crate::langs::KotlinCode>(
+            "kotlin",
+            b"class Outer(val a: Int) {\n  class Inner(val b: Int) {\n    fun m(x: Int) = x\n  }\n}\n",
+            &["Outer", "Inner", "m"],
+        );
+        assert_name_parity::<crate::langs::CsharpCode>(
+            "csharp",
+            b"class Outer(int a) {\n  record Inner(int b) {\n    int M(int x) => x;\n  }\n}\n",
+            &["Outer", "Inner", "M"],
         );
     }
 }

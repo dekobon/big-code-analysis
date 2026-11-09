@@ -185,6 +185,50 @@ for historical reference.
   role-parity-corpus`) lists each corpus the same way, and a test pins
   the two enumerators to one contract. The committed
   `.role-coverage-observed.txt` is unchanged.
+- **A Kotlin or C# primary constructor opens a function space, so its
+  parameters count** (#1828). `data class D(val a: Int, …, val f: Int)`,
+  C# 12's `class C(int a, …, int f) { }` and a positional
+  `record R(int A, int B);` reported `nargs` 0 on every space, so
+  `bca check --threshold nargs=5` passed a six-parameter constructor.
+  Each now opens a `Function` space named after its class and spanning
+  the parameter list — Kotlin's `primary_constructor` node; C#'s
+  `parameter_list` where its parent is a class, struct or record
+  declaration, the one place a list is not a callable's `parameters`
+  field — and that space owns the parameters: the offender row reads
+  `D::D: nargs = 6`, in `bca check`, `bca report` and the Python
+  `to_sarif` binding alike. The constructor also counts as one callable
+  in `nom`, `npm` and `wmc` (a Kotlin `private` / `internal` /
+  `protected constructor`, a `sealed` class's and an `enum class`'s are
+  non-public; a C# primary constructor is public by the language), and
+  a lambda spelled as a parameter default adds to the constructor's
+  `closure_args` as a function's spaceless lambdas add to its own. The
+  superclass call in the header (`: Base(x)`) stays the class's ABC
+  branch, as #1456 decided — it is a sibling of the list, not inside it.
+  A written `class G()` is a zero-parameter constructor and counts;
+  `class N` declares none. A Java or Groovy `record` with no compact
+  constructor still reads 0 under #1160's decision; the book's
+  `nargs` zero list now names it, and #1842 holds the question. C#'s byte-less `is_func_space` /
+  `get_space_kind` keep their pre-#1828 answer for a parameter list —
+  the parent gate needs the chain — pinned by
+  `csharp_byte_less_spellings_omit_the_primary_constructor`.
+  Integration snapshots gain a function space under every Kotlin or C#
+  type with a primary constructor. Two consequences to know: a
+  zero-parameter `class G()` is a function row with no code, so its
+  `mi.*` read the `0.0` sentinel `bca check` and `bca report` already
+  skip (#1621); and a C# class spelling both a primary and a classic
+  constructor on one line carries two `H::H` rows at one `start_line`,
+  which `--baseline` cannot tell apart — the same tie two same-line
+  overloads already produce.
+- **C# `nargs` counts a `params` array as one parameter** (found under
+  #1828). tree-sitter-c-sharp spells `params int[] xs` through a hidden
+  rule whose pieces — the `params` token, the type, the name and any
+  attribute list — land directly in the `parameter_list`, where an
+  ordinary parameter is one `parameter` node. The shared negative
+  filter counted each piece, so `void F(params int[] xs)` read 3 and
+  `void F([A] params int[] xs)` 4. C# now counts positively: one per
+  `parameter`, one per `params`. Every C# callable shape moves the same
+  way — methods, constructors, lambdas, anonymous methods and an
+  indexer's bracketed list — and two corpus snapshots drop by two.
 - **`make release-check` audits all eight lockfiles** (#1826). It ran
   one `cargo deny check` from the repository root, so the pre-tag gate
   never read the seven `[workspace].exclude` crates' lockfiles — the

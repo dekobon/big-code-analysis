@@ -29,6 +29,11 @@ use crate::*;
 /// This metric counts the number of arguments
 /// of functions/closures.
 ///
+/// A callable is whatever opens a `Function` space and is `is_func`:
+/// a Kotlin or C# primary constructor is one, its space being the
+/// parameter list in the class header (#1828), so its parameters are
+/// its own and never the class's.
+///
 /// Unlike the per-function fields of cyclomatic, cognitive and nexits
 /// (#1284), the extrema and the averages here read different
 /// populations (#1809):
@@ -494,16 +499,19 @@ impl NArgs for GoCode {
     }
 }
 
+// A function or a secondary constructor lists `parameter`s in a
+// `function_value_parameters`; a primary constructor (#1828) lists
+// `class_parameter`s — each `[val|var] name: Type [= default]` — in a
+// `class_parameters`. One wrapper per parameter in both, so a positive
+// count needs no comment or punctuation exclusion.
 fn compute_kotlin_func_args(node: &Node, nargs: &mut usize) {
-    if let Some(params) = node
-        .children()
-        .find(|c| c.kind_id() == Kotlin::FunctionValueParameters)
-    {
-        params.act_on_child(&mut |n| {
-            if n.kind_id() == Kotlin::Parameter {
-                *nargs += 1;
-            }
-        });
+    let (list, param) = if node.kind_id() == Kotlin::PrimaryConstructor {
+        (Kotlin::ClassParameters, Kotlin::ClassParameter)
+    } else {
+        (Kotlin::FunctionValueParameters, Kotlin::Parameter)
+    };
+    if let Some(params) = node.children().find(|c| c.kind_id() == list) {
+        *nargs += params.children().filter(|n| n.kind_id() == param).count();
     }
 }
 
@@ -768,9 +776,61 @@ implement_metric_trait!(
     CcommentCode,
     BashCode,
     PhpCode,
-    CsharpCode,
     RubyCode
 );
+
+// tree-sitter-c-sharp wraps an ordinary parameter in a `parameter`
+// node but spells a `params` array through the hidden
+// `_parameter_array` rule, whose pieces — the attribute lists, the
+// `params` token, the type and the name — land directly in the list.
+// The shared negative filter counted every one of them, so
+// `void F(params int[] xs)` reported 3 and `void F([A] params int[] xs)`
+// 4. Count positively instead: one per `parameter`, one per `params`
+// token, which is the one child the hidden rule always emits. The same
+// shape sits in an indexer's `bracketed_parameter_list`, which the
+// `parameters` field also reaches.
+//
+// A comment in the list is neither, so the #1201 exclusion holds
+// without naming it; a bare lambda parameter (`x => x`) is the
+// childless `implicit_parameter` the field holds instead of a list
+// (#1185), still answered by `is_bare_param`.
+fn csharp_count_params(params: &Node) -> usize {
+    params
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), Csharp::Parameter | Csharp::Params))
+        .count()
+}
+
+// A primary constructor *is* its `parameter_list` — the `FuncOpener`
+// row of `roles/csharp.rs` opens the space on that node (#1828) — so
+// the list is the node itself; every other callable holds its list in
+// the `parameters` field.
+fn csharp_compute_args(node: &Node, nargs: &mut usize) {
+    if node.kind_id() == Csharp::ParameterList {
+        *nargs += csharp_count_params(node);
+        return;
+    }
+    if let Some(params) = node.child_by_field_name("parameters") {
+        if CsharpCode::is_bare_param(&params) {
+            *nargs += 1;
+            return;
+        }
+        *nargs += csharp_count_params(&params);
+    }
+}
+
+impl NArgs for CsharpCode {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
+            csharp_compute_args(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node, ancestors) {
+            csharp_compute_args(node, &mut stats.closure_nargs);
+        }
+    }
+}
 
 // A record's compact constructor (`record R(int a, int b) { R { … } }`,
 // JLS 8.10.4) declares no formal parameter list of its own: the grammar
@@ -848,7 +908,9 @@ impl NArgs for GroovyCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space_only_shim, check_metrics_only_shim};
+    use crate::test_support::{
+        check_func_space, check_func_space_only_shim, check_metrics_only_shim, child_space,
+    };
 
     use super::*;
 
@@ -3193,6 +3255,81 @@ mod tests {
         );
     }
 
+    /// A `params` array is one parameter. The grammar's hidden
+    /// `_parameter_array` rule flattens its pieces into the list, so the
+    /// shared negative filter read `F(params int[] xs)` as 3 and the
+    /// attributed form as 4; the positive count reads one each, and the
+    /// ordinary parameters beside it — attributed, `ref`/`out`/`in`,
+    /// defaulted — still one each. Every C# callable shape that can
+    /// carry one is a row, each pinned by its own space, so the file
+    /// total cannot hide one shape compensating for another.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_params_array_is_one_parameter() {
+        check_spaces::<CsharpParser, _>(
+            "class C {
+                 public C(params int[] xs) { }
+                 void M(params int[] ys) { }
+                 void A([Attr] params int[] zs) { }
+                 void B([Attr] int a, ref int b, out int c, in int d, int e = 1, params int[] f) { }
+                 int this[params int[] i] => 0;
+                 void L() {
+                     var f = (params int[] a) => 0;
+                     var g = x => x;
+                     var h = delegate(int q, params int[] r) { };
+                 }
+             }",
+            "params.cs",
+            |space| {
+                let class = &space.spaces[0];
+                let rows: Vec<(Option<&str>, u64, u64)> = class
+                    .spaces
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.name.as_deref(),
+                            s.metrics.nargs.function_args(),
+                            s.metrics.nargs.closure_args(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    rows,
+                    vec![
+                        (Some("C"), 1, 0),
+                        (Some("M"), 1, 0),
+                        (Some("A"), 1, 0),
+                        (Some("B"), 6, 0),
+                        (Some("<anonymous>"), 1, 0),
+                        (Some("L"), 0, 0),
+                    ]
+                );
+                let l = &class.spaces[5];
+                let lambdas: Vec<u64> = l
+                    .spaces
+                    .iter()
+                    .map(|s| s.metrics.nargs.closure_args())
+                    .collect();
+                assert_eq!(lambdas, vec![1, 1, 2]);
+                assert_eq!(space.metrics.nargs.function_args_sum(), 10);
+                assert_eq!(space.metrics.nargs.closure_args_sum(), 4);
+            },
+        );
+        // The count rests on `_parameter_array` staying hidden: a grammar
+        // that promoted it to a named wrapper around its `params` token
+        // would read 2 per array through `Parameter | Params`. Pinned
+        // per lesson 34 so the promotion fails here, not in a corpus.
+        let parser = CsharpParser::new(
+            b"class C { void M(params int[] ys) { } }".to_vec(),
+            std::path::Path::new("hidden.cs"),
+            None,
+        );
+        assert!(
+            !crate::test_support::ast_has_kind_id(&parser, Csharp::ParameterArray as u16),
+            "`_parameter_array` is a hidden rule and never emitted"
+        );
+    }
+
     #[cfg(feature = "typescript")]
     #[test]
     fn tsx_function_and_arrow() {
@@ -3770,6 +3907,336 @@ proc g {x y z} { puts $x }",
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
+    }
+
+    /// The `(name, kind, own fn args, own closure args)` rows of a space
+    /// tree in walk order, for the primary-constructor fixtures below:
+    /// two constructors share their class's name, so the rows are read
+    /// positionally rather than by name.
+    #[cfg(any(feature = "kotlin", feature = "csharp"))]
+    fn space_rows(space: &FuncSpace) -> Vec<(String, SpaceKind, u64, u64)> {
+        fn walk(space: &FuncSpace, rows: &mut Vec<(String, SpaceKind, u64, u64)>) {
+            rows.push((
+                space.name.clone().unwrap_or_default(),
+                space.kind,
+                space.metrics.nargs.function_args(),
+                space.metrics.nargs.closure_args(),
+            ));
+            for child in &space.spaces {
+                walk(child, rows);
+            }
+        }
+        let mut rows = Vec::new();
+        for child in &space.spaces {
+            walk(child, &mut rows);
+        }
+        rows
+    }
+
+    /// #1828's reproducer: a six-parameter primary constructor counted
+    /// nowhere, so `bca check --threshold nargs=5` passed it. It opens a
+    /// `Function` space named after its class (the `FuncOpener` row of
+    /// `roles/kotlin.rs`), which owns the six; `nom` counts it as the
+    /// callable the average divides by. Every row read 0 on `main`.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_primary_constructor_owns_its_parameters() {
+        check_spaces::<KotlinParser, _>(
+            "data class D(val a: Int, val b: Int, val c: Int, val d: Int, val e: Int, val f: Int)",
+            "d.kt",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        ("D".to_owned(), SpaceKind::Class, 0, 0),
+                        ("D".to_owned(), SpaceKind::Function, 6, 0),
+                    ]
+                );
+                let ctor = &space.spaces[0].spaces[0];
+                assert_eq!(ctor.metrics.nargs.own_args(), 6);
+                assert_eq!((ctor.start_line, ctor.end_line), (1, 1));
+                assert_eq!(space.metrics.nom.functions_sum(), 1);
+                assert_eq!(space.metrics.nargs.function_args_sum(), 6);
+                assert!((space.metrics.nargs.function_args_average() - 6.0).abs() < 1e-9);
+            },
+        );
+    }
+
+    /// The two constructor spellings beside each other, with the field
+    /// lambda that made the container route wrong: the class keeps the
+    /// lambda's two closure parameters (a Kotlin lambda opens no
+    /// space), the primary constructor owns exactly its two, the
+    /// secondary its one. The superclass call `Base(a)` is a sibling of
+    /// the parameter list, so the class still owns that ABC branch
+    /// (#1456), and the `val a` property is still the class's own
+    /// attribute, not the constructor's.
+    /// The secondary constructor reads `<anonymous>` as it did before
+    /// #1828 — `secondary_constructor` has no `name` field and no
+    /// override names it — a gap of its own, not this test's.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_primary_and_secondary_constructors_each_own_their_parameters() {
+        check_func_space::<KotlinParser, _>(
+            "class P(val a: Int, b: Int) : Base(a) {
+                 constructor(x: Int) : this(x, x)
+                 val cmp = { p: Int, q: Int -> p }
+             }",
+            "p.kt",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        ("P".to_owned(), SpaceKind::Class, 0, 2),
+                        ("P".to_owned(), SpaceKind::Function, 2, 0),
+                        ("<anonymous>".to_owned(), SpaceKind::Function, 1, 0),
+                    ]
+                );
+                let class = &space.spaces[0];
+                assert_eq!(class.metrics.abc.branches(), 1, "`Base(a)` is the class's");
+                assert_eq!(class.spaces[0].metrics.abc.branches(), 0);
+                assert_eq!(class.spaces[1].metrics.abc.branches(), 1, "`this(x, x)`");
+                // `val a` (a parameter property) and `val cmp` are both
+                // the class's own attributes; the constructor declares
+                // none — `kotlin_parameter_properties_stay_the_classs`
+                // pins the split.
+                assert_eq!(class.metrics.npa.class_na(), 2);
+                assert_eq!(class.spaces[0].metrics.npa.class_na(), 0);
+                assert_eq!(class.metrics.nom.functions_sum(), 2);
+                assert_eq!(class.metrics.nom.closures_sum(), 1);
+            },
+        );
+    }
+
+    /// Every preamble the grammar permits before the list, and the
+    /// shapes that must not open one: the `constructor` keyword, an
+    /// annotation and a visibility modifier on it, an `enum class` and
+    /// an `annotation class`, empty parens (a declared zero-parameter
+    /// constructor), a comment and a trailing comma in the list, a
+    /// default, a local class inside a function (billed to the local
+    /// class's constructor, not to `outer`), and a class with no list
+    /// at all, which opens nothing.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_primary_constructor_preambles() {
+        check_spaces::<KotlinParser, _>(
+            "class E constructor(x: Int)
+             class F @Inject private constructor(x: Int, y: Int)
+             enum class G(val v: Int) { A(1) }
+             annotation class H(val x: Int)
+             class N
+             class Z()
+             class C(val a: Int, /* c */ val b: Int = 2,)
+             fun outer(p: Int) { class Loc(val q: Int, val r: Int) }",
+            "preambles.kt",
+            |space| {
+                let f = |n: &str, k, a| (n.to_owned(), k, a, 0);
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        f("E", SpaceKind::Class, 0),
+                        f("E", SpaceKind::Function, 1),
+                        f("F", SpaceKind::Class, 0),
+                        f("F", SpaceKind::Function, 2),
+                        f("G", SpaceKind::Class, 0),
+                        f("G", SpaceKind::Function, 1),
+                        f("H", SpaceKind::Class, 0),
+                        f("H", SpaceKind::Function, 1),
+                        f("N", SpaceKind::Class, 0),
+                        f("Z", SpaceKind::Class, 0),
+                        f("Z", SpaceKind::Function, 0),
+                        f("C", SpaceKind::Class, 0),
+                        f("C", SpaceKind::Function, 2),
+                        f("outer", SpaceKind::Function, 1),
+                        f("Loc", SpaceKind::Class, 0),
+                        f("Loc", SpaceKind::Function, 2),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// A primary constructor's space holds its parameter list and no
+    /// code, so a parameterless one — `class Z()` — has no Halstead
+    /// volume and reads the `mi.*` `0.0` sentinel, which `bca check`
+    /// and `bca report` skip (#1621); a parameterised one's list is its
+    /// volume. Pinned so the exemption is known to cover the new rows,
+    /// and so a serialiser reading `0.0` literally knows why one is
+    /// there. `check_func_space` because `mi` pulls its own inputs.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_parameterless_primary_constructor_is_mi_empty() {
+        check_func_space::<KotlinParser, _>(
+            "class Z()
+class A(val x: Int)",
+            "z.kt",
+            |space| {
+                let z = &child_space(&space, "Z").spaces[0];
+                let a = &child_space(&space, "A").spaces[0];
+                assert_eq!((z.kind, a.kind), (SpaceKind::Function, SpaceKind::Function));
+                assert!(z.metrics.mi.is_empty(), "no list, no volume");
+                assert_eq!(z.metrics.mi.original(), 0.0);
+                assert!(!a.metrics.mi.is_empty(), "the list is the space's code");
+            },
+        );
+    }
+
+    /// A default spelled as a lambda is part of the signature, so its
+    /// parameters are the constructor's closure parameters, exactly as
+    /// a function's spaceless lambdas are its own (#1196): `own_args`
+    /// reads 1 + 2. Pinned so the row's number is known to carry the
+    /// default's lambda rather than the written arity alone.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_primary_constructor_default_lambda_is_its_closure() {
+        check_spaces::<KotlinParser, _>(
+            "class L(val f: (Int, Int) -> Int = { a, b -> a + b })",
+            "l.kt",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        ("L".to_owned(), SpaceKind::Class, 0, 0),
+                        ("L".to_owned(), SpaceKind::Function, 1, 2),
+                    ]
+                );
+                assert_eq!(space.spaces[0].spaces[0].metrics.nargs.own_args(), 3);
+            },
+        );
+    }
+
+    /// #1828's C# reproducer: a C# 12 primary constructor is the
+    /// `parameter_list` hanging directly off the type declaration — the
+    /// `FuncOpener` row of `roles/csharp.rs` gates it on that parent —
+    /// and it opens a `Function` space named after the type, owning the
+    /// six. Every row read 0 on `main`.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_primary_constructor_owns_its_parameters() {
+        check_spaces::<CsharpParser, _>(
+            "public class C(int a, int b, int c, int d, int e, int f)
+             {
+                 public int Sum() => a + b + c + d + e + f;
+             }",
+            "c.cs",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        ("C".to_owned(), SpaceKind::Class, 0, 0),
+                        ("C".to_owned(), SpaceKind::Function, 6, 0),
+                        ("Sum".to_owned(), SpaceKind::Function, 0, 0),
+                    ]
+                );
+                let ctor = &space.spaces[0].spaces[0];
+                assert_eq!(ctor.metrics.nargs.own_args(), 6);
+                assert_eq!((ctor.start_line, ctor.end_line), (1, 1));
+                assert_eq!(space.metrics.nom.functions_sum(), 2);
+                assert!((space.metrics.nargs.function_args_average() - 3.0).abs() < 1e-9);
+            },
+        );
+    }
+
+    /// Every type that can carry a primary constructor, and the shapes
+    /// around it: a positional `record`, `record struct` and `record
+    /// class`, a `struct`, a class delegating to its base (the
+    /// `base_list` is a sibling of the list, so the class keeps that
+    /// ABC branch — #1456), a class with no list and one with empty
+    /// parens, a generic class whose `type_parameter_list` is a
+    /// different kind, a comment in the list beside an explicit
+    /// `this(…)` constructor, nesting in a namespace and in a class,
+    /// and a method's own list, which opens nothing of its own.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_primary_constructor_shapes() {
+        check_func_space::<CsharpParser, _>(
+            "public record R(int A, int B);
+             public record struct RS(int A);
+             public record class RC(int A, int B, int C);
+             public struct S(int x) { }
+             public class Sub(int x) : Base(x) { }
+             public class N { }
+             public class Z() { }
+             public class G<T>(T x, [Attr] int y = 1, params int[] zs) { }
+             public class H(int a /* c */, int b) { public H() : this(1, 2) { } }
+             namespace Ns { public class Nested(int q) { public class Inner(int r, int s) { void M(int t) { } } } }",
+            "shapes.cs",
+            |space| {
+                let f = |n: &str, k, a| (n.to_owned(), k, a, 0);
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        f("R", SpaceKind::Class, 0),
+                        f("R", SpaceKind::Function, 2),
+                        f("RS", SpaceKind::Class, 0),
+                        f("RS", SpaceKind::Function, 1),
+                        f("RC", SpaceKind::Class, 0),
+                        f("RC", SpaceKind::Function, 3),
+                        f("S", SpaceKind::Class, 0),
+                        f("S", SpaceKind::Function, 1),
+                        f("Sub", SpaceKind::Class, 0),
+                        f("Sub", SpaceKind::Function, 1),
+                        f("N", SpaceKind::Class, 0),
+                        f("Z", SpaceKind::Class, 0),
+                        f("Z", SpaceKind::Function, 0),
+                        f("G", SpaceKind::Class, 0),
+                        f("G", SpaceKind::Function, 3),
+                        f("H", SpaceKind::Class, 0),
+                        f("H", SpaceKind::Function, 2),
+                        f("H", SpaceKind::Function, 0),
+                        f("Nested", SpaceKind::Class, 0),
+                        f("Nested", SpaceKind::Function, 1),
+                        f("Inner", SpaceKind::Class, 0),
+                        f("Inner", SpaceKind::Function, 2),
+                        f("M", SpaceKind::Function, 1),
+                    ]
+                );
+                let sub = child_space(&space, "Sub");
+                assert_eq!(sub.metrics.abc.branches(), 1, "`: Base(x)` stays the class's");
+                assert_eq!(sub.spaces[0].metrics.abc.branches(), 0);
+            },
+        );
+    }
+
+    /// The classic and primary spellings of one constructor agree, so a
+    /// migration to primary constructors moves no `nargs` number — the
+    /// `params` row included, which is why its miscount was fixed
+    /// alongside (`csharp_params_array_is_one_parameter`).
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_primary_and_classic_constructors_agree() {
+        check_spaces::<CsharpParser, _>(
+            "class Primary(int a, string b, params int[] rest) { }
+             class Classic { public Classic(int a, string b, params int[] rest) { } }",
+            "twins.cs",
+            |space| {
+                let primary = child_space(&space, "Primary").spaces[0]
+                    .metrics
+                    .nargs
+                    .own_args();
+                let classic = child_space(&space, "Classic").spaces[0]
+                    .metrics
+                    .nargs
+                    .own_args();
+                assert_eq!((primary, classic), (3, 3));
+            },
+        );
+    }
+
+    /// Error recovery: a list with no closing paren parses to an `ERROR`
+    /// root holding the `parameter` nodes bare, with no `parameter_list`
+    /// at all, so no constructor space opens. This cannot see the row's
+    /// parent gate — with no list node there is nothing for the gate to
+    /// reject, and an ungated row answers the same here — it records
+    /// the recovery shape, so a grammar bump that starts recovering the
+    /// list under `ERROR` changes this row rather than a corpus
+    /// snapshot.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_unclosed_primary_constructor_opens_nothing() {
+        check_spaces::<CsharpParser, _>("class C(int a,", "broken.cs", |space| {
+            assert_eq!(space_rows(&space), []);
+            assert_eq!(space.metrics.nargs.total(), 0);
+        });
     }
 
     #[cfg(feature = "php")]
