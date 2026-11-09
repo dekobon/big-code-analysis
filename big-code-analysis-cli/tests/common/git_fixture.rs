@@ -210,11 +210,13 @@ pub fn is_git_var(key: &std::ffi::OsStr) -> bool {
 /// helper's caller-environment parameter also pins that the isolation
 /// is applied after the caller's variables.
 ///
-/// Three copies of this host are kept byte-identical in the
+/// Two copies of this host are kept byte-identical in the
 /// configuration they write, since shared test modules do not cross
-/// crates: `HostileGitHost` in `big-code-analysis-cli/src/vcs_command.rs`
-/// and `big-code-analysis-web/src/web/server_tests.rs`, and
+/// crates: `HostileGitHost` in
+/// `big-code-analysis-web/src/web/server_tests.rs` and
 /// `_hostile_git_host` in `big-code-analysis-py/tests/test_vcs.py`.
+/// The CLI's own `vcs_command.rs` unit tests reach this one through a
+/// `#[path]` module.
 pub struct HostileGitHost {
     dir: tempfile::TempDir,
     global: String,
