@@ -12,7 +12,19 @@ const HOOK = join(REPO, ".claude/hooks/bca-check.mjs")
 const EXE = process.platform === "win32" ? ".exe" : ""
 const ROW = '[new] ./sample.rs:1-3: "quoted\\name": cognitive = 20 (limit 15)'
 const GUIDANCE = "Keep the change focused."
-const baseEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_") && key !== "BCA"))
+const baseEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_") && key !== "BCA" && key !== "BCA_HOOK_TIMEOUT_MS"))
+// The stub analyzer is a Node cold start per hook run; on a loaded Windows
+// runner one can cross `run()`'s 3 s production budget (#1857), so each hook
+// child gets a raised budget for its analyzer run — the only run the override
+// reaches; `checkout()`'s git call and the `--version` probes keep the 3 s
+// TIMEOUT. The timeout test passes its own short one.
+const FIXTURE_TIMEOUT_MS = "15000"
+const SHORT_TIMEOUT_MS = "1000"
+// The harness kills a hook child at this deadline, above FIXTURE_TIMEOUT_MS:
+// equal to it, a hook whose analyzer legitimately runs to its budget would be
+// killed by the harness at the same instant it reports TIMEOUT, and the
+// health line would never be read.
+const HARNESS_TIMEOUT_MS = 20_000
 
 async function fixture(t) {
   const temp = await realpath(await mkdtemp(join(tmpdir(), "bca claude test ")))
@@ -79,8 +91,8 @@ syncBuiltinESMExports();
       session_id: "session-a", tool_input: { file_path: path }, ...overrides }),
     run(input, overrides = {}, script = HOOK) {
       return spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, script], {
-        env: { ...env, BCA: stub, ...overrides }, cwd: temp,
-        input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", timeout: 15_000, maxBuffer: 512 * 1024,
+        env: { ...env, BCA: stub, BCA_HOOK_TIMEOUT_MS: FIXTURE_TIMEOUT_MS, ...overrides }, cwd: temp,
+        input: typeof input === "string" ? input : JSON.stringify(input), encoding: "utf8", timeout: HARNESS_TIMEOUT_MS, maxBuffer: 512 * 1024,
       })
     },
     async calls() {
@@ -286,9 +298,16 @@ test("missing binary, timeout and output overflow remain model-silent", async (t
   const f = await fixture(t)
   quiet(f.run(f.input(), { BCA: join(f.temp, "absent") }), "unavailable")
   assert.deepEqual(await f.calls(), [])
-  for (const data of [{ hang: true }, { rows: "x".repeat(100_000) }]) {
+  // Only the hang takes the short budget: the overflow must run the stub's
+  // code before it can overflow, and under the short budget a slow start would
+  // report TIMEOUT instead (#1857).
+  for (const [data, exit] of [[{ hang: true }, "TIMEOUT"], [{ rows: "x".repeat(100_000) }, "OUTPUT_LIMIT"]]) {
     await f.file(data)
-    quiet(f.run(f.input()), "unavailable")
+    const started = Date.now()
+    const result = f.run(f.input(), data.hang ? { BCA_HOOK_TIMEOUT_MS: SHORT_TIMEOUT_MS } : {})
+    quiet(result, "unavailable")
+    assert.equal(f.health(result).exit, exit)
+    if (data.hang) assert.ok(Date.now() - started < 10_000, "the hanging stub must stop at the short budget, not the fixture's")
   }
 })
 
@@ -465,7 +484,9 @@ test("a digest script that cannot be inspected still yields a local build", { sk
 // matches, and is chosen with "build inputs match this tree". Decided on the
 // output, not the clock — an earlier `elapsed < 5_500` form passed the
 // unchained abort whenever the reason was read alone, and only its wall-clock
-// bound (4.1 s measured against 6 s) told the two apart (audit-tests).
+// bound (4.1 s measured against 6 s) told the two apart (audit-tests). The
+// fixture's raised budget is in force and does not matter: it reaches the
+// analyzer run alone, never a probe (the test below pins that).
 test("candidates that stall on --version are abandoned at the discovery budget", async (t) => {
   const f = await fixture(t)
   const digest = "3".repeat(64)
@@ -476,6 +497,28 @@ test("candidates that stall on --version are abandoned at the discovery budget",
   assert.match(report(result), /debug finding/)
   assert.equal(f.health(result).analyzerReason, "newest local build (discovery budget exhausted)")
   assert.deepEqual(await f.probes(), [f.local("debug"), f.local("release")])
+})
+
+// One candidate answering `--version` after 3.5 s, inside the 4 s discovery
+// budget but past `run()`'s 3 s TIMEOUT, under the fixture's 15 s override:
+// the probe is stopped at 3 s and the build falls to "newest local build".
+// Fails if the override reaches the probes — the probe then answers at 3.5 s,
+// matches, and is chosen with "build inputs match this tree" — which is what
+// made a shell export of `BCA_HOOK_TIMEOUT_MS` push a real hook past the 15 s
+// Claude Code allows it (3 s git + 4 s discovery + the override). Which of
+// the two non-match reasons is reported is a race between the probe's 3 s
+// stop and the 4 s budget that a slow digest start shifts (a 1.2 s start
+// reads "budget exhausted"), so the test reads the one fact both prove: the
+// probe never answered, which no slower runner can turn into a match.
+test("the budget override reaches the analyzer run and never a --version probe", async (t) => {
+  const f = await fixture(t)
+  const digest = "5".repeat(64)
+  const env = await f.digest(digest)
+  await f.binary(f.local("debug"), { inputs: digest, finding: "debug finding", delay: 3_500 })
+  const result = f.run(f.input(), env)
+  assert.match(report(result), /debug finding/)
+  assert.match(f.health(result).analyzerReason, /^newest local build \((no candidate reports this tree's build inputs|discovery budget exhausted)\)$/)
+  assert.deepEqual(await f.probes(), [f.local("debug")])
 })
 
 test("retargeting an edited symlink discards the old target's findings", async (t) => {

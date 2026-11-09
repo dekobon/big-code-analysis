@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises"
 import { isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { advisory, analyzer, checkout, checkContext, checkArgs, guidance, inside, run, unchanged } from "./bca-common.mjs"
+import { advisory, analyzer, checkout, checkContext, checkArgs, guidance, inside, run, runTimeout, unchanged } from "./bca-common.mjs"
 
 const MAX_INPUT = 8 * 1024 * 1024
 const EDIT_TOOLS = new Set(["Edit", "Write"])
@@ -46,7 +46,7 @@ export async function checkHook(input, signal) {
       health.outcome = "cancelled"
       return
     }
-    const result = await run(bca, checkArgs(named), cwd, signal)
+    const result = await run(bca, checkArgs(named), cwd, signal, process.env, runTimeout(process.env))
     health.exit = result.code ?? "signal"
     health.diagnostic = result.stderr.trim().slice(0, 1_000)
     if (signal?.aborted) {

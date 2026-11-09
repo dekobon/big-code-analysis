@@ -163,6 +163,29 @@ for historical reference.
   with `GIT_DIR` and `GIT_INDEX_FILE` naming a victim repository, which
   must come through untouched, and with `GIT_OBJECT_DIRECTORY` naming a
   directory that does not exist. Test-only; no shipped behaviour changes.
+- **The agent-hook test fixtures no longer race the analyzer's 3 s
+  budget** (#1857). Each fixture run spawns the stub analyzer as a fresh
+  Node process through `run()` in `.claude/hooks/bca-common.mjs`, which
+  stops a child after 3 s and reports it `TIMEOUT`; the plugin counts
+  that as "unavailable" and attaches no advisory, and the fixture's
+  `console.warn` mock kept the reason off the CI log, so a Node cold
+  start crossing 3 s on a loaded Windows runner failed an unrelated
+  assertion with `actual: undefined`. The analyzer run's budget is now
+  read from `BCA_HOOK_TIMEOUT_MS`, a test-oriented environment
+  override like `BCA_DIGEST_SCRIPT`, when that names a positive
+  integer in Node's timer range; unset or malformed, the budget is the
+  unchanged 3 s. The override reaches the analyzer run alone: the
+  checkout's `git rev-parse`, the `--version` probes and the Windows
+  `taskkill` budget keep their 3 s, so a shell that exports it moves
+  one term of a real hook's time, not three. Both test suites raise
+  the analyzer budget to 15 s for ordinary runs, the hang test sets
+  1 s so it still exercises the timeout, the inherited-pipes test is
+  driven by supersession rather than a timer, and the discovery-budget
+  test pins the production value. A failed plugin test now prints the
+  console output its fixture captured. New tests pin that the override
+  is the budget `run()` arms, re-read per run from the environment it
+  is given, that it never reaches a probe, and that the default is
+  3 s. The default production budget is unchanged.
 - **`make role-coverage-observe` samples the same files at any checkout
   depth** (#1836). It walked each corpus directory, so a checkout with
   the corpora's own submodules initialised — as the benchmarking guide's

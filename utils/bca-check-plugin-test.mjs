@@ -8,12 +8,20 @@ import { join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
 import plugin, { resolveInputPath } from "../.opencode/plugins/bca-check.js"
-import { checkout, guidance } from "../.claude/hooks/bca-common.mjs"
+import { checkout, guidance, runTimeout } from "../.claude/hooks/bca-common.mjs"
 
 const ROW = "[new] ./sample.rs:1-12: sample: cognitive = 20 (limit 15)"
 const GUIDANCE = "Use a meaningful boundary; do not game the metric."
 const named = (path) => `.${sep}${path.split("/").join(sep)}`
 const EXE = process.platform === "win32" ? ".exe" : ""
+// The stub analyzer is a Node cold start per hook run, and on a loaded Windows
+// runner one can cross `run()`'s 3 s production budget (#1857), so the fixture
+// raises the analyzer run's budget through `BCA_HOOK_TIMEOUT_MS` — the one run
+// the override reaches; the checkout's git call keeps TIMEOUT. Tests that need
+// the timeout to fire set their own short budget after the first hook call has
+// cached the checkout.
+const FIXTURE_TIMEOUT_MS = "15000"
+const SHORT_TIMEOUT_MS = "1000"
 
 function gitEnvironment(config) {
   return {
@@ -54,16 +62,25 @@ const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(directory, "calls.jsonl"))}, JSON.stringify({ cwd: process.cwd(), args }) + "\\n");
 const data = JSON.parse(readFileSync(args[1], "utf8"));
 if (data.hang) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); }
-else {
+else setTimeout(() => {
   process.stdout.write(data.rows ?? ${JSON.stringify(ROW)});
   process.stderr.write(data.stderr ?? "");
   process.exitCode = data.code ?? 2;
-}
+}, data.delay ?? 0);
 `, { mode: 0o755 })
   const scripts = new Set([stub])
   redirectExecutables(t, scripts)
-  const before = process.env.BCA
+  const before = { BCA: process.env.BCA, BCA_HOOK_TIMEOUT_MS: process.env.BCA_HOOK_TIMEOUT_MS }
+  // Registered before the first mutation: a `setup` that rejects below
+  // would otherwise leave both variables set for every later test.
+  t.after(() => {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
   process.env.BCA = stub
+  process.env.BCA_HOOK_TIMEOUT_MS = FIXTURE_TIMEOUT_MS
   const messages = []
   for (const method of ["info", "warn", "debug"]) {
     t.mock.method(console, method, (text) => messages.push([method, text]))
@@ -88,8 +105,10 @@ else {
   const cleanup = await plugin.setup(ctx)
   t.after(async () => {
     cleanup()
-    if (before === undefined) delete process.env.BCA
-    else process.env.BCA = before
+    // The plugin only `warn()`s an unavailable analyzer, and the mocks above
+    // keep that off the CI log, so a failed test prints what it captured:
+    // the next flake then names its exit reason (#1857).
+    if (!t.passed) console.error(`[${t.name}] captured console output:\n${messages.map(([level, text]) => `  ${level}: ${text}`).join("\n") || "  (none)"}`)
     await rm(directory, { recursive: true, force: true })
   })
   return {
@@ -272,12 +291,77 @@ test("explicit unavailable BCA, buffer overflow and timeout never erase tool suc
   assert.equal(missing.result.content, "Edited successfully")
   assert.deepEqual(await f.calls(), [])
   process.env.BCA = f.stub
-  for (const data of [{ rows: "x".repeat(100_000) }, { hang: true }]) {
+  for (const [data, reason] of [[{ rows: "x".repeat(100_000) }, "OUTPUT_LIMIT"], [{ hang: true }, "TIMEOUT"]]) {
+    if (data.hang) process.env.BCA_HOOK_TIMEOUT_MS = SHORT_TIMEOUT_MS
+    const started = Date.now()
     const e = event(await f.file("bad.rs", data))
     await f.hook(e)
     assert.equal(e.result.content, "Edited successfully")
+    if (data.hang) assert.ok(Date.now() - started < 10_000, "the hanging stub must stop at the short budget, not the fixture's")
+    assert.ok(f.messages.some(([level, text]) => level === "warn" && text.includes(`unavailable for ${named("bad.rs")} (exit ${reason})`)), reason)
   }
-  assert.ok(f.messages.some(([level, text]) => level === "warn" && text.includes("unavailable")))
+})
+
+// #1857: the fixture's raised budget must be the one `run()` arms, or the
+// Windows flake it addresses is untouched. The 250 ms run proves the override
+// reaches the timer that fires: the 1 s stub is stopped with TIMEOUT and
+// delivers nothing. Whether that process ever ran its own code is not
+// asserted — one killed at 250 ms may not have reached the call log. The
+// second run proves the raised budget is the one armed: a spy on `setTimeout`
+// sees `run()` arm 15 000 ms, not the 3 s TIMEOUT and not a clamped value,
+// and the same stub then finishes with a finding. Fails if `run()` reads
+// TIMEOUT (the first run finishes inside 3 s and delivers; the spy never sees
+// 15 000) or if the override is read once rather than per run (both runs arm
+// the same value).
+test("BCA_HOOK_TIMEOUT_MS sets the budget run() arms and is re-read per run", async (t) => {
+  const f = await fixture(t)
+  const path = await f.file("slow.rs", { rows: "slow finding", delay: 1_000 })
+  const original = globalThis.setTimeout
+  const armed = []
+  t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
+    armed.push(delay)
+    return original(callback, delay, ...args)
+  })
+  process.env.BCA_HOOK_TIMEOUT_MS = "250"
+  const cut = event(path)
+  await f.hook(cut)
+  assert.equal(cut.result.content, "Edited successfully")
+  assert.ok(f.messages.some(([level, text]) => level === "warn" && text.includes(`unavailable for ${named("slow.rs")} (exit TIMEOUT)`)))
+  assert.ok(armed.includes(250), `armed ${JSON.stringify(armed)}`)
+  const beforeSecond = armed.length
+  process.env.BCA_HOOK_TIMEOUT_MS = FIXTURE_TIMEOUT_MS
+  const finished = event(path, { sessionID: "long-budget" })
+  await f.hook(finished)
+  assert.match(advice(finished) ?? "", /slow finding/)
+  assert.ok(armed.slice(beforeSecond).includes(Number(FIXTURE_TIMEOUT_MS)), `armed ${JSON.stringify(armed.slice(beforeSecond))}`)
+})
+
+// The production budget is unchanged: an unset, empty, non-numeric,
+// fractional, zero, negative, signed, padded, exponent or hex override, or one
+// past Node's 2^31 - 1 timer ceiling (clamped to 1 ms otherwise), falls back
+// to 3 s. Only a run of decimal digits inside the range is a budget. The
+// budget is read from the environment handed in — the one the analyzer run is
+// given — and from `process.env` only by default, so the last block asks with
+// an explicit environment that contradicts the process's.
+test("runTimeout() keeps its 3 s budget unless BCA_HOOK_TIMEOUT_MS is decimal digits in Node's timer range", () => {
+  const saved = process.env.BCA_HOOK_TIMEOUT_MS
+  try {
+    for (const value of [undefined, "", "soon", "1.5", "0", "-1", "+250", " 250 ", "1e3", "0x10", "Infinity", "NaN", "2147483648"]) {
+      if (value === undefined) delete process.env.BCA_HOOK_TIMEOUT_MS
+      else process.env.BCA_HOOK_TIMEOUT_MS = value
+      assert.equal(runTimeout(), 3_000, JSON.stringify(value))
+    }
+    for (const [value, expected] of [["1", 1], ["250", 250], ["2147483647", 2_147_483_647]]) {
+      process.env.BCA_HOOK_TIMEOUT_MS = value
+      assert.equal(runTimeout(), expected, value)
+    }
+    process.env.BCA_HOOK_TIMEOUT_MS = "250"
+    assert.equal(runTimeout({}), 3_000, "an environment without the override is the default")
+    assert.equal(runTimeout({ BCA_HOOK_TIMEOUT_MS: "750" }), 750, "the given environment, not the process's")
+  } finally {
+    if (saved === undefined) delete process.env.BCA_HOOK_TIMEOUT_MS
+    else process.env.BCA_HOOK_TIMEOUT_MS = saved
+  }
 })
 
 test("containment rejects directories, sibling-prefix paths and escaping symlinks", async (t) => {
@@ -844,6 +928,7 @@ function moveEvent(from, to) {
 test("a wrapper's inherited output pipes cannot outlive the analyzer timeout", async (t) => {
   const f = await fixture(t)
   const path = await f.file()
+  process.env.BCA_HOOK_TIMEOUT_MS = SHORT_TIMEOUT_MS
   const original = childProcess.spawn
   let child
   let descendant
@@ -860,15 +945,16 @@ test("a wrapper's inherited output pipes cannot outlive the analyzer timeout", a
   })
   syncBuiltinESMExports()
   let timer
+  // One deadline bounds both waits: the short budget is armed at spawn, so a
+  // wrapper that starts slower than it is stopped before it reports its
+  // descendant, and `started` alone would then never settle (#1857).
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("inherited pipes kept the hook open")), 5_000) })
   try {
     const e = event(path)
     const running = f.hook(e)
-    await started
-    assert.ok(Number.isInteger(descendant) && descendant > 0)
-    await Promise.race([
-      running,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("inherited pipes kept the hook open")), 5_000) }),
-    ])
+    await Promise.race([started, running, deadline])
+    assert.ok(Number.isInteger(descendant) && descendant > 0, "the wrapper was stopped before it reported its descendant: Node started slower than SHORT_TIMEOUT_MS")
+    await Promise.race([running, deadline])
     assert.equal(e.result.content, "Edited successfully")
     assert.equal(f.records.at(-1)[1].last.unavailable, 1)
     if (process.platform !== "win32") {

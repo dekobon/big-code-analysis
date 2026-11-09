@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { isAbsolute, resolve, win32, posix } from "node:path"
-import { advisory, analyzer, checkout as resolveCheckout, checkContext, checkArgs, guidance, inside, run, unchanged } from "../../.claude/hooks/bca-common.mjs"
+import { advisory, analyzer, checkout as resolveCheckout, checkContext, checkArgs, guidance, inside, run, runTimeout, unchanged } from "../../.claude/hooks/bca-common.mjs"
 
 const MAX_FILES = 8
 // Match OpenCode v2.0.32 FileAccess.resolvePath / FSUtil.windowsPath for raw tool inputs only.
@@ -181,7 +181,7 @@ export default {
           if (state.version !== version) continue
           audit.checked++
           const controller = new AbortController()
-          const promise = run(bca, checkArgs(named), cwd, controller.signal)
+          const promise = run(bca, checkArgs(named), cwd, controller.signal, process.env, runTimeout(process.env))
           const running = { controller, promise }
           state.running = running
           const result = await promise

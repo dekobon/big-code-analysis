@@ -12,7 +12,29 @@ const DIGEST_SCRIPT = fileURLToPath(new URL("../../utils/self_scan_digest.py", i
 const FALLBACK = "Review findings relevant to your change; do not move complexity just to lower a score.\n" +
   "These are current file findings, not proof of an edit-caused regression. Keep the task-boundary gate."
 
-export function run(file, args, cwd, signal, env = process.env) {
+// `BCA_HOOK_TIMEOUT_MS` is a test-oriented override of the budget the
+// analyzer run arms (#1857), like `BCA_DIGEST_SCRIPT`: a Node cold start of a
+// stub analyzer on a loaded Windows runner can cross 3 s, so the plugin tests
+// raise it and the timeout tests set their own. Unset, the budget is TIMEOUT,
+// unchanged. It is read per call, from the environment the run is given, so
+// a fixture can change it between runs — and so a shell that exports it
+// changes a real hook's budget too; `analyzer()`'s arithmetic says how far
+// that can go. Only the analyzer run moves: `checkout()`'s git call, the
+// `--version` probes and the `taskkill` budget (which bounds the kill, not
+// the analyzer) stay at TIMEOUT, which is why the budget is an argument the
+// one analysing call site passes rather than something `run()` reads. The
+// value is decimal digits only, in Node's timer range: `Number()` would also
+// read `1e3`, hex and padded strings, and a delay above 2^31 - 1 is clamped
+// to 1 ms with a warning, so anything else falls back to the default rather
+// than arming a budget nobody wrote.
+const MAX_TIMER_MS = 2_147_483_647
+export function runTimeout(env = process.env) {
+  const override = env.BCA_HOOK_TIMEOUT_MS ?? ""
+  const ms = /^\d+$/.test(override) ? Number(override) : 0
+  return ms >= 1 && ms <= MAX_TIMER_MS ? ms : TIMEOUT
+}
+
+export function run(file, args, cwd, signal, env = process.env, budget = TIMEOUT) {
   return new Promise((done) => {
     let error
     let stopped
@@ -56,7 +78,7 @@ export function run(file, args, cwd, signal, env = process.env) {
     }
     child.on("error", (cause) => { error = cause.code ?? "SPAWN_ERROR" })
     const abort = () => stop("ABORT_ERR")
-    const timer = setTimeout(() => stop("TIMEOUT"), TIMEOUT)
+    const timer = setTimeout(() => stop("TIMEOUT"), budget)
     signal?.addEventListener("abort", abort, { once: true })
     child.once("close", async (code, exitSignal) => {
       clearTimeout(timer)
@@ -152,6 +174,9 @@ function reportedInputs(stdout) {
 // TIMEOUT each could otherwise spend more. The `checkout()` git call before
 // this is not under the budget; its 3 s TIMEOUT plus this 4 s plus the
 // check's 3 s is 10 s, which is why `.claude/settings.json` registers 15.
+// `BCA_HOOK_TIMEOUT_MS` moves the check's term alone, so a shell exporting
+// more than 8 000 ms makes a real hook outrun the 15 s Claude Code allows it
+// and lose its report; the probes here keep TIMEOUT whatever is exported.
 export async function analyzer(root, options = {}) {
   if (process.env.BCA) return { path: process.env.BCA, reason: "BCA environment variable" }
   const budget = new AbortController()
