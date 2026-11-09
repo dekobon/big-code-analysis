@@ -272,9 +272,14 @@ impl Getter for ElixirCode {
             // the two disagree on one construct — the divergence that
             // rule exists to remove. Elixir Halstead operator counts
             // drop for interpolated strings, charlists and sigils.
+            // The two quoted forms interpolate the same way, and sat in
+            // the plain operand arm below until the row claimed them, so
+            // `:"q #{a}"` billed the atom and the `a` inside it while
+            // `"q #{a}"` billed only the `a` — Ruby's `BareSymbol` shape
+            // (#1353).
             // role-bypass: allow(StringLit) — the operand classification of the literals
             // under the row's `wraps` list, a projection the row does not answer
-            E::String | E::Charlist | E::Sigil => {
+            E::String | E::Charlist | E::Sigil | E::QuotedAtom | E::QuotedKeyword => {
                 Self::string_operand_type(node, crate::roles::elixir::string_lit::WRAPS)
             }
 
@@ -295,9 +300,9 @@ impl Getter for ElixirCode {
             // them to `identifier`.
             E::Identifier | E::Alias | E::OperatorIdentifier
             | E::SigilName | E::SigilName2 | E::SigilModifiers
-            | E::Keyword | E::Keyword2 | E::QuotedKeyword
+            | E::Keyword | E::Keyword2
             | E::Integer | E::Float | E::Char
-            | E::Atom | E::Atom2 | E::QuotedAtom
+            | E::Atom | E::Atom2
             | E::Boolean | E::Nil
                 => TokenRole::Operand,
 

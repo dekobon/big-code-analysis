@@ -9926,6 +9926,47 @@ f() {
         );
     }
 
+    /// The two quoted forms the `StringLit` row claims beside the
+    /// three literals: an interpolating `:"q #{name}"` or `"k #{name}":`
+    /// is skipped like the string it is shaped as, so only the `name`
+    /// inside it is billed, and the plain form stays one operand. Until
+    /// the row claimed them both sat in the plain operand arm, so the
+    /// interpolating form billed the literal *and* the `name` inside it
+    /// — one more than the string twin on the same line.
+    ///
+    /// expected: `def`, `f`, `name` (param), `a`, `name` (inside
+    /// `#{…}`) → u_operands 4, N2 5, as `a = "q #{name}"` reads; the
+    /// quoted keyword adds its pair's `1`: u_operands 5, N2 6. Plain:
+    /// `def`, `f`, `a`, `:"q"` → 4 / 4; the keyword's `1` → 5 / 5.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_interpolated_quoted_atom_and_keyword_no_double_count() {
+        let operands = |src: &str| {
+            let h = crate::test_support::metrics_verbatim(
+                crate::LANG::Elixir,
+                src.as_bytes(),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Halstead]),
+            )
+            .halstead;
+            (h.unique_operands(), h.total_operands())
+        };
+        assert_eq!(
+            operands("def f(name) do\n  a = :\"q #{name}\"\nend\n"),
+            operands("def f(name) do\n  a = \"q #{name}\"\nend\n"),
+            "quoted atom vs its string twin"
+        );
+        assert_eq!(
+            operands("def f(name) do\n  a = :\"q #{name}\"\nend\n"),
+            (4, 5)
+        );
+        assert_eq!(
+            operands("def f(name) do\n  a = [\"k #{name}\": 1]\nend\n"),
+            (5, 6)
+        );
+        assert_eq!(operands("def f do\n  a = :\"q\"\nend\n"), (4, 4));
+        assert_eq!(operands("def f do\n  a = [\"k\": 1]\nend\n"), (5, 5));
+    }
+
     #[cfg(feature = "elixir")]
     #[test]
     fn elixir_sigil_delimiters_are_not_operators() {

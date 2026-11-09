@@ -588,8 +588,15 @@
 //! held in a local and compared later; a `kind()` compared to a variable
 //! rather than a literal; and, inside an `allow` exemption's span, any
 //! kind one of its named roles claims. A `macro_rules!` shape beyond the three it resolves is reported
-//! as unsupported, never silently passed. The check, when a row's
-//! membership moves: `rg` the kind's `Lang::Kind` and `"kind"`
+//! as unsupported, never silently passed. `src/metrics/loc/` and
+//! `src/metrics/nargs.rs` are outside the boundary by design: a LOC
+//! arm names a kind to say which rows it credits, a per-kind policy no
+//! role expresses, so a claimed kind there is not membership restated,
+//! and the lint would flag every such arm for nothing. The cost is that
+//! an arm there can name a kind no row claims and nothing says so —
+//! `loc/elixir.rs`'s escape-sequence note named `quoted_atom` and
+//! `quoted_keyword` while both were coverage debt. The check, when a
+//! row's membership moves: `rg` the kind's `Lang::Kind` and `"kind"`
 //! spellings across `big-code-analysis-ast/src/` and `src/metrics/`,
 //! and read every hit outside the boundary by hand.
 //!

@@ -150,4 +150,11 @@ flatten_cases! {
     irules_flattens_namespace_eval_name: "irules", LANG::Irules, "namespace eval {my ns} {log d}\n", "f.irule", "{my ns}";
     ruby_flattens_string_literal: "ruby", LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"";
     elixir_flattens_string_literal: "elixir", LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"";
+    // The two quoted forms the Elixir `StringLit` row claims beside its
+    // three literals: each rendered its delimiters, `quoted_content` and
+    // interpolation as children before the row claimed it. The grammar's
+    // `quoted_keyword` token runs through the `: ` separator, trailing
+    // space included, so the leaf's text does too.
+    elixir_flattens_quoted_atom: "elixir", LANG::Elixir, "s = :\"q #{a}\"\n", "f.ex", ":\"q #{a}\"";
+    elixir_flattens_quoted_keyword: "elixir", LANG::Elixir, "s = [\"k #{a}\": 1]\n", "f.ex", "\"k #{a}\": ";
 }

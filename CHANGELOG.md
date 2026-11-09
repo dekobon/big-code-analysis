@@ -95,6 +95,21 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **Elixir's quoted atom and quoted keyword are string literals to
+  `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
+  and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited
+  bodies of content, escapes and interpolation shaped as a `string`'s,
+  and Ruby's `:"a b"` symbol has been on its `StringLit` row since
+  #1698, but no Elixir role row claimed either. `find --type string`
+  and `count` now report them; the AST dump flattens each to one
+  verbatim leaf as it does a `string`; and Halstead bills an
+  interpolating `:"q #{a}"` the operands the string `"q #{a}"` has —
+  the `a` inside — where it billed the literal *and* the `a`, so N2
+  falls by one per interpolating quoted atom or keyword, η2 by one per
+  distinct such literal, and MI moves with them. The quoted atom's `:`
+  still bills as an operator, as before. The plain forms and the bare
+  `atom` / `keyword` tokens are unchanged. No integration corpus holds
+  either form.
 - **`loc` reads a C-family bare `\` row after a chain of comment-only
   rows as a comment** (#1818). Translation phase 2 splices a comment
   row's trailing `\` too, so `/* a */ \` + `/* b */ \` + `\` + an empty

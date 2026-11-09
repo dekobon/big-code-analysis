@@ -145,7 +145,16 @@ role_table! {
     }
     Closure { owns [AnonymousFunction] }
     Call { owns [Call] }
-    StringLit { owns [String, Charlist, Sigil] wraps [Interpolation] }
+    // The three literal kinds and the two quoted forms: `quoted_atom`
+    // (`:"a b"`, Ruby's `delimited_symbol`) and `quoted_keyword` (the
+    // `"a b":` key of a pair), each a quote-delimited body of
+    // `quoted_content`, `escape_sequence` and `interpolation` like a
+    // `string`'s. The bare `atom` and `keyword` are single tokens with
+    // no such body, so unlike Ruby's `simple_symbol` they are not here.
+    StringLit {
+        owns [String, Charlist, Sigil, QuotedAtom, QuotedKeyword]
+        wraps [Interpolation]
+    }
 
     NullSafe { absent "Elixir has no `?.` or `??`" }
     ElseIf { absent "Elixir has no `else if`; multi-way branching is `cond`" }
@@ -279,7 +288,7 @@ mod tests {
     #[cfg(feature = "elixir")]
     #[test]
     fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
-        let source = b"defmodule M do\n  defstruct [:a]\n  def f(x), do: fn y -> y end\n  defp g, do: ~s(a)\n  defmacro m do\n    quote do\n      def h, do: 'c'\n    end\n  end\n  IO.puts(\"a #{b}\")\nend\n";
+        let source = b"defmodule M do\n  defstruct [:a]\n  def f(x), do: fn y -> y end\n  defp g, do: ~s(a)\n  defmacro m do\n    quote do\n      def h, do: 'c'\n    end\n  end\n  IO.puts(\"a #{b}\")\n  x = [:\"q a\", \"k b\": 1]\nend\n";
         let mut calls = Vec::new();
         let mut seen_kinds = std::collections::BTreeSet::new();
         for_each_node_with_chain::<ElixirCode>(source, |node, chain| {
@@ -329,7 +338,10 @@ mod tests {
             );
             assert_eq!(
                 string_lit::owns(node, source, ancestors),
-                matches!(kind, "string" | "charlist" | "sigil"),
+                matches!(
+                    kind,
+                    "string" | "charlist" | "sigil" | "quoted_atom" | "quoted_keyword"
+                ),
                 "{kind}: StringLit"
             );
         });
