@@ -132,24 +132,22 @@ for historical reference.
   blank 0` rather than `ploc 2, blank 1`. PLOC and `blank` move for
   files holding one of these shapes; no integration corpus does. LLOC
   and DLOC are unchanged.
-- **The Rust test suites' scratch git repositories no longer inherit a
-  `GIT_DIR`** (#1846). The Rust fixtures that build a repository through
-  the `git` CLI — the library's `tests/common/vcs_fixture.rs`, the CLI's
+- **The test suites' scratch git repositories no longer inherit a
+  `GIT_DIR`** (#1846). The fixtures that build a repository through the
+  `git` CLI — the library's `tests/common/vcs_fixture.rs`, the CLI's
   integration and unit fixtures, the web server's `/vcs` and `/vcs/trend`
   fixtures and their read-backs, and the Python bindings' Rust unit-test
-  fixture — pinned the host's configuration away but kept every other
-  inherited `GIT_*` variable. Git exports `GIT_DIR` and `GIT_INDEX_FILE` to its
-  hooks, and `GIT_DIR` to `git rebase --exec` in a linked worktree;
-  inherited, they outrank the fixture's working directory, so its `init`,
-  `add` and `commit` wrote into the checkout running the tests. Each
-  fixture now drops every inherited `GIT_*` variable before applying its
-  own, as the AST crate's corpus fixture has since #1845, and each suite
-  re-runs its fixture in a child process with `GIT_DIR` and
-  `GIT_INDEX_FILE` naming a victim repository, which must come through
-  untouched, and with `GIT_OBJECT_DIRECTORY` naming a directory that does
-  not exist. Test-only; no shipped behaviour changes. The bindings'
-  pytest fixture (`tests/test_vcs.py`) still inherits these variables and
-  is a follow-up.
+  fixture and pytest `_git_env` — pinned the host's configuration away
+  but kept every other inherited `GIT_*` variable. Git exports `GIT_DIR`
+  and `GIT_INDEX_FILE` to its hooks, and `GIT_DIR` to `git rebase --exec`
+  in a linked worktree; inherited, they outrank the fixture's working
+  directory, so its `init`, `add` and `commit` wrote into the checkout
+  running the tests. Each fixture now drops every inherited `GIT_*`
+  variable before applying its own, as the AST crate's corpus fixture
+  has since #1845, and each suite re-runs its fixture in a child process
+  with `GIT_DIR` and `GIT_INDEX_FILE` naming a victim repository, which
+  must come through untouched, and with `GIT_OBJECT_DIRECTORY` naming a
+  directory that does not exist. Test-only; no shipped behaviour changes.
 - **`make role-coverage-observe` samples the same files at any checkout
   depth** (#1836). It walked each corpus directory, so a checkout with
   the corpora's own submodules initialised — as the benchmarking guide's

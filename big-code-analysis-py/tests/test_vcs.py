@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -52,9 +53,39 @@ _ADA = {
 }
 
 
+def _is_git_var(name: str) -> bool:
+    """Whether *name* is one of git's ``GIT_*`` variables, read as the host
+    does: exactly on POSIX, ASCII-case-insensitively on Windows, where
+    environment names are. ``GITHUB_TOKEN`` and ``GIT`` are not. Mirrors
+    ``is_git_var`` in ``big-code-analysis-cli/tests/common/git_fixture.rs``,
+    which folds ASCII alone, so a non-ASCII prefix is never folded here
+    either. On Windows ``os.environ`` already upper-cases its keys, so the
+    fold serves the predicate's contract, not :func:`_git_env`'s scrub."""
+    prefix = name[:4]
+    if os.name == "nt" and prefix.isascii():
+        prefix = prefix.upper()
+    return prefix == "GIT_"
+
+
 def _git_env(extra: dict[str, str] | None = None) -> dict[str, str]:
-    """``os.environ`` plus *extra*, then the host-config isolation."""
-    return {**os.environ, **(extra or {}), **_ISOLATED_GIT_ENV}
+    """A fixture ``git``'s environment in three layers: ``os.environ``
+    with every inherited ``GIT_*`` variable dropped, then *extra*, then
+    the host-config isolation.
+
+    The scrub comes first because git exports ``GIT_DIR`` and
+    ``GIT_INDEX_FILE`` to its hooks, and ``GIT_DIR`` to ``git rebase
+    --exec`` in a linked worktree; inherited, they outrank ``cwd``, so the
+    fixture's ``init``, ``add`` and ``commit`` wrote into the checkout
+    running the test (#1846). An inherited ``GIT_CONFIG_PARAMETERS``
+    likewise outranks :data:`_ISOLATED_GIT_ENV`. Every ``GIT_*`` goes, as
+    ``command`` in ``big-code-analysis-cli/tests/common/git_fixture.rs``
+    drops them, so a variable this file never names cannot reach the
+    fixture either. *extra* then restores what a caller means to set —
+    any variable, a ``GIT_*`` the scrub dropped included, which is how
+    :func:`_dated` carries its author and :func:`_hostile_git_host` its
+    configuration files — and the seven pinned keys always win."""
+    inherited = {k: v for k, v in os.environ.items() if not _is_git_var(k)}
+    return {**inherited, **(extra or {}), **_ISOLATED_GIT_ENV}
 
 
 def _dated(secs: int) -> dict[str, str]:
@@ -1254,3 +1285,113 @@ def test_fixture_git_ignores_the_hosts_global_and_system_config(
         env=_git_env(env),
     )
     assert head.stdout.strip() == "Ada HEAD -> main"
+
+
+def _clean_git(repo: Path, *args: str) -> str:
+    """Run ``git`` in *repo* as Ada and return its stdout: the oracle the
+    inherited-``GIT_*`` tests build and read their victim with. Its scrub
+    is its own, not :func:`_git_env`'s, so a defect in the fixture's cannot
+    reach it — the two share only :func:`_is_git_var` — as ``clean_git``
+    in ``tests/vcs/vcs_history.rs`` is kept apart from ``command``."""
+    scrubbed = {k: v for k, v in os.environ.items() if not _is_git_var(k)}
+    out = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**scrubbed, **_ADA, **_ISOLATED_GIT_ENV},
+    )
+    return out.stdout
+
+
+def _victim_state(repo: Path) -> tuple[str, str]:
+    """The victim's ``HEAD`` and its full index listing, read by the
+    oracle: both move when a fixture ``commit`` lands in it."""
+    return _clean_git(repo, "rev-parse", "HEAD"), _clean_git(repo, "ls-files", "-s")
+
+
+def _rerun_build_repo_with(root: Path, env: dict[str, str]) -> None:
+    """Run :func:`_build_repo` under *root* in a child interpreter with
+    *env* exported on top of this one's, and assert it succeeded. A test
+    should not rewrite its own ``os.environ`` for the fixture to read, so
+    the variables are set on a child instead. Not gated to POSIX as the
+    Rust reruns are: nothing here is Unix-only, so the Windows leg runs
+    them too."""
+    program = (
+        "import pathlib, sys\n"
+        f"sys.path.insert(0, {str(Path(__file__).parent)!r})\n"
+        "import test_vcs\n"
+        f"test_vcs._build_repo(pathlib.Path({str(root)!r}))\n"
+    )
+    child = subprocess.run(
+        [sys.executable, "-c", program],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, **env},
+    )
+    assert child.returncode == 0, (
+        f"_build_repo must pass with {env!r} inherited; stdout:\n{child.stdout}\n"
+        f"stderr:\n{child.stderr}"
+    )
+
+
+def test_fixture_git_ignores_an_inherited_repository(tmp_path: Path) -> None:
+    """A hook, and ``git rebase --exec`` in a linked worktree, export
+    ``GIT_DIR`` and ``GIT_INDEX_FILE``, and both outrank ``cwd`` (#1846).
+    :func:`_build_repo` is re-run in a child with that pair naming another
+    repository: the child must pass, and that repository must come through
+    untouched. Verified by revert: without the scrub in :func:`_git_env`
+    the child's ``init``, ``add`` and ``commit`` land in the victim — its
+    HEAD moves and its index lists ``work.rs``."""
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep.py").write_text("def keep():\n    pass\n")
+    _clean_git(victim, "init", "-q", "-b", "main")
+    _clean_git(victim, "add", "keep.py")
+    _clean_git(victim, "commit", "-q", "-m", "victim")
+    before = _victim_state(victim)
+    assert "keep.py" in before[1], "the victim tracks keep.py"
+    git_dir = victim / ".git"
+    root = tmp_path / "repo"
+    root.mkdir()
+    _rerun_build_repo_with(
+        root, {"GIT_DIR": str(git_dir), "GIT_INDEX_FILE": str(git_dir / "index")}
+    )
+    assert _victim_state(victim) == before, "the inherited repository was written to"
+    assert _clean_git(root, "ls-files") == "work.rs\n", "the fixture built its own repository"
+
+
+def test_fixture_git_ignores_an_inherited_object_directory(tmp_path: Path) -> None:
+    """``GIT_OBJECT_DIRECTORY`` naming a path whose parent does not exist
+    makes ``git init`` fail (git creates one missing level, so one is not
+    enough): the inherited variable breaks the fixture rather than
+    redirecting it. Kept apart from the repository case so a failure names
+    the variable that leaked; that case's child-passed assertion already
+    rules out a victim left untouched by a fixture that never started.
+    Verified by revert: without the scrub the child's ``git init``
+    fails."""
+    gone = tmp_path / "gone"
+    root = tmp_path / "repo"
+    root.mkdir()
+    _rerun_build_repo_with(root, {"GIT_OBJECT_DIRECTORY": str(gone / "quarantine")})
+    # Pins the path, not only the child's success: a git that created both
+    # levels, or a scrub applied only after `init`, would pass the rerun
+    # and leave the directory behind.
+    assert not gone.exists(), "the fixture's git used the inherited object directory"
+
+
+def test_is_git_var_reads_the_prefix_as_the_host_does() -> None:
+    """:func:`_is_git_var` reads the first four characters, so a short
+    name, one that merely starts ``GIT`` and an empty one are not git's; a
+    lowercase spelling is on Windows alone, and only an ASCII one: the
+    dotless i (U+0131) upper-cases to ``I`` in Unicode, which the Rust
+    fold never does."""
+    assert _is_git_var("GIT_DIR")
+    assert _is_git_var("GIT_")
+    assert not _is_git_var("GITHUB_TOKEN")
+    assert not _is_git_var("GIT")
+    assert not _is_git_var("")
+    assert _is_git_var("git_dir") == (os.name == "nt")
+    assert not _is_git_var("g\u0131t_dir")
