@@ -137,6 +137,37 @@ pub(crate) fn node_bytes<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
     code.get(node.start_byte()..node.end_byte()).unwrap_or(&[])
 }
 
+/// The spelling of `node` as its tokens: the bytes of every leaf of its
+/// subtree that `C::is_comment` does not name, with ASCII whitespace
+/// removed — what a layout- and comment-insensitive comparison reads, so
+/// `Map<String, T>`, `Map<String,T>` and `Map</* k */ String, T>` are one
+/// spelling (#1842). A comment subtree is skipped whole, so a grammar
+/// whose comment holds children contributes none of them. One stack and
+/// one cursor, as [`Node::preorder`] walks.
+#[must_use]
+pub(crate) fn token_spelling<C: Checker>(node: &Node, code: &[u8]) -> Vec<u8> {
+    let mut spelling = Vec::new();
+    let mut stack = vec![*node];
+    let mut cursor = node.cursor();
+    while let Some(current) = stack.pop() {
+        if C::is_comment(&current) {
+            continue;
+        }
+        if current.child_count() == 0 {
+            spelling.extend(
+                node_bytes(&current, code)
+                    .iter()
+                    .filter(|b| !b.is_ascii_whitespace()),
+            );
+            continue;
+        }
+        let first_child = stack.len();
+        stack.extend(current.children_with(&mut cursor));
+        stack[first_child..].reverse();
+    }
+    spelling
+}
+
 /// Whether `comment` lies outside every function and closure body, by the
 /// same fold [`documents_where_it_sits`] runs, for a language whose
 /// in-body doc comments document wherever they sit and so must not bind.

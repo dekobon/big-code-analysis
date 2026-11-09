@@ -1759,8 +1759,94 @@ to the baseline, as two same-line overloads already were. And a Kotlin
 since its node carries no name; only the primary is named after the
 class.
 
-A Java or Groovy `record` with no explicit constructor still reads 0;
-see [Languages where it reads 0](#nargs-language-gaps).
+### Record headers {#nargs-record-headers}
+
+A Java or Groovy `record` declares its components in its header and,
+unless the body writes one, gets its canonical constructor from the
+compiler:
+
+```java
+record R(int a, int b, int c, int d, int e, int f) {}
+```
+
+```groovy
+record Point(int x, int y) {}
+```
+
+The components are the constructor's parameters, and since
+[#1842](https://github.com/dekobon/big-code-analysis/issues/1842) the
+header opens a function space of its own, named after the record and
+spanning the list — the row above reads `R::R: nargs = 6` — exactly as
+a C# positional record's does. The space counts as one callable in
+[NOM](#nom), [NPM](#npm) and [WMC](#wmc), with the record's own access
+(a `public record`'s constructor is public, and so is a record's that
+is a member of an interface, where member types are implicitly public
+per [JLS 9.5](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.5);
+a bare one's is package-private, per
+[JLS 8.10.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.10.4));
+a component-less `record E() {}` opens a zero-parameter space with no
+code in it, whose `mi.*` read the `0.0` placeholder as `class G()`'s
+do. The suppression marker binds inside the parentheses, as for a
+primary constructor.
+
+The components are counted **once**, on whichever node declares the
+canonical constructor:
+
+| the record's body writes | the components belong to |
+| --- | --- |
+| nothing, or only non-canonical constructors | the header's space |
+| a compact constructor `R { … }` | the compact constructor's space |
+| a normal canonical constructor `R(int a, int b) { … }` | that constructor's space |
+
+A non-canonical constructor (`R(int a) { this(a, 0); }`) is a callable
+of its own with its own `nargs`, and does not close the header. The
+normal canonical constructor is recognised by its name, which must be
+the record's, and by its parameter *types*, not its arity or its
+parameter names: `bca` compares each parameter's declared type with
+the component's as spelled by its tokens — comments and whitespace
+aside, so `List</* c */ String>` and `List<String>` agree — and has no
+symbol table, so `List<T>` beside a `java.util.List<T>` component, or
+`List<String>` beside a `List<@Nullable String>` one (a type-use
+annotation is a token of the type), is one type to the compiler and
+two spellings here: the constructor is read as non-canonical and the
+header opens beside it. A record and an alternative constructor
+written on one line carry two `R::R` rows at one `start_line`, which
+`bca check --baseline` cannot tell apart, as two same-line overloads
+already were. The previous reading, under
+[#1160](https://github.com/dekobon/big-code-analysis/issues/1160), kept
+a record with no written constructor at 0 and counted only a compact
+constructor; #1842 revisits it, since the component list is declared
+code whether or not the constructor is.
+
+Four grammar limitations, all Groovy's; Java has none of them.
+
+- **A compact constructor does not parse.** In
+  `record R(int a) { R { assert a > 0 } }` the `record_declaration`
+  ends at the header's `)`, and everything from the `{` on recovers
+  through error nodes at file level. The record is read as having no
+  body: its header opens and reports the right count, but the compact
+  body's code, and every other member of the record, is read outside
+  it — a method in that body becomes a top-level function, and the
+  class space spans the header's line only.
+- **A variable-arity component** (`String... xs`) parses with its
+  `...` outside the component's type, so it never matches a written
+  canonical constructor's `String... xs` parameter, and the header
+  opens beside that constructor.
+- **An untyped component list does not parse.** The grammar requires
+  a type on each component, so `record R(a, b)` recovers as one
+  component (`a` read as the type, `b` as the name, the comma in an
+  error node) and the header reports `nargs` 1 for two components. A
+  written canonical constructor `R(a, b)` has two untyped parameters,
+  which the one-component header never matches, so the header opens
+  beside it. `bca` does not infer the count over the error node.
+- **A nested class does not parse.** `record R(int a) { class Inner {
+  Inner(int a) { } } }` lands `Inner`'s constructor directly in `R`'s
+  body; the name rule above keeps it from closing `R`'s header, and
+  it counts as a callable of `R`. A `public record R(…) { }` has a
+  related misparse: the grammar carries no modifier on a record, and
+  reads the line as a method named `R` returning a type called
+  `record`, so no class space opens and the component list is that
+  method's parameters — the count is right, the shape is not.
 
 ### Averages, minimums and maximums {#nargs-aggregates}
 
@@ -1812,17 +1898,12 @@ A metric that silently reports 0 reads as "no offenders" rather than
 - **Perl anonymous subs**: a gap, and an upstream one. The grammar
   parses an anonymous sub's signature inside an error node, so
   `my $f = sub ($x) {…}` reads 0 even though it has a signature.
-- **Java and Groovy records without an explicit constructor**: a
-  decision, recorded under
-  [#1160](https://github.com/dekobon/big-code-analysis/issues/1160)
-  and open for revisiting under
-  [#1842](https://github.com/dekobon/big-code-analysis/issues/1842).
-  `record R(int a, int b) {}` declares its components but no
-  constructor, so there is no space to attribute them to; a compact
-  constructor `R { … }` opens one and reports the component count. A
-  C# positional record reads its count either way, because its list
-  *is* its constructor (see
-  [Primary constructors](#nargs-primary-constructors)).
+- **Groovy compact constructors**: a gap, and an upstream one. The
+  grammar does not parse `record R(int a) { R { … } }`: the record
+  ends at its header, so the count is still right, on the header (see
+  [Record headers](#nargs-record-headers)), but the compact body is
+  not a function of its own, and every member written after it is
+  read at file level rather than in the record.
 
 A `nargs` limit is therefore inert on a Bash codebase and sparse on
 Perl written before `use v5.36`. Gate it per language rather than
@@ -1921,13 +2002,15 @@ metrics exist to report. A Kotlin file of nothing but property
 accessors therefore reports `nom.functions == 0` while still reporting
 their complexity (#1184).
 
-A constructor is counted as a function wherever one is written, the
-bodiless kind included: a Kotlin primary constructor and a C# 12
-primary constructor or positional record each count one, as the
-classic spelling does (see
-[Primary constructors](#nargs-primary-constructors)). A compiler-
-generated constructor — a class with no parameter list, a Java record
-with no compact constructor — is not written and counts nothing.
+A constructor is counted as a function wherever its parameters are
+written, the bodiless kind included: a Kotlin primary constructor, a
+C# 12 primary constructor or positional record, and a Java or Groovy
+record's header where the body writes no canonical constructor each
+count one, as the classic spelling does (see
+[Primary constructors](#nargs-primary-constructors) and
+[Record headers](#nargs-record-headers)). A compiler-generated
+constructor with no written parameter list — a class with no
+constructor at all — counts nothing.
 
 ### How to read it
 

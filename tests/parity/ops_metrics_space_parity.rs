@@ -68,10 +68,14 @@ pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
              return g(a) + 1;\n}\n",
             "tsx",
         ),
+        // The record's header opens the implicit canonical constructor's
+        // space through a chain-gated row (#1842): both walks must reach
+        // the gate with the real chain, and a caller reverted to the
+        // byte-less `is_func_space` would drop the space on one side.
         LANG::Java => (
             "import java.util.function.IntUnaryOperator;\n\nclass Parity {\n  \
              int f(int a) {\n    IntUnaryOperator g = b -> b * 2;\n    \
-             return g.applyAsInt(a) + 1;\n  }\n}\n",
+             return g.applyAsInt(a) + 1;\n  }\n}\nrecord R(int a, int b) {}\n",
             "java",
         ),
         LANG::Go => (
@@ -151,8 +155,10 @@ pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
             "def f(a)\n  g = lambda { |b| b * 2 }\n  h = ->(b) { b + 1 }\n  g.call(a) + 1\nend\n",
             "rb",
         ),
+        // The record is the chain-gated header space, as Java's (#1842).
         LANG::Groovy => (
-            "def f(int a) {\n  def g = { int b -> b * 2 }\n  return g(a) + 1\n}\n",
+            "def f(int a) {\n  def g = { int b -> b * 2 }\n  return g(a) + 1\n}\n\
+             record R(int a, int b) {}\n",
             "groovy",
         ),
         // `Ccomment` and `Preproc` are internal C-family helper grammars

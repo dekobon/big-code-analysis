@@ -75,8 +75,11 @@ macro_rules! get_operator {
 // `FuncOpener` and `Container` rows (#1696), the Getter half of
 // `checker.rs`'s `impl_byte_less_func_space!`: forwards with no bytes
 // and a known-empty chain, which the build asserts neither row reads
-// (#1793). Ruby, C# and Elixir keep hand-written spellings for the
-// reasons given there.
+// (#1793). The `opener_gated` form asserts the `Container` row alone,
+// and that the opener row is gated at all, for a language whose opener
+// row reads the chain or the bytes by design and labels the gated
+// owner `Unknown` here, as the Checker half answers `false`. Ruby, C#
+// and Elixir keep hand-written spellings for the reasons given there.
 macro_rules! impl_byte_less_space_kind {
     ($roles:ident) => {
         fn get_space_kind(node: &Node) -> SpaceKind {
@@ -86,6 +89,21 @@ macro_rules! impl_byte_less_space_kind {
                     && !$crate::roles::$roles::container::TEXT_GATED
                     && !$crate::roles::$roles::container::CHAIN_GATED,
                 "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+            );
+            Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
+        }
+    };
+    ($roles:ident, opener_gated) => {
+        fn get_space_kind(node: &Node) -> SpaceKind {
+            const _: () = assert!(
+                $crate::roles::$roles::func_opener::TEXT_GATED
+                    || $crate::roles::$roles::func_opener::CHAIN_GATED,
+                "an ungated opener row takes the plain arm"
+            );
+            const _: () = assert!(
+                !$crate::roles::$roles::container::TEXT_GATED
+                    && !$crate::roles::$roles::container::CHAIN_GATED,
+                "the `Container` row reads bytes or the chain; the byte-less spelling cannot forward with none"
             );
             Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
         }

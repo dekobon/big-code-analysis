@@ -204,9 +204,13 @@ impl Getter for ElixirCode {
             // grammar-dispatch §5 the sigil arm above applies. A
             // `quoted_keyword` needs none: its trailing `:` is the
             // grammar's own `quoted_keyword_token1` kind, not `COLON`,
-            // and reaches no operator arm. A `:` outside a quoted atom
-            // (a `::` is its own kind) falls through to the operator arm
-            // and still counts.
+            // and reaches no operator arm. The guard's other branch is
+            // not reachable from valid input: tree-sitter-elixir 0.3.5
+            // emits a standalone `COLON` leaf only inside a
+            // `quoted_atom` (a `::` is its own kind, and every other
+            // `:` is part of a larger token), so a `COLON` under any
+            // other parent exists only in an `ERROR` recovery, where it
+            // falls through to the operator arm and counts.
             E::COLON if ancestors.parent_has_kind(node, E::QuotedAtom as u16) => {
                 TokenRole::Unknown
             }

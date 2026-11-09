@@ -145,8 +145,11 @@ are what the walk calls: the byte-less defaults forward to them and
 agree everywhere except the languages that override (Elixir's
 keyword-text containers, Ruby's lambda-body blocks, C#'s primary
 constructor — a `parameter_list` gated `under` a type declaration
-(#1828), which the known-empty chain cannot see), which is exactly
-where the answer matters. `tests/parity/ops_metrics_space_parity.rs`
+(#1828) — and a Java or Groovy record's header, gated on a record
+parent whose body writes no canonical constructor, told by the
+constructors' names and types as bytes (#1842); the known-empty chain sees
+neither gate, and for the header the byte-less `is_func` forwards it
+too), which is exactly where the answer matters. `tests/parity/ops_metrics_space_parity.rs`
 keeps `bca ops` and `bca metrics` opening the same spaces.
 
 ## 8. Anchor a default/fallback exclusion to the construct

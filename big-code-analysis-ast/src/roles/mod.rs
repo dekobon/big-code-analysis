@@ -413,11 +413,15 @@
 //!   `is_func`, `is_closure` and `is_else_if` take the caller's chain
 //!   and hand it through with `&[]` bytes, so a chain gate (Ruby's
 //!   `block` under a stabby lambda) answers exactly and only a byte
-//!   gate is dropped. The chain-less pair disagrees with the walk
-//!   wherever a gate reads what it drops — Elixir's text-gated `call`
-//!   openers, Ruby's `block`, C#'s `parameter_list` under a type
-//!   declaration (#1828) — and the derived parity suite pins each
-//!   such disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
+//!   gate is dropped — unless one gate reads both, as a Java or Groovy
+//!   record header's does (#1842): there `is_func` forwards the
+//!   known-empty chain too, so the header answers `false` as
+//!   `is_func_space` does, not the degenerate no-bytes comparison. The
+//!   chain-less pair disagrees with the walk wherever a gate reads
+//!   what it drops — Elixir's text-gated `call` openers, Ruby's
+//!   `block`, C#'s `parameter_list` under a type declaration (#1828),
+//!   the record header — and the derived parity suite pins each such
+//!   disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
 //!   language's pair asserts `!TEXT_GATED && !CHAIN_GATED` on its
 //!   `FuncOpener` and `Container` rows at build time (#1793).
 //! - **Ask several rows of one node through the `_kind` projections**,
@@ -3568,10 +3572,11 @@ mod tests {
                 true,
             ),
             (
-                "java FuncOpener, kind-only owners `callable` and `opens`",
+                "java FuncOpener `text_gated_by opens_record_header` beside kind-only owners",
                 java::func_opener::TEXT_GATED,
-                false,
+                true,
             ),
+            ("java Closure, kind-only", java::closure::TEXT_GATED, false),
             ("java NullSafe, absent", java::null_safe::TEXT_GATED, false),
             (
                 "java Container `gated_by has_class_body` reads the node",
@@ -3668,6 +3673,14 @@ mod tests {
                 (
                     groovy::decl_keyword::TEXT_GATED,
                     groovy::decl_keyword::CHAIN_GATED,
+                ),
+                (true, true),
+            ),
+            (
+                "java FuncOpener `text_gated_by opens_record_header`: bytes and chain (#1842)",
+                (
+                    java::func_opener::TEXT_GATED,
+                    java::func_opener::CHAIN_GATED,
                 ),
                 (true, true),
             ),

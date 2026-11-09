@@ -6,10 +6,10 @@
 //! the documentation rows (#1699) are declared.
 
 use crate::getter::node_text;
-use crate::lang_helpers::doc_comment::{java_doc, node_bytes};
+use crate::lang_helpers::doc_comment::{java_doc, node_bytes, token_spelling};
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
-use crate::{Ancestors, Groovy, Node};
+use crate::{Ancestors, Groovy, GroovyCode, Node};
 
 /// Whether a `membership_expression` or `instanceof_expression` spells
 /// its keyword as a token. The negated forms `a !in b` and
@@ -51,6 +51,102 @@ fn contextual_keyword_owns<'a>(
                 )
                 | (Var, LocalVariableDeclaration)
         )
+    })
+}
+
+/// The type a `record_component` or a constructor's `formal_parameter`
+/// declares — the `type` field's tokens, comments and whitespace
+/// removed — or `None` for an untyped `formal_parameter` (`def` is a
+/// `type_identifier`, so only a bare name has none; a bare name in a
+/// `record_component` is a `type_identifier` to the pinned grammar,
+/// which requires the type there and recovers an untyped list as one
+/// component — `groovy_untyped_record_components_recover_as_one`) and
+/// for a child that is no parameter.
+fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
+    param
+        .child_by_field_name("type")
+        .map(|ty| token_spelling::<GroovyCode>(&ty, code))
+}
+
+/// Whether `ctor`, a `constructor_declaration` in `record`'s body,
+/// declares the record's canonical constructor: named after the record,
+/// with as many formal parameters as the record `header` has
+/// components, each spelling the same type as its component (Java's
+/// rule, JLS 8.10.4.1 and 8.8, which Groovy records follow). Parameter
+/// names and annotations do not take part. The same spelling, not the
+/// same type — the tokens, so a comment inside the type is nothing —
+/// so `java.util.List<T>` and `List<T>` are two spellings here, as in
+/// `roles/java.rs`. The name test is for the grammar, not the language:
+/// the pinned grammar has no nested class, so `record R(int a) { class
+/// Inner { Inner(int a) { } } }` lands `Inner`'s constructor as a direct
+/// `constructor_declaration` of `R`'s body, where arity and types alone
+/// would read it as `R`'s canonical constructor.
+///
+/// Two grammar limitations shape what reaches this. The pinned
+/// grammar parses a variable-arity component (`String... xs`) with the
+/// `...` in an `ERROR` outside the `type` field while the constructor's
+/// parameter has a `varargs_type`, so the two never agree and such a
+/// record's header opens a space beside its canonical constructor;
+/// and a compact constructor (`R { … }`) does not parse at all: the
+/// `record_declaration` ends at its header's `)`, so a record that
+/// writes one is read through its `ERROR` nodes as having no body, and
+/// its members land at file level.
+fn is_record_canonical_constructor(
+    ctor: &Node<'_>,
+    record: &Node<'_>,
+    header: &Node<'_>,
+    code: &[u8],
+) -> bool {
+    let (Some(ctor_name), Some(record_name), Some(params)) = (
+        ctor.child_by_field_name("name"),
+        record.child_by_field_name("name"),
+        ctor.child_by_field_name("parameters"),
+    ) else {
+        return false;
+    };
+    if node_bytes(&ctor_name, code) != node_bytes(&record_name, code) {
+        return false;
+    }
+    let declared = params
+        .children()
+        .filter(|p| p.kind_id() == Groovy::FormalParameter as u16)
+        .map(|p| groovy_parameter_type(&p, code));
+    let components = header
+        .children()
+        .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
+        .map(|p| groovy_parameter_type(&p, code));
+    declared.eq(components)
+}
+
+/// Whether a `record_components` list is a record's header in a record
+/// that declares no canonical constructor, so the header stands for
+/// the implicitly declared one (#1842): the `components` field of a
+/// `record_declaration`, a sibling of its `class_body`, checked by
+/// field as Java's is so a grammar bump that reuses the kind elsewhere
+/// under the record opens nothing there. A written canonical
+/// constructor ([`is_record_canonical_constructor`]) owns the
+/// components instead; a non-canonical one is a callable of its own
+/// and leaves the header open. The gate reads the record's body, so it
+/// is a `fn` rather than `under [RecordDeclaration]`, and the body's
+/// constructor types as bytes, so the row marks it `text_gated_by`:
+/// handed no bytes, every same-arity constructor reads as canonical.
+fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    let Some(record) = ancestors.parent(node) else {
+        return false;
+    };
+    if record.kind_id() != Groovy::RecordDeclaration as u16
+        || record
+            .child_by_field_name("components")
+            .is_none_or(|p| p.id() != node.id())
+    {
+        return false;
+    }
+    let Some(body) = record.child_by_field_name("body") else {
+        return true;
+    };
+    !body.children().any(|member| {
+        member.kind_id() == Groovy::ConstructorDeclaration as u16
+            && is_record_canonical_constructor(&member, &record, node, code)
     })
 }
 
@@ -365,7 +461,13 @@ role_table! {
             TypeIdentifier(text_gated_by spells_primitive_type),
         ]
     }
-    // A method and a constructor are the callables; `static { … }`
+    // A method and a constructor are the callables, and so is a
+    // record's header — its `record_components`, the `components`
+    // field of the `record_declaration` and a sibling of the
+    // `class_body` — where the body writes no canonical constructor
+    // and the header stands for the implicit one (#1842, Java's shape
+    // in `roles/java.rs`; the grammar has no compact-constructor kind,
+    // see `opens_record_header`). `static { … }`
     // opens a space without being one (#1184). A closure opens no
     // space: the walk never promoted one (`is_func_space` left it out),
     // though the byte-less `get_space_kind` labelled it `Function` if
@@ -379,6 +481,7 @@ role_table! {
         owns [
             MethodDeclaration(callable opens Function),
             ConstructorDeclaration(callable opens Function),
+            RecordComponents(callable opens Function text_gated_by opens_record_header),
             StaticInitializer(opens Function),
         ]
     }

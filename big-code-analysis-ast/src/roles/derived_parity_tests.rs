@@ -1097,6 +1097,39 @@ const KNOWN_DISAGREEMENTS: &[(&str, &str, &str, &str)] = &[
         "parameter_list",
         "same: the byte-less spelling forwards with no chain",
     ),
+    // A Java record's header is a `formal_parameters` under a
+    // `record_declaration` whose body writes no canonical constructor
+    // (#1842), and a Groovy record's a `record_components`: a gate on
+    // the parent and its body — and, to tell the canonical constructor
+    // by its types, the bytes — that the known-empty chain declines
+    // before reading either, so both byte-less spellings answer the
+    // pre-#1842 `false` / `Unknown`
+    // (`java_byte_less_spellings_omit_the_record_header`,
+    // `groovy_byte_less_spellings_omit_the_record_header`).
+    (
+        "Java",
+        "is_func_space",
+        "formal_parameters",
+        "the `FuncOpener` row gates the list on a record parent with no canonical constructor; the known-empty chain has none",
+    ),
+    (
+        "Java",
+        "get_space_kind",
+        "formal_parameters",
+        "same: the byte-less spelling forwards with no chain",
+    ),
+    (
+        "Groovy",
+        "is_func_space",
+        "record_components",
+        "the `FuncOpener` row gates the list on a record parent with no canonical constructor; the known-empty chain has none",
+    ),
+    (
+        "Groovy",
+        "get_space_kind",
+        "record_components",
+        "same: the byte-less spelling forwards with no chain",
+    ),
     // The kind-only `is_string` / `is_call` against the gated row: the
     // Tcl family's braced word is a string only where it is not a
     // script body or a value slot, which the kind table cannot see

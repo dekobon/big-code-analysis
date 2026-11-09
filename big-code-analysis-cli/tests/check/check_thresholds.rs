@@ -2479,6 +2479,62 @@ fn nargs_gates_a_primary_constructor_on_its_own_row() {
         .stdout(predicate::str::contains("Sum: nargs =").not());
 }
 
+/// #1842's reproducers: a Java record and a Groovy record each declare
+/// six components and no constructor, so their canonical constructor is
+/// implicit and was counted nowhere — this exact invocation exited 0.
+/// Each record's header opens a function space named after the record,
+/// so the offender row is `R::R`, and the record's methods are not
+/// charged — `sum` declares none. A Java record that writes its
+/// canonical constructor (`W`) is flagged on that constructor's row
+/// once, not on a header row beside it.
+#[test]
+fn nargs_gates_a_record_header_on_its_own_row() {
+    let dir = TempDir::new().unwrap();
+    let java = write_fixture(
+        &dir,
+        "r.java",
+        "record R(int a, int b, int c, int d, int e, int f) {
+             int sum() { return a + b + c + d + e + f; }
+         }
+         record W(int a, int b, int c, int d, int e, int f) {
+             W { }
+         }
+",
+    );
+    let groovy = write_fixture(
+        &dir,
+        "r.groovy",
+        "record R(int a, int b, int c, int d, int e, int f) {
+             int sum() { a + b + c + d + e + f }
+         }
+",
+    );
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &java,
+            "--paths",
+            &groovy,
+            "--threshold",
+            "nargs=5",
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(
+            "r.java:1-1: R::R: nargs = 6 (limit 5)",
+        ))
+        .stdout(predicate::str::contains(
+            "r.java:5-5: W::W: nargs = 6 (limit 5)",
+        ))
+        .stdout(predicate::str::contains("r.java:4-").not())
+        .stdout(predicate::str::contains(
+            "r.groovy:1-1: R::R: nargs = 6 (limit 5)",
+        ))
+        .stdout(predicate::str::contains("sum: nargs =").not());
+}
+
 /// A primary constructor's space is its parameter list and nothing
 /// more, so a function-scope marker binds to it only from a row inside
 /// the parentheses — the placement the book's `nargs` section shows.

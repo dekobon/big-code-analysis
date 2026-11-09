@@ -264,6 +264,25 @@ fn direct_child_funcs<'a, 'c, C: Checker>(
         .filter(move |child| C::is_func_with_code(child, code, members))
 }
 
+/// Whether a record declaration's header — the component list held in
+/// its `field`, a sibling of the body and so never a body member — is
+/// the record's implicit canonical constructor, a method the body scan
+/// cannot see (#1842; Java and Groovy). The question is the `FuncOpener`
+/// row's, asked of the list under the record's own child chain so the
+/// row's gate reads the body, and the answer is read here while the walk
+/// is still on the class space: the list's own function space opens one
+/// node later.
+fn record_header_is_a_method<'a, C: Checker>(
+    record: &Node<'a>,
+    field: &str,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    record.child_by_field_name(field).is_some_and(|header| {
+        C::is_func_with_code(&header, code, ancestors.of_children(record).get())
+    })
+}
+
 #[doc(hidden)]
 /// Per-language counting of public methods.
 pub(crate) trait Npm
@@ -337,6 +356,38 @@ macro_rules! impl_npm_java_like {
                 // The members' chain is built inside the body arms, never
                 // for the nodes that are no body.
                 match node.kind_id().into() {
+                    // The record header's implicit canonical constructor
+                    // (`record_header_is_a_method`, #1842). Its access is
+                    // the record's (JLS 8.10.4: "the same access modifier
+                    // as R, unless R lacks an access modifier, in which
+                    // case package access"), so it is public exactly when
+                    // the record is: by its own `public`, or as a member
+                    // of an interface or annotation interface, whose
+                    // member types are implicitly public (JLS 9.5) —
+                    // `javap` shows `public I$R(int)` for `interface I {
+                    // record R(int a) {} }`. The pinned grammar recovers
+                    // a record in an `annotation_type_body` through an
+                    // `ERROR`, so that alternative is reached only after
+                    // a grammar bump (`java_interface_member_record_
+                    // constructor_is_public` pins the gap).
+                    // role-bypass: allow(Container) — a traversal step from
+                    // the record to the list the `FuncOpener` row then judges,
+                    // not whether the record opens a space
+                    RecordDeclaration => {
+                        if record_header_is_a_method::<Self>(node, "parameters", code, ancestors) {
+                            stats.class_nm += 1;
+                            let interface_member = ancestors.parent(node).is_some_and(|body| {
+                                matches!(body.kind_id().into(), InterfaceBody | AnnotationTypeBody)
+                            });
+                            if interface_member
+                                || node
+                                    .first_child(|id| id == Modifiers)
+                                    .is_some_and(|m| m.first_child(|id| id == Public).is_some())
+                            {
+                                stats.class_npm += 1;
+                            }
+                        }
+                    }
                     ClassBody | EnumBodyDeclarations => {
                         let under = ancestors.of_children(node);
                         let members = under.get();
@@ -1353,8 +1404,12 @@ mod tests {
                 // `JavaCode::is_func` accepts both `MethodDeclaration`
                 // and `ConstructorDeclaration`, so the body contributes
                 // one method (`sum`) plus one explicit constructor
-                // (`Point()`) = 2 total, both annotated `public`.
-                assert_eq!(metric.npm.class_nm_sum(), 2);
+                // (`Point()`), both annotated `public`; `Point()` is an
+                // alternative, not the canonical constructor, so the
+                // header's implicit canonical one is the third method
+                // (#1842) — package-private, the record carrying no
+                // access modifier (JLS 8.10.4).
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
@@ -1738,6 +1793,182 @@ mod tests {
                         (Some("S"), 1, 1),
                         (Some("I"), 1, 1),
                         (Some("N"), 1, 1),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// A Java record's implicit canonical constructor is a method of
+    /// its record (#1842): the header's `formal_parameters` hangs off the
+    /// declaration, not its body, so the body scan never saw one. Its
+    /// access is the record's — JLS 8.10.4: "the same access modifier
+    /// as R, unless R lacks an access modifier, in which case package
+    /// access" — so a `public record` counts it public and a bare,
+    /// `private` or `protected` one does not. A record that writes its
+    /// canonical constructor, compact (`K`) or normal (`N`), counts that
+    /// one under its own modifier instead and never both; an
+    /// alternative constructor (`A`) is counted beside the header's.
+    /// Each record is pinned alone.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_record_canonical_constructor_is_a_method_with_the_records_access() {
+        check_func_space::<JavaParser, _>(
+            "public record P(int a) { }
+             record D(int a) { }
+             class O {
+                 private record V(int a) { }
+                 protected record T(int a) { }
+                 public record K(int a) { public K { } }
+                 public record N(int a) { N(int a) { this.a = a; } }
+                 public record A(int a) { public A() { this(0); } }
+             }",
+            "records.java",
+            |space| {
+                let rows = |s: &FuncSpace| {
+                    (
+                        s.name.clone().unwrap_or_default(),
+                        s.metrics.npm.class_nm(),
+                        s.metrics.npm.class_npm(),
+                    )
+                };
+                let top: Vec<_> = space.spaces.iter().map(rows).collect();
+                assert_eq!(
+                    top,
+                    [
+                        ("P".to_owned(), 1, 1),
+                        ("D".to_owned(), 1, 0),
+                        ("O".to_owned(), 0, 0),
+                    ]
+                );
+                let nested: Vec<_> = child_space(&space, "O").spaces.iter().map(rows).collect();
+                assert_eq!(
+                    nested,
+                    [
+                        ("V".to_owned(), 1, 0),
+                        ("T".to_owned(), 1, 0),
+                        ("K".to_owned(), 1, 1),
+                        ("N".to_owned(), 1, 0),
+                        ("A".to_owned(), 2, 2),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// A record that is a member of an interface is implicitly public
+    /// (JLS 9.5), so its implicit canonical constructor is too — `javap`
+    /// prints `public I$R(int)` — and `R` reads as `P`, which spells the
+    /// `public` out: one method, one public. The control `D`, the same
+    /// record as a class member, is package-private. A record in an
+    /// annotation interface's body is public by the same rule, but the
+    /// pinned grammar recovers it through an `ERROR` and opens no space
+    /// for it, so `An` has no child row: the gap is pinned so a grammar
+    /// bump that parses it moves this test to the `(1, 1)` the arm
+    /// already answers.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_interface_member_record_constructor_is_public() {
+        let source = "interface I { record R(int a) { } public record P(int a) { } }
+             class C { record D(int a) { } }
+             @interface An { record Q(int a) { } }";
+        let parser = JavaParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("members.java"),
+            None,
+        );
+        assert!(
+            parser.root().has_error(),
+            "the grammar learned a record in an annotation interface: pin `Q` as `(1, 1)`"
+        );
+        check_func_space::<JavaParser, _>(source, "members.java", |space| {
+            fn rows(s: &FuncSpace) -> (&str, u64, u64) {
+                (
+                    s.name.as_deref().unwrap_or_default(),
+                    s.metrics.npm.class_nm(),
+                    s.metrics.npm.class_npm(),
+                )
+            }
+            let members: Vec<_> = child_space(&space, "I").spaces.iter().map(rows).collect();
+            assert_eq!(members, [("R", 1, 1), ("P", 1, 1)]);
+            let control: Vec<_> = child_space(&space, "C").spaces.iter().map(rows).collect();
+            assert_eq!(control, [("D", 1, 0)]);
+            let gap: Vec<_> = child_space(&space, "An").spaces.iter().map(rows).collect();
+            assert_eq!(gap, []);
+        });
+    }
+
+    /// Groovy's twin of `java_interface_member_record_constructor_is_public`
+    /// cannot be written: the pinned grammar's `class_body` holds no
+    /// nested declaration, so `interface I { record R(int a) {} }` is
+    /// read as a method named `R` returning a type called `record` —
+    /// one interface method, public as every interface member is — and
+    /// no record space opens. Pinned so a grammar bump that learns the
+    /// shape moves this row and the `RecordDeclaration` arm of
+    /// `npm/groovy.rs` together.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_interface_member_record_misparses_as_a_method() {
+        check_func_space::<GroovyParser, _>(
+            "interface I { record R(int a) {} }",
+            "members.groovy",
+            |space| {
+                let interface = child_space(&space, "I");
+                assert_eq!(interface.kind, SpaceKind::Interface);
+                assert_eq!(interface.metrics.npm.interface_nm(), 1);
+                assert_eq!(interface.metrics.npm.interface_npm(), 1);
+                let rows: Vec<_> = interface
+                    .spaces
+                    .iter()
+                    .map(|s| (s.name.as_deref().unwrap_or_default(), s.kind))
+                    .collect();
+                assert_eq!(rows, [("R", SpaceKind::Function)]);
+            },
+        );
+    }
+
+    /// Groovy's record header is a method as Java's (#1842), never a
+    /// public one: the pinned grammar gives `record_declaration` no
+    /// modifier child (`node-types.json` lists `annotation` alone) and
+    /// misparses `public record P(int a) { }` as a `method_declaration`
+    /// returning a type named `record`, so there is no `public` for the
+    /// implicit constructor to take and the header counts under
+    /// `class_nm` alone — the reading every unmodified Groovy member
+    /// gets here. A written canonical constructor (`N`) closes the
+    /// header and counts under its own modifier; an alternative (`A`)
+    /// is counted beside the header's. The misparse is pinned so a
+    /// grammar bump that learns the modifier moves this row and the
+    /// `groovy_has_explicit_public` reading together.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_record_canonical_constructor_is_a_method_and_not_a_public_one() {
+        check_func_space::<GroovyParser, _>(
+            "record D(int a) { }
+             record N(int a) { public N(int a) { this.a = a } }
+             record A(int a) { A() { this(0) } }
+             public record P(int a) { }",
+            "records.groovy",
+            |space| {
+                let rows: Vec<_> = space
+                    .spaces
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.name.clone().unwrap_or_default(),
+                            s.kind,
+                            s.metrics.npm.class_nm(),
+                            s.metrics.npm.class_npm(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    rows,
+                    [
+                        ("D".to_owned(), SpaceKind::Class, 1, 0),
+                        ("N".to_owned(), SpaceKind::Class, 1, 1),
+                        ("A".to_owned(), SpaceKind::Class, 2, 0),
+                        // The misparse: a method named `P`, not a record.
+                        ("P".to_owned(), SpaceKind::Function, 0, 0),
                     ]
                 );
             },

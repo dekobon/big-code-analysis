@@ -8,10 +8,10 @@
 //! the documentation rows (#1699) are declared.
 
 use crate::checker::java_anonymous_class_body;
-use crate::lang_helpers::doc_comment::java_doc;
+use crate::lang_helpers::doc_comment::{java_doc, node_bytes, token_spelling};
 use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
-use crate::{Ancestors, Java, Node};
+use crate::{Ancestors, Checker, Java, JavaCode, Node};
 
 // Whether a comment opens with javac's doc marker (`/**`, not `/**/`;
 // a `///` Markdown line, JEP 467), read from the bytes.
@@ -45,6 +45,144 @@ fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
 // token — no clause wrapper — so a nested `if` under `else { … }` follows
 // `{` instead (#1697).
 else_if_prev_sibling_gate!(Java, Else);
+
+/// The type a record component or a constructor's formal parameter
+/// declares, as the canonical-constructor rule compares it: the source
+/// spelling as its tokens — comments and whitespace removed — and
+/// whether the parameter is a variable-arity one.
+#[derive(PartialEq, Eq)]
+struct ParameterType {
+    spelling: Vec<u8>,
+    variadic: bool,
+}
+
+/// The [`ParameterType`] of a record component or a constructor's
+/// formal parameter; `None` for a child that is no parameter
+/// (punctuation, a comment, a receiver parameter).
+///
+/// A `formal_parameter` holds its annotations in a separate `modifiers`
+/// child and its type in the `type` field, with C-style trailing
+/// `dimensions` (`int a[]`) in a field of their own; a
+/// `spread_parameter` (`int... a`) has no fields, so its type is the
+/// first named child that is not an annotation, the `modifiers` or a
+/// comment — a `block_comment` is a named extra, and one between the
+/// modifiers and the type (`final /* c */ int... xs`) sits exactly
+/// where the type is sought.
+fn java_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<ParameterType> {
+    match param.kind_id().into() {
+        Java::FormalParameter => {
+            let mut spelling =
+                token_spelling::<JavaCode>(&param.child_by_field_name("type")?, code);
+            if let Some(dims) = param.child_by_field_name("dimensions") {
+                spelling.extend(token_spelling::<JavaCode>(&dims, code));
+            }
+            Some(ParameterType {
+                spelling,
+                variadic: false,
+            })
+        }
+        Java::SpreadParameter => param
+            .children()
+            .find(|c| {
+                c.is_named()
+                    && !JavaCode::is_comment(c)
+                    && !matches!(
+                        c.kind_id().into(),
+                        Java::Modifiers | Java::Annotation | Java::MarkerAnnotation
+                    )
+            })
+            .map(|ty| ParameterType {
+                spelling: token_spelling::<JavaCode>(&ty, code),
+                variadic: true,
+            }),
+        _ => None,
+    }
+}
+
+/// Whether `ctor`, a `constructor_declaration` in `record`'s body,
+/// declares the record's canonical constructor (JLS 8.10.4.1): it is
+/// named after the record (JLS 8.8, which every constructor must be —
+/// the check is for a body the grammar fills with another class's
+/// constructor, as tree-sitter-groovy's nested-class recovery does and
+/// as tree-sitter-java accepts for the invalid `record R(int a) { Q(int
+/// a) { } }`), and its formal parameters and the record `header`'s
+/// components have the same arity and, pairwise, the same declared type
+/// and the same variable-arity-ness. Parameter names and annotations
+/// may differ and do not take part.
+///
+/// "Same type" is read as the same spelling — the type's tokens, with
+/// comments and whitespace removed, so `List</* c */ String>` and
+/// `List<String>` agree — since the row has no symbol table:
+/// `java.util.List<T>` and `List<T>` are one type to javac and two
+/// spellings here, as are `List<@Nullable String>` and `List<String>`
+/// (a type-use annotation is a token of the type), and `int...` and
+/// `int[]` (JLS 8.4.1 makes the pair one type, and the canonical rule
+/// then requires the arity marker to match anyway). A record whose
+/// explicit canonical constructor respells a component's type that way
+/// is read as having none, and its header opens a space of its own
+/// beside the constructor's. The generic form is exact: `R<T>(T a)`
+/// and `R(T a)` spell `T` the same.
+fn is_record_canonical_constructor(
+    ctor: &Node<'_>,
+    record: &Node<'_>,
+    header: &Node<'_>,
+    code: &[u8],
+) -> bool {
+    let (Some(ctor_name), Some(record_name), Some(params)) = (
+        ctor.child_by_field_name("name"),
+        record.child_by_field_name("name"),
+        ctor.child_by_field_name("parameters"),
+    ) else {
+        return false;
+    };
+    if node_bytes(&ctor_name, code) != node_bytes(&record_name, code) {
+        return false;
+    }
+    let declared = params
+        .children()
+        .filter_map(|p| java_parameter_type(&p, code));
+    let components = header
+        .children()
+        .filter_map(|p| java_parameter_type(&p, code));
+    declared.eq(components)
+}
+
+/// Whether a `formal_parameters` list is a record's header — the
+/// component list hanging directly off a `record_declaration`, a
+/// sibling of its `class_body` — in a record that declares no canonical
+/// constructor, so the header stands for the implicitly declared one
+/// (JLS 8.10.4; #1842). A record that writes one, compact
+/// (`R { … }`) or normal (`R(int a, int b) { … }`, recognised by
+/// [`is_record_canonical_constructor`]), owns the components there
+/// instead; a non-canonical constructor (`R(int a) { this(a, 0); }`)
+/// is a callable of its own and leaves the header open. The gate reads
+/// the record's body, which a parent-kind list cannot, so it is a `fn`
+/// rather than `under [RecordDeclaration]`; and it reads the body's
+/// constructor *types* as bytes, so the row marks it `text_gated_by`:
+/// handed no bytes, every same-arity constructor spells the empty type
+/// and reads as canonical.
+fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    let Some(record) = ancestors.parent(node) else {
+        return false;
+    };
+    if record.kind_id() != Java::RecordDeclaration as u16
+        || record
+            .child_by_field_name("parameters")
+            .is_none_or(|p| p.id() != node.id())
+    {
+        return false;
+    }
+    let Some(body) = record.child_by_field_name("body") else {
+        return true;
+    };
+    !body.children().any(|member| match member.kind_id().into() {
+        Java::CompactConstructorDeclaration => true,
+        Java::ConstructorDeclaration => {
+            is_record_canonical_constructor(&member, &record, node, code)
+        }
+        _ => false,
+    })
+}
 
 /// The container a `switch` nests its arms in: the `switch_block`, the
 /// `Switch` owner's child — a structural fact about the construct the
@@ -121,10 +259,12 @@ role_table! {
         wraps [StringInterpolation]
     }
 
-    // Mapping. Every function opener is a `Function` space. The three
+    // Mapping. Every function opener is a `Function` space. The four
     // `callable` owners are what `is_func` answers — a method, a
-    // constructor, and a record's compact constructor (#1160), each a
-    // function someone names at a call site. `static { … }` is not:
+    // constructor, a record's compact constructor (#1160) and a
+    // record's header where it stands for the implicit canonical
+    // constructor (#1842) — each a function someone names at a call
+    // site. `static { … }` is not:
     // it opens a space (#1184) and is nobody's callee, so it carries no
     // `callable` and `nom` / `nargs` / `npm` never see it as a method.
     // The lambda is *not* here: the walk promotes on
@@ -134,11 +274,21 @@ role_table! {
     // labelled one `Function` before #1696. The row records the walk's
     // answer, and the parity test below pins it against the walk's
     // predicate.
+    //
+    // A record's canonical constructor has no node of its own unless
+    // written: the grammar hangs the component list, a
+    // `formal_parameters`, directly off the `record_declaration` as its
+    // `parameters` field, a sibling of the `class_body` — the one place
+    // a `formal_parameters` is not a callable's `parameters` field.
+    // That list is the constructor where the body declares none
+    // (`opens_record_header`), as C#'s positional record's
+    // `parameter_list` is (#1828).
     FuncOpener {
         owns [
             MethodDeclaration(callable opens Function),
             ConstructorDeclaration(callable opens Function),
             CompactConstructorDeclaration(callable opens Function),
+            FormalParameters(callable opens Function text_gated_by opens_record_header),
             StaticInitializer(opens Function),
         ]
     }
@@ -393,8 +543,9 @@ mod tests {
     // drifting silently (lesson 35). The per-shape tests above do not
     // cover membership: dropping `YieldStatement` from `Exit` or
     // `EnumDeclaration` from `Container` failed none of them.
-    /// `(is_func, is_closure, promoted, SpaceKind, is_member)`: the five
-    /// answers the space-tree and member consumers read of one node.
+    /// `(is_func_with_code, is_closure, promoted, SpaceKind, is_member)`:
+    /// the five answers the space-tree and member consumers read of one
+    /// node.
     #[cfg(feature = "java")]
     type Answers = (bool, bool, bool, SpaceKind, bool);
 
@@ -402,7 +553,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn classifiers_read_the_rows_and_the_rows_say_what_the_walk_did() {
-        let source = b"enum E { A; int f; }\nrecord R(int a) { R { } int g; }\ninterface I { int K = 1; void im(); }\n@interface An { int v() default 1; int C = 2; }\nclass C {\n  static { }\n  C() { }\n  String s = \"x\";\n  void m() { Runnable r = () -> m(); Object o = new Object() { }; Object p = new Object(); throw new RuntimeException(); }\n  int y(int s) { return switch (s) { default -> { yield 1; } }; }\n}\n";
+        let source = b"enum E { A; int f; }\nrecord R(int a) { R { } int g; }\nrecord Q(int q) { }\ninterface I { int K = 1; void im(); }\n@interface An { int v() default 1; int C = 2; }\nclass C {\n  static { }\n  C() { }\n  String s = \"x\";\n  void m() { Runnable r = () -> m(); Object o = new Object() { }; Object p = new Object(); throw new RuntimeException(); }\n  int y(int s) { return switch (s) { default -> { yield 1; } }; }\n}\n";
         // Per kind, as the classifiers answered before the rows and must
         // answer after. A kind absent here answers all-false.
         let expected: &[(&str, Answers)] = &[
@@ -458,12 +609,13 @@ mod tests {
         ];
         let mut seen_kinds = std::collections::BTreeSet::new();
         let mut anonymous = Vec::new();
+        let mut headers = Vec::new();
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let kind = node.kind();
             let promoted = JavaCode::promotes_to_func_space_with_code(node, source, ancestors);
             let got = (
-                JavaCode::is_func(node, ancestors),
+                JavaCode::is_func_with_code(node, source, ancestors),
                 JavaCode::is_closure(node, ancestors),
                 promoted,
                 JavaCode::get_space_kind_with_code(node, source, ancestors),
@@ -475,6 +627,12 @@ mod tests {
                 // (#463), told apart by the gate; neither spelling is a
                 // function, a closure or a member.
                 anonymous.push(got);
+            } else if kind == "formal_parameters" {
+                // Gated on the parent and its body (#1842): `Q`'s header
+                // is the implicit canonical constructor; `R`'s body
+                // writes a compact one, and every other list is a
+                // callable's `parameters` field.
+                headers.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
             } else {
                 let want = expected.iter().find(|(k, _)| *k == kind).map_or(
                     (false, false, false, SpaceKind::Unknown, false),
@@ -493,17 +651,22 @@ mod tests {
                 promoted,
                 "{kind}: is_func_space is what the walk promotes"
             );
-            // The byte-less pair is the kind table: the rows read no
-            // chain and no bytes, so it agrees with the `_with_code` pair
-            // on every node.
-            assert_eq!(
-                (
-                    JavaCode::is_func_space(node),
-                    JavaCode::get_space_kind(node)
-                ),
-                (promoted, got.3),
-                "{kind}: the byte-less spellings are the kind table"
-            );
+            // The byte-less spellings are the kind table: only the
+            // record header's gate reads the chain and the bytes, so
+            // they agree with the `_with_code` ones on every other node
+            // (`java_byte_less_spellings_omit_the_record_header` pins
+            // the header apart).
+            if kind != "formal_parameters" {
+                assert_eq!(
+                    (
+                        JavaCode::is_func(node, ancestors),
+                        JavaCode::is_func_space(node),
+                        JavaCode::get_space_kind(node)
+                    ),
+                    (got.0, promoted, got.3),
+                    "{kind}: the byte-less spellings are the kind table"
+                );
+            }
             assert_eq!(
                 call::owns(node, source, ancestors),
                 kind == "method_invocation",
@@ -530,6 +693,22 @@ mod tests {
                 (false, false, true, SpaceKind::Class, false),
                 (false, false, false, SpaceKind::Unknown, false),
                 (false, false, false, SpaceKind::Unknown, false),
+            ]
+        );
+        let none = (false, false, false, SpaceKind::Unknown, false);
+        assert_eq!(
+            headers,
+            [
+                ("(int a)".to_owned(), none),
+                (
+                    "(int q)".to_owned(),
+                    (true, false, true, SpaceKind::Function, false)
+                ),
+                ("()".to_owned(), none),
+                ("()".to_owned(), none),
+                ("()".to_owned(), none),
+                ("()".to_owned(), none),
+                ("(int s)".to_owned(), none),
             ]
         );
         // Fixture guard: every kind the membership rows name was walked.

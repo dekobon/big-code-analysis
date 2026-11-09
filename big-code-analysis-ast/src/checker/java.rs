@@ -36,25 +36,45 @@ impl Checker for JavaCode {
     // The callables and the lambda, then the `DocBodyResidual` row of
     // `roles/java.rs` — `static { … }`, a bare `block`, a
     // `switch_block` (#1699). The whole node counts: javac binds a doc
-    // comment only before a declaration's first token.
+    // comment only before a declaration's first token. A record's
+    // header is a callable to the walk (#1842, below) but never a doc
+    // comment's body: a comment inside the parentheses sits in no body,
+    // the pre-#1842 reading, and javac attaches it to nothing. The
+    // header kind is excluded here by name rather than left to the
+    // byte-less `is_func`, which omits the header only because its
+    // forward discards the chain; a chain-reading `is_func` would not
+    // move this answer.
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
     ) -> bool {
-        Self::is_func(ancestor, ancestors)
-            || Self::is_closure(ancestor, ancestors)
-            || doc_body_residual_kind!(java, ancestor, ancestors)
+        // role-bypass: allow(FuncOpener) — the record header's kind is subtracted from
+        // the body test, a doc-binding policy over the row, not whether it opens a space
+        ancestor.kind_id() != Java::FormalParameters as u16
+            && (Self::is_func(ancestor, ancestors)
+                || Self::is_closure(ancestor, ancestors)
+                || doc_body_residual_kind!(java, ancestor, ancestors))
     }
 
     // The space tree is declared in `roles/java.rs` (#1696): the
     // `Container` row (class-like declarations, an anonymous class gated
     // on its body — #280, #463) and the `FuncOpener` row (the callables
     // and `static { … }`, #1184) are what the walk promotes;
-    // `opens_space` labels them. The byte-less spellings here are the
-    // legacy wrappers: Java's rows read no bytes and no chain, so they
-    // answer identically with none.
-    impl_byte_less_func_space!(java);
+    // `opens_space` labels them. Since #1842 the opener row reads the
+    // chain and the bytes: a `formal_parameters` opens a space only as
+    // a record's header, under a `record_declaration` whose body
+    // writes no canonical constructor, told by its parameter types.
+    // The byte-less spelling forwards with a *known-empty* chain, as
+    // C#'s does for its primary constructor (#1828): the node read as
+    // if it were the root, so the parent gate sees no record and the
+    // list answers `false`, the pre-#1842 answer for every parameter
+    // list, before the type bytes are ever read. Not
+    // `Ancestors::unknown()`, which climbs through `Node::parent` and
+    // would reach the gate with no bytes. The walk calls the
+    // `_with_code` one; `java_byte_less_spellings_omit_the_record_header`
+    // (`roles/space_tree_tests.rs`) pins the disagreement by value.
+    impl_byte_less_func_space!(java, opener_gated);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
@@ -66,11 +86,23 @@ impl Checker for JavaCode {
 
     // A record's compact constructor (`record R(int a) { R { … } }`, JLS
     // 8.10.4) is a `callable` owner of the `FuncOpener` row beside the
-    // canonical constructor (#1160). Everything keyed on `is_func`
-    // follows from the row: `Nom`, `NArgs`, `Npm`'s `direct_child_funcs`,
-    // and the space tree that `Wmc` and `NExits` are attributed through.
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::java::func_opener::is_callable(node, &[], ancestors)
+    // canonical constructor (#1160), and so is the record's header where
+    // the body writes neither (#1842). Everything keyed on the callable
+    // test follows from the row: `Nom`, `NArgs`, `Npm`'s
+    // `direct_child_funcs`, and the space tree that `Wmc` and `NExits`
+    // are attributed through — each through the `_with_code` spelling,
+    // which the header's text gate needs. This byte-less one forwards a
+    // known-empty chain as `is_func_space` does, so the header answers
+    // `false` rather than the degenerate gate (under no bytes every
+    // same-arity constructor spells the empty type and reads as
+    // canonical, closing a header the walk opened); every other callable
+    // is kind-only and answers alike either way.
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::java::func_opener::is_callable(node, &[], Ancestors::known(&[]))
+    }
+
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::java::func_opener::is_callable(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

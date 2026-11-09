@@ -119,13 +119,19 @@ macro_rules! impl_byte_gated_row_predicate {
 // The byte-less `is_func_space` of a language whose space tree is its
 // `FuncOpener` and `Container` rows (#1696): forwards with no bytes and
 // a known-empty chain, which is exact only while neither row reads
-// either — the build asserts both flags of both rows (#1793). Ruby's
-// opener is chain-gated by design and keeps a hand-written forward
-// pinned at runtime instead (`ruby_byte_less_spellings_stay_the_kind_table`),
-// as C#'s is since #1828
-// (`csharp_byte_less_spellings_omit_the_primary_constructor`);
+// either — the build asserts both flags of both rows (#1793). The
+// `opener_gated` form is for a language whose opener row reads the
+// chain or the bytes by design, so that only the `Container` row is
+// asserted — and that the opener *is* gated, so the form cannot be
+// taken by a language whose rows the plain form would check: the
+// gated opener answers `false` under the known-empty chain, a
+// disagreement the language pins at runtime by value (a Java or
+// Groovy record's header, #1842). Ruby's opener is chain-gated by
+// design and keeps a hand-written forward pinned at runtime instead
+// (`ruby_byte_less_spellings_stay_the_kind_table`), as C#'s is since
+// #1828 (`csharp_byte_less_spellings_omit_the_primary_constructor`);
 // Elixir overrides both spellings. Per-language rationale — which
-// rows, why they read nothing — sits above the invocation.
+// rows, what the gated one reads — sits above the invocation.
 macro_rules! impl_byte_less_func_space {
     ($roles:ident) => {
         fn is_func_space(node: &Node) -> bool {
@@ -135,6 +141,21 @@ macro_rules! impl_byte_less_func_space {
                     && !$crate::roles::$roles::container::TEXT_GATED
                     && !$crate::roles::$roles::container::CHAIN_GATED,
                 "a space-opening row reads bytes or the chain; the byte-less spelling cannot forward with none"
+            );
+            Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
+        }
+    };
+    ($roles:ident, opener_gated) => {
+        fn is_func_space(node: &Node) -> bool {
+            const _: () = assert!(
+                $crate::roles::$roles::func_opener::TEXT_GATED
+                    || $crate::roles::$roles::func_opener::CHAIN_GATED,
+                "an ungated opener row takes the plain arm"
+            );
+            const _: () = assert!(
+                !$crate::roles::$roles::container::TEXT_GATED
+                    && !$crate::roles::$roles::container::CHAIN_GATED,
+                "the `Container` row reads bytes or the chain; the byte-less spelling cannot forward with none"
             );
             Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
         }

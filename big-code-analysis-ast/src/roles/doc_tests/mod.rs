@@ -621,7 +621,7 @@ mod java {
     // it documents; `package b;` has a class after it, so it does not;
     // `package c;` at the end has nothing, so it does. The `/**/` is a
     // comment and not documentation; `///` is (JEP 467).
-    pub(super) const SOURCE: &[u8] = b"/** file */\npackage a;\n/** dangling: a class follows */\npackage b;\n/**/\n// line\n/// markdown\nclass C {\n  /** f */\n  int f;\n  C() { }\n  static { /** in static */ int s = 1; }\n  { /** in block */ int b = 1; }\n  void m() {\n    /* plain */ int x = switch (f) { default -> { /** in switch */ yield 1; } };\n    Runnable r = () -> { /** in lambda */ };\n  }\n}\nenum E { /** k */ K; }\nrecord R(int a) { R { } }\ninterface I { int K = 1; }\n@interface An { int v() default 1; }\n/** module */\nmodule m { }\npackage c;\n";
+    pub(super) const SOURCE: &[u8] = b"/** file */\npackage a;\n/** dangling: a class follows */\npackage b;\n/**/\n// line\n/// markdown\nclass C {\n  /** f */\n  int f;\n  C() { }\n  static { /** in static */ int s = 1; }\n  { /** in block */ int b = 1; }\n  void m() {\n    /* plain */ int x = switch (f) { default -> { /** in switch */ yield 1; } };\n    Runnable r = () -> { /** in lambda */ };\n  }\n}\nenum E { /** k */ K; }\nrecord R(int a) { R { } }\nrecord Q(int q) { }\ninterface I { int K = 1; }\n@interface An { int v() default 1; }\n/** module */\nmodule m { }\npackage c;\n";
 
     #[test]
     fn rows_answer_the_table() {
@@ -665,6 +665,7 @@ mod java {
             ("record_declaration", "record R(int a) { R { } }", TARGET),
             ("compact_constructor_declaration", "R { }", TARGET),
             ("block", "{ }", BODY),
+            ("record_declaration", "record Q(int q) { }", TARGET),
             (
                 "interface_declaration",
                 "interface I { int K = 1; }",
@@ -725,6 +726,41 @@ mod java {
                 ("block", false, true),
             ]
         );
+    }
+
+    /// A record's header is a callable to the walk (#1842) and never a
+    /// doc comment's body: `/** a */` inside the parentheses sits in no
+    /// body, so the place half of the documentation test lets it
+    /// document, as before #1842 — and, nothing inside a header being a
+    /// doc target, javac attaches it to nothing, so the record's own
+    /// doc comment is the one that documents and the record's count is
+    /// unchanged (`inside a record header`, `loc/dloc.rs`). The policy
+    /// is pinned on the predicate: read as a body, the header would
+    /// turn `/** a */`'s place answer false — which no metric observes
+    /// on this fixture, since the comment documents nothing either way,
+    /// so the predicate is the guard.
+    #[test]
+    fn record_header_is_a_callable_and_no_doc_comment_body() {
+        use crate::lang_helpers::doc_comment::{documents_where_it_sits, node_bytes};
+        let source = b"/** r */\nrecord R(/** a */ int a) { }\n";
+        let mut headers = Vec::new();
+        let mut comments = Vec::new();
+        for_each_node_with_chain::<JavaCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if node.kind() == "formal_parameters" {
+                headers.push((
+                    JavaCode::is_func_with_code(node, source, ancestors),
+                    JavaCode::holds_doc_comment_in_body(node, ancestors, node),
+                ));
+            } else if JavaCode::is_doc_comment(node, source) {
+                comments.push((
+                    std::str::from_utf8(node_bytes(node, source)).unwrap_or("?"),
+                    documents_where_it_sits::<JavaCode>(node, source, ancestors),
+                ));
+            }
+        });
+        assert_eq!(headers, [(true, false)], "(callable, holds a doc body)");
+        assert_eq!(comments, [("/** r */", true), ("/** a */", true)]);
     }
 }
 
@@ -815,6 +851,35 @@ mod groovy {
                 ("line_comment", true, false, true),
             ]
         );
+    }
+
+    /// Java's `record_header_is_a_callable_and_no_doc_comment_body` for
+    /// the `record_components` header: a callable (#1842), never a doc
+    /// comment's body, so the Groovydoc inside the parentheses keeps
+    /// its place answer — unobservable through LOC on this fixture, as
+    /// in Java, so the predicate is the guard.
+    #[test]
+    fn record_header_is_a_callable_and_no_doc_comment_body() {
+        use crate::lang_helpers::doc_comment::{documents_where_it_sits, node_bytes};
+        let source = b"/** r */\nrecord R(/** a */ int a) { }\n";
+        let mut headers = Vec::new();
+        let mut comments = Vec::new();
+        for_each_node_with_chain::<GroovyCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if node.kind() == "record_components" {
+                headers.push((
+                    GroovyCode::is_func_with_code(node, source, ancestors),
+                    GroovyCode::holds_doc_comment_in_body(node, ancestors, node),
+                ));
+            } else if GroovyCode::is_doc_comment(node, source) {
+                comments.push((
+                    std::str::from_utf8(node_bytes(node, source)).unwrap_or("?"),
+                    documents_where_it_sits::<GroovyCode>(node, source, ancestors),
+                ));
+            }
+        });
+        assert_eq!(headers, [(true, false)], "(callable, holds a doc body)");
+        assert_eq!(comments, [("/** r */", true), ("/** a */", true)]);
     }
 }
 

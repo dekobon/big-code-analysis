@@ -52,13 +52,25 @@ impl Getter for GroovyCode {
         if node.kind_id() == Groovy::StaticInitializer as u16 {
             return Some("<static-init>");
         }
+        // A record's header takes the record's name, as Java's does
+        // (`getter/java.rs`, #1842); the default would be `<anonymous>`.
+        // role-bypass: allow(FuncOpener, Container) — a naming rule over the
+        // list and the record it names, not whether either opens a space
+        if node.kind_id() == Groovy::RecordComponents as u16
+            && let Some(record) = ancestors.parent(node)
+            && record.kind_id() == Groovy::RecordDeclaration as u16
+        {
+            return crate::getter::default_func_space_name(&record, code, ancestors);
+        }
         crate::getter::default_func_space_name(node, code, ancestors)
     }
 
     // The mapping is the `opens` annotations of `roles/groovy.rs`
-    // (#1696); the byte-less spelling forwards with no bytes and no
-    // chain, as the old one read neither.
-    impl_byte_less_space_kind!(groovy);
+    // (#1696). The opener row reads the chain and the bytes for a
+    // record's header (#1842), so this forwards with a known-empty
+    // chain and labels that list `Unknown`, as the Checker half
+    // (`checker/groovy.rs`) answers `false`.
+    impl_byte_less_space_kind!(groovy, opener_gated);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,

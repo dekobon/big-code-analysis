@@ -359,7 +359,7 @@ where
     ///
     /// The two are mutually exclusive: only the default `compute` calls
     /// this, so a language that overrides `compute` (Objc, Go, Kotlin,
-    /// Lua, Tcl, iRules, Perl, Elixir, Groovy) would define a
+    /// Lua, Tcl, iRules, Perl, Elixir, Groovy, C#) would define a
     /// `params_owner` that is never consulted. Override one or the
     /// other, not both.
     fn params_owner<'tree>(node: &Node<'tree>, _ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
@@ -832,42 +832,46 @@ impl NArgs for CsharpCode {
     }
 }
 
-// A record's compact constructor (`record R(int a, int b) { R { … } }`,
-// JLS 8.10.4) declares no formal parameter list of its own: the grammar
-// gives `compact_constructor_declaration` only `name` and `body` fields,
-// and hangs the parameters — the record's components — off the enclosing
-// `record_declaration`. Resolve that declaration so the two spellings of
-// one constructor agree: the canonical `R(int a, int b) { … }` reports 2,
-// and so should the compact form (#1160).
+// A record's components are the `parameters` field of its
+// `record_declaration`, and two of the record's callables own them from
+// there rather than from a list of their own.
 //
-// The nesting is fixed by the grammar — the constructor is a direct child
-// of the record's `class_body` — so the record sits exactly two steps up.
-// The kind check states what that positional step is allowed to land on;
-// no kind other than `record_declaration` carries a `parameters` field
-// here, so it changes no count today, but it keeps the step from silently
+// A compact constructor (`record R(int a, int b) { R { … } }`, JLS
+// 8.10.4) declares no formal parameter list: the grammar gives
+// `compact_constructor_declaration` only `name` and `body` fields, so
+// its owner is the record, which sits exactly two steps up — the
+// constructor is a direct child of the record's `class_body`. Resolving
+// it is what makes the two spellings of one constructor agree: the
+// canonical `R(int a, int b) { … }` reports 2, and so does the compact
+// form (#1160). The kind check states what that positional step is
+// allowed to land on; no other kind carries a `parameters` field here,
+// so it changes no count today, but it keeps the step from silently
 // starting to mean something else if one ever does.
 //
-// A record that declares *no* constructor still reports 0: its canonical
-// constructor is implicit, so there is no node to open a space for and
-// nothing to attribute the components to. Adding an empty `R { }` to such
-// a record therefore moves its `nargs` from 0 to the component count
-// without changing the API — the same asymmetry an explicit
-// `R(int a, int b) { }` already produces, and the price of measuring
-// declared code rather than generated code.
-fn java_compact_constructor_record<'tree>(
-    node: &Node<'tree>,
-    ancestors: Ancestors<'tree, '_>,
-) -> Option<Node<'tree>> {
-    if node.kind_id() != Java::CompactConstructorDeclaration {
-        return None;
-    }
-    let (grandparent, _) = ancestors.iter(node).nth(1)?;
-    (grandparent.kind_id() == Java::RecordDeclaration).then_some(grandparent)
-}
-
+// A record that declares *no* canonical constructor reports the
+// components on its header instead: the `FuncOpener` row of
+// `roles/java.rs` opens a `Function` space on the `formal_parameters`
+// itself where the body writes neither a compact nor a normal canonical
+// constructor (#1842, revisiting #1160's "declared code rather than
+// generated code": the component list *is* declared, as a C# positional
+// record's is — #1828), so the list's owner is its parent, the record.
+// The row's gate keeps the count to one owner: with a compact
+// constructor the header opens nothing and the redirect counts the
+// components there; with neither the header is the callable. A
+// non-canonical constructor is a callable of its own, owns its own
+// list, and suppresses nothing.
 impl NArgs for JavaCode {
     fn params_owner<'tree>(node: &Node<'tree>, ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
-        java_compact_constructor_record(node, ancestors).unwrap_or(*node)
+        let record = match node.kind_id().into() {
+            Java::FormalParameters => ancestors.parent(node),
+            Java::CompactConstructorDeclaration => ancestors
+                .iter(node)
+                .nth(1)
+                .map(|(grandparent, _)| grandparent)
+                .filter(|grandparent| grandparent.kind_id() == Java::RecordDeclaration),
+            _ => None,
+        };
+        record.unwrap_or(*node)
     }
 }
 
@@ -875,11 +879,28 @@ impl NArgs for JavaCode {
 // than a `parameters` field, so the default NArgs walker (which looks
 // for a `parameters` field) misses them. Match the closure_parameters
 // child directly and count its `closure_parameter` grand-children.
+//
+// A record's header is its `record_components` — the `FuncOpener` row
+// of `roles/groovy.rs` opens the space on that node where the body
+// writes no canonical constructor (#1842) — so the list is the node
+// itself and its `record_component` children are the arguments, one
+// wrapper each (a variable-arity component's stray `...` lands in an
+// `ERROR` beside its type, inside the one wrapper). Every other
+// callable holds its list in the `parameters` field. The header's gate
+// reads the body's constructor types, so the callable test is the
+// `_with_code` spelling, as the shared impl's.
 impl NArgs for GroovyCode {
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
 
-        if Self::is_func(node, ancestors) {
+        if Self::is_func_with_code(node, code, ancestors) {
+            if node.kind_id() == Groovy::RecordComponents {
+                stats.fn_nargs += node
+                    .children()
+                    .filter(|n| n.kind_id() == Groovy::RecordComponent)
+                    .count();
+                return;
+            }
             compute_args::<Self>(node, code, &mut stats.fn_nargs);
             return;
         }
@@ -922,17 +943,23 @@ mod tests {
     // count is only observable one space at a time.
     check_func_space_only_shim!(check_spaces, Nargs);
 
-    /// The `compute` impls above for Go, Kotlin, Lua, Tcl, iRules, Perl,
-    /// Java and Groovy read the byte-less `is_func` / `is_closure`, and
-    /// Elixir's and the shared impl read the byte-less `is_closure`:
+    /// The `compute` impls above for Go, Kotlin, Lua, Tcl, iRules and
+    /// Perl read the byte-less `is_func` / `is_closure`, and Elixir's,
+    /// Groovy's and the shared impl read the byte-less `is_closure`:
     /// each hands the walk's chain through and no bytes, which answers
     /// the row's question only while no owner of that row is
     /// `text_gated_by`. This pins that — a row that grows a text gate
     /// fails here, naming the impl that must move to the `_with_code`
     /// spelling rather than silently missing the gated owner (#1696
-    /// AC 3). Elixir's `FuncOpener` is text-gated and its impl already
-    /// reads `is_func_with_code`. The rows are declarations, built in
-    /// every feature set, so this needs no grammar.
+    /// AC 3). The text-gated `FuncOpener` rows are read through
+    /// `is_func_with_code`: Elixir's by its impl, and since #1842
+    /// Java's by the shared impl and Groovy's by its own — a record's
+    /// header is gated on the body's constructor *types*, and the
+    /// byte-less spelling forwards a known-empty chain under which the
+    /// header is no callable at all
+    /// (`java_header_beside_a_same_arity_alternative_counts_its_components`).
+    /// The rows are declarations, built in every feature set, so this
+    /// needs no grammar.
     #[test]
     fn byte_less_spellings_read_only_rows_without_a_text_gate() {
         use crate::roles::{elixir, go, groovy, irules, java, kotlin, lua, perl, tcl};
@@ -947,8 +974,8 @@ mod tests {
             ("irules FuncOpener", irules::func_opener::TEXT_GATED),
             ("perl FuncOpener", perl::func_opener::TEXT_GATED),
             ("perl Closure", perl::closure::TEXT_GATED),
-            ("java FuncOpener", java::func_opener::TEXT_GATED),
-            ("groovy FuncOpener", groovy::func_opener::TEXT_GATED),
+            ("java Closure", java::closure::TEXT_GATED),
+            ("groovy Closure", groovy::closure::TEXT_GATED),
             ("elixir Closure", elixir::closure::TEXT_GATED),
         ];
         for (row, text_gated) in rows {
@@ -957,7 +984,11 @@ mod tests {
                 "{row} grew a text gate: its `NArgs::compute` must read the `_with_code` spelling"
             );
         }
-        let read_with_code = [("elixir FuncOpener", elixir::func_opener::TEXT_GATED)];
+        let read_with_code = [
+            ("elixir FuncOpener", elixir::func_opener::TEXT_GATED),
+            ("java FuncOpener", java::func_opener::TEXT_GATED),
+            ("groovy FuncOpener", groovy::func_opener::TEXT_GATED),
+        ];
         for (row, text_gated) in read_with_code {
             assert!(
                 text_gated,
@@ -3913,7 +3944,12 @@ proc g {x y z} { puts $x }",
     /// tree in walk order, for the primary-constructor fixtures below:
     /// two constructors share their class's name, so the rows are read
     /// positionally rather than by name.
-    #[cfg(any(feature = "kotlin", feature = "csharp"))]
+    #[cfg(any(
+        feature = "kotlin",
+        feature = "csharp",
+        feature = "java",
+        feature = "groovy"
+    ))]
     fn space_rows(space: &FuncSpace) -> Vec<(String, SpaceKind, u64, u64)> {
         fn walk(space: &FuncSpace, rows: &mut Vec<(String, SpaceKind, u64, u64)>) {
             rows.push((
@@ -3931,6 +3967,18 @@ proc g {x y z} { puts $x }",
             walk(child, &mut rows);
         }
         rows
+    }
+
+    /// One `space_rows` row with no closure arguments, for the
+    /// function-space fixtures below.
+    #[cfg(any(
+        feature = "kotlin",
+        feature = "csharp",
+        feature = "java",
+        feature = "groovy"
+    ))]
+    fn row(name: &str, kind: SpaceKind, args: u64) -> (String, SpaceKind, u64, u64) {
+        (name.to_owned(), kind, args, 0)
     }
 
     /// #1828's reproducer: a six-parameter primary constructor counted
@@ -4029,26 +4077,25 @@ proc g {x y z} { puts $x }",
              fun outer(p: Int) { class Loc(val q: Int, val r: Int) }",
             "preambles.kt",
             |space| {
-                let f = |n: &str, k, a| (n.to_owned(), k, a, 0);
                 assert_eq!(
                     space_rows(&space),
                     [
-                        f("E", SpaceKind::Class, 0),
-                        f("E", SpaceKind::Function, 1),
-                        f("F", SpaceKind::Class, 0),
-                        f("F", SpaceKind::Function, 2),
-                        f("G", SpaceKind::Class, 0),
-                        f("G", SpaceKind::Function, 1),
-                        f("H", SpaceKind::Class, 0),
-                        f("H", SpaceKind::Function, 1),
-                        f("N", SpaceKind::Class, 0),
-                        f("Z", SpaceKind::Class, 0),
-                        f("Z", SpaceKind::Function, 0),
-                        f("C", SpaceKind::Class, 0),
-                        f("C", SpaceKind::Function, 2),
-                        f("outer", SpaceKind::Function, 1),
-                        f("Loc", SpaceKind::Class, 0),
-                        f("Loc", SpaceKind::Function, 2),
+                        row("E", SpaceKind::Class, 0),
+                        row("E", SpaceKind::Function, 1),
+                        row("F", SpaceKind::Class, 0),
+                        row("F", SpaceKind::Function, 2),
+                        row("G", SpaceKind::Class, 0),
+                        row("G", SpaceKind::Function, 1),
+                        row("H", SpaceKind::Class, 0),
+                        row("H", SpaceKind::Function, 1),
+                        row("N", SpaceKind::Class, 0),
+                        row("Z", SpaceKind::Class, 0),
+                        row("Z", SpaceKind::Function, 0),
+                        row("C", SpaceKind::Class, 0),
+                        row("C", SpaceKind::Function, 2),
+                        row("outer", SpaceKind::Function, 1),
+                        row("Loc", SpaceKind::Class, 0),
+                        row("Loc", SpaceKind::Function, 2),
                     ]
                 );
             },
@@ -4161,33 +4208,32 @@ class A(val x: Int)",
              namespace Ns { public class Nested(int q) { public class Inner(int r, int s) { void M(int t) { } } } }",
             "shapes.cs",
             |space| {
-                let f = |n: &str, k, a| (n.to_owned(), k, a, 0);
                 assert_eq!(
                     space_rows(&space),
                     [
-                        f("R", SpaceKind::Class, 0),
-                        f("R", SpaceKind::Function, 2),
-                        f("RS", SpaceKind::Class, 0),
-                        f("RS", SpaceKind::Function, 1),
-                        f("RC", SpaceKind::Class, 0),
-                        f("RC", SpaceKind::Function, 3),
-                        f("S", SpaceKind::Class, 0),
-                        f("S", SpaceKind::Function, 1),
-                        f("Sub", SpaceKind::Class, 0),
-                        f("Sub", SpaceKind::Function, 1),
-                        f("N", SpaceKind::Class, 0),
-                        f("Z", SpaceKind::Class, 0),
-                        f("Z", SpaceKind::Function, 0),
-                        f("G", SpaceKind::Class, 0),
-                        f("G", SpaceKind::Function, 3),
-                        f("H", SpaceKind::Class, 0),
-                        f("H", SpaceKind::Function, 2),
-                        f("H", SpaceKind::Function, 0),
-                        f("Nested", SpaceKind::Class, 0),
-                        f("Nested", SpaceKind::Function, 1),
-                        f("Inner", SpaceKind::Class, 0),
-                        f("Inner", SpaceKind::Function, 2),
-                        f("M", SpaceKind::Function, 1),
+                        row("R", SpaceKind::Class, 0),
+                        row("R", SpaceKind::Function, 2),
+                        row("RS", SpaceKind::Class, 0),
+                        row("RS", SpaceKind::Function, 1),
+                        row("RC", SpaceKind::Class, 0),
+                        row("RC", SpaceKind::Function, 3),
+                        row("S", SpaceKind::Class, 0),
+                        row("S", SpaceKind::Function, 1),
+                        row("Sub", SpaceKind::Class, 0),
+                        row("Sub", SpaceKind::Function, 1),
+                        row("N", SpaceKind::Class, 0),
+                        row("Z", SpaceKind::Class, 0),
+                        row("Z", SpaceKind::Function, 0),
+                        row("G", SpaceKind::Class, 0),
+                        row("G", SpaceKind::Function, 3),
+                        row("H", SpaceKind::Class, 0),
+                        row("H", SpaceKind::Function, 2),
+                        row("H", SpaceKind::Function, 0),
+                        row("Nested", SpaceKind::Class, 0),
+                        row("Nested", SpaceKind::Function, 1),
+                        row("Inner", SpaceKind::Class, 0),
+                        row("Inner", SpaceKind::Function, 2),
+                        row("M", SpaceKind::Function, 1),
                     ]
                 );
                 let sub = child_space(&space, "Sub");
@@ -4236,6 +4282,622 @@ class A(val x: Int)",
         check_spaces::<CsharpParser, _>("class C(int a,", "broken.cs", |space| {
             assert_eq!(space_rows(&space), []);
             assert_eq!(space.metrics.nargs.total(), 0);
+        });
+    }
+
+    /// #1842's reproducer: a six-component Java record with no
+    /// constructor counted its components nowhere, so
+    /// `bca check --threshold nargs=5` passed it. The header's
+    /// `formal_parameters` opens a `Function` space named after the
+    /// record (the gated `FuncOpener` owner of `roles/java.rs`), which
+    /// owns the six; `nom` counts it as the callable the average divides
+    /// by. Every row read 0 on `main`.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_record_header_owns_its_components() {
+        check_spaces::<JavaParser, _>(
+            "record R(int a, int b, int c, int d, int e, int f) {}",
+            "r.java",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("R", SpaceKind::Class, 0),
+                        row("R", SpaceKind::Function, 6),
+                    ]
+                );
+                let ctor = &space.spaces[0].spaces[0];
+                assert_eq!(ctor.metrics.nargs.own_args(), 6);
+                assert_eq!((ctor.start_line, ctor.end_line), (1, 1));
+                assert_eq!(space.metrics.nom.functions_sum(), 1);
+                assert_eq!(space.metrics.nargs.function_args_sum(), 6);
+                assert!((space.metrics.nargs.function_args_average() - 6.0).abs() < 1e-9);
+            },
+        );
+    }
+
+    /// Exactly one owner of the components in every constructor
+    /// combination JLS 8.10.4 allows, the header's space present only
+    /// where the body writes no canonical constructor: implicit (`I`),
+    /// compact (`K`, #1160's redirect counts the components there),
+    /// explicit canonical (`N`, told by its types — spelled with a
+    /// qualified generic to pin that the comparison reads the whole
+    /// type), alternative only (`A`, a callable of its own beside the
+    /// header, which it does not suppress), alternative beside a
+    /// compact (`B`, the compact owns the two, the alternative its one).
+    /// A compact plus a normal canonical constructor is invalid Java
+    /// and is not a fixture. The file sum is each record's component
+    /// count once plus the alternatives' own: 2+2+2+(2+1)+(2+1) = 12.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_record_components_have_exactly_one_owner() {
+        // `check_func_space`, not the `nargs`-only shim: the compact
+        // constructor is pinned by its cyclomatic and nexits below.
+        check_func_space::<JavaParser, _>(
+            "record I(int a, int b) {}
+             record K(int a, int b) { K { if (a < 0) throw new IllegalArgumentException(); } }
+             record N(int a, java.util.List<String> b) { N(int a, java.util.List<String> b) { this.a = a; this.b = b; } }
+             record A(int a, int b) { A(int a) { this(a, 0); } }
+             record B(int a, int b) { B { } B(int a) { this(a, 0); } }",
+            "owners.java",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("I", SpaceKind::Class, 0),
+                        row("I", SpaceKind::Function, 2),
+                        row("K", SpaceKind::Class, 0),
+                        row("K", SpaceKind::Function, 2),
+                        row("N", SpaceKind::Class, 0),
+                        row("N", SpaceKind::Function, 2),
+                        row("A", SpaceKind::Class, 0),
+                        row("A", SpaceKind::Function, 2),
+                        row("A", SpaceKind::Function, 1),
+                        row("B", SpaceKind::Class, 0),
+                        row("B", SpaceKind::Function, 2),
+                        row("B", SpaceKind::Function, 1),
+                    ]
+                );
+                assert_eq!(space.metrics.nargs.function_args_sum(), 12);
+                assert_eq!(space.metrics.nom.functions_sum(), 7);
+                // `K`'s one row is the compact constructor, which the
+                // metric names from its own `name` field; the header
+                // row would be named from the record and read the same,
+                // so pin it by what only the compact body holds: its
+                // `if` and `throw`.
+                let k = &child_space(&space, "K").spaces[0];
+                assert_eq!(k.metrics.cyclomatic.cyclomatic(), 2);
+                assert_eq!(k.metrics.nexits.nexits(), 1);
+            },
+        );
+    }
+
+    /// The shapes a header can take and the places a record can sit: no
+    /// components (`E`, a declared zero-parameter constructor, like C#'s
+    /// `class G()`), a variable-arity component (`V`, one parameter), a
+    /// generic record with an annotated component (`G`, the
+    /// `type_parameters` is a different kind and an annotation is not
+    /// a parameter), a comment in the header beside a method whose own
+    /// list opens nothing, a member record and a local record inside a
+    /// method (each billed to its own header, not to `m`), and a record
+    /// implementing an interface.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_record_header_shapes() {
+        check_spaces::<JavaParser, _>(
+            "record E() {}
+             record V(int... xs) {}
+             record G<T>(T a, @Deprecated int b) {}
+             record C(int a /* c */, int b) { int m(int t) { return t; } }
+             class O { record N(int a) {} void m() { record L(int x, int y) {} } }
+             record S(int a) implements java.io.Serializable {}",
+            "shapes.java",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("E", SpaceKind::Class, 0),
+                        row("E", SpaceKind::Function, 0),
+                        row("V", SpaceKind::Class, 0),
+                        row("V", SpaceKind::Function, 1),
+                        row("G", SpaceKind::Class, 0),
+                        row("G", SpaceKind::Function, 2),
+                        row("C", SpaceKind::Class, 0),
+                        row("C", SpaceKind::Function, 2),
+                        row("m", SpaceKind::Function, 1),
+                        row("O", SpaceKind::Class, 0),
+                        row("N", SpaceKind::Class, 0),
+                        row("N", SpaceKind::Function, 1),
+                        row("m", SpaceKind::Function, 0),
+                        row("L", SpaceKind::Class, 0),
+                        row("L", SpaceKind::Function, 2),
+                        row("S", SpaceKind::Class, 0),
+                        row("S", SpaceKind::Function, 1),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// The explicit canonical constructor is recognised by its
+    /// parameter *types*, not its arity or its names (JLS 8.10.4.1): a
+    /// same-arity constructor with another type (`A`), with the
+    /// components' order swapped (`O`), with an array where the
+    /// component is variable-arity (`W`), or with the element type
+    /// spelled bare where the component is variable-arity (`U` — the
+    /// one pair the arity marker alone tells apart, `int` reading as
+    /// `int` on both sides) is an alternative, so the header opens
+    /// beside it; the same types under other names (`M`), with other
+    /// annotations (`T`), with the spaces inside a generic laid out
+    /// differently (`Y`) or with a variable-arity parameter matching a
+    /// variable-arity component (`X`) is canonical, and the header
+    /// closes. The type is compared as spelled: `List<String>` beside
+    /// a `java.util.List<String>` component (`Q`) is read as an
+    /// alternative, the limit `roles/java.rs` documents, and so is a
+    /// type-use annotation on the component (`N`, `List<@Nullable
+    /// String>` beside `List<String>`): a token of the type, not
+    /// resolved. A comment is no token: inside the generic arguments
+    /// (`G`), inside the C-style `dimensions` (`H`) or between a
+    /// variable-arity parameter's modifiers and its type (`V`, where
+    /// the type is sought as the first named child that is no modifier
+    /// or annotation, and a `block_comment` is named) the constructor
+    /// still reads as canonical. C-style trailing dimensions are part
+    /// of the spelling: `int a[]` is `int` plus `[]`, the same type
+    /// `int[] a` spells (`D`, canonical, JLS 8.4.1), and `int a[][]`
+    /// one dimension more (`Z`, an alternative). `Nullable` is declared
+    /// at the end so `N` is the valid Java javac accepts (`@Deprecated`
+    /// is not a type-use annotation); its row is the annotation type's.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_canonical_constructor_is_told_by_its_types() {
+        check_spaces::<JavaParser, _>(
+            "record A(int a) { A(long a) { this((int) a); } }
+             record O(int a, String b) { O(String b, int a) { this(a, b); } }
+             record W(int... xs) { W(int[] xs) { this.xs = xs; } }
+             record M(int a) { M(int other) { this.a = other; } }
+             record T(@Deprecated int a) { T(@SuppressWarnings(\"x\") int a) { this.a = a; } }
+             record Y(java.util.Map<String, Integer> m) { Y(java.util.Map<String,Integer> m) { this.m = m; } }
+             record X(int... xs) { X(int... xs) { this.xs = xs; } }
+             record Q(java.util.List<String> l) { Q(List<String> l) { this.l = l; } }
+             record D(int[] a) { D(int a[]) { this.a = a; } }
+             record Z(int[] a) { Z(int a[][]) { this.a = a[0]; } }
+             record N(java.util.List<@Nullable String> l) { N(java.util.List<String> l) { this.l = l; } }
+             record G(java.util.List</* c */ String> l) { G(java.util.List<String> l) { this.l = l; } }
+             record H(int[] a) { H(int a[/* c */]) { this.a = a; } }
+             record V(int... xs) { V(final /* c */ int... xs) { this.xs = xs; } }
+             @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE_USE) @interface Nullable { }",
+            "types.java",
+            |space| {
+                let functions_per_record: Vec<(&str, usize)> = space
+                    .spaces
+                    .iter()
+                    .map(|r| (r.name.as_deref().unwrap_or("?"), r.spaces.len()))
+                    .collect();
+                assert_eq!(
+                    functions_per_record,
+                    [
+                        ("A", 2),
+                        ("O", 2),
+                        ("W", 2),
+                        ("M", 1),
+                        ("T", 1),
+                        ("Y", 1),
+                        ("X", 1),
+                        ("Q", 2),
+                        ("D", 1),
+                        ("Z", 2),
+                        ("N", 2),
+                        ("G", 1),
+                        ("H", 1),
+                        ("V", 1),
+                        ("Nullable", 0),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// Groovy's twin of `java_canonical_constructor_is_told_by_its_types`,
+    /// without the shapes the pinned grammar cannot parse (an annotated
+    /// component, a variable-arity component, C-style dimensions): a
+    /// same-arity constructor with another type (`A`) or the components'
+    /// order swapped (`O`) is an alternative and the header opens beside
+    /// it; the same types under other names (`M`) or with the spaces
+    /// inside a generic laid out differently (`Y`) is canonical and the
+    /// header closes. `List<String>` beside `java.util.List<String>`
+    /// (`Q`) is an alternative, the spelling limit `roles/groovy.rs`
+    /// documents. A comment is no token: inside the generic arguments
+    /// (`G`), inside a qualified name (`K`) or inside an array type's
+    /// brackets (`H`) the constructor still reads as canonical.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_canonical_constructor_is_told_by_its_types() {
+        check_spaces::<GroovyParser, _>(
+            "record A(int a) { A(long a) { this((int) a) } }
+             record O(int a, String b) { O(String b, int a) { this(a, b) } }
+             record M(int a) { M(int other) { this.a = other } }
+             record Y(Map<String, Integer> m) { Y(Map<String,Integer> m) { this.m = m } }
+             record Q(java.util.List<String> l) { Q(List<String> l) { this.l = l } }
+             record G(List</* c */ String> l) { G(List<String> l) { this.l = l } }
+             record K(java.util.List<String> l) { K(java.util./* c */List<String> l) { this.l = l } }
+             record H(int[] a) { H(int[/* c */] a) { this.a = a } }",
+            "types.groovy",
+            |space| {
+                let functions_per_record: Vec<(&str, usize)> = space
+                    .spaces
+                    .iter()
+                    .map(|r| (r.name.as_deref().unwrap_or("?"), r.spaces.len()))
+                    .collect();
+                assert_eq!(
+                    functions_per_record,
+                    [
+                        ("A", 2),
+                        ("O", 2),
+                        ("M", 1),
+                        ("Y", 1),
+                        ("Q", 2),
+                        ("G", 1),
+                        ("K", 1),
+                        ("H", 1),
+                    ]
+                );
+            },
+        );
+    }
+
+    /// The canonical constructor is named after its record (JLS 8.8),
+    /// and the gate requires it: the pinned Groovy grammar has no nested
+    /// class, so `class Inner { Inner(int a, int b) { } }` inside `R`'s
+    /// body recovers as a field `class Inner`, a stray `{`, and `Inner`'s
+    /// constructor as a direct `constructor_declaration` of `R`'s body,
+    /// whose arity and types match `R`'s components exactly. Read by
+    /// types alone it closed `R`'s header — `R::R` was missing and
+    /// `Inner` counted as `R`'s only callable. The header opens beside
+    /// it: `R`'s two components and `Inner`'s two parameters.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_nested_class_constructor_does_not_close_the_record_header() {
+        let source = "record R(int a, int b) { class Inner { Inner(int a, int b) { } } }";
+        let parser = GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("nested.groovy"),
+            None,
+        );
+        assert!(
+            parser.root().has_error(),
+            "the grammar learned nested classes: `Inner` is then a space of its own"
+        );
+        check_spaces::<GroovyParser, _>(source, "nested.groovy", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 2),
+                    row("Inner", SpaceKind::Function, 2),
+                ]
+            );
+            assert_eq!(space.metrics.nargs.function_args_sum(), 4);
+        });
+    }
+
+    /// Java's twin of
+    /// `groovy_nested_class_constructor_does_not_close_the_record_header`.
+    /// Valid Java cannot reach the name test — javac names a nested
+    /// class's constructor under that class, and rejects a constructor
+    /// named otherwise ("invalid method declaration; return type
+    /// required") — but tree-sitter-java parses `Q(int a, int b) { }`
+    /// in `R`'s body as a `constructor_declaration` named `Q`, with no
+    /// error node, so the rule is exercised on the same shape: `Q` is
+    /// not `R`'s canonical constructor and the header opens beside it.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_constructor_named_otherwise_does_not_close_the_record_header() {
+        let source = "record R(int a, int b) { Q(int a, int b) { } }";
+        let parser = JavaParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("named.java"),
+            None,
+        );
+        assert!(
+            !parser.root().has_error(),
+            "the grammar now rejects a constructor named otherwise; the pin is moot"
+        );
+        check_spaces::<JavaParser, _>(source, "named.java", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 2),
+                    row("Q", SpaceKind::Function, 2),
+                ]
+            );
+        });
+    }
+
+    /// The header's row is gated on the *bytes* of the body's
+    /// constructor types, so a byte-less `is_func` asked of it reads
+    /// every same-arity constructor as canonical — `A(long a)` beside
+    /// component `int a` closes the header under no bytes and leaves it
+    /// open under the real ones. The space walk opens the header with
+    /// the bytes; a `compute` whose callable test fell through to the
+    /// byte-less spelling counted nothing on that space, and the header
+    /// row read `nargs` 0 beside the alternative's 1. Both rows are 1:
+    /// the header's one component and the alternative's one parameter.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_header_beside_a_same_arity_alternative_counts_its_components() {
+        check_spaces::<JavaParser, _>(
+            "record A(int a) { A(long a) { this((int) a); } }",
+            "alt.java",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("A", SpaceKind::Class, 0),
+                        row("A", SpaceKind::Function, 1),
+                        row("A", SpaceKind::Function, 1),
+                    ]
+                );
+                assert_eq!(space.metrics.nargs.function_args_sum(), 2);
+            },
+        );
+    }
+
+    /// Groovy's twin of
+    /// `java_header_beside_a_same_arity_alternative_counts_its_components`:
+    /// the `record_components` row's gate compares type bytes, so the
+    /// byte-less `is_func` closes the header beside any same-arity
+    /// constructor and the walk's space read 0.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_header_beside_a_same_arity_alternative_counts_its_components() {
+        check_spaces::<GroovyParser, _>(
+            "record A(int a) { A(long a) { this((int) a) } }",
+            "alt.groovy",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("A", SpaceKind::Class, 0),
+                        row("A", SpaceKind::Function, 1),
+                        row("A", SpaceKind::Function, 1),
+                    ]
+                );
+                assert_eq!(space.metrics.nargs.function_args_sum(), 2);
+            },
+        );
+    }
+
+    /// A header's space holds the component list and no code, so a
+    /// component-less `record E() {}` has no Halstead volume and reads
+    /// the `mi.*` `0.0` sentinel, which `bca check` and `bca report` skip
+    /// (#1621), as Kotlin's `class Z()` does; a record with components
+    /// has its list as its volume. `check_func_space` because `mi` pulls
+    /// its own inputs.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_componentless_record_header_is_mi_empty() {
+        check_func_space::<JavaParser, _>(
+            "record E() {}
+record A(int x) {}",
+            "e.java",
+            |space| {
+                let e = &child_space(&space, "E").spaces[0];
+                let a = &child_space(&space, "A").spaces[0];
+                assert_eq!((e.kind, a.kind), (SpaceKind::Function, SpaceKind::Function));
+                assert!(e.metrics.mi.is_empty(), "no list, no volume");
+                assert_eq!(e.metrics.mi.original(), 0.0);
+                assert!(!a.metrics.mi.is_empty(), "the list is the space's code");
+            },
+        );
+    }
+
+    /// The header's space is one callable of weight 1 and no decisions:
+    /// cyclomatic 1, cognitive 0, one `nom` function, one `wmc` method
+    /// — and `npa` reads nothing from it, a component being no field
+    /// declaration. The record's own `cyclomatic` stays its space's 1,
+    /// so the constructor's entry is billed to the constructor and not
+    /// to the class.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_record_header_is_one_callable_with_no_decisions() {
+        check_func_space::<JavaParser, _>("record R(int a, int b) { int f; }", "r.java", |space| {
+            let record = child_space(&space, "R");
+            let ctor = &record.spaces[0];
+            assert_eq!(ctor.kind, SpaceKind::Function);
+            assert_eq!(ctor.metrics.cyclomatic.cyclomatic(), 1);
+            assert_eq!(ctor.metrics.cognitive.cognitive(), 0);
+            assert_eq!(record.metrics.cyclomatic.cyclomatic(), 1);
+            assert_eq!(record.metrics.nom.functions_sum(), 1);
+            assert_eq!(record.metrics.wmc.class_wmc(), 1);
+            assert_eq!(record.metrics.npa.class_na_sum(), 1, "`f` alone");
+            assert_eq!(ctor.metrics.npa.class_na(), 0);
+        });
+    }
+
+    /// Error recovery: `record R(int a, int b);` — a C#-style bodiless
+    /// record — is not Java, and the grammar recovers it as an
+    /// expression statement holding an `ERROR` with the list under it,
+    /// not a `record_declaration`, so no space opens and the header
+    /// gate, seeing no record parent, declines the list. Pinned so a
+    /// grammar bump that starts recovering a `record_declaration` here
+    /// changes this row rather than a corpus snapshot.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_bodiless_record_opens_nothing() {
+        check_spaces::<JavaParser, _>("record R(int a, int b);", "broken.java", |space| {
+            assert_eq!(space_rows(&space), []);
+            assert_eq!(space.metrics.nargs.total(), 0);
+        });
+    }
+
+    /// #1842's Groovy reproducer: a record's `record_components` opens
+    /// the implicit canonical constructor's space, named after the
+    /// record, owning the components. Both rows read 0 on `main`.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_record_header_owns_its_components() {
+        check_spaces::<GroovyParser, _>(
+            "record R(int a, int b, int c, int d, int e, int f) {}",
+            "r.groovy",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("R", SpaceKind::Class, 0),
+                        row("R", SpaceKind::Function, 6),
+                    ]
+                );
+                let ctor = &space.spaces[0].spaces[0];
+                assert_eq!(ctor.metrics.nargs.own_args(), 6);
+                assert_eq!((ctor.start_line, ctor.end_line), (1, 1));
+                assert_eq!(space.metrics.nom.functions_sum(), 1);
+                assert!((space.metrics.nargs.function_args_average() - 6.0).abs() < 1e-9);
+            },
+        );
+    }
+
+    /// Groovy's owner rule, Java's without the compact form (the pinned
+    /// grammar cannot parse one — `groovy_compact_constructor_does_not_parse`):
+    /// implicit (`I`), explicit canonical (`N`, closing the header),
+    /// alternative only (`A`, a callable of its own beside the header),
+    /// no body at all (`B`, Groovy allows it), no components (`E`), a
+    /// generic and a qualified component type (`G`), a comment in the
+    /// header, and a variable-arity component (`V`): one parameter,
+    /// though the grammar strands its `...` in an `ERROR` inside the
+    /// component. Sum: 2+2+(2+1)+1+0+2+2+1 = 13.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_record_components_have_exactly_one_owner() {
+        check_spaces::<GroovyParser, _>(
+            "record I(int a, int b) {}
+             record N(int a, String b) { N(int a, String b) { this.a = a; this.b = b } }
+             record A(int a, int b) { A(int a) { this(a, 0) } }
+             record B(int a)
+             record E() {}
+             record G(List<String> a, java.util.Map<String, Integer> b) {}
+             record C(int a /* c */, int b) {}
+             record V(String... xs) {}",
+            "owners.groovy",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("I", SpaceKind::Class, 0),
+                        row("I", SpaceKind::Function, 2),
+                        row("N", SpaceKind::Class, 0),
+                        row("N", SpaceKind::Function, 2),
+                        row("A", SpaceKind::Class, 0),
+                        row("A", SpaceKind::Function, 2),
+                        row("A", SpaceKind::Function, 1),
+                        row("B", SpaceKind::Class, 0),
+                        row("B", SpaceKind::Function, 1),
+                        row("E", SpaceKind::Class, 0),
+                        row("E", SpaceKind::Function, 0),
+                        row("G", SpaceKind::Class, 0),
+                        row("G", SpaceKind::Function, 2),
+                        row("C", SpaceKind::Class, 0),
+                        row("C", SpaceKind::Function, 2),
+                        row("V", SpaceKind::Class, 0),
+                        row("V", SpaceKind::Function, 1),
+                    ]
+                );
+                assert_eq!(space.metrics.nargs.function_args_sum(), 13);
+                assert_eq!(space.metrics.nom.functions_sum(), 9);
+                // `N`'s one row is the body's constructor, not the
+                // header: the explicit form is tested apart below.
+                assert_eq!(child_space(&space, "N").spaces[0].start_line, 2);
+            },
+        );
+    }
+
+    /// The pinned dekobon grammar (0.3.0) does not parse a compact
+    /// constructor: in `record R(int a) { R { assert a > 0 } }` the
+    /// `record_declaration` ends at the header's `)`, and the `{ R {`,
+    /// the assertion and the braces recover as `ERROR` nodes and
+    /// statements at file level, so the record is read as having no
+    /// body and its header opens (one owner, the right count — but a
+    /// limitation, not support: the compact body's code is read
+    /// outside the record, and so is every member after it). Recorded
+    /// so a grammar bump that starts parsing the form moves this row
+    /// and the book's limitation note together, and so no one reads
+    /// the header-only pass above as compact support.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_compact_constructor_does_not_parse() {
+        let source = "record R(int a, int b) { R { assert a > 0 } }";
+        let parser = GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("compact.groovy"),
+            None,
+        );
+        assert!(
+            parser.root().has_error(),
+            "the grammar learned the compact form: revisit the owner rule and the book"
+        );
+        check_spaces::<GroovyParser, _>(source, "compact.groovy", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 2),
+                ]
+            );
+        });
+        // A member after the compact body is read at file level: `m`
+        // is the unit's child beside `R`, not `R`'s, and `R` spans the
+        // header's line only.
+        check_spaces::<GroovyParser, _>(
+            "record R(int a, int b) { R { assert a > 0 }\n  int m(int t) { t } }",
+            "compact.groovy",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("R", SpaceKind::Class, 0),
+                        row("R", SpaceKind::Function, 2),
+                        row("m", SpaceKind::Function, 1),
+                    ]
+                );
+                let names: Vec<_> = space.spaces.iter().map(|s| s.name.as_deref()).collect();
+                assert_eq!(names, [Some("R"), Some("m")]);
+                assert_eq!(space.spaces[0].end_line, 1);
+            },
+        );
+    }
+
+    /// The pinned grammar requires a type on a `record_component`, so
+    /// Groovy's untyped `record R(a, b)` recovers as *one* component —
+    /// `type_identifier: a`, an `ERROR` holding the comma, `identifier:
+    /// b` — and the header counts 1 where the language declares 2. A
+    /// written canonical constructor `R(a, b)` has two untyped
+    /// `formal_parameter`s, which the one-component header never
+    /// matches, so the header opens beside it: a limitation, recorded
+    /// rather than inferred over the `ERROR`, so a grammar bump that
+    /// parses the form moves this row and the book's note together.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_untyped_record_components_recover_as_one() {
+        let source = "record R(a, b) { R(a, b) { this.a = a; this.b = b } }";
+        let parser = GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("untyped.groovy"),
+            None,
+        );
+        assert!(
+            parser.root().has_error(),
+            "the grammar learned untyped components: revisit the owner rule and the book"
+        );
+        check_spaces::<GroovyParser, _>(source, "untyped.groovy", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 1),
+                    row("R", SpaceKind::Function, 2),
+                ]
+            );
+            assert_eq!(space.metrics.nom.functions_sum(), 2);
         });
     }
 

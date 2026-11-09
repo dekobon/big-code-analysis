@@ -35,15 +35,22 @@ impl Checker for GroovyCode {
     impl_doc_target_from_row!(groovy);
 
     // The callables and the closure, then the `DocBodyResidual` row of
-    // `roles/groovy.rs` — `static { … }` (#1699).
+    // `roles/groovy.rs` — `static { … }` (#1699). A record's header
+    // (`record_components`) is a callable to the walk (#1842, below)
+    // but never a doc comment's body, as Java's is not: a comment
+    // inside the parentheses sits in no body. Excluded by kind, not
+    // left to the byte-less `is_func`'s discarded chain.
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
     ) -> bool {
-        Self::is_func(ancestor, ancestors)
-            || Self::is_closure(ancestor, ancestors)
-            || doc_body_residual_kind!(groovy, ancestor, ancestors)
+        // role-bypass: allow(FuncOpener) — the record header's kind is subtracted from
+        // the body test, a doc-binding policy over the row, not whether it opens a space
+        ancestor.kind_id() != Groovy::RecordComponents as u16
+            && (Self::is_func(ancestor, ancestors)
+                || Self::is_closure(ancestor, ancestors)
+                || doc_body_residual_kind!(groovy, ancestor, ancestors))
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,
@@ -53,9 +60,13 @@ impl Checker for GroovyCode {
     // class-shaped metrics (issue #280).
     // The space tree is declared in `roles/groovy.rs` (#1696): the
     // `FuncOpener` and `Container` rows are what the walk promotes and
-    // `opens_space` labels. The rows read no bytes and no chain, so the
-    // byte-less spelling forwards with none and answers the same.
-    impl_byte_less_func_space!(groovy);
+    // `opens_space` labels. Since #1842 the opener row reads the chain
+    // and the bytes for a record's `record_components`, so this
+    // byte-less spelling forwards a known-empty chain as Java's does
+    // (`checker/java.rs`, the rationale there), under which the header
+    // answers `false`;
+    // `groovy_byte_less_spellings_omit_the_record_header` pins it.
+    impl_byte_less_func_space!(groovy, opener_gated);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
@@ -65,8 +76,16 @@ impl Checker for GroovyCode {
         crate::roles::groovy::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::groovy::func_opener::is_callable(node, &[], ancestors)
+    // As Java's pair (`checker/java.rs`): the `_with_code` spelling is
+    // the row, which the record header's text gate needs; the byte-less
+    // one forwards a known-empty chain so the header answers `false`
+    // rather than the degenerate gate.
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::groovy::func_opener::is_callable(node, &[], Ancestors::known(&[]))
+    }
+
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::groovy::func_opener::is_callable(node, code, ancestors)
     }
 
     // A primitive type is a name kind spelled `int`, `void`, … (#1568),

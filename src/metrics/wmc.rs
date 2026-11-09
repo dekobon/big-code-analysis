@@ -1393,7 +1393,8 @@ mod tests {
 
     // Regression for issue #280: Java `RecordDeclaration` is treated as
     // a class space; methods inside its explicit body contribute to
-    // WMC.
+    // WMC, and so does the implicit canonical constructor the header
+    // stands for (#1842), at the entry weight of 1.
     #[cfg(feature = "java")]
     #[test]
     fn java_record_wmc_aggregates_method_complexity() {
@@ -1405,7 +1406,8 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                // 2 (`describe`) + 1 (the header's constructor).
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
             },
         );
     }
@@ -1448,20 +1450,14 @@ mod tests {
         );
     }
 
-    /// Control for #1160: a record with no constructor is unchanged.
-    /// `Java::RecordDeclaration` sits in `Checker::is_func_space` (#280)
-    /// and is what opens the class space the compact constructor now
-    /// nests inside — the record still opens one class space holding
-    /// exactly its one declared method.
-    ///
-    /// It holds in both directions, deliberately: #1160 touched `is_func`
-    /// and `get_space_kind`, not `is_func_space`, so no perturbation of
-    /// that change can make this fail. It is here to state the boundary
-    /// of the change, not to cover a line — the `RecordDeclaration` arm
-    /// itself is covered by #280's tests.
+    /// A record with no written constructor opens its class space, the
+    /// header's space for the implicit canonical constructor (#1842,
+    /// revisiting #1160's control, which held this record to its one
+    /// method) and its one declared method: the constructor weighs its
+    /// entry 1 beside `sum`'s, as C#'s positional record's does.
     #[cfg(feature = "java")]
     #[test]
-    fn java_record_without_constructor_opens_only_its_methods() {
+    fn java_record_without_constructor_opens_its_header_and_its_methods() {
         check_func_space::<JavaParser, _>(
             "record R(int a, int b) {
                  int sum() { return a + b; }     // entry +1
@@ -1476,8 +1472,8 @@ mod tests {
                     .filter(|child| child.kind == SpaceKind::Function)
                     .map(|child| child.name.as_deref())
                     .collect();
-                assert_eq!(functions, vec![Some("sum")]);
-                assert_eq!(record.metrics.wmc.class_wmc(), 1);
+                assert_eq!(functions, vec![Some("R"), Some("sum")]);
+                assert_eq!(record.metrics.wmc.class_wmc(), 2);
             },
         );
     }

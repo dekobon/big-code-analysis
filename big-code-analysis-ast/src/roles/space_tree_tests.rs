@@ -32,7 +32,6 @@ type Answers = (bool, bool, bool, SpaceKind, bool);
     feature = "bash",
     feature = "c",
     feature = "go",
-    feature = "groovy",
     feature = "irules",
     feature = "lua",
     feature = "objc",
@@ -135,7 +134,6 @@ fn container(kind: SpaceKind) -> Answers {
     feature = "bash",
     feature = "c",
     feature = "go",
-    feature = "groovy",
     feature = "irules",
     feature = "lua",
     feature = "objc",
@@ -788,28 +786,100 @@ fn kotlin_space_tree_rows() {
     }
 }
 
+/// Groovy's rows, with the record header gated as Java's is (#1842):
+/// `R`'s `record_components` is the implicit canonical constructor and
+/// opens a `Function` space; `S` writes its canonical constructor, so
+/// its header opens nothing and the constructor is the callable. The
+/// callable test is the `_with_code` spelling, and the byte-less
+/// spellings are compared on every node but the header, whose
+/// parent-and-body gate the known-empty chain cannot see
+/// (`groovy_byte_less_spellings_omit_the_record_header`).
 #[cfg(feature = "groovy")]
 #[test]
 fn groovy_space_tree_rows() {
     use crate::roles::groovy::{closure, container, func_opener, member};
-    check::<crate::GroovyCode>(
-        b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+    use crate::{Checker, Getter, GroovyCode};
+    let source = b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nrecord S(int y) { S(int y) { } }\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n";
+    let expected: &[(&str, Answers)] = &[
+        ("source_file", container(SpaceKind::Unit)),
+        ("class_declaration", container(SpaceKind::Class)),
+        ("enum_declaration", container(SpaceKind::Class)),
+        ("record_declaration", container(SpaceKind::Class)),
+        ("interface_declaration", container(SpaceKind::Interface)),
+        ("trait_declaration", container(SpaceKind::Interface)),
+        (
+            "annotation_type_declaration",
+            container(SpaceKind::Interface),
+        ),
+        ("method_declaration", F),
+        ("constructor_declaration", F),
+        (
+            "static_initializer",
+            (false, false, true, SpaceKind::Function, false),
+        ),
+        ("closure", (false, true, false, SpaceKind::Unknown, false)),
+        ("field_declaration", M),
+    ];
+    let mut headers = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<GroovyCode>(source, |node, chain| {
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = GroovyCode::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            GroovyCode::is_func_with_code(node, source, ancestors),
+            GroovyCode::is_closure(node, ancestors),
+            promoted,
+            GroovyCode::get_space_kind_with_code(node, source, ancestors),
+            member::owns(node, source, ancestors),
+        );
+        seen_kinds.insert(node.kind_id());
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+        assert_eq!(
+            GroovyCode::is_func_space_with_code(node, source, ancestors),
+            promoted,
+            "{kind}: is_func_space is what the walk promotes"
+        );
+        if kind == "record_components" {
+            headers.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
+            return;
+        }
+        assert_eq!(
+            (
+                GroovyCode::is_func(node, ancestors),
+                GroovyCode::is_func_space(node),
+                GroovyCode::get_space_kind(node)
+            ),
+            (got.0, promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
+        let want = expected
+            .iter()
+            .find(|(k, _)| *k == kind && node.is_named())
+            .map_or(NONE, |(_, v)| *v);
+        assert_eq!(
+            got,
+            want,
+            "{kind} `{}`",
+            node.utf8_text(source).unwrap_or("?")
+        );
+    });
+    assert_eq!(
+        headers,
+        [("(int x)".to_owned(), F), ("(int y)".to_owned(), NONE)]
+    );
+    owners_covered(
+        &seen_kinds,
         &[
-            ("source_file", container(SpaceKind::Unit)),
-            ("class_declaration", container(SpaceKind::Class)),
-            ("enum_declaration", container(SpaceKind::Class)),
-            ("record_declaration", container(SpaceKind::Class)),
-            ("interface_declaration", container(SpaceKind::Interface)),
-            ("trait_declaration", container(SpaceKind::Interface)),
-            ("annotation_type_declaration", container(SpaceKind::Interface)),
-            ("method_declaration", F),
-            ("constructor_declaration", F),
-            ("static_initializer", (false, false, true, SpaceKind::Function, false)),
-            ("closure", (false, true, false, SpaceKind::Unknown, false)),
-            ("field_declaration", M),
+            func_opener::OWNERS,
+            closure::OWNERS,
+            container::OWNERS,
+            member::OWNERS,
         ],
-        member::owns,
-        &[func_opener::OWNERS, closure::OWNERS, container::OWNERS, member::OWNERS],
         &[],
     );
 }
@@ -1174,6 +1244,120 @@ fn csharp_byte_less_spellings_omit_the_primary_constructor() {
                 (false, SpaceKind::Unknown),
                 (true, SpaceKind::Function, Some("R"))
             ),
+        ]
+    );
+}
+
+/// One parameter list's answers for the two record-header tests below:
+/// its text, the byte-less `(is_func, is_func_space, get_space_kind)`
+/// and the with-code `(is_func_with_code, is_func_space_with_code,
+/// get_space_kind_with_code, get_func_space_name)`.
+#[cfg(any(feature = "java", feature = "groovy"))]
+type ListAnswer = (
+    String,
+    (bool, bool, SpaceKind),
+    (bool, bool, SpaceKind, Option<&'static str>),
+);
+
+/// The [`ListAnswer`] of every list of `source` whose kind is
+/// `list_kind`, in walk order.
+#[cfg(any(feature = "java", feature = "groovy"))]
+fn list_answers<L: Checker + Getter + LanguageInfo>(
+    source: &'static [u8],
+    list_kind: &str,
+) -> Vec<ListAnswer> {
+    let mut lists = Vec::new();
+    for_each_node_with_chain::<L>(source, |node, chain| {
+        if node.kind() != list_kind {
+            return;
+        }
+        let ancestors = Ancestors::known(chain);
+        lists.push((
+            node.utf8_text(source).unwrap_or("?").to_owned(),
+            (
+                L::is_func(node, ancestors),
+                L::is_func_space(node),
+                L::get_space_kind(node),
+            ),
+            (
+                L::is_func_with_code(node, source, ancestors),
+                L::is_func_space_with_code(node, source, ancestors),
+                L::get_space_kind_with_code(node, source, ancestors),
+                L::get_func_space_name(node, source, ancestors),
+            ),
+        ));
+    });
+    lists
+}
+
+/// A record header the walk opens, named after its record, which the
+/// byte-less spellings omit.
+#[cfg(any(feature = "java", feature = "groovy"))]
+fn header(text: &str, name: &'static str) -> ListAnswer {
+    (
+        text.to_owned(),
+        (false, false, SpaceKind::Unknown),
+        (true, true, SpaceKind::Function, Some(name)),
+    )
+}
+
+/// A list that opens nothing on either side.
+#[cfg(any(feature = "java", feature = "groovy"))]
+fn plain(text: &str, name: &'static str) -> ListAnswer {
+    (
+        text.to_owned(),
+        (false, false, SpaceKind::Unknown),
+        (false, false, SpaceKind::Unknown, Some(name)),
+    )
+}
+
+/// A Java record's header opens the implicit canonical constructor's
+/// space, named after the record, where the body writes none (#1842) —
+/// which the byte-less spellings cannot see, as C#'s primary constructor
+/// (`csharp_byte_less_spellings_omit_the_primary_constructor`): the
+/// gate reads the record's body through the chain and its constructors'
+/// types from the bytes, so the byte-less `is_func` forwards the
+/// known-empty chain as `is_func_space` does, and the header is no
+/// callable to it. Every other `formal_parameters` — a method's, a
+/// constructor's, and the header of a record whose body writes a
+/// compact or a normal canonical constructor — answers alike on both.
+/// The normal canonical constructor is told from an alternative by its
+/// types, not its arity: `A(long a)` beside component `int a` leaves
+/// `A`'s header open, `B(int b)` closes `B`'s.
+#[cfg(feature = "java")]
+#[test]
+fn java_byte_less_spellings_omit_the_record_header() {
+    let source = b"record R(int x) { void m(int y) { } }\nrecord K(int k) { K { } }\nrecord A(int a) { A(long a) { this((int) a); } }\nrecord B(int b) { B(int b) { this.b = b; } }\n";
+    assert_eq!(
+        list_answers::<crate::JavaCode>(source, "formal_parameters"),
+        [
+            header("(int x)", "R"),
+            plain("(int y)", "<anonymous>"),
+            plain("(int k)", "K"),
+            header("(int a)", "A"),
+            plain("(long a)", "<anonymous>"),
+            plain("(int b)", "B"),
+            plain("(int b)", "<anonymous>"),
+        ]
+    );
+}
+
+/// Groovy's record header, as Java's (#1842): `record_components`
+/// opens the implicit canonical constructor's space where the body
+/// writes none, and the byte-less spellings see no record. A
+/// constructor with the header's types closes it; one with other types
+/// does not.
+#[cfg(feature = "groovy")]
+#[test]
+fn groovy_byte_less_spellings_omit_the_record_header() {
+    let source =
+        b"record R(int x) { void m(int y) { } }\nrecord A(int a) { A(long a) { this(1) } }\nrecord B(int b) { B(int b) { this.b = b } }\n";
+    assert_eq!(
+        list_answers::<crate::GroovyCode>(source, "record_components"),
+        [
+            header("(int x)", "R"),
+            header("(int a)", "A"),
+            plain("(int b)", "B"),
         ]
     );
 }

@@ -80,6 +80,43 @@ for historical reference.
 
 ### Fixed
 
+- **A Java or Groovy record's components are counted on its header**
+  (#1842). `record R(int a, int b, int c, int d, int e, int f) {}`
+  declared six components and reported `nargs` 0, with no function
+  space, so `bca check --threshold nargs=5` passed it; #1160 had kept a
+  record with no written constructor at 0 as "generated code", and
+  counted the components only on a compact constructor. The component
+  list is declared code, as a C# positional record's is (#1828), so the
+  header — Java's `formal_parameters` and Groovy's `record_components`
+  under the `record_declaration` — now opens a `Function` space named
+  after the record, spanning the list, wherever the body writes no
+  canonical constructor; a written one, compact or normal, keeps the
+  components as before, so each is counted exactly once. The normal
+  form is recognised by its name — a constructor's, which must be the
+  record's (JLS 8.8), so another class's constructor that a grammar
+  recovery lands in the record's body cannot close the header — and
+  by its parameter types against the components' (JLS 8.10.4.1),
+  compared as spelled by their tokens, comments and whitespace aside:
+  `List</* c */ String>` and `List<String>` agree, but a constructor
+  that respells a component's type (`List<T>` for `java.util.List<T>`,
+  or `List<String>` for `List<@Nullable String>` — a type-use
+  annotation is a token of the type, not resolved) reads as an
+  alternative and leaves the header open; a non-canonical constructor
+  never closes it. For such a record `nargs` rises to the component
+  count on a new `R::R` row, `nom`, `wmc` and `npm` gain one method
+  each — public exactly when the Java record is, by its own `public`
+  or as a member of an interface or annotation interface, whose member
+  types are implicitly public (JLS 9.5); never in Groovy, whose grammar
+  carries no modifier on a record — and the space tree, `bca ops` /
+  `bca metrics` / `functions` / `to_sarif` all show the row; `npa` and
+  the record's own ABC do not move. A record and an alternative
+  constructor written on one line carry two `R::R` rows at one
+  `start_line`, which `--baseline` cannot tell apart — the tie #1828
+  documented for `H::H`. Groovy's grammar does not parse a compact
+  constructor, an untyped component list or a nested class, and
+  misreads a variable-arity component, all now documented in the
+  book's `nargs` section. Snapshots in the integration corpus hold no
+  record and did not move.
 - **Python reads a parenthesised docstring past a `\` before it**
   (#1830). tree-sitter-python keeps a `\` + newline as a *named*
   `line_continuation` extra, and every selector of "the first real

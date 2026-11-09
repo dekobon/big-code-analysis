@@ -1619,6 +1619,19 @@ mod tests {
                     3,
                     4,
                 ),
+                // A record's header is a function space since #1842 but
+                // no doc comment's body (`checker/java.rs`): the comment
+                // inside the parentheses is a comment row that documents
+                // nothing, since nothing in a header is a declaration,
+                // and the record's own doc comment still binds. The
+                // predicate is pinned in `roles/doc_tests/mod.rs`; here
+                // the counts are what LOC reads either way.
+                (
+                    "inside a record header",
+                    b"/** r */\nrecord R(/** a */ int a) { }\n",
+                    1,
+                    2,
+                ),
             ],
         );
     }
@@ -1799,6 +1812,16 @@ mod tests {
                     b"class C {\n    def f() {}\n    /** d */\n}\n",
                     0,
                     1,
+                ),
+                // As Java's row: the header's `record_components` is a
+                // function space (#1842) and no doc comment's body
+                // (`checker/groovy.rs`); the comment inside it documents
+                // nothing and the record's own still binds.
+                (
+                    "inside a record header",
+                    b"/** r */\nrecord R(/** a */ int a) { }\n",
+                    1,
+                    2,
                 ),
             ],
         );

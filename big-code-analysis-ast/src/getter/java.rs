@@ -42,6 +42,20 @@ impl Getter for JavaCode {
         if node.kind_id() == Java::StaticInitializer as u16 {
             return Some("<static-init>");
         }
+        // A record's header carries no name of its own: it takes the
+        // record's, as a `constructor_declaration`'s `name` field
+        // already spells the type it constructs (#1842, C#'s shape in
+        // `getter/csharp.rs`). The default would name it `<anonymous>`,
+        // which `bca check` reads as a closure. A method's list sits
+        // under a method and keeps the default.
+        // role-bypass: allow(FuncOpener, Container) — a naming rule over the
+        // list and the record it names, not whether either opens a space
+        if node.kind_id() == Java::FormalParameters as u16
+            && let Some(record) = ancestors.parent(node)
+            && record.kind_id() == Java::RecordDeclaration as u16
+        {
+            return crate::getter::default_func_space_name(&record, code, ancestors);
+        }
         crate::getter::default_func_space_name(node, code, ancestors)
     }
 
@@ -52,9 +66,12 @@ impl Getter for JavaCode {
     // compact constructor shares the constructor's kind (#1160); `static
     // { … }` is a `Function` (#1184). A lambda opens nothing — the walk
     // never promoted one, and before #1696 this answered `Function` for
-    // a node it was never asked about. Java's rows read no bytes and no
-    // chain, so the byte-less spelling forwards with none.
-    impl_byte_less_space_kind!(java);
+    // a node it was never asked about. The opener row reads the chain
+    // and the bytes for a record's header (#1842), so this forwards
+    // with a known-empty chain and labels that list `Unknown`, exactly
+    // as the Checker half (`checker/java.rs`) answers `false` — see the
+    // rationale there.
+    impl_byte_less_space_kind!(java, opener_gated);
 
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
