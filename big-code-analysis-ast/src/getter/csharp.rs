@@ -122,15 +122,11 @@ impl Getter for CsharpCode {
         // role-bypass: allow(FuncOpener) — a naming rule, not whether the
         // node opens a space
         // The `Container` row carries no gate, so its kind table is the
-        // whole answer; a method's list sits under a method, not a
-        // container, and keeps the default.
-        if node.kind_id() == Csharp::ParameterList
-            && let Some(owner) = ancestors.parent(node)
-            && crate::roles::csharp::container::lists_kind(owner.kind_id())
-        {
-            return crate::getter::default_func_space_name(&owner, code, ancestors);
-        }
-        crate::getter::default_func_space_name(node, code, ancestors)
+        // whole answer.
+        crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
+            list == Csharp::ParameterList as u16
+                && crate::roles::csharp::container::lists_kind(owner)
+        })
     }
 
     fn get_space_kind_with_code<'a>(

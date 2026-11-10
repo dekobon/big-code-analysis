@@ -464,6 +464,8 @@ fn python_past_string_parentheses<'a>(
             .siblings_after(&at)
             .filter(|sibling| sibling.kind_id() != Python::LineContinuation);
         for sibling in tokens {
+            // A `)` closes the string's line; an inner `(…)` before the
+            // string opens it (#1830). Either is stepped over.
             let strings_own = sibling.start_byte() == after
                 && matches!(
                     sibling.kind_id().into(),
@@ -530,6 +532,7 @@ fn python_backslash_after_bare_string<'a>(
     // The holder shares the run's parent, so the run's chain is its own.
     let inside = match holder.kind_id().into() {
         Python::String | Python::ConcatenatedString => python_is_bare_string(&holder, ancestors),
+        // The string's `(` holds the `\` ending its own row (#1830).
         Python::ParenthesizedExpression | Python::LPAREN => {
             python_is_bare_string_parenthesis(&holder, ancestors)
         }

@@ -249,6 +249,29 @@ pub fn default_func_space_name<'a, 'tree>(
     }
 }
 
+/// The name of a space a type's own parameter list opens — a C#
+/// primary constructor (#1828), a Java or Groovy record header (#1842):
+/// the list carries no `name` field, so it takes its owner's, as a
+/// constructor's `name` already spells the type it constructs, where
+/// the default would read `<anonymous>` and `bca check` a closure.
+/// `owned_list` reads the `(list kind, parent kind)` pair and says
+/// whether the parent is such an owner; a method's list sits under a
+/// method and keeps the default.
+#[must_use]
+pub(crate) fn func_space_name_from_owner<'a, 'tree>(
+    node: &Node<'tree>,
+    code: &'a [u8],
+    ancestors: Ancestors<'tree, '_>,
+    owned_list: impl FnOnce(u16, u16) -> bool,
+) -> Option<&'a str> {
+    if let Some(owner) = ancestors.parent(node)
+        && owned_list(node.kind_id(), owner.kind_id())
+    {
+        return default_func_space_name(&owner, code, ancestors);
+    }
+    default_func_space_name(node, code, ancestors)
+}
+
 /// Per-language accessors the space walker and the Halstead
 /// operator/operand classification dispatch through.
 ///

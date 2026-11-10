@@ -353,6 +353,15 @@ macro_rules! impl_npm_java_like {
             ) {
                 use $lang::*;
 
+                // Whether a declaration spells `public` in its `modifiers`
+                // child, the first child when present. Source:
+                // https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
+                fn has_public_modifier(declaration: &Node) -> bool {
+                    declaration
+                        .first_child(|id| id == Modifiers)
+                        .is_some_and(|modifiers| modifiers.first_child(|id| id == Public).is_some())
+                }
+
                 // The members' chain is built inside the body arms, never
                 // for the nodes that are no body.
                 match node.kind_id().into() {
@@ -379,11 +388,7 @@ macro_rules! impl_npm_java_like {
                             let interface_member = ancestors.parent(node).is_some_and(|body| {
                                 matches!(body.kind_id().into(), InterfaceBody | AnnotationTypeBody)
                             });
-                            if interface_member
-                                || node
-                                    .first_child(|id| id == Modifiers)
-                                    .is_some_and(|m| m.first_child(|id| id == Public).is_some())
-                            {
+                            if interface_member || has_public_modifier(node) {
                                 stats.class_npm += 1;
                             }
                         }
@@ -393,12 +398,7 @@ macro_rules! impl_npm_java_like {
                         let members = under.get();
                         for method in direct_child_funcs::<Self>(node, code, members) {
                             stats.class_nm += 1;
-                            // The first child node contains the list of method modifiers.
-                            // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
-                            if let Some(modifiers) = method.child(0)
-                                && matches!(modifiers.kind_id().into(), Modifiers)
-                                && modifiers.first_child(|id| id == Public).is_some()
-                            {
+                            if has_public_modifier(&method) {
                                 stats.class_npm += 1;
                             }
                         }

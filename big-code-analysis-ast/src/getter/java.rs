@@ -42,21 +42,12 @@ impl Getter for JavaCode {
         if node.kind_id() == Java::StaticInitializer as u16 {
             return Some("<static-init>");
         }
-        // A record's header carries no name of its own: it takes the
-        // record's, as a `constructor_declaration`'s `name` field
-        // already spells the type it constructs (#1842, C#'s shape in
-        // `getter/csharp.rs`). The default would name it `<anonymous>`,
-        // which `bca check` reads as a closure. A method's list sits
-        // under a method and keeps the default.
+        // A record's header takes the record's name (#1842).
         // role-bypass: allow(FuncOpener, Container) — a naming rule over the
         // list and the record it names, not whether either opens a space
-        if node.kind_id() == Java::FormalParameters as u16
-            && let Some(record) = ancestors.parent(node)
-            && record.kind_id() == Java::RecordDeclaration as u16
-        {
-            return crate::getter::default_func_space_name(&record, code, ancestors);
-        }
-        crate::getter::default_func_space_name(node, code, ancestors)
+        crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
+            list == Java::FormalParameters as u16 && owner == Java::RecordDeclaration as u16
+        })
     }
 
     // The mapping is the `opens` annotations of `roles/java.rs` (#1696):

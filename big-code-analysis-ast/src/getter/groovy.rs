@@ -52,17 +52,12 @@ impl Getter for GroovyCode {
         if node.kind_id() == Groovy::StaticInitializer as u16 {
             return Some("<static-init>");
         }
-        // A record's header takes the record's name, as Java's does
-        // (`getter/java.rs`, #1842); the default would be `<anonymous>`.
+        // A record's header takes the record's name (#1842).
         // role-bypass: allow(FuncOpener, Container) — a naming rule over the
         // list and the record it names, not whether either opens a space
-        if node.kind_id() == Groovy::RecordComponents as u16
-            && let Some(record) = ancestors.parent(node)
-            && record.kind_id() == Groovy::RecordDeclaration as u16
-        {
-            return crate::getter::default_func_space_name(&record, code, ancestors);
-        }
-        crate::getter::default_func_space_name(node, code, ancestors)
+        crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
+            list == Groovy::RecordComponents as u16 && owner == Groovy::RecordDeclaration as u16
+        })
     }
 
     // The mapping is the `opens` annotations of `roles/groovy.rs`
