@@ -2816,13 +2816,19 @@ line two
             ("__init__ outside a class", b"def __init__(self):\n    self.x = 1\n    \"\"\"No.\"\"\"\n", 1, 0),
             // A `\` after the `(` is a named extra inside `parameters`,
             // read past like a comment there, so the receiver is still
-            // `self` (#1830; measured dloc 0 before).
+            // `self` (#1830; measured dloc 0 before). The commented
+            // signature is the control: the comment was skipped already.
             ("__init__ with a continued signature", b"class C:\n    def __init__( \\\n      self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 1, 1),
             ("__init__ with a commented signature", b"class C:\n    def __init__(  # noqa\n      self):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 2, 1),
+            // No receiver at all, so no `self.<name>` can be an instance
+            // attribute: the `\` is the only thing inside the parentheses
+            // and skipping it leaves no parameter to name.
+            ("__init__ with no parameter past a continuation", b"class C:\n    def __init__( \\\n      ):\n        self.x = 1\n        \"\"\"X.\"\"\"\n", 1, 0),
             // A bare `\` row joining a comment between two statements is
             // a `line_continuation` sibling of both, skipped like the
-            // comment when reading "directly after" (#1830; each measured
-            // one less dloc before, the `\` ending the run or the scan).
+            // comment when reading "directly after" (#1830; the `\` ended
+            // the scan before, so each measured dloc 0 — the last 1, its
+            // first docstring alone).
             ("attribute docstring after a continued comment", b"x = 1\n\\\n# c\n\"\"\"X.\"\"\"\n", 3, 1),
             ("class attribute docstring after a continued comment", b"class C:\n    x = 1\n    \\\n    # c\n    \"\"\"X.\"\"\"\n", 3, 1),
             ("module docstring after a continued comment", b"\\\n# c\n\"\"\"M.\"\"\"\nx = 1\n", 3, 1),
@@ -9863,6 +9869,15 @@ EOF
                 // fails exactly the second.
                 (b"( \\\n\\\n(\"\"\"doc\"\"\")\n)\n", (4, 0, 4, 0), 0),
                 (b"(\n\\\n(\"\"\"doc\"\"\")\n)\n", (4, 0, 4, 0), 0),
+                // CRLF twin of the second, measured (4, 4, 1, 0) before
+                // #1830 too: the one #1830 shape on which a CRLF seam
+                // is read — the row end after the inner parenthesis,
+                // stepped over. Reading `\n` alone there runs on to the
+                // outer `)`, code, and of #1830's rows fails this one
+                // alone; the `( \` + `\` + `# c` CRLF row below joins
+                // its comment before any row end is asked, and reads as
+                // its LF twin under every CRLF seam (measured).
+                (b"(\r\n\\\r\n(\"\"\"doc\"\"\")\r\n)\r\n", (4, 0, 4, 0), 0),
                 // The inner parenthesis is stepped over and the row read
                 // on, as past a `)`: `OP OP STRING OP OP OP NAME OP
                 // NUMBER NEWLINE` — a `;` starts `x=1` on the joined row,

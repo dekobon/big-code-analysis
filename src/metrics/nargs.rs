@@ -4454,6 +4454,7 @@ class A(val x: Int)",
             "record A(int a) { A(long a) { this((int) a); } }
              record O(int a, String b) { O(String b, int a) { this(a, b); } }
              record W(int... xs) { W(int[] xs) { this.xs = xs; } }
+             record U(int... xs) { U(int x) { this(new int[] { x }); } }
              record M(int a) { M(int other) { this.a = other; } }
              record T(@Deprecated int a) { T(@SuppressWarnings(\"x\") int a) { this.a = a; } }
              record Y(java.util.Map<String, Integer> m) { Y(java.util.Map<String,Integer> m) { this.m = m; } }
@@ -4479,6 +4480,7 @@ class A(val x: Int)",
                         ("A", 2),
                         ("O", 2),
                         ("W", 2),
+                        ("U", 2),
                         ("M", 1),
                         ("T", 1),
                         ("Y", 1),
@@ -4771,7 +4773,9 @@ record A(int x) {}",
     fn groovy_record_components_have_exactly_one_owner() {
         check_spaces::<GroovyParser, _>(
             "record I(int a, int b) {}
-             record N(int a, String b) { N(int a, String b) { this.a = a; this.b = b } }
+             record N(int a, String b) {
+                 N(int a, String b) { this.a = a; this.b = b }
+             }
              record A(int a, int b) { A(int a) { this(a, 0) } }
              record B(int a)
              record E() {}
@@ -4805,8 +4809,9 @@ record A(int x) {}",
                 assert_eq!(space.metrics.nargs.function_args_sum(), 13);
                 assert_eq!(space.metrics.nom.functions_sum(), 9);
                 // `N`'s one row is the body's constructor, not the
-                // header: the explicit form is tested apart below.
-                assert_eq!(child_space(&space, "N").spaces[0].start_line, 2);
+                // header: the constructor sits on the line after the
+                // header's, which a header row would start on.
+                assert_eq!(child_space(&space, "N").spaces[0].start_line, 3);
             },
         );
     }

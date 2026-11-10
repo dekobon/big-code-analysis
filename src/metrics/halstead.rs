@@ -6121,15 +6121,21 @@ end",
         // `("""doc""")` must bill what `"""doc"""` bills: neither the
         // string nor its `(`. Operators: `def`, `(` of the parameter list,
         // `:`, `return`; operands: `f`, `1`.
-        // The last two put a `\` run before the string, a named extra
-        // the parenthesis's value is read past as a comment is (#1830):
-        // each billed `(` too before, [5, 5, 2, 2].
-        let sources: [&[u8]; 6] = [
+        // The fifth and sixth put a `\` run and a comment before the
+        // string, named extras the parenthesis's value is read past as
+        // a comment is (#1830): each `(` before the string billed before,
+        // the parameter list's `()` already spelling it — [4, 5, 2, 2]
+        // under one parenthesis, [4, 6, 2, 2] under two. The last is the
+        // control: with no comment, the scanner eats a `\` directly
+        // before the string (#1825), no `line_continuation` is in the
+        // tree, and it read [4, 4, 2, 2] already.
+        let sources: [&[u8]; 7] = [
             b"def f():\n    \"\"\"doc\"\"\"\n    return 1\n",
             b"def f():\n    (\"\"\"doc\"\"\")\n    return 1\n",
             b"def f():\n    ((\"doc\"))\n    return 1\n",
             b"def f():\n    (\n        # c\n        \"doc\" \"more\"\n    )\n    return 1\n",
             b"def f():\n    ( \\\n    \\\n    # c\n    \"\"\"doc\"\"\" )\n    return 1\n",
+            b"def f():\n    (( \\\n    \\\n    # c\n    \"\"\"doc\"\"\" ))\n    return 1\n",
             b"def f():\n    (( \\\n    \\\n    \"\"\"doc\"\"\" ))\n    return 1\n",
         ];
         for source in sources {
@@ -9990,8 +9996,11 @@ f() {
     #[test]
     fn elixir_quoted_atom_colon_is_not_an_operator_1858() {
         let operators = |src: &str| {
+            // `Ops::operators` is the distinct, sorted vocabulary (n1);
+            // it has no N1 to cross-check, and every fixture here spells
+            // each operator once, so comparing its length to N1 would
+            // hold by coincidence alone.
             let ops = ops_of::<ElixirParser>(src, "foo.ex");
-            let unique: BTreeSet<&str> = ops.operators.iter().map(String::as_str).collect();
             let h = crate::test_support::metrics_verbatim(
                 crate::LANG::Elixir,
                 src.as_bytes(),
@@ -9999,12 +10008,12 @@ f() {
             )
             .halstead;
             assert_eq!(
-                (unique.len() as u64, ops.operators.len() as u64),
-                (h.unique_operators(), h.total_operators()),
-                "ops store and metrics store disagree for {src:?}"
+                ops.operators.len() as u64,
+                h.unique_operators(),
+                "ops store and metrics store disagree on n1 for {src:?}"
             );
             (
-                unique.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                ops.operators.clone(),
                 h.unique_operators(),
                 h.total_operators(),
             )

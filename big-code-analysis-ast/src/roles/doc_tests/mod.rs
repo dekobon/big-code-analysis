@@ -2381,13 +2381,18 @@ mod python {
     /// The run helper scans once per run, at its final member — the
     /// cost the row shares rather than doubles. Counted, since a scaling
     /// probe cannot tell one scan per run from two: on a run of five
-    /// strings and a second run of one, two scans.
+    /// strings and a second run of one, two scans. The bare `\` row and
+    /// the comment between `b` and `c` are the run's named extras
+    /// (#1830): the look-ahead for the next statement reads past both,
+    /// or `b` takes itself for the run's final member and scans too —
+    /// three scans, which the rows it credits cannot show, the final
+    /// member crediting the same rows again.
     #[test]
     fn one_scan_per_run() {
         use crate::lang_helpers::python::{
             docstring_runs_scanned, python_documentation_string_run,
         };
-        let source = b"\"\"\"a\"\"\"\n\"\"\"b\"\"\"\n\"\"\"c\"\"\"\n\"\"\"d\"\"\"\n\"\"\"e\"\"\"\nx = 1\n\"\"\"f\"\"\"\n";
+        let source = b"\"\"\"a\"\"\"\n\"\"\"b\"\"\"\n\\\n# c\n\"\"\"c\"\"\"\n\"\"\"d\"\"\"\n\"\"\"e\"\"\"\nx = 1\n\"\"\"f\"\"\"\n";
         let runs = 2;
         let before = docstring_runs_scanned::observed();
         for_each_node_with_chain::<PythonCode>(source, |node, chain| {

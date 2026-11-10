@@ -3006,9 +3006,10 @@ pub const PROBES: &[Probe] = &[
                     quadratic in `width`, 2.08 against \
                     1.02 with the memo. The reading is the comment \
                     rows: the parentheses', the string's, the `width` \
-                    comments and the `width` bare rows — the last `width` the \
-                    runs alone supply, since the pre-#1830 reading made them \
-                    code.",
+                    comments and the `width` bare rows. The bare rows read \
+                    as comments before #1830 too, by joining `# c` forward; \
+                    the two parenthesis rows are what the fix moved, so the \
+                    pre-fix reading was `2 × width + 1`.",
     },
     Probe {
         name: "nom/nested-fn-rows",
@@ -5016,10 +5017,14 @@ mod tests {
     /// `size` runs of one `line_continuation` each, all before the
     /// string under one parenthesis, and the reading is the `(` row,
     /// the string's, the `)`'s, the `size` comment rows and the `size`
-    /// bare rows — `2 × size + 3` comment rows, the last `size` the
-    /// runs' own: before #1830 the parenthesis was not the string's, so
-    /// both parenthesis rows and every bare row were code, reading
-    /// `size + 1`. The retained `x = 1` reaches `cloc` on no reading.
+    /// bare rows — `2 × size + 3` comment rows. Before #1830 the
+    /// parenthesis was not the string's, so its two rows were code and
+    /// the reading `2 × size + 1` (measured 7 at 3): each bare row
+    /// joined its comment and was a comment row already, by the forward
+    /// reading a run takes outside a bare string's parentheses, so what
+    /// the runs pin here is that each one reaches the memoised question
+    /// — the bench's exponent, not this count, is what the memo guards.
+    /// The retained `x = 1` reaches `cloc` on no reading.
     #[test]
     fn python_bare_runs_before_string_probe_reads_its_runs() {
         python_parenthesised_runs_probe_reads("loc/python-bare-runs-before-string", |size| {

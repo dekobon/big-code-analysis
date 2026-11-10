@@ -282,7 +282,11 @@ test("only numeric exits 2–5 with stdout findings become advisories", async (t
   assert.equal(empty.result.content, "Edited successfully")
 })
 
-test("explicit unavailable BCA, buffer overflow and timeout never erase tool success", async (t) => {
+// The hang is stopped only by the kill timer's `stop()`; were that kill
+// ineffective, the SIGTERM-ignoring stub would hold the hook open and the test
+// would hang the suite rather than fail, so it carries its own bound: well
+// past the fixture budget plus the Windows `taskkill` budget for each stop.
+test("explicit unavailable BCA, buffer overflow and timeout never erase tool success", { timeout: 60_000 }, async (t) => {
   const f = await fixture(t)
   const path = await f.file()
   process.env.BCA = join(f.directory, "missing")
@@ -925,17 +929,23 @@ function moveEvent(from, to) {
   })
 }
 
-test("a wrapper's inherited output pipes cannot outlive the analyzer timeout", async (t) => {
+// The timer and the abort listener share `stop()`, so the stop that must reach
+// the descendant is triggered here by supersession, once the wrapper has
+// reported its descendant, rather than by a short kill timer. A timer armed at
+// spawn races the wrapper's Node cold start, and on a loaded runner it fired
+// before there was a descendant to leak (#1857). The readiness wait is bounded
+// by the fixture budget: a wrapper that never reports is stopped by `run()`
+// and fails the descendant assertion. Only the stop itself is on the deadline.
+test("a wrapper's inherited output pipes cannot outlive a superseded analyzer", async (t) => {
   const f = await fixture(t)
   const path = await f.file()
-  process.env.BCA_HOOK_TIMEOUT_MS = SHORT_TIMEOUT_MS
   const original = childProcess.spawn
   let child
   let descendant
   let ready
   const started = new Promise((done) => { ready = done })
   const mock = t.mock.method(childProcess, "spawn", (file, args, options) => {
-    if (file !== f.stub) return original(file, args, options)
+    if (file !== f.stub || child) return original(file, args, options)
     const code = 'const cp = require("node:child_process"); ' +
       'const c = cp.spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {stdio: ["ignore", 1, 2]}); ' +
       'console.log(c.pid); setInterval(() => {}, 1000)'
@@ -945,18 +955,21 @@ test("a wrapper's inherited output pipes cannot outlive the analyzer timeout", a
   })
   syncBuiltinESMExports()
   let timer
-  // One deadline bounds both waits: the short budget is armed at spawn, so a
-  // wrapper that starts slower than it is stopped before it reports its
-  // descendant, and `started` alone would then never settle (#1857).
-  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("inherited pipes kept the hook open")), 5_000) })
   try {
     const e = event(path)
     const running = f.hook(e)
-    await Promise.race([started, running, deadline])
-    assert.ok(Number.isInteger(descendant) && descendant > 0, "the wrapper was stopped before it reported its descendant: Node started slower than SHORT_TIMEOUT_MS")
-    await Promise.race([running, deadline])
+    await Promise.race([started, running])
+    assert.ok(Number.isInteger(descendant) && descendant > 0, "the wrapper exited before it reported its descendant")
+    const replacement = event(path)
+    const newer = f.hook(replacement)
+    await Promise.race([
+      running,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("inherited pipes kept the hook open")), 5_000) }),
+    ])
     assert.equal(e.result.content, "Edited successfully")
-    assert.equal(f.records.at(-1)[1].last.unavailable, 1)
+    await newer
+    assert.match(advice(replacement) ?? "", /cognitive = 20/)
+    assert.deepEqual(f.records.at(-1)[1].sinceLoad, { runs: 2, checked: 2, findings: 1, delivered: 1, unavailable: 0, omitted: 0 })
     if (process.platform !== "win32") {
       // Orphaned descendants may briefly remain as zombies until init reaps them.
       const status = spawnSync("ps", ["-o", "stat=", "-p", String(descendant)], { encoding: "utf8" }).stdout.trim()
