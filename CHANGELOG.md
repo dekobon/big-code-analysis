@@ -130,12 +130,17 @@ for historical reference.
   joining a comment between two statements ended a docstring run. Every
   selector now skips both extras, and the LOC walk's bare-run finder
   reads a run before the string as the string's line as it did one
-  after it. For a Python file with these shapes `ploc` falls and `cloc`
-  rises by the rows of the `\` run and the parentheses, `dloc` rises
-  where the string is in a documentation position, and `()` leaves the
-  operator list; no other file moves, and no corpus snapshot did. New
-  scaling probe `loc/python-bare-runs-before-string` prices the
-  parenthesis's memoised answer across a wide prefix of such runs.
+  after it: an inner `( … )` before the string is stepped over like a
+  `)`, and the forward read continues to code, a comment or the row's
+  end, so `( \` / `\` / `("doc")); x=1` reads its joined last row as
+  code beside the string — `(sloc, ploc, cloc, blank)` of `(3, 2, 2,
+  0)` — rather than as a comment row. For a Python file with these
+  shapes `ploc` falls and `cloc` rises by the rows of the `\` run and
+  the parentheses, `dloc` rises where the string is in a documentation
+  position, and `()` leaves the operator list; no other file moves,
+  and no corpus snapshot did. New scaling probe
+  `loc/python-bare-runs-before-string` prices the parenthesis's
+  memoised answer across a wide prefix of such runs.
 - **`npa` and `npm` stay linear in nested containers** (#1805). Each
   member walk reads a container's body (a class, struct, interface or
   module) under a chain of the body's ancestors, which
@@ -300,8 +305,8 @@ for historical reference.
   branch, as #1456 decided — it is a sibling of the list, not inside it.
   A written `class G()` is a zero-parameter constructor and counts;
   `class N` declares none. A Java or Groovy `record` with no compact
-  constructor still reads 0 under #1160's decision; the book's
-  `nargs` zero list now names it, and #1842 holds the question. C#'s byte-less `is_func_space` /
+  constructor read 0 under #1160's decision until #1842, above. C#'s
+  byte-less `is_func_space` /
   `get_space_kind` keep their pre-#1828 answer for a parameter list —
   the parent gate needs the chain — pinned by
   `csharp_byte_less_spellings_omit_the_primary_constructor`.
