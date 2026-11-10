@@ -141,6 +141,39 @@ perturbations whenever two guards merge into one predicate.
   stack) get an O(1) `debug_assert!` on the hot path in addition to the
   named test; the suite then checks it on every corpus file.
 
+### A fixture that intercepts output prints it when the test fails
+
+A fixture that mocks `console.*`, captures stderr, or swallows a
+diagnostic so a test can assert on it has taken the only channel the
+production code uses to say why it did what it did. When such a test
+fails, the report shows the downstream symptom (`actual: undefined`)
+and never the cause (`analyzer unavailable (exit TIMEOUT)`). Wire the
+dump to the test's own failure (in Node, `t.after(() => { if
+(!t.passed) console.error(messages) })`; in Rust, print the captured
+buffer before the `assert!` that reads it) and confirm it stays silent
+on a passing run. The CI flake behind #1857 cost a diagnosis round for
+want of this one line.
+
+### Two correct outcomes separated by a clock are one flake
+
+When a code path can legitimately end in either of two states depending
+on which of two timers fires first, a test that asserts one of them is
+asserting the host's speed. Do not widen the margin, and do not simply
+accept both: a bug can hide behind the other outcome just as a slow
+host can. Find the fact the bug changes and the clock does not, and
+read that. The `BCA_HOOK_TIMEOUT_MS` probe test first asserted the
+hook's reported reason, which a slow digest start flips; accepting
+either reason then let a leaked override pass whenever the discovery
+budget expired before the probe answered. It now reads the budget
+`run()` arms per spawn, recorded by the test's own preload from the
+`setTimeout` that follows each `spawn`: a probe must arm 3 000, the
+analyzer run the override. Both mutations fail with and without a
+delayed digest, and the test no longer needs a deliberately stalled
+probe. The same shape appeared three times in the #1857 suite before a
+reviewer reproduced each by injecting start delays; delay injection
+through a preload that wraps `spawn` is the cheap way to find them
+before CI does.
+
 ## Know what the harness normalises away
 
 `check_metrics` → `test_support::check_func_space_with` trims and

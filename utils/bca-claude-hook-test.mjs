@@ -62,13 +62,35 @@ else {
   // match would also capture the real `target/debug/bca` CI hands the
   // real-CLI tests through BCA_TEST_BINARY.
   const local = (profile) => join(root, "target", profile, `bca${EXE}`)
+  // The preload also records the budget \`run()\` arms for each spawn it
+  // routes: \`run()\` calls \`setTimeout\` for its kill timer right after
+  // \`spawn\`, so the first timer armed after a routed spawn is that spawn's
+  // budget. \`armed()\` reads the rows, each the spawned file, its first
+  // argument (\`--version\` for a probe, \`check\` for the analyzer run) and
+  // the delay; a test that must know which budget a probe or the analyzer
+  // ran under reads it there, not off a clock.
+  const armed = join(temp, "armed.jsonl")
   await writeFile(preload, `
 import cp from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 const original = cp.spawn;
-cp.spawn = (file, args, options) => [${JSON.stringify(stub)}, ${JSON.stringify(local("debug"))}, ${JSON.stringify(local("release"))}].includes(file)
-  ? original(process.execPath, [file, ...args], options)
-  : original(file, args, options);
+let awaitingTimer;
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, delay, ...rest) => {
+  if (awaitingTimer !== undefined) {
+    appendFileSync(${JSON.stringify(armed)}, JSON.stringify({ ...awaitingTimer, delay }) + "\\n");
+    awaitingTimer = undefined;
+  }
+  return realSetTimeout(callback, delay, ...rest);
+};
+const note = (file, args) => { awaitingTimer = { file, command: args[0] }; };
+cp.spawn = (file, args, options) => {
+  note(file, args);
+  return [${JSON.stringify(stub)}, ${JSON.stringify(local("debug"))}, ${JSON.stringify(local("release"))}].includes(file)
+    ? original(process.execPath, [file, ...args], options)
+    : original(file, args, options);
+};
 syncBuiltinESMExports();
 `)
   const path = join(root, "sample.rs")
@@ -79,13 +101,17 @@ syncBuiltinESMExports();
 {
   const previous = cp.spawn;
   cp.spawn = (file, args, options) => file === ${JSON.stringify(name)}
-    ? original(${exec ? `${JSON.stringify(exec)}, args` : `process.execPath, [${JSON.stringify(script)}, ...args]`}, options)
+    ? (note(file, args), original(${exec ? `${JSON.stringify(exec)}, args` : `process.execPath, [${JSON.stringify(script)}, ...args]`}, options))
     : previous(file, args, options);
   syncBuiltinESMExports();
 }
 `)
   return {
     temp, root, path, env, stub, preload, git, route,
+    async armed() {
+      try { return (await readFile(armed, "utf8")).trim().split("\n").map(JSON.parse) }
+      catch (error) { if (error.code === "ENOENT") return []; throw error }
+    },
     file: (data) => writeFile(path, JSON.stringify(data)),
     input: (overrides = {}) => ({ hook_event_name: "PostToolUse", tool_name: "Edit", cwd: root,
       session_id: "session-a", tool_input: { file_path: path }, ...overrides }),
@@ -499,26 +525,28 @@ test("candidates that stall on --version are abandoned at the discovery budget",
   assert.deepEqual(await f.probes(), [f.local("debug"), f.local("release")])
 })
 
-// One candidate answering `--version` after 3.5 s, inside the 4 s discovery
-// budget but past `run()`'s 3 s TIMEOUT, under the fixture's 15 s override:
-// the probe is stopped at 3 s and the build falls to "newest local build".
-// Fails if the override reaches the probes — the probe then answers at 3.5 s,
-// matches, and is chosen with "build inputs match this tree" — which is what
-// made a shell export of `BCA_HOOK_TIMEOUT_MS` push a real hook past the 15 s
-// Claude Code allows it (3 s git + 4 s discovery + the override). Which of
-// the two non-match reasons is reported is a race between the probe's 3 s
-// stop and the 4 s budget that a slow digest start shifts (a 1.2 s start
-// reads "budget exhausted"), so the test reads the one fact both prove: the
-// probe never answered, which no slower runner can turn into a match.
+// The override must reach the analyzer run and never a `--version` probe:
+// a probe under a shell's exported `BCA_HOOK_TIMEOUT_MS` is what pushed a
+// real hook past the 15 s Claude Code allows it (3 s git + 4 s discovery +
+// the override). Read off the budgets `run()` arms, which the preload records
+// per spawn, not off the hook's reported reason: which non-match reason a
+// stopped probe yields is a race between its stop and the 4 s discovery
+// budget that a slow start shifts, and a leaked override hides behind
+// "budget exhausted" whenever the budget expires before the probe answers.
+// Fails if `probe()` passes the override (its row reads 15000) or the check
+// does not (its row reads 3000).
 test("the budget override reaches the analyzer run and never a --version probe", async (t) => {
   const f = await fixture(t)
   const digest = "5".repeat(64)
   const env = await f.digest(digest)
-  await f.binary(f.local("debug"), { inputs: digest, finding: "debug finding", delay: 3_500 })
+  await f.binary(f.local("debug"), { inputs: "6".repeat(64), finding: "debug finding" })
   const result = f.run(f.input(), env)
   assert.match(report(result), /debug finding/)
-  assert.match(f.health(result).analyzerReason, /^newest local build \((no candidate reports this tree's build inputs|discovery budget exhausted)\)$/)
-  assert.deepEqual(await f.probes(), [f.local("debug")])
+  assert.equal(f.health(result).analyzerReason, "newest local build (no candidate reports this tree's build inputs)")
+  const armed = await f.armed()
+  const budget = (file, command) => armed.find((row) => row.file === file && row.command === command)?.delay
+  assert.equal(budget(f.local("debug"), "--version"), 3_000, "a --version probe keeps TIMEOUT")
+  assert.equal(budget(f.local("debug"), "check"), Number(FIXTURE_TIMEOUT_MS), "the analyzer run arms the override")
 })
 
 test("retargeting an edited symlink discards the old target's findings", async (t) => {

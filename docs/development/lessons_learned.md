@@ -162,6 +162,9 @@ number and the higher number stays as a redirect.
 | [116](#116-a-dead-code-census-describes-the-target-it-was-taken-on) | A dead-code census describes the target it was taken on |
 | [117](#117-a-gap-is-scanned-before-the-tokens-that-decide-it) | A gap is scanned before the tokens that decide it |
 | [118](#118-a-spaces-own-value-is-everything-the-walk-folds-into-it) | A space's own value is everything the walk folds into it |
+| [119](#119-a-named-extra-passes-every-first-named-child-selector) | A named extra passes every "first named child" selector |
+| [120](#120-a-gate-declared-under-the-wrong-keyword-is-exact-on-one-axis-and-blind-on-the-other) | A gate declared under the wrong keyword is exact on one axis and blind on the other |
+| [121](#121-a-commit-on-the-current-tip-can-revert-the-tip-and-ancestry-will-not-say-so) | A commit on the current tip can revert the tip, and ancestry will not say so |
 
 ---
 
@@ -5287,5 +5290,117 @@ way — `function_args_average` divides by `nom`'s callables, which the
 constructor was not. The constructor became a `Function` space: the
 gate, the report and the Python binding followed unchanged, while
 `nargs`, `npm` and `npa` each needed their own change (lesson 63).
+
+---
+
+## 119. A named extra passes every "first named child" selector
+
+**Lesson:** Before writing `children().find(|c| c.is_named() && c.kind_id()
+!= Comment)` — or trusting one that exists — read the grammar's `extras`
+list. An extra is placed anywhere the parser is between tokens, and when
+it is *named* it is indistinguishable from a value to a selector that
+only excludes comments. Define the grammar's extras once as a predicate
+(`not_extra`), route every "first real child" and "next real sibling"
+read through it, and `rg` for the inline spelling so a new site cannot
+reintroduce the gap. Do not reason about where the extra "can" appear:
+dump the shape that places it where the selector looks — a `\` joining
+a comment-only row lands as a *statement* sibling, where a `\` that
+continues code never does (cf. lesson 95).
+
+The failure is silent because the selector returns a node of the wrong
+kind and every consumer downstream has a sane answer for "not the kind I
+wanted": `None`, `false`, the catch-all arm. Nothing panics, the metric
+moves by a line or two, and only a fixture that holds the extra in that
+position shows it.
+
+**A `\` run before a parenthesised docstring hid the string** (#1830,
+PR #1862). tree-sitter-python lists `line_continuation` in `extras` as
+a named node. `unparenthesized_once` took the first named non-comment
+child of the `parenthesized_expression` and found the `\`, so the
+statement was no bare string: its parentheses read as code and billed
+`()` as a Halstead operator, `(4, 3, 2, 0)` for a four-row docstring
+whose every row is a comment. The issue named two sites; the fix found
+a third (`first_parameter_name`, which lost the receiver of a
+`def __init__( \` and so the DLOC of its attribute docstrings) and the
+planning claim that the two statement-sibling scans were safe was
+refuted by one dump; `python_documentation_string_run`'s look-ahead
+was pinned by no test until a mutation sweep found it. `not_extra`
+serves the four AST sites; the LOC-local copy of the selector was
+replaced by the AST helper it duplicated.
+
+---
+
+## 120. A gate declared under the wrong keyword is exact on one axis and blind on the other
+
+**Lesson:** The keyword a role-row gate is declared under
+(`roles/mod.rs`, "Owner attributes") is what the byte-less and
+chain-less forwards assert against at build time. A gate that reads
+source bytes but is declared `gated_by` leaves `TEXT_GATED` false, so
+every `const` assert passes and a forward hands it `&[]`, believing it
+needs no bytes. The compiler holds the chain axis to the declaration
+(`no_chain` removes the parameter); nothing holds the byte axis, so a
+byte-reading gate under the wrong keyword is caught only by a reader or
+by a behavioural check. Before declaring a gate, list what it reads and
+declare each axis it uses; then confirm the derived suite has a
+backstop for that axis. The chain axis has
+`no_chain_rows_answer_alike_under_the_empty_chain`; the byte axis has
+none (#1863).
+
+Handed no bytes, a gate that compares spellings sees every spelling as
+the empty string and answers *equal*: a confident wrong `true` that
+closes what should be open. A fixture shows it only when two spellings
+differ under the real bytes and collapse under `&[]`, and only when the
+assertion reads the value the collapse moves, not just the shape.
+
+**A same-arity alternative constructor closed a record's header**
+(#1842, PR #1862). `opens_record_header` reads the body's constructor
+parameter types to tell the canonical constructor from an alternative,
+and was declared `gated_by`. `JavaCode::is_func` forwards the row with
+`&[]`; `is_func_with_code` defaulted to it. Under no bytes `A(long a)`
+and component `int a` both spelled `""`, the constructor read as
+canonical, the header closed, and `record A(int a) { A(long a) {…} }`
+reported the header's `nargs` as 0. A fixture with that exact record
+existed and passed: it counted the record's function *spaces*, which
+the walk opened through the with-code path, not the header's `nargs`,
+which the byte-less path zeroed. A reviewer reading the gate found it.
+The row is `text_gated_by` now, both checkers override
+`is_func_with_code`, and this gate's byte-less `is_func` forwards a
+known-empty chain so the header answers `false` there by design.
+
+---
+
+## 121. A commit on the current tip can revert the tip, and ancestry will not say so
+
+**Lesson:** A commit whose parent is the current tip can carry, as its
+own edit, the old contents of files the tip's recent commits changed:
+its diff silently reverts whatever landed between the branch's fork
+point and the tip, and `git log` shows an intact chain. The fix's
+commits stay ancestors of `main`; only their *effect* is gone.
+Ancestry proves nothing about preservation; the diff does. Before
+merging a PR whose branch was re-pointed at a tip that moved, compare
+`git diff --name-only <base> <head>` against the files the PR is about
+and account for every file outside its stated scope; a one-commit PR
+that touches 169 files for a documentation restructure is the shape.
+Treat a submodule checkout that disagrees with HEAD after a `pull` as
+a symptom, not noise: the gitlink moved under a working copy that did
+not. A squash *merge* is not the explanation: a squash merges, it does
+not overwrite, and the reversal was already inside the PR's own diff,
+which is also where it was visible.
+
+**PR #1844 undid PR #1843 under a documentation title** (#1828
+reopened). The docs restructure was cut from the commit before the
+`nargs` fix; its one commit named the fix's tip as its parent, was
+created 40 s after that tip merged, and landed 17 minutes later as a
+169-file change whose diff against that parent restored the older
+contents of every file #1843 had touched: the role tables, checkers,
+getters, metrics and their tests (614 deletions across five sampled
+files alone), the CHANGELOG and book entries, lesson 117 of the time,
+and the corpus gitlink. How the stale contents reached that commit is
+not in the record; what is in the record is that the PR's own diff
+listed the files. Found the next day while planning unrelated work,
+from a working copy whose submodule checkout disagreed with HEAD. The
+repair re-applied the fix's diff with a three-way `git apply` and
+resolved two prose conflicts; nothing needed recovering, only
+re-applying.
 
 ---
