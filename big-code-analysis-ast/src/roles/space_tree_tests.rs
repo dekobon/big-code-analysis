@@ -32,6 +32,7 @@ type Answers = (bool, bool, bool, SpaceKind, bool);
     feature = "bash",
     feature = "c",
     feature = "go",
+    feature = "groovy",
     feature = "irules",
     feature = "lua",
     feature = "objc",
@@ -129,7 +130,90 @@ fn container(kind: SpaceKind) -> Answers {
 /// `defensive` are the declared kinds the pinned grammar never emits —
 /// the aliases listed per grammar-dispatch §2 — which the fixture is
 /// required *not* to produce, so a bump that starts emitting one fails
-/// here rather than changing a count unseen.
+/// here rather than changing a count unseen. The callable test is the
+/// `_with_code` spelling. A node of the `gated` kind — one whose
+/// parent-and-body gate the byte-less spellings cannot see — is
+/// returned with its text for the caller to assert by value instead
+/// of being read against the table.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "lua",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "rust",
+    feature = "tcl",
+))]
+fn check_gated<L: LanguageInfo + Checker + Getter>(
+    source: &[u8],
+    expected: &[(&str, Answers)],
+    member_owns: OpensSpace,
+    owners: &[&[u16]],
+    defensive: &[u16],
+    gated: &str,
+) -> Vec<(String, Answers)> {
+    let mut rows = Vec::new();
+    let mut seen_kinds = std::collections::BTreeSet::new();
+    for_each_node_with_chain::<L>(source, |node, chain| {
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind();
+        let promoted = L::promotes_to_func_space_with_code(node, source, ancestors);
+        let got = (
+            L::is_func_with_code(node, source, ancestors),
+            L::is_closure(node, ancestors),
+            promoted,
+            L::get_space_kind_with_code(node, source, ancestors),
+            member_owns(node, source, ancestors),
+        );
+        seen_kinds.insert(node.kind_id());
+        assert_eq!(
+            got.3 != SpaceKind::Unknown,
+            promoted,
+            "{kind}: opens_space vs promotion"
+        );
+        assert_eq!(
+            L::is_func_space_with_code(node, source, ancestors),
+            promoted,
+            "{kind}: is_func_space is what the walk promotes"
+        );
+        if kind == gated {
+            rows.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
+            return;
+        }
+        // The byte-less triple is the kind table, gates aside: on a row
+        // whose owners read no chain and no bytes it answers exactly
+        // what the `_with_code` triple answers (Ruby's chain-reading gate
+        // is pinned apart, in `ruby_byte_less_spellings_stay_the_kind_table`).
+        assert_eq!(
+            (
+                L::is_func(node, ancestors),
+                L::is_func_space(node),
+                L::get_space_kind(node)
+            ),
+            (got.0, promoted, got.3),
+            "{kind}: the byte-less spellings are the kind table"
+        );
+        let want = expected
+            .iter()
+            .find(|(k, _)| *k == kind && node.is_named())
+            .map_or(NONE, |(_, v)| *v);
+        assert_eq!(
+            got,
+            want,
+            "{kind} `{}`",
+            node.utf8_text(source).unwrap_or("?")
+        );
+    });
+    owners_covered(&seen_kinds, owners, defensive);
+    rows
+}
+
+/// [`check_gated`] with no gated kind: every node is read against the
+/// table.
 #[cfg(any(
     feature = "bash",
     feature = "c",
@@ -149,50 +233,8 @@ fn check<L: LanguageInfo + Checker + Getter>(
     owners: &[&[u16]],
     defensive: &[u16],
 ) {
-    let mut seen_kinds = std::collections::BTreeSet::new();
-    for_each_node_with_chain::<L>(source, |node, chain| {
-        let ancestors = Ancestors::known(chain);
-        let kind = node.kind();
-        let promoted = L::promotes_to_func_space_with_code(node, source, ancestors);
-        let got = (
-            L::is_func(node, ancestors),
-            L::is_closure(node, ancestors),
-            promoted,
-            L::get_space_kind_with_code(node, source, ancestors),
-            member_owns(node, source, ancestors),
-        );
-        let want = expected
-            .iter()
-            .find(|(k, _)| *k == kind && node.is_named())
-            .map_or(NONE, |(_, v)| *v);
-        assert_eq!(
-            got,
-            want,
-            "{kind} `{}`",
-            node.utf8_text(source).unwrap_or("?")
-        );
-        assert_eq!(
-            got.3 != SpaceKind::Unknown,
-            promoted,
-            "{kind}: opens_space vs promotion"
-        );
-        assert_eq!(
-            L::is_func_space_with_code(node, source, ancestors),
-            promoted,
-            "{kind}: is_func_space is what the walk promotes"
-        );
-        // The byte-less pair is the kind table, gates aside: on a row
-        // whose owners read no chain and no bytes it answers exactly
-        // what the `_with_code` pair answers (Ruby's chain-reading gate
-        // is pinned apart, in `ruby_byte_less_spellings_stay_the_kind_table`).
-        assert_eq!(
-            (L::is_func_space(node), L::get_space_kind(node)),
-            (promoted, got.3),
-            "{kind}: the byte-less spellings are the kind table"
-        );
-        seen_kinds.insert(node.kind_id());
-    });
-    owners_covered(&seen_kinds, owners, defensive);
+    let rows = check_gated::<L>(source, expected, member_owns, owners, defensive, "");
+    assert!(rows.is_empty(), "no node has the empty kind: {rows:?}");
 }
 
 #[cfg(feature = "rust")]
@@ -798,89 +840,36 @@ fn kotlin_space_tree_rows() {
 #[test]
 fn groovy_space_tree_rows() {
     use crate::roles::groovy::{closure, container, func_opener, member};
-    use crate::{Checker, Getter, GroovyCode};
-    let source = b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nrecord S(int y) { S(int y) { } }\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n";
-    let expected: &[(&str, Answers)] = &[
-        ("source_file", container(SpaceKind::Unit)),
-        ("class_declaration", container(SpaceKind::Class)),
-        ("enum_declaration", container(SpaceKind::Class)),
-        ("record_declaration", container(SpaceKind::Class)),
-        ("interface_declaration", container(SpaceKind::Interface)),
-        ("trait_declaration", container(SpaceKind::Interface)),
-        (
-            "annotation_type_declaration",
-            container(SpaceKind::Interface),
-        ),
-        ("method_declaration", F),
-        ("constructor_declaration", F),
-        (
-            "static_initializer",
-            (false, false, true, SpaceKind::Function, false),
-        ),
-        ("closure", (false, true, false, SpaceKind::Unknown, false)),
-        ("field_declaration", M),
-    ];
-    let mut headers = Vec::new();
-    let mut seen_kinds = std::collections::BTreeSet::new();
-    for_each_node_with_chain::<GroovyCode>(source, |node, chain| {
-        let ancestors = Ancestors::known(chain);
-        let kind = node.kind();
-        let promoted = GroovyCode::promotes_to_func_space_with_code(node, source, ancestors);
-        let got = (
-            GroovyCode::is_func_with_code(node, source, ancestors),
-            GroovyCode::is_closure(node, ancestors),
-            promoted,
-            GroovyCode::get_space_kind_with_code(node, source, ancestors),
-            member::owns(node, source, ancestors),
-        );
-        seen_kinds.insert(node.kind_id());
-        assert_eq!(
-            got.3 != SpaceKind::Unknown,
-            promoted,
-            "{kind}: opens_space vs promotion"
-        );
-        assert_eq!(
-            GroovyCode::is_func_space_with_code(node, source, ancestors),
-            promoted,
-            "{kind}: is_func_space is what the walk promotes"
-        );
-        if kind == "record_components" {
-            headers.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
-            return;
-        }
-        assert_eq!(
+    let headers = check_gated::<crate::GroovyCode>(
+        b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nrecord S(int y) { S(int y) { } }\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+        &[
+            ("source_file", container(SpaceKind::Unit)),
+            ("class_declaration", container(SpaceKind::Class)),
+            ("enum_declaration", container(SpaceKind::Class)),
+            ("record_declaration", container(SpaceKind::Class)),
+            ("interface_declaration", container(SpaceKind::Interface)),
+            ("trait_declaration", container(SpaceKind::Interface)),
             (
-                GroovyCode::is_func(node, ancestors),
-                GroovyCode::is_func_space(node),
-                GroovyCode::get_space_kind(node)
+                "annotation_type_declaration",
+                container(SpaceKind::Interface),
             ),
-            (got.0, promoted, got.3),
-            "{kind}: the byte-less spellings are the kind table"
-        );
-        let want = expected
-            .iter()
-            .find(|(k, _)| *k == kind && node.is_named())
-            .map_or(NONE, |(_, v)| *v);
-        assert_eq!(
-            got,
-            want,
-            "{kind} `{}`",
-            node.utf8_text(source).unwrap_or("?")
-        );
-    });
+            ("method_declaration", F),
+            ("constructor_declaration", F),
+            (
+                "static_initializer",
+                (false, false, true, SpaceKind::Function, false),
+            ),
+            ("closure", (false, true, false, SpaceKind::Unknown, false)),
+            ("field_declaration", M),
+        ],
+        member::owns,
+        &[func_opener::OWNERS, closure::OWNERS, container::OWNERS, member::OWNERS],
+        &[],
+        "record_components",
+    );
     assert_eq!(
         headers,
         [("(int x)".to_owned(), F), ("(int y)".to_owned(), NONE)]
-    );
-    owners_covered(
-        &seen_kinds,
-        &[
-            func_opener::OWNERS,
-            closure::OWNERS,
-            container::OWNERS,
-            member::OWNERS,
-        ],
-        &[],
     );
 }
 

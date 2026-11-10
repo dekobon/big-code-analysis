@@ -1825,31 +1825,24 @@ mod tests {
              }",
             "records.java",
             |space| {
-                let rows = |s: &FuncSpace| {
+                fn rows(s: &FuncSpace) -> (&str, u64, u64) {
                     (
-                        s.name.clone().unwrap_or_default(),
+                        s.name.as_deref().unwrap_or_default(),
                         s.metrics.npm.class_nm(),
                         s.metrics.npm.class_npm(),
                     )
-                };
+                }
                 let top: Vec<_> = space.spaces.iter().map(rows).collect();
-                assert_eq!(
-                    top,
-                    [
-                        ("P".to_owned(), 1, 1),
-                        ("D".to_owned(), 1, 0),
-                        ("O".to_owned(), 0, 0),
-                    ]
-                );
+                assert_eq!(top, [("P", 1, 1), ("D", 1, 0), ("O", 0, 0)]);
                 let nested: Vec<_> = child_space(&space, "O").spaces.iter().map(rows).collect();
                 assert_eq!(
                     nested,
                     [
-                        ("V".to_owned(), 1, 0),
-                        ("T".to_owned(), 1, 0),
-                        ("K".to_owned(), 1, 1),
-                        ("N".to_owned(), 1, 0),
-                        ("A".to_owned(), 2, 2),
+                        ("V", 1, 0),
+                        ("T", 1, 0),
+                        ("K", 1, 1),
+                        ("N", 1, 0),
+                        ("A", 2, 2)
                     ]
                 );
             },
@@ -1954,7 +1947,7 @@ mod tests {
                     .iter()
                     .map(|s| {
                         (
-                            s.name.clone().unwrap_or_default(),
+                            s.name.as_deref().unwrap_or_default(),
                             s.kind,
                             s.metrics.npm.class_nm(),
                             s.metrics.npm.class_npm(),
@@ -1964,11 +1957,11 @@ mod tests {
                 assert_eq!(
                     rows,
                     [
-                        ("D".to_owned(), SpaceKind::Class, 1, 0),
-                        ("N".to_owned(), SpaceKind::Class, 1, 1),
-                        ("A".to_owned(), SpaceKind::Class, 2, 0),
+                        ("D", SpaceKind::Class, 1, 0),
+                        ("N", SpaceKind::Class, 1, 1),
+                        ("A", SpaceKind::Class, 2, 0),
                         // The misparse: a method named `P`, not a record.
-                        ("P".to_owned(), SpaceKind::Function, 0, 0),
+                        ("P", SpaceKind::Function, 0, 0),
                     ]
                 );
             },

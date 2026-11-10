@@ -607,6 +607,7 @@ mod tests {
                 (false, false, false, SpaceKind::Unknown, true),
             ),
         ];
+        let none = (false, false, false, SpaceKind::Unknown, false);
         let mut seen_kinds = std::collections::BTreeSet::new();
         let mut anonymous = Vec::new();
         let mut headers = Vec::new();
@@ -634,10 +635,10 @@ mod tests {
                 // callable's `parameters` field.
                 headers.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
             } else {
-                let want = expected.iter().find(|(k, _)| *k == kind).map_or(
-                    (false, false, false, SpaceKind::Unknown, false),
-                    |(_, v)| *v,
-                );
+                let want = expected
+                    .iter()
+                    .find(|(k, _)| *k == kind)
+                    .map_or(none, |(_, v)| *v);
                 assert_eq!(got, want, "{kind}");
             }
             // Promotion and labelling are the two halves of one answer.
@@ -689,13 +690,8 @@ mod tests {
         });
         assert_eq!(
             anonymous,
-            [
-                (false, false, true, SpaceKind::Class, false),
-                (false, false, false, SpaceKind::Unknown, false),
-                (false, false, false, SpaceKind::Unknown, false),
-            ]
+            [(false, false, true, SpaceKind::Class, false), none, none]
         );
-        let none = (false, false, false, SpaceKind::Unknown, false);
         assert_eq!(
             headers,
             [

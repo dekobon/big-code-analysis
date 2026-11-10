@@ -264,12 +264,11 @@ pub(crate) fn func_space_name_from_owner<'a, 'tree>(
     ancestors: Ancestors<'tree, '_>,
     owned_list: impl FnOnce(u16, u16) -> bool,
 ) -> Option<&'a str> {
-    if let Some(owner) = ancestors.parent(node)
-        && owned_list(node.kind_id(), owner.kind_id())
-    {
-        return default_func_space_name(&owner, code, ancestors);
-    }
-    default_func_space_name(node, code, ancestors)
+    let named = ancestors
+        .parent(node)
+        .filter(|owner| owned_list(node.kind_id(), owner.kind_id()))
+        .unwrap_or(*node);
+    default_func_space_name(&named, code, ancestors)
 }
 
 /// Per-language accessors the space walker and the Halstead

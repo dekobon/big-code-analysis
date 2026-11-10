@@ -9991,14 +9991,7 @@ f() {
     fn elixir_quoted_atom_colon_is_not_an_operator_1858() {
         let operators = |src: &str| {
             let ops = ops_of::<ElixirParser>(src, "foo.ex");
-            let mut unique: Vec<&str> = ops
-                .operators
-                .iter()
-                .map(String::as_str)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            unique.sort_unstable();
+            let unique: BTreeSet<&str> = ops.operators.iter().map(String::as_str).collect();
             let h = crate::test_support::metrics_verbatim(
                 crate::LANG::Elixir,
                 src.as_bytes(),

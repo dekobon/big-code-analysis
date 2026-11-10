@@ -4968,21 +4968,14 @@ mod tests {
         }
     }
 
-    /// `loc/python-separated-bare-runs` (fourth re-review of #1819)
-    /// reads its runs: `size` separate runs, one `line_continuation`
-    /// each, and the reading is the string's row, the `)`'s and the
-    /// `size` bare rows — `size + 2` comment rows, every one of the
-    /// `size` from the runs, which `GapScan`-style forward reading
-    /// would file as blank (each joins an empty row). The retained
-    /// `x = 1` reaches `cloc` on no reading. The scaling bench's
-    /// exponent is the only guard of the per-parenthesis memo itself,
-    /// since asking per run answers the same.
-    #[test]
-    fn python_separated_bare_runs_probe_reads_its_runs() {
+    /// A probe of `size` one-`line_continuation` runs under one
+    /// parenthesis reads `reading(size)`: the two tests below share
+    /// the shape and differ in the formula.
+    fn python_parenthesised_runs_probe_reads(name: &str, reading: impl Fn(u64) -> u64) {
         let probe = PROBES
             .iter()
-            .find(|p| p.name == "loc/python-separated-bare-runs")
-            .expect("loc/python-separated-bare-runs is a probe");
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} is a probe"));
         for size in [3, probe.sizes[0]] {
             let ast = parse(probe, size);
             let root = ast.as_tree_sitter().root_node();
@@ -4997,12 +4990,26 @@ mod tests {
                 1,
                 "every run shares one parenthesis at {size}"
             );
-            let reading = probe
+            let got = probe
                 .workload
                 .walk(&ast, probe.workload.options())
                 .expect("metrics walk");
-            assert_eq!(reading, size as u64 + 2, "at {size}");
+            assert_eq!(got, reading(size as u64), "{name} at {size}");
         }
+    }
+
+    /// `loc/python-separated-bare-runs` (fourth re-review of #1819)
+    /// reads its runs: `size` separate runs, one `line_continuation`
+    /// each, and the reading is the string's row, the `)`'s and the
+    /// `size` bare rows — `size + 2` comment rows, every one of the
+    /// `size` from the runs, which `GapScan`-style forward reading
+    /// would file as blank (each joins an empty row). The retained
+    /// `x = 1` reaches `cloc` on no reading. The scaling bench's
+    /// exponent is the only guard of the per-parenthesis memo itself,
+    /// since asking per run answers the same.
+    #[test]
+    fn python_separated_bare_runs_probe_reads_its_runs() {
+        python_parenthesised_runs_probe_reads("loc/python-separated-bare-runs", |size| size + 2);
     }
 
     /// `loc/python-bare-runs-before-string` (#1830) reads its runs:
@@ -5015,30 +5022,9 @@ mod tests {
     /// `size + 1`. The retained `x = 1` reaches `cloc` on no reading.
     #[test]
     fn python_bare_runs_before_string_probe_reads_its_runs() {
-        let probe = PROBES
-            .iter()
-            .find(|p| p.name == "loc/python-bare-runs-before-string")
-            .expect("loc/python-bare-runs-before-string is a probe");
-        for size in [3, probe.sizes[0]] {
-            let ast = parse(probe, size);
-            let root = ast.as_tree_sitter().root_node();
-            assert!(!root.has_error(), "the shape parses cleanly at {size}");
-            assert_eq!(
-                count_kind(&ast, "line_continuation"),
-                size,
-                "one node per run at {size}"
-            );
-            assert_eq!(
-                count_kind(&ast, "parenthesized_expression"),
-                1,
-                "every run shares one parenthesis at {size}"
-            );
-            let reading = probe
-                .workload
-                .walk(&ast, probe.workload.options())
-                .expect("metrics walk");
-            assert_eq!(reading, 2 * size as u64 + 3, "at {size}");
-        }
+        python_parenthesised_runs_probe_reads("loc/python-bare-runs-before-string", |size| {
+            2 * size + 3
+        });
     }
 
     /// `cognitive/elixir-keyword-sections`: the two `do:`-bearing lists
