@@ -5012,6 +5012,29 @@ mod tests {
         );
     }
 
+    /// Grammar 0.5.0 emits every `type_arguments` as the alias
+    /// `TypeArguments2`, which the getter's generic-list set must name
+    /// (grammar-dispatch §1): with the bare `TypeArguments` alone, the
+    /// `<` / `>` of a field type, a cast, a `new` and an `implements`
+    /// clause each billed as a comparison.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_type_arguments_reach_kind_id_as_the_alias() {
+        let parser = GroovyParser::new(
+            b"class A implements Comparable<A> { List<String> v = (List<String>) new ArrayList<String>() }\n"
+                .to_vec(),
+            &PathBuf::from("foo.groovy"),
+            None,
+        );
+        let ids: Vec<u16> = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind() == "type_arguments")
+            .map(|n| n.kind_id())
+            .collect();
+        assert_eq!(ids, [Groovy::TypeArguments2 as u16; 4]);
+    }
+
     #[cfg(feature = "objc")]
     #[test]
     fn objc_generic_opener_alias_never_reaches_kind_id() {
