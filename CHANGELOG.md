@@ -72,17 +72,25 @@ for historical reference.
   consumer reads remains the manual check the module doc names.
 - **Release packaging tools are upgraded**: cargo-about 0.9.3,
   cargo-deb 3.8.0, cargo-generate-rpm 0.21.1 and cargo-cyclonedx
-  0.5.10. Two outputs change:
+  0.5.10. Three outputs change:
   - `THIRD-PARTY-LICENSES-bca.md` and `THIRD-PARTY-LICENSES-bca-web.md`
     now list a few crates the old cargo-about missed, such as `rustix`
     and `zstd-sys`, and the workspace's own MPL-2.0 crates.
-  - The `.rpm` packages' architecture-qualified `Provides` now uses
-    RPM's standard form and carries the release:
-    `big-code-analysis-cli(aarch-64) = 2.5.2-1`, where it was
-    `big-code-analysis-cli(aarch64) = 2.5.2`.
+  - The `.rpm` packages' metadata follows RPM's conventions more
+    closely. Both `Provides` carry the release, and the
+    architecture-qualified one uses the standard form:
+    `big-code-analysis-cli = 2.5.2-1` and
+    `big-code-analysis-cli(aarch-64) = 2.5.2-1`, where they were
+    `= 2.5.2` and `(aarch64) = 2.5.2`. The `rpmlib(…)` requirements
+    use `<=` where they used `=`.
+  - In the CycloneDX SBOMs, a crate's own build targets (the `bca`
+    binary, for example) now carry `MPL-2.0` under
+    `metadata.component.components`. Compared against cargo-cyclonedx
+    0.5.7 on the same tree, nothing else differs: the dependency
+    components, their licenses and the dependency graph are the same.
 
-  The `.deb` control fields and file lists, the RPM file lists and
-  the CycloneDX SBOM components are unchanged.
+  The `.deb` control fields and file lists and the RPM file lists and
+  file flags are unchanged.
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)
   instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;

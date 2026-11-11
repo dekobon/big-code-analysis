@@ -215,13 +215,12 @@ impl Getter for GroovyCode {
             // double-count: `package com.example` billed `com`,
             // `example` AND `com.example`. `QualifiedType` never fired,
             // because the runtime emits the *alias* `QualifiedType2`
-            // (kind_id 228 at grammar 0.3.0, now 230) that this arm did
-            // not name — a latent lesson-2 miss whose only effect was to
-            // make the wrong classification unobservable for that half.
-            // Both are gone rather than completed: a qualified path is
-            // its identifier leaves plus the `.` operator, as in every
-            // other language here, and as PHP settled the same call in
-            // #1293.
+            // that this arm did not name — a latent
+            // lesson-2 miss whose only effect was to make the wrong
+            // classification unobservable for that half. Both are gone
+            // rather than completed: a qualified path is its identifier
+            // leaves plus the `.` operator, as in every other language
+            // here, and as PHP settled the same call in #1293.
             //
             // Completing the alias list instead is the double count,
             // not the fix. Both halves are pinned against that by

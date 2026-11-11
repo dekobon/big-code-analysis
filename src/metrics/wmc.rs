@@ -690,10 +690,9 @@ mod tests {
     #[test]
     fn groovy_nested_inner_classes_wmc() {
         // Three nested classes each with one trivial method.
-        // Mirrors `java_nested_inner_classes` (wmc.rs flavor). Grammar
-        // 0.5.0 parses a nested class; at 0.3.0 `Y` misparsed, `b` sat
-        // at file level and the sum still read 2, so the per-space sums
-        // are what pin the nesting.
+        // Mirrors `java_nested_inner_classes` (wmc.rs flavor). The
+        // total alone reads 3 wherever the three methods land, so the
+        // per-space sums pin that each is counted in its own class.
         check_func_space::<GroovyParser, _>(
             "class X {
                 void a() {}

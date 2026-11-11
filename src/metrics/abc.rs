@@ -3270,7 +3270,7 @@ mod tests {
         // dekobon tree-sitter-groovy grammar wraps a bare
         // `true` / `false` literal used as the condition of
         // `if` / `while` / `do` / `?:` in a `boolean_literal` node
-        // (`Groovy::BooleanLiteral`, kind_id 272), not the leaf
+        // (`Groovy::BooleanLiteral`), not the leaf
         // `True` / `False` keyword tokens. `groovy_count_condition`
         // must therefore match `BooleanLiteral` (the wrapper).
         // Without that, every literal-condition statement silently

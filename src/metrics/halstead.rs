@@ -3123,7 +3123,7 @@ mod tests {
     // already reached.
     //
     // Only the `QualifiedName` half was observable. The runtime emits
-    // `qualified_type` as the *alias* `QualifiedType2` (kind_id 230),
+    // `qualified_type` as the *alias* `QualifiedType2`,
     // which the arm never named — a lesson-2 miss that, by accident,
     // made that half already leaves-only and is why #1263's issue body
     // recorded Groovy as compliant. Both kinds are gone rather than
@@ -3149,7 +3149,7 @@ mod tests {
     // failed none of the 3,523 tests then in the lib targets, so the
     // leaves-only reading of a qualified *type* was correct by accident
     // rather than by contract. The tempting "fix" for the alias miss
-    // #1263 recorded is to complete the list with 230, which is exactly
+    // #1263 recorded is to complete the list with the alias, which is exactly
     // the double count #1263 removed — this test is what stops that.
     //
     // The kind assertions are the grammar-dispatch section 1 / 2 drift
