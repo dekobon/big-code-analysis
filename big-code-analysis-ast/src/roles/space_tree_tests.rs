@@ -841,7 +841,7 @@ fn kotlin_space_tree_rows() {
 fn groovy_space_tree_rows() {
     use crate::roles::groovy::{closure, container, func_opener, member};
     let headers = check_gated::<crate::GroovyCode>(
-        b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nrecord S(int y) { S(int y) { } }\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+        b"interface I { void m() }\nenum E { A, B }\ntrait Tr { def tm() {} }\n@interface An { int v() }\nrecord R(int x) {}\nrecord S(int y) { S(int y) { } }\nclass C implements I {\n  int f\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1); def r = new Runnable() { void run() { } } }\n}\n",
         &[
             ("source_file", container(SpaceKind::Unit)),
             ("class_declaration", container(SpaceKind::Class)),
@@ -852,6 +852,14 @@ fn groovy_space_tree_rows() {
             (
                 "annotation_type_declaration",
                 container(SpaceKind::Interface),
+            ),
+            // The anonymous class: the only `new` here carries a body. A
+            // bare `new Foo()` opens nothing, which
+            // `opens_space_folds_func_opener_and_container_without_restating_kinds`
+            // in `roles/groovy.rs` reads beside it.
+            (
+                "object_creation_expression",
+                container(SpaceKind::Class),
             ),
             ("method_declaration", F),
             ("constructor_declaration", F),

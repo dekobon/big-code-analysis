@@ -3323,12 +3323,12 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
     }
 
-    // `Groovy::Identifier2` (141) is the grammar's external token
+    // `Groovy::Identifier2` is the grammar's external token
     // `_gstring_dollar_path` — the `$a.b` path of a dollar interpolation —
     // whose public symbol is `identifier`, so the parser reports it as
-    // the unsuffixed `Identifier` and never as 141 (#1475). That is why
+    // the unsuffixed `Identifier` and never as the alias (#1475). That is why
     // the operand arm lists `Identifier` but not `Identifier2`; if a
-    // grammar bump starts emitting 141, the dotted path drops out of N2
+    // grammar bump starts emitting the alias, the dotted path drops out of N2
     // with no error.
     //
     // expected: operands `greet`, `name` (param), `$name.b` (the whole
@@ -3461,7 +3461,8 @@ mod tests {
         // author's delimiter choice moved n1/N1.
         //
         // The dollar-slashy and quoted forms are no-change controls:
-        // `$/…/$` closes with `/$` (kind 144) and `"…"` with `"` (134),
+        // `$/…/$` closes with `/$` (`SLASHDOLLAR`) and `"…"` with `"`
+        // (`DQUOTE`),
         // neither of which the operator arm classifies. `'x'` is a
         // childless leaf. The escaped-slash row is the one that would
         // regress if the guard were ever narrowed to a literal whose
@@ -6961,12 +6962,31 @@ end",
             ("record", "record R(int x) {}\n", [4, 4]),
             // `def`, `=`, `.` — no `class`
             ("class reference", "def a = String.class\n", [3, 3]),
-            // `=` twice: a script-level `record` / `trait` used as a name
-            // falls into error recovery with the keyword leaf, which is
-            // not a declaration and bills nothing
+            // `=` twice: a script-level `trait` used as a name falls into
+            // error recovery with the keyword leaf, which is not a
+            // declaration and bills nothing. `record` used as a name is
+            // a plain identifier, an operand: see below.
             ("contextual names", "record = 3\ntrait = 4\n", [1, 2]),
         ];
         assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
+
+        // Since dekobon-tree-sitter-groovy 0.5.0 the `record` keyword
+        // comes from the external scanner only before a record header,
+        // so the name never strands the leaf and the `Record` gate has
+        // no reachable negative; `trait` still does, and is what keeps
+        // the row above on the gate. If `record` strands again, the
+        // first assertion fails and the gate is live once more.
+        let stranded = |source: &str, keyword: Groovy| {
+            let parser = GroovyParser::new(
+                source.as_bytes().to_vec(),
+                &PathBuf::from("foo.groovy"),
+                None,
+            );
+            ast_has_kind_id(&parser, keyword as u16)
+        };
+        assert!(!stranded("record = 3\n", Groovy::Record));
+        assert!(stranded("record R(int x) {}\n", Groovy::Record));
+        assert!(stranded("trait = 4\n", Groovy::Trait));
     }
 
     /// #1704: Groovy's `var` bills as `def` does — the keyword leaf of a
@@ -6976,7 +6996,7 @@ end",
     /// used as a name is an `identifier` and stays an operand; a
     /// statement opening with that name (`var = 4`, `var++`) fails into
     /// an `ERROR` holding the keyword leaf, which the row's gate leaves
-    /// unbilled as it does `record = 3`. The `var` of a field, which the
+    /// unbilled as it does `trait = 4`. The `var` of a field, which the
     /// grammar reads as a `type_identifier`, is the other spelling of
     /// the keyword and bills the same since #1706 (the last row; its
     /// siblings are in `groovy_type_identifier_var_is_the_keyword_1706`).

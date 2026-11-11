@@ -77,6 +77,99 @@ for historical reference.
   dict-side copy of that predicate in the Python bindings
   (`big-code-analysis-py/src/sarif.rs`, `mi_is_empty`), which exists
   only because the wire cannot yet say "empty". (#1621)
+- **Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.5.0`.**
+  Releases 0.4.0 and 0.5.0 close a set of parse gaps
+  ([tree-sitter-groovy#49](https://github.com/dekobon/tree-sitter-groovy/issues/49),
+  [#55](https://github.com/dekobon/tree-sitter-groovy/issues/55),
+  [#60](https://github.com/dekobon/tree-sitter-groovy/issues/60),
+  [#68](https://github.com/dekobon/tree-sitter-groovy/issues/68)); the
+  enum one is #1408's fix. Metrics move on Groovy that uses the
+  constructs below:
+  - **A call whose last argument is a trailing closure is now a call.**
+    `xs.each { … }` and `xs.inject(0) { … }` parse as one
+    `method_invocation` with a `closure` field. The parenthesis-less
+    form used to parse as a field access followed by a free-standing
+    closure, so the call was never seen: a file with such calls gains
+    one `abc.branches` per call, and loses one `loc.lloc` per such call
+    that continues with `.m()`, `as T` or `[i]`, which used to count as
+    two statements. Measured over 34 Gradle and Groovy files against
+    the 0.3.0 pin: 14 moved `abc.branches` (one per newly seen call, 47
+    in all) and 4 moved `loc.lloc`; none of the other 16 metric values
+    compared moved, and files written in the Gradle and Jenkins
+    command-DSL style, or with parenthesised trailing closures, did not
+    move at all.
+  - **An anonymous inner class opens its own class space**, as Java's
+    does (#463). `new Runnable() { … }` had no production: its body was
+    read as a closure, or spilled onto the enclosing class behind an
+    error node. It is now an `object_creation_expression` with a class
+    body, and that expression opens an `<anonymous>` class. The body's
+    methods and attributes count there in `nom`, `wmc`, `npm` and `npa`
+    instead of on the enclosing method or class; `cyclomatic` gains the
+    new space's own unit, `nom.closures` loses the closure the body
+    used to be, and `abc` bills one construction. A plain `new Foo()`
+    and a closure passed to a method of the new object
+    (`new Foo().with { … }`) open nothing.
+  - **A record header counts as public in `npm` where the record
+    does.** `public record P(int a) { }` parsed, with no error, as a
+    method named `P`; it is a record now, and its header counts as a
+    public method. So does the header of a record declared in an
+    interface, a trait or an annotation type, where every member counts
+    as public. A record with neither stays non-public, the reading
+    `npm` gives every unmodified Groovy member.
+  - **Nested types are class members.** A `class`, `interface`, `trait`,
+    `enum` or `@interface` inside a class body broke the rest of the
+    body, and a nested `record` read as a method named after it. Each
+    now opens its own space, and its members leave the enclosing type's
+    counts.
+  - **A doc comment inside an instance initializer is an ordinary
+    comment**, as one inside `static { … }` or a method body already
+    was, and as in Java. The initializer block is new to the tree, and
+    `loc.dloc` would otherwise have counted a Groovydoc above a class
+    declared in one. The rule is by the block, so it also holds for the
+    body of a script-level `if`, `for` or `while`, where `loc.dloc`
+    used to count such a comment.
+
+  Modifiers on `enum`, annotations on enum constants, instance
+  initializer blocks, the diamond `new ArrayList<>()`, modifier-only
+  fields (`static TTL = 900`), `catch (e)`, enhanced `for (T x : xs)`
+  and annotated parameters parse cleanly where they went through error
+  recovery before, so metrics on files using them change from recovery
+  values to real ones. An annotated enum constant scores by the rule
+  for a bare one: `@Deprecated A(1)` is a constructor call and
+  `@SuppressWarnings("x") B` is not.
+
+  The two releases also cost something on valid Groovy:
+  - **A `{` on the line after `new T(…)` is read as a class body.**
+    Groovy reads it as a closure passed to the new object. `bca` now
+    reports an `<anonymous>` class there, with an error node when the
+    block's statements are not class members and with none when they
+    are (`{ int n = 1 }` becomes a class with one attribute).
+  - **A field named `trait` or `sealed` after a modifier is an error
+    node**, and the recovery can take the members after it: in a class
+    with `private String trait` the next method is no longer a function
+    space
+    ([tree-sitter-groovy#73](https://github.com/dekobon/tree-sitter-groovy/issues/73)).
+    With no modifier (`String trait`) the field still parses.
+  - **A record's compact constructor is still unsupported**
+    ([tree-sitter-groovy#72](https://github.com/dekobon/tree-sitter-groovy/issues/72)).
+    Its body is now read as an initializer block of the record rather
+    than ending the record at its header, so the members after it stay
+    in the record. Spelled with a modifier (`public R { … }`) it parses
+    with no error node and its name is read as a field, so `npa`
+    counts one public attribute the record does not have.
+  - **Class members that start with a modifier parse about twice as
+    slowly**
+    ([tree-sitter-groovy#74](https://github.com/dekobon/tree-sitter-groovy/issues/74)).
+    40,000 lines of `private String name` take 149 ms where they took
+    71 ms; the cost stays linear in file size, and members with no
+    modifier and script statements are unaffected.
+
+  The regenerated `Groovy` enum renumbers its terminal ids from 54 up
+  and every named kind from the former `ParenthesizedTypeCast` position
+  up, and gains `GenericType2` and `TypeArguments2`; the Halstead
+  angle-bracket pair reads the new `TypeArguments2` alias, which every
+  `type_arguments` now reaches as. Snapshots in the integration corpus
+  hold none of these constructs and did not move.
 
 ### Fixed
 
@@ -93,8 +186,8 @@ for historical reference.
   canonical constructor; a written one, compact or normal, keeps the
   components as before, so each is counted exactly once. The normal
   form is recognised by its name — a constructor's, which must be the
-  record's (JLS 8.8), so another class's constructor that a grammar
-  recovery lands in the record's body cannot close the header — and
+  record's (JLS 8.8), so a constructor named otherwise in the record's
+  body cannot close the header — and
   by its parameter types against the components' (JLS 8.10.4.1),
   compared as spelled by their tokens, comments and whitespace aside:
   `List</* c */ String>` and `List<String>` agree, but a constructor
@@ -106,16 +199,17 @@ for historical reference.
   count on a new `R::R` row, `nom`, `wmc` and `npm` gain one method
   each — public exactly when the Java record is, by its own `public`
   or as a member of an interface or annotation interface, whose member
-  types are implicitly public (JLS 9.5); never in Groovy, whose grammar
-  carries no modifier on a record — and the space tree, `bca ops` /
+  types are implicitly public (JLS 9.5); in Groovy by the record's own
+  `public`, or in an interface, a trait or an annotation type — and
+  the space tree, `bca ops` /
   `bca metrics` / `functions` / `to_sarif` all show the row; `npa` and
   the record's own ABC do not move. A record and an alternative
   constructor written on one line carry two `R::R` rows at one
   `start_line`, which `--baseline` cannot tell apart — the tie #1828
   documented for `H::H`. Groovy's grammar does not parse a compact
-  constructor, an untyped component list or a nested class, and
-  misreads a variable-arity component, all now documented in the
-  book's `nargs` section. Snapshots in the integration corpus hold no
+  constructor or an untyped component list, and misreads a
+  variable-arity component, all now documented in the book's `nargs`
+  section. Snapshots in the integration corpus hold no
   record and did not move.
 - **Python reads a parenthesised docstring past a `\` before it**
   (#1830). tree-sitter-python keeps a `\` + newline as a *named*

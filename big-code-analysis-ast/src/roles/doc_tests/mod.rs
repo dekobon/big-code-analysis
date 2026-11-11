@@ -779,7 +779,7 @@ mod groovy {
     const EMPTY_GROOVYDOC: Answers = at(&[IS_COMMENT]);
     const BODY: Answers = at(&[HOLDS_IN_BODY]);
 
-    pub(super) const SOURCE: &[u8] = b"/** c */\nclass C {\n  /** f */\n  int f\n  /** ctor */\n  C() { }\n  /**/\n  // line\n  /* block */\n  /*** three */\n  static { /** in static */ int s = 1 }\n  /** m */\n  def m() { def c = { /** in closure */ 1 } }\n}\ntrait T { }\ninterface I { }\nenum E { /** k */ K }\nrecord R(int a) { }\n@interface An { }\n";
+    pub(super) const SOURCE: &[u8] = b"/** c */\nclass C {\n  /** f */\n  int f\n  /** ctor */\n  C() { }\n  /**/\n  // line\n  /* block */\n  /*** three */\n  static { /** in static */ int s = 1 }\n  { /** in block */ int b = 1 }\n  /** m */\n  def m() { def c = { /** in closure */ 1 } }\n}\ntrait T { }\ninterface I { }\nenum E { /** k */ K }\nrecord R(int a) { }\n@interface An { }\n";
 
     #[test]
     fn rows_answer_the_table() {
@@ -791,6 +791,7 @@ mod groovy {
             ("field_declaration", "int f", TARGET),
             ("groovydoc_comment", "/** ctor */", DOC),
             ("constructor_declaration", "C() { }", TARGET),
+            ("block", "{ }", BODY),
             ("groovydoc_comment", "/**/", EMPTY_GROOVYDOC),
             ("line_comment", "// line", PLAIN),
             ("block_comment", "/* block */", PLAIN),
@@ -800,13 +801,19 @@ mod groovy {
                 "static { /** in static */ int s = 1 }",
                 BODY,
             ),
+            ("block", "{ /** in static */ int s = 1 }", BODY),
             ("groovydoc_comment", "/** in static */", DOC),
+            // The instance initializer: a bare `block` of the class body,
+            // in the tree since dekobon-tree-sitter-groovy 0.5.0.
+            ("block", "{ /** in block */ int b = 1 }", BODY),
+            ("groovydoc_comment", "/** in block */", DOC),
             ("groovydoc_comment", "/** m */", DOC),
             (
                 "method_declaration",
                 "def m() { def c = { /** in closure */ 1 } }",
                 TARGET,
             ),
+            ("block", "{ def c = { /** in closure */ 1 } }", BODY),
             ("groovydoc_comment", "/** in closure */", DOC),
             ("trait_declaration", "trait T { }", TARGET),
             ("interface_declaration", "interface I { }", TARGET),

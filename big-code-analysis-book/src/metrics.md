@@ -1783,7 +1783,11 @@ a C# positional record's does. The space counts as one callable in
 is a member of an interface, where member types are implicitly public
 per [JLS 9.5](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.5);
 a bare one's is package-private, per
-[JLS 8.10.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.10.4));
+[JLS 8.10.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.10.4).
+Groovy follows the reading NPM gives every Groovy member, not the
+compiler's, which makes each such constructor public: the header is
+public on the record's own `public`, or in an interface, a trait or
+an annotation type, and not otherwise);
 a component-less `record E() {}` opens a zero-parameter space with no
 code in it, whose `mi.*` read the `0.0` placeholder as `class G()`'s
 do. The suppression marker binds inside the parentheses, as for a
@@ -1818,16 +1822,19 @@ a record with no written constructor at 0 and counted only a compact
 constructor; #1842 revisits it, since the component list is declared
 code whether or not the constructor is.
 
-Four grammar limitations, all Groovy's; Java has none of them.
+Three grammar limitations, all Groovy's; Java has none of them.
 
-- **A compact constructor does not parse.** In
-  `record R(int a) { R { assert a > 0 } }` the `record_declaration`
-  ends at the header's `)`, and everything from the `{` on recovers
-  through error nodes at file level. The record is read as having no
-  body: its header opens and reports the right count, but the compact
-  body's code, and every other member of the record, is read outside
-  it — a method in that body becomes a top-level function, and the
-  class space spans the header's line only.
+- **A compact constructor does not parse**
+  ([tree-sitter-groovy#72](https://github.com/dekobon/tree-sitter-groovy/issues/72)).
+  In `record R(int a) { R { assert a > 0 } }` the bare `R` is an error
+  node and the `{ … }` after it is read as an initializer block of the
+  record. The record writes no constructor that `bca` can see, so its
+  header opens and reports the right count, but the compact body is
+  not a function of its own: its code is charged to the record's class
+  space. The members after it stay in the record. Spelled with a
+  modifier, `public R { … }`, nothing errors: the name is read as a
+  field, so [NPA](#npa) also counts one public attribute the record
+  does not have.
 - **A variable-arity component** (`String... xs`) parses with its
   `...` outside the component's type, so it never matches a written
   canonical constructor's `String... xs` parameter, and the header
@@ -1839,14 +1846,6 @@ Four grammar limitations, all Groovy's; Java has none of them.
   written canonical constructor `R(a, b)` has two untyped parameters,
   which the one-component header never matches, so the header opens
   beside it. `bca` does not infer the count over the error node.
-- **A nested class does not parse.** `record R(int a) { class Inner {
-  Inner(int a) { } } }` lands `Inner`'s constructor directly in `R`'s
-  body; the name rule above keeps it from closing `R`'s header, and
-  it counts as a callable of `R`. A `public record R(…) { }` has a
-  related misparse: the grammar carries no modifier on a record, and
-  reads the line as a method named `R` returning a type called
-  `record`, so no class space opens and the component list is that
-  method's parameters — the count is right, the shape is not.
 
 ### Averages, minimums and maximums {#nargs-aggregates}
 
@@ -1898,12 +1897,13 @@ A metric that silently reports 0 reads as "no offenders" rather than
 - **Perl anonymous subs**: a gap, and an upstream one. The grammar
   parses an anonymous sub's signature inside an error node, so
   `my $f = sub ($x) {…}` reads 0 even though it has a signature.
-- **Groovy compact constructors**: a gap, and an upstream one. The
-  grammar does not parse `record R(int a) { R { … } }`: the record
-  ends at its header, so the count is still right, on the header (see
+- **Groovy compact constructors**: a gap, and an upstream one
+  ([tree-sitter-groovy#72](https://github.com/dekobon/tree-sitter-groovy/issues/72)).
+  The grammar does not parse `record R(int a) { R { … } }`: the count
+  is still right, on the header (see
   [Record headers](#nargs-record-headers)), but the compact body is
-  not a function of its own, and every member written after it is
-  read at file level rather than in the record.
+  read as an initializer block of the record, not as a function of
+  its own.
 
 A `nargs` limit is therefore inert on a Bash codebase and sparse on
 Perl written before `use v5.36`. Gate it per language rather than

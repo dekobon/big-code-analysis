@@ -4,14 +4,19 @@
 use super::*;
 
 // `method_type_parameters` is the method-level spelling of
-// `type_parameters` (`<T> T id(T x)`). `LT2` is the `token.immediate`
-// `<` that `type_parameters` and `type_arguments` open with; the parser
-// reports it as `LT`, so it is listed defensively, here and in the
-// operator arm, and its absence is pinned by
-// `groovy_generic_opener_alias_never_reaches_kind_id`.
+// `type_parameters` (`<T> T id(T x)`). `TypeArguments2` is the alias
+// the grammar emits for every `type_arguments` since 0.4.0 added the
+// diamond (`new ArrayList<>()`) as a second spelling of `generic_type`;
+// the unsuffixed id is no longer reached, and
+// `groovy_generic_angles_are_one_pair_1559` fails by name if either
+// changes. `LT2` is the `token.immediate` `<` that `type_parameters`
+// and `type_arguments` open with; the parser reports it as `LT`, so it
+// is listed defensively, here and in the operator arm, and its absence
+// is pinned by `groovy_generic_opener_alias_never_reaches_kind_id`.
 const GENERIC_ANGLES: GenericAngleKinds = GenericAngleKinds {
     lists: &[
         Groovy::TypeArguments as u16,
+        Groovy::TypeArguments2 as u16,
         Groovy::TypeParameters as u16,
         Groovy::MethodTypeParameters as u16,
     ],
@@ -119,8 +124,8 @@ impl Getter for GroovyCode {
             // `groovy_slashy_guard_is_parent_scoped_not_ancestor_scoped`.
             //
             // The other string forms need no arm: `'plain'` is a
-            // childless leaf, `"dq"` closes with `"` (134), and
-            // dollar-slashy `$/…/$` closes with `/$` (144) — none of
+            // childless leaf, `"dq"` closes with `"` (`DQUOTE`), and
+            // dollar-slashy `$/…/$` closes with `/$` (`SLASHDOLLAR`) — none of
             // which this match classifies. `~/ab.c/` is a
             // `UnaryExpression` wrapping the same `StringLiteral`, so
             // its `~` still counts.

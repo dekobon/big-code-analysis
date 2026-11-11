@@ -11,6 +11,26 @@ use crate::role_table;
 use crate::roles::control_flow::else_if_prev_sibling_gate;
 use crate::{Ancestors, Groovy, GroovyCode, Node};
 
+/// Whether an `object_creation_expression` carries a class body, which
+/// makes it an anonymous class rather than a plain `new Foo()`: Java's
+/// rule (#463), reachable in Groovy since dekobon-tree-sitter-groovy
+/// 0.5.0 gave the expression its `body` field (tree-sitter-groovy#68).
+/// Read by field, as `opens_record_header` reads `components`; Java's
+/// grammar names no field there and its gate scans for the kind. A
+/// trailing closure (`new Foo().bar { }`) is a `closure` under a
+/// `method_invocation`, a different node, and never reaches this.
+///
+/// The gate admits what the grammar calls a body, and the grammar calls
+/// every `{` after `new T(…)` one. Groovy itself reads a `{` that
+/// starts the next line as a closure passed to the new object, so
+/// `new T()` followed by `{ int n = 1 }` on the next line opens an
+/// `<anonymous>` class here with no error node to say so, and
+/// `{ x -> x }` opens one around an `ERROR`
+/// (`groovy_closure_on_the_line_after_new_reads_as_an_anonymous_class`).
+fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
+    node.child_by_field_name("body").is_some()
+}
+
 /// Whether a `membership_expression` or `instanceof_expression` spells
 /// its keyword as a token. The negated forms `a !in b` and
 /// `o !instanceof T` emit no operator token at all — the node holds its
@@ -23,15 +43,23 @@ fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors
 /// Whether a contextual keyword leaf (`trait`, `record`, `sealed`,
 /// `permits`, `var`) sits directly under the construct it introduces.
 ///
-/// Valid Groovy may use any of the five as a name. Inside a class the
-/// grammar parses that name as an `identifier`, but a script-level
-/// statement that opens with one (`record = 3`, `String record`,
-/// `void record() {}`, `sealed.call()`) fails into an `ERROR` holding
-/// the keyword leaf, and so does a statement opening with `var` as a
-/// name anywhere (`var = 4`, `var++`). Billing the leaf there would make
-/// a variable an operator (#1552, #1565, #1704). The pinned grammar also
-/// misreads a *nested* `sealed class` as a field typed `sealed`, so that
-/// `sealed` bills as a type-name operand.
+/// Valid Groovy may use any of the five as a name. The grammar parses
+/// most such names as an `identifier`, but some fail into an `ERROR`
+/// holding the keyword leaf: a script-level statement that opens with
+/// `sealed` or `trait` (`trait = 4`, `sealed.call()`), a class member
+/// that puts either after a modifier (`private boolean sealed`, `static
+/// trait = 1`), and a statement opening with `var` as a name anywhere
+/// (`var = 4`, `var++`). Billing the leaf there would make a variable
+/// an operator (#1552, #1565, #1704).
+///
+/// `record` is the exception since dekobon-tree-sitter-groovy 0.5.0:
+/// its keyword comes from the external scanner only before a record
+/// header, so a `record` used as a name is an `identifier` everywhere
+/// and the leaf has no parent but a `record_declaration`. Its pair
+/// below is kept as the other four are, so a grammar that strands the
+/// leaf again bills nothing rather than an operator;
+/// `groovy_declaration_keywords_are_operators_1552` pins that the name
+/// is an identifier.
 fn contextual_keyword_owns<'a>(
     node: &Node<'a>,
     _code: &[u8],
@@ -77,20 +105,21 @@ fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
 /// same type — the tokens, so a comment inside the type is nothing —
 /// so `java.util.List<T>` and `List<T>` are two spellings here, as in
 /// `roles/java.rs`. The name test is for the grammar, not the language:
-/// the pinned grammar has no nested class, so `record R(int a) { class
-/// Inner { Inner(int a) { } } }` lands `Inner`'s constructor as a direct
-/// `constructor_declaration` of `R`'s body, where arity and types alone
-/// would read it as `R`'s canonical constructor.
+/// the grammar does not check a constructor's name, so `record R(int a)
+/// { Q(int a) { } }` holds a `constructor_declaration` named `Q` in
+/// `R`'s body, where arity and types alone would read it as `R`'s
+/// canonical constructor.
 ///
 /// Two grammar limitations shape what reaches this. The pinned
 /// grammar parses a variable-arity component (`String... xs`) with the
 /// `...` in an `ERROR` outside the `type` field while the constructor's
 /// parameter has a `varargs_type`, so the two never agree and such a
 /// record's header opens a space beside its canonical constructor;
-/// and a compact constructor (`R { … }`) does not parse at all: the
-/// `record_declaration` ends at its header's `)`, so a record that
-/// writes one is read through its `ERROR` nodes as having no body, and
-/// its members land at file level.
+/// and a compact constructor (`R { … }`) does not parse
+/// (tree-sitter-groovy#72): the bare `R` is an `ERROR`, or after a
+/// modifier a typeless field, and its `{ … }` an instance initializer
+/// `block` of the body, so a record that writes one declares no
+/// constructor here and its header opens.
 fn is_record_canonical_constructor(
     ctor: &Node<'_>,
     record: &Node<'_>,
@@ -472,11 +501,7 @@ role_table! {
     // space: the walk never promoted one (`is_func_space` left it out),
     // though the byte-less `get_space_kind` labelled it `Function` if
     // asked — the "pair that fails quietly" of grammar-dispatch §7; the
-    // row records the walk's answer, as Java's does for its lambda. An
-    // anonymous class opens nothing either: the pinned dekobon grammar
-    // parses `new Runnable() { … }` as a bare
-    // `object_creation_expression` followed by a separate `closure`, an
-    // upstream-grammar limitation, not a row's.
+    // row records the walk's answer, as Java's does for its lambda.
     FuncOpener {
         owns [
             MethodDeclaration(callable opens Function),
@@ -487,7 +512,9 @@ role_table! {
     }
     Closure { owns [Closure] }
     // A trait is an interface with default method bodies (#247), so
-    // it opens `Interface` as an annotation type does (#280).
+    // it opens `Interface` as an annotation type does (#280). Gated
+    // mapping, as Java's: `new Runnable() { … }` opens a `Class` space
+    // only when it carries a body (#463).
     Container {
         owns [
             SourceFile(opens Unit),
@@ -497,13 +524,14 @@ role_table! {
             InterfaceDeclaration(opens Interface),
             TraitDeclaration(opens Interface),
             AnnotationTypeDeclaration(opens Interface),
+            ObjectCreationExpression(opens Class gated_by has_class_body no_chain),
         ]
     }
     // A field declaration — `def field` included, whose `Def` modifier
     // the consumer reads for visibility — in a class or enum body.
     Member { owns [FieldDeclaration] }
     // The grammar tells Groovydoc apart by kind: `groovydoc_comment` is
-    // the `/** … */` form, a distinct node (Groovy 150) from the `//`
+    // the `/** … */` form, a distinct node (`GroovydocComment`) from the `//`
     // and `/* */` comments, so it sits on `DocComment` alone — under a
     // byte gate, since the kind also takes the empty `/**/` — and
     // `Comment` holds the other two. `is_comment` is the two kind tables
@@ -534,16 +562,56 @@ role_table! {
     DocRunOpener { absent "Groovydoc attaches every doc comment to a declaration; none documents by its own content" }
     DocRunDirective { absent "Groovydoc reads no directive comment" }
     // Beyond the callables and the closure: a `static { … }` initializer
-    // opens a function space without being a callee, and Groovydoc
-    // reads a doc comment in it no more than one in a method body.
-    DocBodyResidual { owns [StaticInitializer] }
+    // opens a function space without being a callee, and an instance
+    // initializer is a bare `block` of a class body (in the tree since
+    // dekobon-tree-sitter-groovy 0.5.0); Groovydoc reads a doc comment
+    // in either no more than one in a method body, as javadoc does in
+    // Java's two. `block` is every braced body, as in Java's row. Most
+    // are inside a callable or a closure, which answer first; the ones
+    // that are not, besides the initializer, are the bodies of a
+    // script-level `if`, `for` or `while`, which hold statements and no
+    // documented declaration either.
+    DocBodyResidual { owns [StaticInitializer, Block] }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::GroovyCode;
     use crate::test_support::for_each_node_with_chain;
+    use crate::{GroovyCode, SpaceKind};
+
+    // One `opens_space` for the whole table, read from two rows, as
+    // Java's test of the same name: the anonymous class opens a `Class`
+    // only with a body; `new Object()` opens nothing; the closure is a
+    // closure that opens nothing, and so is the trailing closure of
+    // `new Object().with { }`, which is no class body.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn opens_space_folds_func_opener_and_container_without_restating_kinds() {
+        let source = b"class A {\n  static { }\n  def c = { x -> x }\n  Object o = new Object() { }\n  Object p = new Object()\n  Object q = new Object().with { }\n}\n";
+        let mut spaces = Vec::new();
+        for_each_node_with_chain::<GroovyCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let kind = opens_space(node, source, ancestors);
+            let closure = closure::owns(node, source, ancestors);
+            if kind != SpaceKind::Unknown || closure {
+                spaces.push((node.kind(), kind, closure));
+            }
+        });
+        assert_eq!(
+            spaces,
+            [
+                ("source_file", SpaceKind::Unit, false),
+                ("class_declaration", SpaceKind::Class, false),
+                ("static_initializer", SpaceKind::Function, false),
+                ("closure", SpaceKind::Unknown, true),
+                ("object_creation_expression", SpaceKind::Class, false),
+                ("closure", SpaceKind::Unknown, true),
+            ]
+        );
+        assert!(!func_opener::OWNERS.contains(&(Groovy::Closure as u16)));
+        assert!(container::OWNERS.contains(&(Groovy::ObjectCreationExpression as u16)));
+    }
 
     // A node / token pairing with a negated spelling that has no token
     // (#1695): `a in b` is owned by its node and paid by its `in`;

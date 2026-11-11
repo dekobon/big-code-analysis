@@ -46,8 +46,8 @@ impl Cognitive for GroovyCode {
             }
             // `for_in_statement` is the dekobon grammar's distinct node
             // for `for (x in xs)` (the prior amaanq grammar called this
-            // `enhanced_for_statement`; the `for (Foo x : xs)` spelling
-            // parses to `ERROR` at this pin); `do_while`
+            // `enhanced_for_statement`), and takes the `for (Foo x : xs)`
+            // spelling too since dekobon-tree-sitter-groovy 0.4.0; `do_while`
             // and `switch_block` keep their familiar names.
             // Every loop and handler the rows own, and the body of the
             // switch the `Switch` row owns — the level opens at the body,

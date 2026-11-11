@@ -238,11 +238,12 @@ const ROWS: &[Row] = &[
         },
         opens_space: big_code_analysis_ast::roles::kotlin::opens_space,
     },
-    // Groovy: `static { }` opens a space, a closure none.
+    // Groovy: `static { }` opens a space, a closure none, and `new` only
+    // with a class body, as in Java's row.
     #[cfg(feature = "groovy")]
     Row {
         lang: LANG::Groovy,
-        source: b"interface I { void m() }\ntrait Tr { def tm() {} }\nclass C implements I {\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1) }\n}\n",
+        source: b"interface I { void m() }\ntrait Tr { def tm() {} }\nclass C implements I {\n  static { int s = 1 }\n  C() { }\n  void m() { def c = { x -> x }; c(1); def o = new Object() { String toString() { \"\" } }; def p = new Object() }\n}\n",
         walk: |source, check| {
             for_each_node_with_chain::<big_code_analysis_ast::GroovyCode>(source, check);
         },

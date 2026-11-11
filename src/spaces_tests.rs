@@ -3262,3 +3262,109 @@ mod empty_root_contract {
         );
     }
 }
+
+/// Grammar-bump shape pins: a space tree whose shape is the grammar's
+/// doing, not this crate's. Either the grammar once got it wrong and the
+/// repair lives upstream, so the test fails against the pre-bump
+/// grammar; or the grammar still reads valid source differently from
+/// its language, and the test anchors what `bca` reports for it with
+/// the upstream reference, so a later bump that changes the reading
+/// fails here by name instead of moving numbers unseen.
+#[cfg(all(test, feature = "groovy"))]
+mod grammar_bump_shapes {
+    use crate::test_support::space_verbatim;
+    use crate::traits::ParserTrait;
+    use crate::{FuncSpace, GroovyParser, LANG, MetricsOptions, SpaceKind};
+
+    fn analyse(source: &str) -> FuncSpace {
+        space_verbatim(LANG::Groovy, source.as_bytes(), MetricsOptions::default())
+    }
+
+    fn has_error(source: &str) -> bool {
+        GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("shape.groovy"),
+            None,
+        )
+        .root()
+        .has_error()
+    }
+
+    /// The `(name, kind)` of every descendant space, in preorder.
+    fn shape(space: &FuncSpace) -> Vec<(Option<&str>, SpaceKind)> {
+        let mut out = vec![(space.name.as_deref(), space.kind)];
+        for child in &space.spaces {
+            out.extend(shape(child));
+        }
+        out
+    }
+
+    /// The grammar reads every `{` after `new T(…)` as an anonymous
+    /// class body (tree-sitter-groovy `docs/divergences-from-spec.md`
+    /// §11). Groovy reads one that starts the next line as a closure
+    /// passed to the new object — the first fixture prints `1` — so
+    /// `bca` reports a class where there is a call. When the block's
+    /// statements also read as class members, no error node says so:
+    /// the closure of dekobon-tree-sitter-groovy 0.3.0 is gone and its
+    /// local variable is an attribute of a class that does not exist.
+    /// When they do not (`x -> x`), the class opens around an `ERROR`,
+    /// on the next line as on the same one.
+    /// `has_class_body` in `roles/groovy.rs` records why the gate
+    /// cannot tell these from an anonymous class.
+    ///
+    /// expected: an `<anonymous>` class in both; in the first, no error
+    /// node, no closure, and one attribute on that class.
+    #[test]
+    fn groovy_closure_on_the_line_after_new_reads_as_an_anonymous_class() {
+        let callable = "class Callable {\n    def call(Closure c) { c() }\n}\n\
+                        def v = new Callable()\n{ int n = 1 }\nprintln v\n";
+        assert!(!has_error(callable), "the misreading is error-free");
+        let root = analyse(callable);
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("Callable"), SpaceKind::Class),
+                (Some("call"), SpaceKind::Function),
+                (Some("<anonymous>"), SpaceKind::Class),
+            ],
+        );
+        assert_eq!(root.metrics.nom.closures_sum(), 0);
+        assert_eq!(root.spaces[1].metrics.npa.class_na(), 1);
+
+        let arrow = "def f = new Callable()\n{ x -> x }\n";
+        assert!(has_error(arrow), "an arrow is no class member");
+        assert_eq!(
+            shape(&analyse(arrow)),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("<anonymous>"), SpaceKind::Class),
+            ],
+        );
+    }
+
+    /// FIXME(tree-sitter-groovy#73): since dekobon-tree-sitter-groovy
+    /// 0.5.0 `trait` and `sealed` are keywords wherever a class member
+    /// can start, so a field so named after a modifier — valid Groovy,
+    /// and a plausible property name — is an `ERROR`, and the recovery
+    /// opens a `trait_declaration` that takes the members after it:
+    /// `describe` is no space and an interface named `String` appears.
+    /// At 0.3.0 the field was a field and `describe` a method. The
+    /// correct shape is `[Unit, Hero, describe, train]`; the error
+    /// assertion is the premise, so the upstream fix fails here first.
+    #[test]
+    fn groovy_field_named_trait_after_a_modifier_loses_the_next_method() {
+        let source = "class Hero {\n    private String trait\n    private int level\n    \
+                      String describe() {\n        if (level > 3) { return trait }\n        \
+                      return 'novice'\n    }\n    void train() { level++ }\n}\n";
+        assert!(
+            has_error(source),
+            "`private String trait` parses clean: the grammar no longer reserves `trait` \
+             there, so re-derive the shape below (`describe` is a method) and drop the FIXME"
+        );
+        let root = analyse(source);
+        let names: Vec<_> = shape(&root).into_iter().map(|(name, _)| name).collect();
+        assert!(!names.contains(&Some("describe")), "{names:?}");
+        assert!(names.contains(&Some("train")), "{names:?}");
+    }
+}

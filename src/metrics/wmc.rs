@@ -688,7 +688,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies"]
     fn groovy_nested_inner_classes_wmc() {
         // Three nested classes each with one trivial method.
         // Mirrors `java_nested_inner_classes` (wmc.rs flavor).
@@ -740,7 +739,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support anonymous inner classes (`new T() { … }`)"]
     fn groovy_anonymous_inner_class_wmc() {
         // `new Runnable() { ... }` anonymous inner class. WMC
         // includes the inner's method bodies.
@@ -763,6 +761,35 @@ mod tests {
             |metric| {
                 // Base.m1(1) + Top.m(1) + anonymous.m1(1+for(1)) = 4
                 assert_eq!(metric.wmc.class_wmc_sum(), 4);
+            },
+        );
+        // The sum reads 4 with or without a space for the anonymous
+        // class, and read 4 before the grammar parsed one. Whose methods
+        // they are is the per-space row: `m1` with its `for` on the
+        // anonymous class, `m` alone on `Top`.
+        check_func_space::<GroovyParser, _>(
+            "class Top {
+                void m() {
+                    def b = new Base() {
+                        void m1() {
+                            for (int i = 0; i < 5; i++) {
+                                println(i)
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |space| {
+                let top = child_space(&space, "Top");
+                let anonymous = child_space(child_space(top, "m"), "<anonymous>");
+                assert_eq!(anonymous.kind, crate::SpaceKind::Class);
+                assert_eq!(top.metrics.wmc.class_wmc(), 1, "`m` on `Top`");
+                assert_eq!(
+                    anonymous.metrics.wmc.class_wmc(),
+                    2,
+                    "`m1` and its `for` on the anonymous class"
+                );
             },
         );
     }
@@ -816,7 +843,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside interface bodies"]
     fn groovy_class_in_interface() {
         // Inner class inside an interface — its methods count
         // toward `class_wmc`, not `interface_wmc`.
@@ -2485,24 +2511,26 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    fn groovy_anonymous_class_models_body_as_closure() {
-        // #463 upstream-grammar note: the pinned dekobon Groovy grammar
-        // does NOT attach an anonymous-class body to its
-        // `object_creation_expression`. It parses `new Runnable()` as a
-        // bare constructor call and the trailing `{ ... }` as a separate
-        // `closure`, which already opens a Function space. So Groovy gets
-        // no Class space for an anonymous class (unlike Java), but its
-        // members are still NOT mis-attributed to the enclosing method —
-        // they land in the closure's Function space. This pins that
-        // behaviour so a future grammar bump that starts modelling
-        // `class_body` here is caught and the Groovy `get_space_kind` arm
-        // can be revisited.
+    fn groovy_anonymous_class_opens_space() {
+        // #463's Groovy half, reachable since dekobon-tree-sitter-groovy
+        // 0.5.0 attached the body to its `object_creation_expression`
+        // (#1408): an anonymous class opens its own Class space, so its
+        // members are attributed to it, not to the enclosing method. A
+        // plain `new Object()` and a closure must not open one, and
+        // neither must the trailing closure of `new Object().with { }` —
+        // the gate is on the `class_body` child. Reverting the
+        // `ObjectCreationExpression` row drops the anonymous Class space
+        // and re-attributes `run` to `m`, failing this test. Before 0.5.0
+        // the body parsed as a closure and `run` sat in a Function space.
         check_func_space::<GroovyParser, _>(
             "class C {
                 void m() {
                     def r = new Runnable() {
                         void run() {}
                     }
+                    def o = new Object()
+                    def l = { -> }
+                    def w = new Object().with { }
                 }
             }",
             "C.groovy",
@@ -2517,23 +2545,24 @@ mod tests {
                     .iter()
                     .find(|s| s.name.as_deref() == Some("m"))
                     .expect("expected a child FuncSpace named \"m\"");
-                // No Class space (grammar limitation), but `run` lands in a
-                // nested Function space (the closure), not in `m` itself.
-                let class_children = m
+                // Exactly one Class child under `m`: the anonymous class.
+                let anon_classes: Vec<_> = m
                     .spaces
                     .iter()
                     .filter(|s| s.kind == crate::SpaceKind::Class)
+                    .collect();
+                assert_eq!(anon_classes.len(), 1, "exactly one anonymous Class space");
+                assert_eq!(anon_classes[0].name.as_deref(), Some("<anonymous>"));
+                // `run` is attributed to the anonymous class (its single
+                // child Function space), not to `m`.
+                let anon_methods = anon_classes[0]
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Function)
                     .count();
-                assert_eq!(
-                    class_children, 0,
-                    "Groovy grammar models the body as a closure, not a class"
-                );
+                assert_eq!(anon_methods, 1, "run attributed to the anonymous class");
+                assert_eq!(anon_classes[0].metrics.wmc.class_wmc_sum(), 1);
                 assert_eq!(m.metrics.nom.functions(), 1, "`m` itself, not `run`");
-                let nested_funcs: u64 = m.spaces.iter().map(|s| s.metrics.nom.functions()).sum();
-                assert_eq!(
-                    nested_funcs, 1,
-                    "`run` is attributed to the nested closure space"
-                );
             },
         );
     }

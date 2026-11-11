@@ -4548,33 +4548,50 @@ class A(val x: Int)",
     }
 
     /// The canonical constructor is named after its record (JLS 8.8),
-    /// and the gate requires it: the pinned Groovy grammar has no nested
-    /// class, so `class Inner { Inner(int a, int b) { } }` inside `R`'s
-    /// body recovers as a field `class Inner`, a stray `{`, and `Inner`'s
-    /// constructor as a direct `constructor_declaration` of `R`'s body,
-    /// whose arity and types match `R`'s components exactly. Read by
-    /// types alone it closed `R`'s header — `R::R` was missing and
-    /// `Inner` counted as `R`'s only callable. The header opens beside
-    /// it: `R`'s two components and `Inner`'s two parameters.
+    /// and the gate requires it: `Q(int a, int b) { }` in `R`'s body is
+    /// a `constructor_declaration` named `Q` — the grammar does not check
+    /// a constructor's name — whose arity and types match `R`'s
+    /// components exactly. Read by types alone it closed `R`'s header:
+    /// `R::R` was missing and `Q` counted as `R`'s only callable. The
+    /// header opens beside it: `R`'s two components and `Q`'s two
+    /// parameters.
+    ///
+    /// Until dekobon-tree-sitter-groovy 0.5.0 the same shape was reached
+    /// through a nested class, which the grammar recovered into `R`'s
+    /// body as a stray constructor. A nested class is now a space of its
+    /// own holding its constructor, and `R`'s header stays open: the
+    /// second fixture.
     #[cfg(feature = "groovy")]
     #[test]
-    fn groovy_nested_class_constructor_does_not_close_the_record_header() {
-        let source = "record R(int a, int b) { class Inner { Inner(int a, int b) { } } }";
-        let parser = GroovyParser::new(
-            source.as_bytes().to_vec(),
-            std::path::Path::new("nested.groovy"),
-            None,
-        );
-        assert!(
-            parser.root().has_error(),
-            "the grammar learned nested classes: `Inner` is then a space of its own"
-        );
-        check_spaces::<GroovyParser, _>(source, "nested.groovy", |space| {
+    fn groovy_constructor_named_otherwise_does_not_close_the_record_header() {
+        const NAMED: &str = "record R(int a, int b) { Q(int a, int b) { } }";
+        const NESTED: &str = "record R(int a, int b) { class Inner { Inner(int a, int b) { } } }";
+        for source in [NAMED, NESTED] {
+            let parser = GroovyParser::new(
+                source.as_bytes().to_vec(),
+                std::path::Path::new("named.groovy"),
+                None,
+            );
+            assert!(!parser.root().has_error(), "{source:?} parses clean");
+        }
+        check_spaces::<GroovyParser, _>(NAMED, "named.groovy", |space| {
             assert_eq!(
                 space_rows(&space),
                 [
                     row("R", SpaceKind::Class, 0),
                     row("R", SpaceKind::Function, 2),
+                    row("Q", SpaceKind::Function, 2),
+                ]
+            );
+            assert_eq!(space.metrics.nargs.function_args_sum(), 4);
+        });
+        check_spaces::<GroovyParser, _>(NESTED, "nested.groovy", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 2),
+                    row("Inner", SpaceKind::Class, 0),
                     row("Inner", SpaceKind::Function, 2),
                 ]
             );
@@ -4583,7 +4600,7 @@ class A(val x: Int)",
     }
 
     /// Java's twin of
-    /// `groovy_nested_class_constructor_does_not_close_the_record_header`.
+    /// `groovy_constructor_named_otherwise_does_not_close_the_record_header`.
     /// Valid Java cannot reach the name test — javac names a nested
     /// class's constructor under that class, and rejects a constructor
     /// named otherwise ("invalid method declaration; return type
@@ -4816,17 +4833,22 @@ record A(int x) {}",
         );
     }
 
-    /// The pinned dekobon grammar (0.3.0) does not parse a compact
-    /// constructor: in `record R(int a) { R { assert a > 0 } }` the
-    /// `record_declaration` ends at the header's `)`, and the `{ R {`,
-    /// the assertion and the braces recover as `ERROR` nodes and
-    /// statements at file level, so the record is read as having no
-    /// body and its header opens (one owner, the right count — but a
-    /// limitation, not support: the compact body's code is read
-    /// outside the record, and so is every member after it). Recorded
-    /// so a grammar bump that starts parsing the form moves this row
-    /// and the book's limitation note together, and so no one reads
-    /// the header-only pass above as compact support.
+    /// The pinned dekobon grammar does not parse a compact constructor.
+    /// In `record R(int a) { R { assert a > 0 } }` the bare `R` is an
+    /// `ERROR` and the `{ … }` after it an instance initializer `block`
+    /// of the record's body, so no constructor is written and the header
+    /// opens: one owner, the right count — but a limitation, not
+    /// support, since the compact body is no function of its own.
+    /// Before 0.5.0 the `record_declaration` ended at the header's `)`
+    /// and every member after the compact body was read at file level;
+    /// the body is intact now and `m` stays in the record. Spelled
+    /// `public R { … }` the name is a typeless field and nothing errors,
+    /// which `groovy_compact_constructor_with_a_modifier_reads_as_a_public_field`
+    /// (`npa.rs`) pins; the header opens the same way. Recorded so a
+    /// grammar bump that starts parsing the form
+    /// (tree-sitter-groovy#72) moves this row and the book's limitation
+    /// note together, and so no one reads the header-only pass above as
+    /// compact support.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_compact_constructor_does_not_parse() {
@@ -4849,9 +4871,8 @@ record A(int x) {}",
                 ]
             );
         });
-        // A member after the compact body is read at file level: `m`
-        // is the unit's child beside `R`, not `R`'s, and `R` spans the
-        // header's line only.
+        // A member after the compact body is the record's: `m` is `R`'s
+        // child, and `R` spans both lines.
         check_spaces::<GroovyParser, _>(
             "record R(int a, int b) { R { assert a > 0 }\n  int m(int t) { t } }",
             "compact.groovy",
@@ -4865,8 +4886,8 @@ record A(int x) {}",
                     ]
                 );
                 let names: Vec<_> = space.spaces.iter().map(|s| s.name.as_deref()).collect();
-                assert_eq!(names, [Some("R"), Some("m")]);
-                assert_eq!(space.spaces[0].end_line, 1);
+                assert_eq!(names, [Some("R")]);
+                assert_eq!(space.spaces[0].end_line, 2);
             },
         );
     }

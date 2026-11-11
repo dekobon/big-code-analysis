@@ -1229,7 +1229,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies (https://github.com/dekobon/tree-sitter-groovy SPECIFICATION.md §4 — 'Field declarations, static initialisers, and inner classes land later')"]
     fn groovy_nested_inner_classes() {
         // Each nested `class` declaration is its own class space
         // with its own NPA. Mirrors `java_nested_inner_classes`.
@@ -1270,27 +1269,102 @@ mod tests {
         );
     }
 
+    // An anonymous inner class owns its attributes. Since
+    // dekobon-tree-sitter-groovy 0.5.0 the body of `new Runnable() { … }`
+    // is a `class_body` under its `object_creation_expression`, which
+    // opens a `<anonymous>` Class space as Java's does (#463), so `x`
+    // counts there and `r` on `X`. The totals alone cannot show that:
+    // at 0.3.0 they were also 2 / 2, with the body spilled out of the
+    // field behind an `ERROR` and `x` counted on `X` itself, and at
+    // 0.4.0 they were 1 / 1 with `x` inside a closure and owned by no
+    // class (tree-sitter-groovy#68). The per-space rows are the tell.
+    //
+    // expected: 2 attributes, both public, in total; one each on `X`
+    // and on the anonymous class.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_anonymous_inner_class() {
-        // Object-creation expression containing a `class_body` —
-        // anonymous inner class. Its attributes are counted in a
-        // separate class space.
-        check_metrics::<GroovyParser>(
-            "class X {
+        use crate::traits::ParserTrait;
+        let src = "class X {
                 public Runnable r = new Runnable() {
                     public int x
                     void run() {}
                 }
-            }",
-            "foo.groovy",
-            |metric| {
-                // outer X has 1 public attr `r`; inner anonymous
-                // has 1 public attr `x` => total 2.
-                assert_eq!(metric.npa.class_na_sum(), 2);
-                assert_eq!(metric.npa.class_npa_sum(), 2);
-            },
+            }";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
         );
+        assert!(
+            !parser.root().has_error(),
+            "the anonymous class parses clean"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::Closure as u16),
+            "the body is a class body, not the 0.4.0 trailing closure"
+        );
+        check_func_space::<GroovyParser, _>(src, "foo.groovy", |space| {
+            assert_eq!(space.metrics.npa.class_na_sum(), 2);
+            assert_eq!(space.metrics.npa.class_npa_sum(), 2);
+            let outer = child_space(&space, "X");
+            let anonymous = child_space(outer, "<anonymous>");
+            assert_eq!(anonymous.kind, SpaceKind::Class);
+            assert_eq!(
+                [outer.metrics.npa.class_na(), outer.metrics.npa.class_npa()],
+                [1, 1],
+                "`r` on `X`"
+            );
+            assert_eq!(
+                [
+                    anonymous.metrics.npa.class_na(),
+                    anonymous.metrics.npa.class_npa()
+                ],
+                [1, 1],
+                "`x` on the anonymous class"
+            );
+        });
+    }
+
+    // FIXME(tree-sitter-groovy#72): the grammar has no compact
+    // constructor. Spelled with a modifier, as Groovy's own documentation
+    // spells it (`public Warning { … }`), it parses with no error node
+    // as a modifier-only field named after the record followed by an
+    // instance initializer `block`, so `npa` counts a public attribute
+    // the record does not have. Java's `compact_constructor_declaration`
+    // reads 0 / 0 here, and so did dekobon-tree-sitter-groovy 0.3.0,
+    // which lost the whole body to error recovery. The correct values
+    // are 0 / 0; the ones below are the 0.5.0 parse. The clean-parse
+    // assertion and the census are the premise: the bare `Warning { … }`
+    // spelling still errors (`groovy_compact_constructor_does_not_parse`
+    // in `nargs.rs`), so this is the form no error check can see.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_compact_constructor_with_a_modifier_reads_as_a_public_field() {
+        use crate::traits::ParserTrait;
+        let src = "record Warning(String message) {
+                public Warning {
+                    Objects.requireNonNull(message)
+                }
+            }";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
+        );
+        assert!(
+            !parser.root().has_error(),
+            "the compact constructor errors now; re-derive the values below"
+        );
+        assert!(
+            ast_has_kind_id(&parser, Groovy::FieldDeclaration as u16),
+            "the grammar no longer reads the compact constructor as a field: \
+             it may parse it now, so re-derive the values below (0 / 0) and drop the FIXME"
+        );
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+        });
     }
 
     // Regression for issue #280: Groovy mirrors Java's enum / record /

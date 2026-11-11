@@ -630,6 +630,8 @@ implement_metric_trait!(
 mod tests {
     use std::path::PathBuf;
 
+    #[cfg(feature = "groovy")]
+    use crate::test_support::assert_fixture_spells;
     use crate::test_support::{
         assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
         check_metrics_only_shim, child_space,
@@ -894,7 +896,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support inner classes inside class bodies"]
     fn groovy_nested_inner_classes() {
         // Each nested `class` declaration is its own class space.
         // Mirrors `java_nested_inner_classes`.
@@ -919,7 +920,6 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not yet support anonymous inner classes (`new T() { … }`)"]
     fn groovy_anonymous_inner_class() {
         // Anonymous inner class via `new T() { ... }`. Its methods
         // are counted in a separate class space.
@@ -936,6 +936,34 @@ mod tests {
                 // (run). Outer X has no methods.
                 assert_eq!(metric.npm.class_nm_sum(), 2);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+        // The sums cannot tell whose methods they are: they read 2 / 1
+        // with the anonymous class's space gone and both methods on `X`.
+        check_func_space::<GroovyParser, _>(
+            "class X {
+                public Runnable r = new Runnable() {
+                    public void run() {}
+                    void helper() {}
+                }
+            }",
+            "foo.groovy",
+            |space| {
+                let outer = child_space(&space, "X");
+                let anonymous = child_space(outer, "<anonymous>");
+                assert_eq!(
+                    [outer.metrics.npm.class_nm(), outer.metrics.npm.class_npm()],
+                    [0, 0],
+                    "`X` declares no method"
+                );
+                assert_eq!(
+                    [
+                        anonymous.metrics.npm.class_nm(),
+                        anonymous.metrics.npm.class_npm()
+                    ],
+                    [2, 1],
+                    "`run` and `helper` on the anonymous class, `run` public"
+                );
             },
         );
     }
@@ -1891,50 +1919,102 @@ mod tests {
         });
     }
 
-    /// Groovy's twin of `java_interface_member_record_constructor_is_public`
-    /// cannot be written: the pinned grammar's `class_body` holds no
-    /// nested declaration, so `interface I { record R(int a) {} }` is
-    /// read as a method named `R` returning a type called `record` —
-    /// one interface method, public as every interface member is — and
-    /// no record space opens. Pinned so a grammar bump that learns the
-    /// shape moves this row and the `RecordDeclaration` arm of
-    /// `npm/groovy.rs` together.
+    /// Groovy's twin of `java_interface_member_record_constructor_is_public`,
+    /// writable since dekobon-tree-sitter-groovy 0.5.0 made a record a
+    /// class member: before it `interface I { record R(int a) {} }` read
+    /// as a method named `R` returning a type called `record`, and no
+    /// record space opened. The rule is this metric's reading of a
+    /// Groovy member (`groovy_record_is_public`), not groovyc's, which
+    /// makes every such constructor public: a header counts as public
+    /// on the record's own `public`, or in an interface, a trait or an
+    /// annotation type, where every member counts as public whatever it
+    /// spells (`V`). `private` and `protected` are not `public` (`E`,
+    /// `F`), and the body asked is the record's own: a record in a class
+    /// nested in an interface is in a class (`M`). Unlike Java's grammar
+    /// this one parses the annotation-type case, so `An` has its row.
+    ///
+    /// expected: one method each, the header; public for `R`, `P`, `V`,
+    /// `O`, `G`, `Q` and `S`, not for `M`, `D`, `E` and `F`.
     #[cfg(feature = "groovy")]
     #[test]
-    fn groovy_interface_member_record_misparses_as_a_method() {
-        check_func_space::<GroovyParser, _>(
-            "interface I { record R(int a) {} }",
+    fn groovy_interface_member_record_constructor_is_public() {
+        let source = "interface I {
+                 record R(int a) { }
+                 public record P(int a) { }
+                 private record V(int a) { }
+                 class N { record M(int a) { } public record O(int a) { } }
+             }
+             class C {
+                 record D(int a) { }
+                 private record E(int a) { }
+                 protected record F(int a) { }
+                 public record G(int a) { }
+             }
+             @interface An { record Q(int a) { } }
+             trait T { static record S(int a) { } }";
+        let parser = GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("members.groovy"),
+            None,
+        );
+        assert!(!parser.root().has_error(), "every member record parses");
+        assert_fixture_spells::<GroovyParser>(
+            source,
             "members.groovy",
-            |space| {
-                let interface = child_space(&space, "I");
-                assert_eq!(interface.kind, SpaceKind::Interface);
-                assert_eq!(interface.metrics.npm.interface_nm(), 1);
-                assert_eq!(interface.metrics.npm.interface_npm(), 1);
-                let rows: Vec<_> = interface
+            &[
+                (Groovy::RecordDeclaration as u16, 11, "member records"),
+                (
+                    Groovy::MethodDeclaration as u16,
+                    0,
+                    "the pre-0.5.0 misparse",
+                ),
+            ],
+        );
+        check_func_space::<GroovyParser, _>(source, "members.groovy", |space| {
+            fn rows(owner: &FuncSpace) -> Vec<(&str, u64, u64)> {
+                owner
                     .spaces
                     .iter()
-                    .map(|s| (s.name.as_deref().unwrap_or_default(), s.kind))
-                    .collect();
-                assert_eq!(rows, [("R", SpaceKind::Function)]);
-            },
-        );
+                    .map(|s| {
+                        (
+                            s.name.as_deref().unwrap_or_default(),
+                            s.metrics.npm.class_nm(),
+                            s.metrics.npm.class_npm(),
+                        )
+                    })
+                    .collect()
+            }
+            let interface = child_space(&space, "I");
+            assert_eq!(
+                rows(interface),
+                [("R", 1, 1), ("P", 1, 1), ("V", 1, 1), ("N", 0, 0)]
+            );
+            assert_eq!(
+                rows(child_space(interface, "N")),
+                [("M", 1, 0), ("O", 1, 1)]
+            );
+            assert_eq!(
+                rows(child_space(&space, "C")),
+                [("D", 1, 0), ("E", 1, 0), ("F", 1, 0), ("G", 1, 1)]
+            );
+            assert_eq!(rows(child_space(&space, "An")), [("Q", 1, 1)]);
+            assert_eq!(rows(child_space(&space, "T")), [("S", 1, 1)]);
+        });
     }
 
-    /// Groovy's record header is a method as Java's (#1842), never a
-    /// public one: the pinned grammar gives `record_declaration` no
-    /// modifier child (`node-types.json` lists `annotation` alone) and
-    /// misparses `public record P(int a) { }` as a `method_declaration`
-    /// returning a type named `record`, so there is no `public` for the
-    /// implicit constructor to take and the header counts under
-    /// `class_nm` alone — the reading every unmodified Groovy member
-    /// gets here. A written canonical constructor (`N`) closes the
-    /// header and counts under its own modifier; an alternative (`A`)
-    /// is counted beside the header's. The misparse is pinned so a
-    /// grammar bump that learns the modifier moves this row and the
-    /// `groovy_has_explicit_public` reading together.
+    /// Groovy's twin of
+    /// `java_record_canonical_constructor_is_a_method_with_the_records_access`:
+    /// the record header is a method (#1842) that counts as public when
+    /// the record spells `public` (`P`), and not otherwise (`D`), the
+    /// reading every unmodified Groovy member gets here. Before
+    /// dekobon-tree-sitter-groovy 0.5.0 the grammar gave a record no
+    /// modifier and read `public record P(int a) { }` as a method named
+    /// `P`, so the row was `("P", Function, 0, 0)`. A written canonical
+    /// constructor (`N`) closes the header and counts under its own
+    /// modifier; an alternative (`A`) is counted beside the header's.
     #[cfg(feature = "groovy")]
     #[test]
-    fn groovy_record_canonical_constructor_is_a_method_and_not_a_public_one() {
+    fn groovy_record_canonical_constructor_is_a_method_with_the_records_access() {
         check_func_space::<GroovyParser, _>(
             "record D(int a) { }
              record N(int a) { public N(int a) { this.a = a } }
@@ -1960,8 +2040,7 @@ mod tests {
                         ("D", SpaceKind::Class, 1, 0),
                         ("N", SpaceKind::Class, 1, 1),
                         ("A", SpaceKind::Class, 2, 0),
-                        // The misparse: a method named `P`, not a record.
-                        ("P", SpaceKind::Function, 0, 0),
+                        ("P", SpaceKind::Class, 1, 1),
                     ]
                 );
             },

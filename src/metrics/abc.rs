@@ -2621,28 +2621,38 @@ mod tests {
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_enum_constant_with_arguments_is_a_branch() {
-        // Groovy's enum has no annotated-constant case to cover: the
-        // dekobon grammar cannot parse `@Deprecated A(1)` inside an enum
-        // body and recovers into `ERROR` nodes, emitting no `enum_constant`
-        // at all. The remaining two cases are the ones that matter.
+        // `@SuppressWarnings("x") B` is the discriminating case for the
+        // gate, as in Java's test, and a sharper one here: the dekobon
+        // grammar spells an annotation's arguments as an `argument_list`,
+        // the very kind the gate looks for, so only *where* it hangs —
+        // off the `annotation` child, not the constant — keeps `B` at
+        // zero. An arm gated on "has an argument list anywhere below"
+        // would score it. Annotated constants parse since
+        // dekobon-tree-sitter-groovy 0.5.0; before it one `@` took the
+        // rest of the enum body into an `ERROR`. Verified with `bca dump`.
         //
-        // expected: 3 branches — `A(1)`, `D(…)`, and the `Outer.f()` inside
-        // `D`'s argument list. `B` scores 0.
+        // expected: 4 branches — `A(1)`, `K(2)`, `D(…)`, and the
+        // `Outer.f()` inside `D`'s argument list. `B` scores 0.
         let src = "class Outer { static int f() { 1 } }
-             enum E { A(1), B, D(Outer.f()) }";
+             enum E { A(1), @SuppressWarnings(\"x\") B, @Deprecated K(2), D(Outer.f()) }";
         assert_enum_branches::<GroovyParser>(
             src,
             "foo.groovy",
             &[
-                (Groovy::EnumConstant as u16, 3, "enum constants"),
-                (Groovy::ArgumentList as u16, 3, "argument lists"),
+                (Groovy::EnumConstant as u16, 4, "enum constants"),
+                (
+                    Groovy::ArgumentList as u16,
+                    5,
+                    "argument lists: three constants', `@SuppressWarnings`'s, `Outer.f()`'s",
+                ),
+                (Groovy::Annotation as u16, 2, "annotations on constants"),
                 (
                     Groovy::MethodInvocation as u16,
                     1,
                     "`D`'s nested `Outer.f()` call",
                 ),
             ],
-            3,
+            4,
         );
     }
 
@@ -2729,6 +2739,128 @@ mod tests {
                 assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
+    }
+
+    // dekobon-tree-sitter-groovy 0.4.0 reads a call whose last argument
+    // is a trailing closure — `xs.each { … }`, `xs.inject(0) { … }` — as
+    // one `method_invocation` with a `closure` field. At 0.3.0 the
+    // parenthesis-less form was a `field_access` `xs.each` followed by a
+    // free-standing closure statement, so the call was never seen and
+    // scored no branch. The census pins two invocations and two
+    // closures; the parent check is the 0.3.0 tell, where each closure
+    // hung off the statement beside a bare `field_access` `xs.each`.
+    //
+    // expected: 2 branches, one per call; the closures are not calls.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_trailing_closure_call_is_a_branch() {
+        let src = "def xs = [1, 2, 3]
+            xs.each { println it }
+            xs.inject(0) { acc, x -> acc + x }";
+        assert_fixture_spells::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (Groovy::MethodInvocation as u16, 2, "method invocations"),
+                (Groovy::Closure as u16, 2, "closures"),
+            ],
+        );
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
+        );
+        let closures_under_a_call = parser
+            .root()
+            .preorder()
+            .filter(|n| n.kind_id() == Groovy::Closure as u16)
+            .filter(|n| {
+                n.parent()
+                    .is_some_and(|p| p.kind_id() == Groovy::MethodInvocation as u16)
+            })
+            .count();
+        assert_eq!(
+            closures_under_a_call, 2,
+            "each closure is the call's argument"
+        );
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 2);
+        });
+    }
+
+    // An anonymous inner class is one construction. Since
+    // dekobon-tree-sitter-groovy 0.5.0 `new Runnable() { void run() {} }`
+    // is an `object_creation_expression` carrying a `class_body`. At
+    // 0.4.0 the trailing-closure rule claimed the body instead, with no
+    // `ERROR`: a `method_invocation` around the creation, the body a
+    // `closure`, and ABC billed a phantom call beside the construction
+    // (tree-sitter-groovy#68). Both parses are error-free, so the census
+    // is what tells them apart (lesson 122); the clean-parse assertion
+    // is for the other failure, a recovery that keeps every count. The
+    // second fixture is the shape that must keep its call: a closure
+    // passed to a method of the new object.
+    //
+    // expected: 1 branch for the anonymous class, the construction; 2
+    // for `new Object().with { }`, the construction and the call.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_anonymous_inner_class_is_one_construction() {
+        let src = "class X {
+                public Runnable r = new Runnable() { void run() {} }
+            }";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
+        );
+        assert!(
+            !parser.root().has_error(),
+            "the anonymous class parses clean"
+        );
+        assert_fixture_spells::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (
+                    Groovy::ObjectCreationExpression as u16,
+                    1,
+                    "object creation",
+                ),
+                (
+                    Groovy::ClassBody as u16,
+                    2,
+                    "`X`'s body and the anonymous class's",
+                ),
+                (
+                    Groovy::MethodDeclaration as u16,
+                    1,
+                    "`run` in the anonymous body",
+                ),
+                (Groovy::MethodInvocation as u16, 0, "the 0.4.0 phantom call"),
+                (
+                    Groovy::Closure as u16,
+                    0,
+                    "the 0.4.0 closure reading of the body",
+                ),
+            ],
+        );
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 1);
+        });
+
+        let call_src = "def w = new Object().with { }";
+        assert_fixture_spells::<GroovyParser>(
+            call_src,
+            "foo.groovy",
+            &[
+                (Groovy::MethodInvocation as u16, 1, "the `with` call"),
+                (Groovy::Closure as u16, 1, "its trailing closure"),
+                (Groovy::ClassBody as u16, 0, "class bodies"),
+            ],
+        );
+        check_metrics::<GroovyParser>(call_src, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 2);
+        });
     }
 
     #[cfg(feature = "groovy")]
@@ -3365,7 +3497,7 @@ mod tests {
     fn groovy_final_local_is_an_error_at_the_pinned_grammar() {
         // `groovy_eq_initializes_final_binding` lists
         // `local_variable_declaration` for symmetry with Java, but at
-        // dekobon-tree-sitter-groovy 0.3.0 a `final` local never
+        // the pinned grammar a `final` local never
         // reaches it: the parser emits an `ERROR` node for the
         // declaration, with or without a terminator, so both of its `=`
         // tokens count. This pins the grammar limitation so a bump that

@@ -1737,10 +1737,34 @@ mod tests {
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_generic_angles_are_one_pair_1559() {
+        // Since dekobon-tree-sitter-groovy 0.4.0 every `type_arguments`
+        // reaches the tree as the alias `TypeArguments2` (the diamond
+        // `new X<>()` is a second spelling of `generic_type`, and the
+        // alias took over both), so `GENERIC_ANGLES.lists` names it. The
+        // two kind assertions are the grammar-dispatch §1 / §2 drift
+        // marker: a bump that routes the list back through the unsuffixed
+        // id would keep the counts below passing on the wrong row.
+        use crate::traits::ParserTrait;
+        let source =
+            "class A<T> { List<List<T>> v; def <U> boolean m() { return a < b && c > d } }\n";
+        let parser = crate::GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
+        );
+        assert!(
+            crate::test_support::ast_has_kind_id(&parser, crate::Groovy::TypeArguments2 as u16),
+            "the grammar no longer emits `type_arguments` as the alias `TypeArguments2`; \
+             re-derive `GENERIC_ANGLES.lists` in getter/groovy.rs"
+        );
+        assert!(
+            !crate::test_support::ast_has_kind_id(&parser, crate::Groovy::TypeArguments as u16),
+            "the unsuffixed `TypeArguments` is reachable again; keep both ids listed"
+        );
         check_generic_pair(
             LANG::Groovy,
             "foo.groovy",
-            "class A<T> { List<List<T>> v; def <U> boolean m() { return a < b && c > d } }\n",
+            source,
             &[
                 "class", "<>", ";", "{}", "def", "boolean", "()", "return", "<", "&&", ">",
             ],

@@ -164,8 +164,8 @@ fn groovy_count_negated_slot(slot: Option<Node>, code: &[u8], conditions: &mut f
 
 // The Groovy spelling of `java_eq_initializes_final_binding`: the
 // grammar puts `final` directly under the declaration rather than in a
-// `modifiers` node. Only the field form is reachable — tree-sitter-
-// groovy 0.3.0 parses a `final` local as an `ERROR` node, with or
+// `modifiers` node. Only the field form is reachable — the pinned
+// grammar parses a `final` local as an `ERROR` node, with or
 // without a `;` (pinned by `groovy_final_local_is_an_error_at_the_pinned_grammar`)
 // — but the local kind is listed so a grammar that starts parsing it
 // classifies it like Java. Before this predicate a sentinel stack
@@ -249,10 +249,12 @@ fn groovy_count_token_branch<'a>(
         // new node: a bare `B` is `enum_constant > identifier` with no
         // `argument_list` child and must stay at zero. Verified with `bca
         // dump`: the dekobon Groovy grammar gives the constant an
-        // `identifier` plus an optional `argument_list`. Java's annotated
-        // spelling has no analogue to guard against here — this grammar
-        // cannot parse `@Deprecated A(1)` inside an enum body at all and
-        // recovers into `ERROR` nodes, so no `enum_constant` is produced.
+        // `identifier` plus an optional `argument_list`, and since 0.5.0
+        // its annotations before them. An annotation's own arguments are
+        // an `argument_list` too — the same kind id, where Java spells
+        // `annotation_argument_list` — but they hang off the `annotation`
+        // child, so `@SuppressWarnings("x") B` has no direct one and stays
+        // at zero: the gate reads direct children only.
         // An argument that is itself a call (`A(f())`) scores 2:
         // `argument_list` is not a branch node, so the inner
         // `method_invocation` is the only other node counted (§5).

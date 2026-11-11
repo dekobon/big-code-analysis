@@ -102,10 +102,10 @@ fn java_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<ParameterType> {
 /// Whether `ctor`, a `constructor_declaration` in `record`'s body,
 /// declares the record's canonical constructor (JLS 8.10.4.1): it is
 /// named after the record (JLS 8.8, which every constructor must be —
-/// the check is for a body the grammar fills with another class's
-/// constructor, as tree-sitter-groovy's nested-class recovery does and
-/// as tree-sitter-java accepts for the invalid `record R(int a) { Q(int
-/// a) { } }`), and its formal parameters and the record `header`'s
+/// the check is for a body that holds a constructor named otherwise,
+/// which tree-sitter-java accepts for the invalid `record R(int a) {
+/// Q(int a) { } }` as tree-sitter-groovy does), and its formal
+/// parameters and the record `header`'s
 /// components have the same arity and, pairwise, the same declared type
 /// and the same variable-arity-ness. Parameter names and annotations
 /// may differ and do not take part.

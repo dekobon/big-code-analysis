@@ -3059,9 +3059,17 @@ mod tests {
     }
 
     /// Bodies that open a function space without being a function — a
-    /// Java or Groovy `static { … }`, a Java instance initializer, a Kotlin
+    /// Java or Groovy `static { … }` or instance initializer, a Kotlin
     /// accessor or `init` block — hold a doc comment as a method body
     /// does: javadoc, Groovydoc and Dokka read none of them (#1597).
+    ///
+    /// A comment above a statement documents nothing wherever it sits,
+    /// so those rows cannot tell a body that holds its comments from one
+    /// that does not. The "class in an instance initializer" rows can:
+    /// a class is a documentation target, and only the body rule keeps
+    /// its comment out of `dloc`. Groovy's instance initializer reached
+    /// the tree with dekobon-tree-sitter-groovy 0.5.0, and read 1 there
+    /// until its `DocBodyResidual` row listed the `block`.
     #[cfg(all(feature = "groovy", feature = "java", feature = "kotlin"))]
     #[test]
     fn initializer_and_accessor_bodies_hold_their_doc_comments() {
@@ -3087,6 +3095,12 @@ mod tests {
                     1,
                 ),
                 (
+                    "class in an instance initializer",
+                    b"class C {\n    {\n        /** note */\n        class L { }\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
                     "switch rule in a field initializer",
                     b"class S {\n    int v = switch (1) {\n        case 1 -> {\n            /** note */\n            yield 1;\n        }\n        default -> 0;\n    };\n}\n",
                     0,
@@ -3096,12 +3110,55 @@ mod tests {
         );
         assert_doc_rows(
             LANG::Groovy,
-            &[(
-                "static initializer",
-                b"class C {\n    static {\n        /** note */\n        def x = 1\n    }\n}\n",
-                0,
-                1,
-            )],
+            &[
+                (
+                    "static initializer",
+                    b"class C {\n    static {\n        /** note */\n        def x = 1\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "instance initializer",
+                    b"class C {\n    {\n        /** note */\n        def x = 1\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "enum instance initializer",
+                    b"enum E {\n    A;\n    {\n        /** note */\n        def x = 1\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "class in an instance initializer",
+                    b"class C {\n    {\n        /** note */\n        class L { }\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                // The same `block` kind is the body of a script-level
+                // `if`, `for` or `while`, outside any callable, so the
+                // row holds those too. Each read 1 before the row listed
+                // the kind; Java has no script level to compare with,
+                // and reads 0 for the block of a statement in a method.
+                (
+                    "class in a script-level if",
+                    b"if (x) {\n    /** note */\n    class L { }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "class in a script-level for",
+                    b"for (i in xs) {\n    /** note */\n    class L { }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "class in a script-level while",
+                    b"while (x) {\n    /** note */\n    class L { }\n}\n",
+                    0,
+                    1,
+                ),
+            ],
         );
         assert_doc_rows(
             LANG::Kotlin,

@@ -500,6 +500,12 @@ const NO_POSITIVE_IN_CORPUS: &[(&str, &str, &str, &str)] = &[
     ),
     (
         "Groovy",
+        "Container",
+        "object_creation_expression",
+        "the one `new` has no class body; the gate admits only an anonymous class",
+    ),
+    (
+        "Groovy",
         "DeclKeyword",
         "type_identifier",
         "`var` as a field's type is not spelled; the row is text-gated on the identifier",

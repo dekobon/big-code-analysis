@@ -44,6 +44,23 @@ pub(crate) fn groovy_has_explicit_public(declaration: &Node) -> bool {
     declaration.first_child(|id| id == Groovy::Public).is_some()
 }
 
+// Whether a record's header, its implicit canonical constructor, counts
+// as a public method (#1842). This is the metric's reading of a Groovy
+// member, not groovyc's: the compiler makes that constructor public
+// whatever the record spells, as it does every unmodified member, and
+// `npm` bills `public` only where the source says so — on the record's
+// own `public`, or inside an interface, trait or annotation type, whose
+// members all count as public here. A `private` or `protected` record
+// in a class is therefore not public, and one in an interface is.
+// Java's arm asks the same two questions of its grammar (`npm.rs`).
+pub(crate) fn groovy_record_is_public<'a>(record: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    groovy_has_explicit_public(record)
+        || ancestors
+            .iter(record)
+            .next()
+            .is_some_and(|(body, above)| groovy_body_is_interface_like(&body, above))
+}
+
 // C# uses individual `Modifier` nodes (not wrapped under a single
 // `modifiers` node like Java); detecting `public` requires scanning
 // every Modifier child of the declaration for a `public` keyword.
