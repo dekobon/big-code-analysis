@@ -83,8 +83,8 @@ for historical reference.
   [#55](https://github.com/dekobon/tree-sitter-groovy/issues/55),
   [#60](https://github.com/dekobon/tree-sitter-groovy/issues/60),
   [#68](https://github.com/dekobon/tree-sitter-groovy/issues/68)); the
-  enum one is #1408's fix. Metrics move on Groovy that uses the
-  constructs below:
+  enum one is #1408's fix and has its own entry under Fixed. Metrics
+  move on Groovy that uses the constructs below:
   - **A call whose last argument is a trailing closure is now a call.**
     `xs.each { … }` and `xs.inject(0) { … }` parse as one
     `method_invocation` with a `closure` field. The parenthesis-less
@@ -235,6 +235,21 @@ for historical reference.
   and no corpus snapshot did. New scaling probe
   `loc/python-bare-runs-before-string` prices the parenthesis's
   memoised answer across a wide prefix of such runs.
+- **A Groovy enum keeps the members that follow its constants on the
+  next line** (#1408). The grammar accepts class members directly after
+  the enum constants with no `;` between, as Groovy's own parser does
+  ([tree-sitter-groovy#55](https://github.com/dekobon/tree-sitter-groovy/issues/55),
+  in the `dekobon-tree-sitter-groovy` bump under Changed). It had required the
+  `;` and closed the enum on a zero-width `MISSING "}"` after the last
+  constant: a constructor after it became a top-level call plus a
+  closure, and a typed method a file-level method outside the enum. For
+  such a file the function-space metrics move: the constructors and
+  methods now open spaces inside the enum, so `nom.functions`, `nargs`,
+  `wmc`, `npm`'s `nm` and the per-space rows gain them, `nom.closures`
+  loses the phantom closures, and `abc.branches` no longer bills a
+  constructor declaration as a call (the issue's enum went from 4
+  branches to 2, its two argument-carrying constants). The `;` spelling
+  is unchanged.
 - **`npa` and `npm` stay linear in nested containers** (#1805). Each
   member walk reads a container's body (a class, struct, interface or
   module) under a chain of the body's ancestors, which

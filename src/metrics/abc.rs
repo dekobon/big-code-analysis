@@ -2656,6 +2656,116 @@ mod tests {
         );
     }
 
+    // Until dekobon-tree-sitter-groovy 0.4.0 an enum closed on a
+    // zero-width MISSING `}` after its last constant when no `;`
+    // followed, and each constructor below became a top-level
+    // `method_invocation` plus a `closure`: two phantom calls (#1408).
+    //
+    // The census is what makes the branch total mean something: on the
+    // old grammar `MethodInvocation` is 2 and `ConstructorDeclaration`
+    // 0, and `branches == 2` could equally be one lost constant plus one
+    // phantom call, which is why each constructor's own space is held
+    // at 0 as well. Zero `;` tokens keeps the fixture on the newline
+    // spelling: adding one would pass every assertion on the old
+    // grammar too.
+    //
+    // expected: 2 branches — `A(1)` and `C(2)`, the constructor calls
+    // the constants spell out. The constructor *declarations* add
+    // nothing: 0 on each `E` space.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_enum_constructor_after_constants_without_semicolon_is_not_a_call() {
+        let src = "enum E {
+                A(1), B, C(2)
+                E(int v) { }
+                E() { }
+            }";
+        let parser = GroovyParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.groovy"),
+            None,
+        );
+        assert!(
+            !parser.root().has_error(),
+            "the enum body must parse clean; an ERROR or MISSING node means the grammar \
+             fell back to the pre-0.4.0 recovery"
+        );
+        assert_fixture_spells::<GroovyParser>(
+            src,
+            "foo.groovy",
+            &[
+                (Groovy::EnumDeclaration as u16, 1, "enum declaration"),
+                (Groovy::EnumConstant as u16, 3, "enum constants"),
+                (Groovy::ArgumentList as u16, 2, "constant argument lists"),
+                (
+                    Groovy::ConstructorDeclaration as u16,
+                    2,
+                    "constructor declarations",
+                ),
+                (Groovy::MethodInvocation as u16, 0, "method invocations"),
+                (Groovy::Closure as u16, 0, "closures"),
+                (Groovy::SEMI as u16, 0, "`;` tokens"),
+            ],
+        );
+        check_func_space::<GroovyParser, _>(src, "foo.groovy", |space| {
+            assert_eq!(space.metrics.abc.branches_sum(), 2);
+            let constructor_branches: Vec<u64> = child_space(&space, "E")
+                .spaces
+                .iter()
+                .filter(|s| s.name.as_deref() == Some("E"))
+                .map(|s| s.metrics.abc.branches_sum())
+                .collect();
+            assert_eq!(constructor_branches, vec![0, 0]);
+        });
+    }
+
+    // The `;` spelling of the same enum is the control: it parsed
+    // correctly before the grammar fix and must score identically after
+    // it. A plain class constructor pins the reading the enum test
+    // relies on — a constructor declaration is not a call — away from
+    // the enum grammar altogether.
+    //
+    // expected: 2 branches for the enum (its two argument-carrying
+    // constants), 0 for the class.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_enum_constructor_after_semicolon_and_class_constructor_are_controls() {
+        let enum_src = "enum E {
+                A(1), B, C(2);
+                E(int v) { }
+                E() { }
+            }";
+        assert_fixture_spells::<GroovyParser>(
+            enum_src,
+            "foo.groovy",
+            &[
+                (
+                    Groovy::ConstructorDeclaration as u16,
+                    2,
+                    "constructor declarations",
+                ),
+                (Groovy::SEMI as u16, 1, "`;` token"),
+            ],
+        );
+        check_metrics::<GroovyParser>(enum_src, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 2);
+        });
+
+        let class_src = "class C { C(int v) { } }";
+        assert_fixture_spells::<GroovyParser>(
+            class_src,
+            "foo.groovy",
+            &[(
+                Groovy::ConstructorDeclaration as u16,
+                1,
+                "constructor declaration",
+            )],
+        );
+        check_metrics::<GroovyParser>(class_src, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 0);
+        });
+    }
+
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_no_abc() {

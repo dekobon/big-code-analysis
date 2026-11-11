@@ -165,6 +165,7 @@ number and the higher number stays as a redirect.
 | [119](#119-a-named-extra-passes-every-first-named-child-selector) | A named extra passes every "first named child" selector |
 | [120](#120-a-gate-declared-under-the-wrong-keyword-is-exact-on-one-axis-and-blind-on-the-other) | A gate declared under the wrong keyword is exact on one axis and blind on the other |
 | [121](#121-a-commit-on-the-current-tip-can-revert-the-tip-and-ancestry-will-not-say-so) | A commit on the current tip can revert the tip, and ancestry will not say so |
+| [122](#122-an-error-free-parse-is-not-a-correct-parse--pin-the-tree-a-grammar-fork-settles) | An ERROR-free parse is not a correct parse — pin the tree a grammar fork settles |
 
 ---
 
@@ -5402,5 +5403,43 @@ from a working copy whose submodule checkout disagreed with HEAD. The
 repair re-applied the fix's diff with a three-way `git apply` and
 resolved two prose conflicts; nothing needed recovering, only
 re-applying.
+
+---
+
+## 122. An ERROR-free parse is not a correct parse — pin the tree a grammar fork settles
+
+**Lesson:** When a grammar change introduces competing interpretations,
+inspect the minimal input on which both can complete and assert the
+intended tree, not just the absence of parse errors. Test inputs meant
+to select the competing interpretation and nearby malformed inputs
+too. If the grammar cannot distinguish them, record and test the
+accepted limitation.
+
+An ambiguity can settle on a complete but wrong tree without emitting
+an `ERROR`. An error-only check cannot distinguish the interpretations,
+and downstream metric totals may remain plausible. Two precedence
+choices can agree on valid examples yet differ on malformed input, so
+those examples alone do not establish which choice preserves error
+detection.
+
+**`enum E { A\n E() { } }` became a method `E` returning `A`**
+(#1408, [tree-sitter-groovy#55](https://github.com/dekobon/tree-sitter-groovy/issues/55)).
+Allowing members after enum constants without `;` introduced competing
+readings: constant `A` followed by constructor `E`, or method `E` with
+return type `A`. Without a tie-break, the parser chose the method
+without an error, losing the constant. `prec.dynamic(1)` on
+`enum_constant`, with an `[enum_constant, _type]` conflict, selected
+the intended constant and constructor, but also accepted malformed
+`enum E { A\n B }` as a field `A B`. Static `prec(1)` without that
+conflict preserves the intended constant and constructor while making
+the missing-comma case an `ERROR`. Both choices misread the mirror
+case, `enum E { int f() { } }`, as constant `int` plus constructor
+`f`: this grammar treats newlines as whitespace and does not
+distinguish primitive type keywords from identifiers. The
+single-bare-constant tree, missing-comma error, and mirror misparse
+are covered in `test/corpus/declarations-enum.txt`; the grammar
+comment and upstream changelog document the remaining limitation. The
+original report's multi-constant fixture did not expose this
+ambiguity.
 
 ---

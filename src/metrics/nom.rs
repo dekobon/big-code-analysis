@@ -1721,6 +1721,26 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
+    fn groovy_nom_enum_constructors_after_constants_without_semicolon() {
+        // Before dekobon-tree-sitter-groovy 0.4.0 the enum closed after
+        // `C(2)` and each constructor's `{ }` became a top-level
+        // closure: 0 functions, 2 closures (#1408).
+        check_metrics::<GroovyParser>(
+            "enum E {
+                A(1), B, C(2)
+                E(int v) { }
+                E() { }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "groovy")]
+    #[test]
     fn groovy_nom_function_definition() {
         // `def foo() {}` at top level uses `function_definition`, not
         // `method_declaration`. Nom must count it as a function.

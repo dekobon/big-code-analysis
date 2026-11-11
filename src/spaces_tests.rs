@@ -3299,6 +3299,46 @@ mod grammar_bump_shapes {
         out
     }
 
+    #[test]
+    fn groovy_enum_constructors_after_constants_without_semicolon_nest_in_the_enum() {
+        // Before dekobon-tree-sitter-groovy 0.4.0 the enum closed on a
+        // zero-width MISSING `}` after `C(2)` and the shape was just
+        // `[Unit, E]`: both constructors sat in the file space as
+        // expression statements (#1408). Both are named `E`, so a lookup
+        // by name cannot tell them apart; the whole shape is pinned and
+        // the two are read off the enum's children in source order.
+        //
+        // expected: nargs 1 and 0 for `E(int v)` and `E()`; wmc 2 on the
+        // enum, one cyclomatic unit per constructor; nm 2 and npm 0 —
+        // the Groovy npm impl counts every callable the body owns and
+        // bills public only on an explicit `public`, which an enum
+        // constructor (implicitly private) never carries.
+        let root = space_verbatim(
+            LANG::Groovy,
+            b"enum E {\n    A(1), B, C(2)\n    E(int v) { }\n    E() { }\n}\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!(
+            shape(&root),
+            vec![
+                (None, SpaceKind::Unit),
+                (Some("E"), SpaceKind::Class),
+                (Some("E"), SpaceKind::Function),
+                (Some("E"), SpaceKind::Function),
+            ],
+        );
+        let enum_space = &root.spaces[0];
+        let nargs: Vec<u64> = enum_space
+            .spaces
+            .iter()
+            .map(|s| s.metrics.nargs.function_args())
+            .collect();
+        assert_eq!(nargs, vec![1, 0]);
+        assert_eq!(enum_space.metrics.wmc.class_wmc(), 2);
+        assert_eq!(enum_space.metrics.npm.class_nm(), 2);
+        assert_eq!(enum_space.metrics.npm.class_npm(), 0);
+    }
+
     /// The grammar reads every `{` after `new T(…)` as an anonymous
     /// class body (tree-sitter-groovy `docs/divergences-from-spec.md`
     /// §11). Groovy reads one that starts the next line as a closure
