@@ -316,24 +316,24 @@ fn get_nesting_from_map(node: &Node, nesting_map: &NestingMap) -> Nesting {
 /// function, where `stops` lists the grammar kinds that count as a
 /// function for this language.
 ///
-/// The scan reads the walker's ancestor chain. Climbing with
+/// The answer comes off the walker's ancestor chain. Climbing with
 /// [`Node::parent`] instead costs `O(depth)` per step — tree-sitter
 /// stores no parent pointer — which made `Cognitive` `O(depth²)` on
-/// nested function definitions (#1062, deferred out of #1084). A nested
-/// function's enclosing function is a couple of levels up, so the scan
-/// stops immediately there; a function with *no* enclosing function
-/// scans its whole chain, but each step is a slice index rather than a
-/// descent from the root.
-fn increment_function_depth<'a, T: PartialEq + From<u16>>(
+/// nested function definitions (#1062, deferred out of #1084). Scanning
+/// the chain per function fixed that shape, where the enclosing function
+/// is a couple of levels up, and left a function with *no* enclosing
+/// function reading its whole chain: quadratic over a function in each
+/// of many nested containers (#1864). The walk therefore folds the
+/// answer down the chain, each ancestor once. `stops` is one list per
+/// language, which is what lets one lane memoise it; the name is the
+/// scan's, and the fold stops at none of them.
+fn increment_function_depth<'a>(
     depth: &mut usize,
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
-    stops: &[T],
+    stops: &'static [u16],
 ) {
-    if ancestors
-        .iter(node)
-        .any(|(ancestor, _)| stops.contains(&T::from(ancestor.kind_id())))
-    {
+    if ancestors.has_ancestor_of_kind(node, KindLane::InsideFunction, stops) {
         *depth += 1;
     }
 }
@@ -364,11 +364,11 @@ fn increment_function_depth<'a, T: PartialEq + From<u16>>(
 /// before #1103. One caller still spells them out: `elixir.rs` takes the
 /// resets and deliberately skips the depth bump, and says why at its own
 /// site.
-fn enter_function_boundary<'a, T: PartialEq + From<u16>>(
+fn enter_function_boundary<'a>(
     nesting: &mut Nesting,
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
-    stops: &[T],
+    stops: &'static [u16],
 ) {
     nesting.conditional = 0;
     nesting.lambda = 0;
@@ -11820,8 +11820,8 @@ end",
     /// function node is itself a function. It used to climb with
     /// `node.parent()`, which is `O(depth)` per step, so `Cognitive`
     /// stayed `O(depth²)` on nested definitions after the nesting-map
-    /// half of #1062 was fixed. The scan now walks the ancestor chain
-    /// the walker hands down.
+    /// half of #1062 was fixed. The answer now comes off the ancestor
+    /// chain the walker hands down, folded down it since #1864.
     ///
     /// Both versions answer identically, so what this pins is the
     /// arithmetic at depth; the *cost* is pinned by the
@@ -11873,7 +11873,8 @@ end",
     /// which asks whether any ancestor of a function node is itself a
     /// function. #1062 moved the scan off `Node::parent` — `O(depth)` per
     /// step, and so quadratic over a deeply nested file — and onto the
-    /// ancestor chain the walker hands down. The flat source in each row
+    /// ancestor chain the walker hands down, and #1864 folded the answer
+    /// down that chain. The flat source in each row
     /// is the control: the same `if` with nothing enclosing its function,
     /// which must stay at 1, so the pair measures the surcharge and not
     /// the body.

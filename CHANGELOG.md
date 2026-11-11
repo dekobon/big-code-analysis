@@ -286,6 +286,20 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **`cognitive` stays linear over functions in nested containers**
+  (#1864). The walk asks every function definition whether another
+  function encloses it, to charge a nested function its depth, and
+  answered by scanning the node's ancestors until it met one. A method
+  in a class meets none, so the scan read every ancestor, and a file
+  with a method in each of `n` nested classes or interfaces cost
+  `Σ depth`, quadratic in the nest, in every language with a
+  function-definition kind: 16,000 nested Java classes took 4.2 s under
+  `cognitive` with the scan and take 0.09 s without it; the Groovy
+  grammar, which parses nested type declarations since 0.5.0, took
+  5.8 s and takes 0.08 s. The answer is now folded down the walk's
+  ancestor chain, each ancestor once per walk. Metric values are
+  unchanged. New scaling probes `cognitive/java-nested-classes`,
+  `cognitive/groovy-nested-classes` and a `nom` control price it.
 - **Elixir's quoted atom and quoted keyword are string literals to
   `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
   and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited
