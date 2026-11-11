@@ -54,12 +54,11 @@ fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors
 ///
 /// `record` is the exception since dekobon-tree-sitter-groovy 0.5.0:
 /// its keyword comes from the external scanner only before a record
-/// header, so a `record` used as a name is an `identifier` everywhere
-/// and the leaf has no parent but a `record_declaration`. Its pair
-/// below is kept as the other four are, so a grammar that strands the
-/// leaf again bills nothing rather than an operator;
-/// `groovy_declaration_keywords_are_operators_1552` pins that the name
-/// is an identifier.
+/// header, so a `record` used as a name is an `identifier` everywhere.
+/// The leaf still strands on a line the scanner takes for a header and
+/// the grammar rejects (`record a<b`), which is what its pair below
+/// leaves unbilled; `groovy_declaration_keywords_are_operators_1552`
+/// pins both.
 fn contextual_keyword_owns<'a>(
     node: &Node<'a>,
     _code: &[u8],

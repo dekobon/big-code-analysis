@@ -3123,7 +3123,7 @@ mod tests {
     // already reached.
     //
     // Only the `QualifiedName` half was observable. The runtime emits
-    // `qualified_type` as the *alias* `QualifiedType2` (kind_id 228),
+    // `qualified_type` as the *alias* `QualifiedType2` (kind_id 230),
     // which the arm never named — a lesson-2 miss that, by accident,
     // made that half already leaves-only and is why #1263's issue body
     // recorded Groovy as compliant. Both kinds are gone rather than
@@ -3149,7 +3149,7 @@ mod tests {
     // failed none of the 3,523 tests then in the lib targets, so the
     // leaves-only reading of a qualified *type* was correct by accident
     // rather than by contract. The tempting "fix" for the alias miss
-    // #1263 recorded is to complete the list with 228, which is exactly
+    // #1263 recorded is to complete the list with 230, which is exactly
     // the double count #1263 removed — this test is what stops that.
     //
     // The kind assertions are the grammar-dispatch section 1 / 2 drift
@@ -6990,15 +6990,19 @@ end",
             // declaration and bills nothing. `record` used as a name is
             // a plain identifier, an operand: see below.
             ("contextual names", "record = 3\ntrait = 4\n", [1, 2]),
+            // `<`: a line the scanner takes for a record header and the
+            // grammar then rejects strands the `record` leaf under an
+            // `ERROR`, where it bills nothing
+            ("header look-alike", "record a<b\n", [1, 1]),
         ];
         assert_operator_rows::<GroovyParser>("foo.groovy", ROWS);
 
         // Since dekobon-tree-sitter-groovy 0.5.0 the `record` keyword
         // comes from the external scanner only before a record header,
-        // so the name never strands the leaf and the `Record` gate has
-        // no reachable negative; `trait` still does, and is what keeps
-        // the row above on the gate. If `record` strands again, the
-        // first assertion fails and the gate is live once more.
+        // so the name never strands the leaf; `trait` still does. The
+        // `Record` gate keeps one reachable negative: the scanner emits
+        // the keyword before a name and `(` or `<`, so `record a<b`
+        // strands the leaf, and without the gate that row reads [2, 2].
         let stranded = |source: &str, keyword: Groovy| {
             let parser = GroovyParser::new(
                 source.as_bytes().to_vec(),
@@ -7008,6 +7012,7 @@ end",
             ast_has_kind_id(&parser, keyword as u16)
         };
         assert!(!stranded("record = 3\n", Groovy::Record));
+        assert!(stranded("record a<b\n", Groovy::Record));
         assert!(stranded("record R(int x) {}\n", Groovy::Record));
         assert!(stranded("trait = 4\n", Groovy::Trait));
     }

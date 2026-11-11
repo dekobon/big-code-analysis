@@ -1231,8 +1231,9 @@ mod tests {
     #[test]
     fn groovy_nested_inner_classes() {
         // Each nested `class` declaration is its own class space
-        // with its own NPA. Mirrors `java_nested_inner_classes`.
-        check_metrics::<GroovyParser>(
+        // with its own NPA. Mirrors `java_nested_inner_classes`; grammar
+        // 0.5.0 parses the nesting, which the per-space sums pin.
+        check_func_space::<GroovyParser, _>(
             "class X {
                 public int a
                 class Y {
@@ -1243,10 +1244,14 @@ mod tests {
                 }
             }",
             "foo.groovy",
-            |metric| {
+            |space| {
                 // 3 classes, 3 public attributes.
-                assert_eq!(metric.npa.class_na_sum(), 3);
-                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(space.metrics.npa.class_na_sum(), 3);
+                assert_eq!(space.metrics.npa.class_npa_sum(), 3);
+                let x = child_space(&space, "X");
+                let y = child_space(x, "Y");
+                let z = child_space(y, "Z");
+                assert_eq!([x, y, z].map(|s| s.metrics.npa.class_npa_sum()), [3, 2, 1]);
             },
         );
     }
