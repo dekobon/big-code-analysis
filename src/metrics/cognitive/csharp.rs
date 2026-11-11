@@ -108,13 +108,13 @@ impl Cognitive for CsharpCode {
                     node,
                     ancestors,
                     &[
-                        MethodDeclaration,
-                        ConstructorDeclaration,
-                        DestructorDeclaration,
-                        OperatorDeclaration,
-                        ConversionOperatorDeclaration,
-                        AccessorDeclaration,
-                        LocalFunctionStatement,
+                        MethodDeclaration as u16,
+                        ConstructorDeclaration as u16,
+                        DestructorDeclaration as u16,
+                        OperatorDeclaration as u16,
+                        ConversionOperatorDeclaration as u16,
+                        AccessorDeclaration as u16,
+                        LocalFunctionStatement as u16,
                     ],
                 );
             }

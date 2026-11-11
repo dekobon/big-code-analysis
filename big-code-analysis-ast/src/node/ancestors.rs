@@ -300,6 +300,54 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }) == 1
     }
 
+    /// Whether any ancestor of `node` has one of `kinds` — the question
+    /// with no stop at all, which a nearest-first scan answers in a step
+    /// or two where such an ancestor is near and by reading the whole
+    /// chain where there is none: a function in each of `n` nested
+    /// containers scanned `n²` entries (#1864). Under a walk that lent a
+    /// [`FoldCache`] the answer is folded down the chain on `lane`, each
+    /// ancestor once per walk; elsewhere the scan is what runs, since an
+    /// unmemoised fold would start at the root for every ask.
+    ///
+    /// A lane memoises whatever its first asker folded, so every ask on
+    /// `lane` within one walk must pass the same `kinds`: each
+    /// [`KindLane`] belongs to one question and one list. The list is
+    /// `'static` data rather than a predicate so that no ask can build
+    /// it from the asking node; choosing between two lists per node is
+    /// still the caller's to avoid. `make chain-audit` checks every
+    /// folded answer against the scan, which is what catches a lane
+    /// asked with a second list wherever the two answer differently.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn has_ancestor_of_kind(
+        self,
+        node: &Node<'tree>,
+        lane: KindLane,
+        kinds: &'static [u16],
+    ) -> bool {
+        let scan = || {
+            self.iter(node)
+                .any(|(ancestor, _)| kinds.contains(&ancestor.kind_id()))
+        };
+        if !self.memoises_folds() {
+            return scan();
+        }
+        let folded = self.fold_down(node, 0, lane.fold_lane(), 0, |held, ancestor, _, _| {
+            u8::from(held == 1 || kinds.contains(&ancestor.kind_id()))
+        }) == 1;
+        // Opt-in only, as the exact check in `checked` is: the scan is the
+        // `O(depth)` per ask the fold exists to remove.
+        #[cfg(chain_audit)]
+        assert_eq!(
+            folded,
+            scan(),
+            "the {lane:?} fold disagrees with the scan on a {} node: a lane \
+             holds one kind list per walk",
+            node.kind()
+        );
+        folded
+    }
+
     /// The walk's memo for `question`, when it lent a [`FoldCache`].
     pub(crate) fn node_memo(self, question: MemoQuestion) -> Option<&'chain NodeMemo> {
         self.folds.map(|cache| &cache.nodes[question as usize])
@@ -791,7 +839,10 @@ impl<'tree> SiblingCache<'tree> {
 fn deepest_stored(slots: &[(usize, u8)], chain: Chain<'_, '_>, from: usize) -> usize {
     (1..=from)
         .rev()
-        .find(|&depth| slots[depth].0 == chain[depth].id())
+        .find(|&depth| {
+            fold_slot_probes::record();
+            slots[depth].0 == chain[depth].id()
+        })
         .unwrap_or(0)
 }
 
@@ -858,6 +909,30 @@ impl GateLane {
     }
 }
 
+/// The ancestor questions the metric crate asks through
+/// [`Ancestors::has_ancestor_of_kind`], one per lane of the walk's
+/// [`FoldCache`]. Its own enum rather than more [`GateLane`] variants:
+/// both entry points store the same two states, so a lane passed to the
+/// wrong one would hand each question the other's memo.
+#[doc(hidden)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KindLane {
+    /// Whether a function definition sits inside another function, at
+    /// any distance: the cognitive depth surcharge of every language
+    /// with a function-definition kind. One lane serves all because a
+    /// walk parses one language, and each passes one list.
+    InsideFunction,
+}
+
+impl KindLane {
+    const fn fold_lane(self) -> FoldLane {
+        match self {
+            Self::InsideFunction => FoldLane::InsideFunction,
+        }
+    }
+}
+
 /// Which memoised fold a [`FoldCache`] slot holds. A language may run
 /// more than one fold over the same walk, and two folds' states must not
 /// share a slot.
@@ -889,17 +964,19 @@ pub(crate) enum FoldLane {
     /// Python: how many `lambda`s enclose a node before the nearest
     /// statement boundary, saturating (#1767).
     LambdaDepth,
+    /// [`KindLane::InsideFunction`].
+    InsideFunction,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 10;
+    const COUNT: usize = 11;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the
 // first walk that folds on it; this makes a variant added without the
 // bump a build error instead.
-const _: () = assert!(FoldLane::LambdaDepth as usize + 1 == FoldLane::COUNT);
+const _: () = assert!(FoldLane::InsideFunction as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each
@@ -1132,6 +1209,12 @@ impl FoldCache {
 // crate's tests through `test-support`, since most walks that lend the
 // cache live there.
 crate::observation::counter!(fold_steps, cfg(any(test, feature = "test-support")));
+
+// Stored states a memoised fold compares against the chain to find where
+// to resume. `fold_steps` cannot see a search that reads more slots than
+// it then refolds — one started at the root, say — which costs `O(depth)`
+// per ask with every state still stored once (#1864 review).
+crate::observation::counter!(fold_slot_probes, cfg(any(test, feature = "test-support")));
 
 // Chains derived with `Ancestors::of_children`, so a test can see a walk
 // derive one per container body rather than one per node it visits: a

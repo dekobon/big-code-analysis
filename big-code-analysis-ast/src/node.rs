@@ -19,7 +19,8 @@ pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingC
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
 pub use ancestors::{
-    GateLane, NodeQuestion, WIDE_PARENT, child_chains_derived, fold_steps, sibling_cache_reads,
+    GateLane, KindLane, NodeQuestion, WIDE_PARENT, child_chains_derived, fold_slot_probes,
+    fold_steps, sibling_cache_reads,
 };
 
 use tree_sitter::Node as OtherNode;
@@ -1550,8 +1551,8 @@ mod tests {
 
         // The shapes #1062 added as consumers, which the four fixtures
         // above do not contain: a function nested inside a function
-        // (every language's `increment_function_depth` arm walks the
-        // chain looking for one) and the two default-arm checks that
+        // (every language's `increment_function_depth` arm asks the
+        // chain for one) and the two default-arm checks that
         // now read `Ancestors::parent` — Kotlin's `else ->` inside a
         // `when` and Ruby's `else` inside a `case`. Parity over the
         // machinery is not parity over the shape a caller asks about.
@@ -2287,5 +2288,73 @@ mod tests {
             ],
             "(exported, ambient) per declaration, in source order"
         );
+    }
+
+    /// `Ancestors::has_ancestor_of_kind` answers what a climb with
+    /// `Node::parent` does on each of its three paths — folded through a
+    /// walk's cache, scanned off a bare chain, climbed with no chain —
+    /// for every node of the fixture (#1864).
+    ///
+    /// `h` is the row a memo keyed on depth alone gets wrong: it sits as
+    /// deep as `g` under a different parent, which the depths asserted
+    /// below pin. The second cache is asked
+    /// only at functions, as the cognitive walk asks, so when `h` asks,
+    /// the slots still hold what `g`'s chain left: "inside a function",
+    /// for ancestors that are not `h`'s.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn has_ancestor_of_kind_answers_the_climb_on_every_path() {
+        use crate::languages::Rust;
+        use crate::node::{FoldCache, KindLane};
+        const KINDS: &[u16] = &[Rust::FunctionItem as u16, Rust::ClosureExpression as u16];
+        let kinds = KINDS;
+        let code = b"mod a { fn f() { fn g() { let c = || 1; } } }\n\
+                     mod m { mod n { fn h() {} } }\n\
+                     fn i() {}\n";
+        let cache = FoldCache::default();
+        let asked_at_functions = FoldCache::default();
+        let lane = KindLane::InsideFunction;
+        let mut functions = Vec::new();
+        let mut depths = Vec::new();
+        let (mut yes, mut no) = (0_usize, 0_usize);
+        for_each_node_with_chain::<crate::langs::RustCode>(code, |node, chain| {
+            let expected = std::iter::successors(node.parent(), Node::parent)
+                .any(|ancestor| kinds.contains(&ancestor.kind_id()));
+            let folded = Ancestors::known(chain)
+                .with_folds(&cache)
+                .has_ancestor_of_kind(node, lane, kinds);
+            let chained = Ancestors::known(chain).has_ancestor_of_kind(node, lane, kinds);
+            let climbed = Ancestors::unknown().has_ancestor_of_kind(node, lane, kinds);
+            let (kind, start) = (node.kind(), node.start_byte());
+            assert_eq!(
+                (folded, chained, climbed),
+                (expected, expected, expected),
+                "{kind} at byte {start}: (folded, chained, climbed) must all be the climb's answer"
+            );
+            if kind == "function_item" {
+                functions.push(
+                    Ancestors::known(chain)
+                        .with_folds(&asked_at_functions)
+                        .has_ancestor_of_kind(node, lane, kinds),
+                );
+                depths.push(chain.len());
+            }
+            if expected {
+                yes += 1;
+            } else {
+                no += 1;
+            }
+        });
+        assert_eq!(
+            functions,
+            [false, true, false, false],
+            "f, g, h, i in source order: only g is inside a function"
+        );
+        assert_eq!(
+            depths,
+            [3, 5, 5, 1],
+            "h must sit as deep as g to meet the slots g's chain left"
+        );
+        assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
     }
 }

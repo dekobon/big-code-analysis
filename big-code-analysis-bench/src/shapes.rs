@@ -999,6 +999,20 @@ pub fn ruby_nested_classes(depth: usize) -> String {
     )
 }
 
+/// Java and Groovy, which read it alike: `depth` nested classes, each
+/// declaring one method with one `if` before the next class opens. No
+/// method has an enclosing function, which is the answer the cognitive
+/// depth surcharge has to reach the root to give, and the `if` is what
+/// the reading counts: an abstract method would score nothing.
+#[must_use]
+pub fn nested_classes_with_method(depth: usize) -> String {
+    format!(
+        "{}{}",
+        "class C {\nvoid m(boolean a) { if (a) { } }\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
+}
+
 /// Lua: a module block, then `width` units of a tagless `---` block
 /// directly under a call — no item follows it, so the first-block test
 /// scans back — and a documented function, whose block is the reading.
@@ -1908,6 +1922,15 @@ const PAREN_CAP_DEPTHS: [usize; 3] = [50, 100, 200];
 /// the defect present is no probe; these sizes are where it goes red.
 const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
+/// Depths for the three #1864 `nested-classes` probes, the ladder of
+/// [`CONDITIONAL_PER_DEPTH_DEPTHS`]. With the chain scan per function
+/// reinstated the two cognitive probes read 2.45 and 2.62 here, 4.2 s
+/// and 5.8 s at the top rung, inside `MAX_CELL_WALK`; a rung higher the
+/// scan would run past it and the gate would report an abandoned walk
+/// rather than an exponent. Without the scan they read 0.60–0.91. They
+/// were not measured on [`LINEAR_DEPTHS`].
+const ENCLOSING_FUNCTION_DEPTHS: [usize; 3] = CONDITIONAL_PER_DEPTH_DEPTHS;
+
 /// Depths for the three `ruby-nested-classes` probes, one rung above
 /// [`CONDITIONAL_PER_DEPTH_DEPTHS`]. The copy they price is the walk's
 /// chain per class body, and a class body walk is cheap beside it only
@@ -2687,9 +2710,10 @@ pub const PROBES: &[Probe] = &[
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062: `increment_function_depth` asks every function \
-                    node whether a function encloses it. The answer now \
-                    comes off the walker's ancestor chain and is found two \
-                    steps up; climbing with `Node::parent` instead cost \
+                    node whether a function encloses it. The answer comes \
+                    off the walker's ancestor chain, folded down it since \
+                    #1864; the scan #1062 introduced found the function \
+                    two steps up, and climbing with `Node::parent` cost \
                     `O(depth)` per step across the 19 call sites — 22 \
                     languages, counting the four the JS-family macro \
                     expands to. `nom/nested-fn` is the same shape without \
@@ -3938,6 +3962,73 @@ pub const PROBES: &[Probe] = &[
                     The reading is the physical rows, four per level.",
     },
     Probe {
+        name: "cognitive/java-nested-classes",
+        lang: LANG::Java,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: nested_classes_with_method,
+        sizes: ENCLOSING_FUNCTION_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1864: `increment_function_depth` asks every function \
+                    whether a function encloses it. `cognitive/nested-fn` \
+                    prices the shape where one does, two steps up; here \
+                    none does, so a scan of the chain per method read \
+                    every ancestor and was quadratic over the nest. The \
+                    answer is folded down the walk's chain on \
+                    `KindLane::InsideFunction`. With the scan reinstated \
+                    this reads 2.45, 4.2 s at the top rung, and 0.60–0.66 \
+                    without, 82–92 ms; the first rung reads high in the \
+                    `nom` control too, which is what puts both under 1 and \
+                    leaves room under the bound for a relapse milder than \
+                    the scan. The exact counts in \
+                    `the_cognitive_walk_folds_the_enclosing_function_question` \
+                    are the guard for that. The reading is one `if` per \
+                    level.",
+    },
+    Probe {
+        name: "nom/java-nested-classes",
+        lang: LANG::Java,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_classes_with_method,
+        sizes: ENCLOSING_FUNCTION_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1864: metric control for \
+                    `cognitive/java-nested-classes`: the same nest under \
+                    `Nom`, which `Cognitive` selects as a dependency and \
+                    which asks no ancestor question. It reads 0.72–0.90 \
+                    with and without the scan. The reading is one method \
+                    per level.",
+    },
+    Probe {
+        name: "cognitive/groovy-nested-classes",
+        lang: LANG::Groovy,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
+        render: nested_classes_with_method,
+        sizes: ENCLOSING_FUNCTION_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1864: the same question on the same source as \
+                    `cognitive/java-nested-classes`, under the Groovy \
+                    grammar, which parses nested type declarations since \
+                    0.5.0 and so reaches the shape. With the scan \
+                    reinstated this reads 2.62, 5.8 s at the top rung, \
+                    and 0.82–0.91 without, 75–83 ms. The reading is one \
+                    `if` per level.",
+    },
+    Probe {
         name: "loc/lua-tagless-blocks",
         lang: LANG::Lua,
         axis: Axis::Width,
@@ -5182,6 +5273,77 @@ mod tests {
                     .walk(&ast, probe.workload.options())
                     .expect("metrics walk");
                 assert_eq!(reading, per_level * size as u64, "{} at {size}", probe.name);
+            }
+        }
+    }
+
+    /// The three `nested-classes` probes of #1864 share one source and
+    /// ladder, which parses into exactly one class holding one method
+    /// per level at every rung under both grammars: a parser limit
+    /// reached at scale would leave the top rungs timing error recovery
+    /// under a plausible exponent, and a grammar that stopped reading
+    /// `void m(…) { … }` as a method would leave the Groovy row, which
+    /// has no `nom` control, timing a walk that never asks the question.
+    /// The readings are exact at a small size and at the first rung: one
+    /// `if` per level at no surcharge for the two cognitive rows, and one
+    /// method per level for `nom`.
+    #[test]
+    fn nested_classes_probes_parse_one_class_per_level_at_every_rung() {
+        let [java, nom, groovy] = [
+            "cognitive/java-nested-classes",
+            "nom/java-nested-classes",
+            "cognitive/groovy-nested-classes",
+        ]
+        .map(|name| {
+            PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"))
+        });
+        assert_eq!(
+            (java.lang, groovy.lang, nom.lang),
+            (
+                big_code_analysis::LANG::Java,
+                big_code_analysis::LANG::Groovy,
+                big_code_analysis::LANG::Java
+            ),
+            "one cognitive row per grammar, and the control on Java's"
+        );
+        for probe in [nom, groovy] {
+            assert_eq!(
+                ((probe.render)(3), probe.sizes),
+                ((java.render)(3), java.sizes),
+                "{}: the probes must share one source and ladder",
+                probe.name
+            );
+        }
+        for probe in [java, groovy] {
+            for size in probe.sizes {
+                let ast = parse(probe, size);
+                let root = ast.as_tree_sitter().root_node();
+                assert!(
+                    !root.has_error(),
+                    "{}: the shape parses cleanly at {size}",
+                    probe.name
+                );
+                assert_eq!(
+                    (
+                        count_kind(&ast, "class_declaration"),
+                        count_kind(&ast, "method_declaration")
+                    ),
+                    (size, size),
+                    "{}: one class and one method per level at {size}",
+                    probe.name
+                );
+            }
+        }
+        for probe in [java, nom, groovy] {
+            for size in [3, probe.sizes[0]] {
+                let reading = probe
+                    .workload
+                    .walk(&parse(probe, size), probe.workload.options())
+                    .expect("metrics walk");
+                assert_eq!(reading, size as u64, "{} at {size}", probe.name);
             }
         }
     }

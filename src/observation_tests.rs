@@ -457,6 +457,68 @@ fn every_seam_folds_the_js_binding_question() {
     }
 }
 
+/// The cognitive walk folds "is this function inside a function" down
+/// its chain, so a function in each of `depth` nested classes costs each
+/// ancestor once per walk rather than a scan of the whole chain per
+/// function (#1864).
+///
+/// The values cannot see it: the fold and the scan answer the same, and
+/// only the fold's two counts tell them apart. The scan stores nothing
+/// and reads 0 folded states. A memo that never matched would refold the
+/// chain per method, about `depth²` states, and a search for the stored
+/// state that read more slots than it refolds — one started at the root
+/// — would probe about `depth²` slots while folding each state once.
+/// Both counts are exact, so neither a full nor a partial relapse fits.
+///
+/// Each level holds a method before its nested class and one after it.
+/// `m` asks on the way down, where its class and the body around it are
+/// new to the lane; `n` asks on the way back up, where every ancestor is
+/// stored and the first slot read must match. Only `Cognitive` is
+/// selected, which brings in `Nom` alone, and neither folds another
+/// question; Java's `loc`, which folds its own for each local variable
+/// declaration, does not run. `p`, the method of the local class, is the
+/// one function the question answers "yes" for, so the sum pins both
+/// answers: one per method of a level, and two for the `if` under `p`.
+#[cfg(feature = "java")]
+#[test]
+fn the_cognitive_walk_folds_the_enclosing_function_question() {
+    use crate::node::{fold_slot_probes, fold_steps};
+
+    let depth = 200;
+    let source = format!(
+        "{}void o() {{ class L {{ void p(boolean b) {{ if (b) {{ }} }} }} }}\n{}",
+        "class C {\nvoid m(boolean a) { if (a) { } }\n".repeat(depth),
+        "void n(boolean a) { if (a) { } }\n}\n".repeat(depth)
+    );
+    let ast = crate::test_support::parse_named(crate::LANG::Java, "C.java", &source);
+    let options = crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]);
+    let before = (fold_steps::observed(), fold_slot_probes::observed());
+    let space = ast
+        .metrics(options)
+        .expect("the walk must yield a top-level space");
+    let folded = fold_steps::observed() - before.0;
+    let probed = fold_slot_probes::observed() - before.1;
+    assert_eq!(
+        space.metrics.cognitive.cognitive_sum(),
+        2 * depth as u64 + 2,
+        "one `if` per method at no surcharge, and one under a nested function"
+    );
+    // expected: each `m` stores the two ancestors its level adds (the
+    // class and its body), and `p` the four between it and the innermost
+    // class body (`o`, its block, `L`, `L`'s body). `o` and every `n` find
+    // their whole chain stored.
+    let stored = 2 * depth + 4;
+    // expected: each `m` reads its two new slots and then the one that
+    // matches, except the outermost, which has none above to match; `p`
+    // reads its four and one that matches; `o` and each `n` read one.
+    let read = (3 * depth - 1) + 5 + 1 + depth;
+    assert_eq!(
+        (folded, probed),
+        (stored, read),
+        "(states folded, slots probed) over {depth} levels"
+    );
+}
+
 #[cfg(feature = "rust")]
 type Dump = fn(&crate::Ast, crate::AstCfg) -> crate::AstResponse;
 

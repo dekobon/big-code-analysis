@@ -3362,11 +3362,11 @@ three `*/cpp-and-chain` probes that fit 1.97 with the climb reinstated.
 enclosing `compound_statement`, sat one step up. A C++ namespace nest
 has none above a declaration, so the climb reached the root from every
 one: 12.8s for 32,000 levels in a release build, against 0.25s for a
-function nest of the same depth. TypeScript's ambient question had no
-stop at all, and Python cognitive's two boolean-operator questions
-stopped at boundaries a nested list never holds. The fix folds the
-answers down the chain through the walk's `FoldCache`. Price a
-stop-bounded climb on a shape where the stop is absent.
+function nest as deep. The fix folds the answers down the chain through
+the walk's `FoldCache`, and it folded only the climbs it found:
+cognitive's enclosing-function scan (#1864) and a Python `npa` climb
+(#1867) kept the shape. Price such a climb where the stop is absent, and
+sweep for the same loop elsewhere ([Adding a probe](benchmarking.md#adding-a-probe)).
 
 ---
 

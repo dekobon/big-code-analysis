@@ -103,6 +103,20 @@ perturbations whenever two guards merge into one predicate.
   descend-then-ascend test and survived the suite (#1805). Pin the
   states that must not panic in an ordinary test.
 
+### Assert an observation counter exactly
+
+- **Assert an observation counter exactly.** A counter over a
+  deterministic walk has one right value: assert it with `assert_eq!`
+  and an `// expected:` derivation. A range scaled by the fixture
+  (`depth..=4 * nodes`) holds for the regression as well; on 200 levels
+  it would have admitted a memo that refolded each ancestor 50 times
+  (#1864).
+- **A counter sees only the loop it sits in.** `fold_steps` counts the
+  states a fold stores, so a search for the stored state that started at
+  the root left it unchanged while reading about a hundred times the
+  slots; `fold_slot_probes` now counts those reads (#1864). Count every
+  loop the optimization shortens, and mutate each one.
+
 ### Coverage measures execution, not discrimination
 
 - **Coverage measures execution, not discrimination.** Perturb the

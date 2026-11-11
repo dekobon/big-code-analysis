@@ -250,6 +250,9 @@ Read it as follows.
 | `npa/ruby-nested-classes` | Ruby | depth | the chain every member walk derives per container body (`Ancestors::of_children`), borrowing the walk's chain and owning only the body rather than copying the whole chain per class (#1805) | linear |
 | `npm/ruby-nested-classes` | Ruby | depth | the same derivation under the method walk (#1805) | linear |
 | `loc/ruby-nested-classes` | Ruby | depth | metric control for the two rows above: the same nest under a metric that derives no chain per class body | linear |
+| `cognitive/java-nested-classes` | Java | depth | `increment_function_depth` where no function encloses the asker: the answer folded down the walk's chain on `KindLane::InsideFunction` rather than scanned to the root per method (#1864) | linear |
+| `nom/java-nested-classes` | Java | depth | metric control for the row above | linear |
+| `cognitive/groovy-nested-classes` | Groovy | depth | the same question on the same source under the Groovy grammar (#1864) | linear |
 | `npa/cpp-wide-class-members` | C++ | width | a shape control for the C++ member walks: `cpp_declares_function` is asked of every field and static data member template by both consumers and must read only the member's own declarator chain — a walk that re-sought siblings or read a `template_declaration`'s neighbours would show here (#1299) | linear |
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
@@ -268,8 +271,8 @@ See [The ranking pass](#ranking-pass).
 
 The control probes are what make the other readings mean something.
 
-- `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
-  **metric** controls.
+- `nom/nested-while`, `nom/nested-fn`, `nom/nested-fn-rows` and
+  `nom/java-nested-classes` are **metric** controls.
   `Cognitive` declares `Nom` as a dependency in `src/metric_set.rs`, so
   the cognitive-attributable cost of each `cognitive/…` row is its
   difference from the `nom/…` row on the same shape, not the
@@ -308,7 +311,7 @@ The control probes are what make the other readings mean something.
   source under a metric that does not ask for a parent, is the metric
   control that stands in for one.
 
-### Adding a probe
+### Adding a probe {#adding-a-probe}
 
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
@@ -325,6 +328,30 @@ Then falsify it. Reintroduce the regression the probe claims to catch
 behind a local patch, confirm the probe goes red and its controls stay
 green, and record both numbers; a probe nobody has made fail is a
 guard on paper. The width probe's own run is quoted below.
+
+When a fix folds or memoises one ancestor climb, sweep for the others
+in the same change. A climb that stops at the nearest matching ancestor
+is linear on every shape where one is near, so its probe and its tests
+pass while the same loop is quadratic where none is. #1767 folded every
+climb its own sweep found and left `increment_function_depth` scanning
+(#1864), and the sweep made for that fix found another (#1867). These
+searches find the spellings of #1864 and #1867 and the adapter and
+helper spellings around them. `Ancestors::iter` is the only `iter` in
+these crates that takes an argument, which is what the first two key
+on; the third finds a `successors` climb over `Node::parent`, and the
+last lists the callers of the climbing helpers. They do not follow an
+iterator bound to a name or passed on as an `AncestorIter`: read those
+sites by hand.
+
+```bash
+rg -U '\.iter\([^)]+\)\)?\s*(\.(map|skip|by_ref|take|filter)\([^\n]*\)\s*)*\.(any|all|find|find_map|position|take_while|skip_while|map_while|last|count|fold|try_fold)\(' src big-code-analysis-ast/src
+rg 'for .* in .*\.iter\([^)]+\)' src big-code-analysis-ast/src
+rg 'successors\(.*parent' src big-code-analysis-ast/src
+rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind' src big-code-analysis-ast/src
+```
+
+For each match, name what stops the loop, then render a shape where
+that stop is absent or far and time it against a control.
 
 ### Why each probe exists
 
@@ -779,6 +806,55 @@ walk under a chain 64 000 entries deep. The per-change guard is
 derived chain's upper run *is* the walk's slice rather than a copy of
 it.
 
+`cognitive/java-nested-classes` and `cognitive/groovy-nested-classes`
+guard [#1864][enclosing-function]. The cognitive walk asks every
+function definition whether another function encloses it, to charge a
+nested function its depth. #1062 moved that question off `Node::parent`
+onto a scan of the walk's chain, which stops at the nearest function.
+`cognitive/nested-fn` was added for that case, where one is two steps
+up. A
+method in a class has none, so its scan read the whole chain, and a
+method in each of `n` nested classes read `Σ depth` entries. The answer
+is now folded down the chain on `KindLane::InsideFunction`
+(`Ancestors::has_ancestor_of_kind`), each ancestor once per walk, the
+way #1767 folded the other ancestor questions that have no stop nearby.
+
+Both probes render the same source, `depth` nested classes each holding
+one method with one `if`, on 4 000 / 8 000 / 16 000. The Groovy row is
+there because that grammar parses nested type declarations only since
+0.5.0, which is what made the shape reachable for it.
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| a chain scan per function | `cognitive/java-nested-classes` | 0.60-0.66 | 2.45 | 82-92 ms → 4.2 s |
+| (same patch) | `cognitive/groovy-nested-classes` | 0.82-0.91 | 2.62 | 75-83 ms → 5.8 s |
+| (same patch) | `nom/java-nested-classes` | 0.72-0.75 | 0.90 | 62-66 ms → 93 ms, inside its bound; `Nom` does not ask the question, so the difference is the host's |
+
+The clean bands are two runs and the regressed column one, on a host
+that was not idle. The clean exponents sit below 1 because the first
+rung reads high, in the `nom` control as well, so the fold is not the
+cause; what inflates the first rung is not identified. The fit
+therefore leaves 0.6 to 0.9 under the bound, and a regression milder
+than the full scan can pass: these probes catch the scan and nothing
+subtler. A rung higher would not help, since the scan's top cell would
+run past `MAX_CELL_WALK` and report an abandoned walk in place of an
+exponent. No other probe left its bound with the scan put back.
+`cognitive/nested-fn`, the shape the scan was cheapest on, read
+0.83-0.85 clean against 0.75 with the scan, and 8.7-9.8 ms against
+10.5 ms at its top rung.
+
+The per-change guard is
+`the_cognitive_walk_folds_the_enclosing_function_question` in
+`src/observation_tests.rs`, which is what covers the milder
+regressions. It pins two exact counts over 200 nested classes: the
+ancestor states the fold stores, and the stored states it reads to find
+where to resume. The scan stores none; a memo that never matched
+stores about `depth²`; and a search that started at the root would
+read about `depth²` slots while storing each state once, which the
+first count cannot see. Under `--cfg chain_audit` every folded answer
+is also checked against the scan, which is what would catch a second
+kind list asked on the same lane.
+
 ### Child scans, and where the allocation actually was {#child-scans}
 
 `Node::children` builds a `tree_sitter::TreeCursor`, which heap-allocates
@@ -1119,3 +1195,4 @@ treating it as a regression.
 [tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
 [find-render]: https://github.com/dekobon/big-code-analysis/issues/1416
 [nested-containers]: https://github.com/dekobon/big-code-analysis/issues/1805
+[enclosing-function]: https://github.com/dekobon/big-code-analysis/issues/1864
