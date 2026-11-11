@@ -161,7 +161,7 @@ echo "${SHA256}  /tmp/cargo-binstall.tgz" | sha256sum --check
 tar -xzf /tmp/cargo-binstall.tgz -C /tmp cargo-binstall
 install -m 0755 /tmp/cargo-binstall "$CARGO_HOME/bin/cargo-binstall"
 rm -f /tmp/cargo-binstall.tgz /tmp/cargo-binstall
-cargo binstall --version
+cargo binstall -V
 EOF
 
 # Cargo dev/CI tools via cargo-binstall (prebuilt binaries — no long
@@ -372,11 +372,11 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     npm install -g \
-        @anthropic-ai/claude-code@2.1.251 \
+        @anthropic-ai/claude-code@2.1.322 \
         @optave/codegraph@3.17.0 \
-        @upstash/context7-mcp@4.0.4 \
-        pyright@1.1.413 \
-        bash-language-server@5.6.0; \
+        @upstash/context7-mcp@4.6.0 \
+        pyright@1.1.414 \
+        bash-language-server@5.8.1; \
     npm cache clean --force; \
     rm -rf /root/.npm /tmp/*
 
