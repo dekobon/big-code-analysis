@@ -70,6 +70,19 @@ for historical reference.
   a survey of every production read found no consumer asking a
   projection outside its role's profile, and which projection a
   consumer reads remains the manual check the module doc names.
+- **Release packaging tools are upgraded**: cargo-about 0.9.3,
+  cargo-deb 3.8.0, cargo-generate-rpm 0.21.1 and cargo-cyclonedx
+  0.5.10. Two outputs change:
+  - `THIRD-PARTY-LICENSES-bca.md` and `THIRD-PARTY-LICENSES-bca-web.md`
+    now list a few crates the old cargo-about missed, such as `rustix`
+    and `zstd-sys`, and the workspace's own MPL-2.0 crates.
+  - The `.rpm` packages' architecture-qualified `Provides` now uses
+    RPM's standard form and carries the release:
+    `big-code-analysis-cli(aarch-64) = 2.5.2-1`, where it was
+    `big-code-analysis-cli(aarch64) = 2.5.2`.
+
+  The `.deb` control fields and file lists, the RPM file lists and
+  the CycloneDX SBOM components are unchanged.
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)
   instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;
