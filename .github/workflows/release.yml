@@ -43,6 +43,9 @@ env:
   # limitation — 0.20 is the first resolver-3-aware release.
   CARGO_DEB_VERSION: "3.8.0"
   CARGO_GENERATE_RPM_VERSION: "0.21.1"
+  # taiki-e/install-action's manifest stops at cargo-cyclonedx 0.5.9, so
+  # 0.5.10 installs through its cargo-binstall fallback (with a warning),
+  # as cargo-generate-rpm, which has no manifest at all, always has.
   CARGO_CYCLONEDX_VERSION: "0.5.10"
   CARGO_ABOUT_VERSION: "0.9.3"
 
