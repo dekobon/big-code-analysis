@@ -2325,14 +2325,13 @@ mod tests {
                 .has_ancestor_of_kind(node, lane, kinds);
             let chained = Ancestors::known(chain).has_ancestor_of_kind(node, lane, kinds);
             let climbed = Ancestors::unknown().has_ancestor_of_kind(node, lane, kinds);
+            let (kind, start) = (node.kind(), node.start_byte());
             assert_eq!(
                 (folded, chained, climbed),
                 (expected, expected, expected),
-                "{} at byte {}: (folded, chained, climbed) must all be the climb's answer",
-                node.kind(),
-                node.start_byte()
+                "{kind} at byte {start}: (folded, chained, climbed) must all be the climb's answer"
             );
-            if node.kind() == "function_item" {
+            if kind == "function_item" {
                 functions.push(
                     Ancestors::known(chain)
                         .with_folds(&asked_at_functions)
