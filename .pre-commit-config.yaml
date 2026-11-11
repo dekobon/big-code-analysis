@@ -15,14 +15,14 @@ repos:
       - id: taskcluster_yml
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     # Bump in lockstep with the ruff version `uv.lock` resolves under
-    # the big-code-analysis-py/pyproject.toml `ruff>=0.13,<0.17` bound,
+    # the big-code-analysis-py/pyproject.toml `ruff>=0.13,<0.18` bound,
     # which is also what CI installs (via the hash-pinned
     # requirements/dev.txt export). This is gated: `make
     # check-ruff-lockstep` fails when this `rev:` is not `v` + the
     # locked version, so the comment is documentation rather than the
     # mechanism it used to be (#1230). `ruff-check` and `ruff-format`
     # are the current hook IDs (the legacy `ruff` alias is deprecated).
-    rev: v0.16.10
+    rev: v0.17.4
     hooks:
     -   id: ruff-check
         args: [--fix]

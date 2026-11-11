@@ -1226,7 +1226,7 @@ py-relock:
 # paths install an *unpinned* ruff onto PATH — `mise.toml`'s
 # `"pipx:ruff" = "latest"`, the Dockerfile's `uv tool install ruff`, and
 # the `pipx install ruff` CONTRIBUTING documents — so PATH-first let the
-# local gate run a ruff outside the `pyproject.toml` `<0.17` ceiling
+# local gate run a ruff outside the `pyproject.toml` ruff ceiling
 # while CI ran the `uv.lock`-resolved one. The venv copy is by
 # construction the version `make check-ruff-lockstep` gates.
 #

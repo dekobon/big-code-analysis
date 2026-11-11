@@ -97,10 +97,10 @@ dev = [
   # all report the same five, 0.13.0 onward report none — under the
   # pre-#1222 `extend-select` config identically, so the floor was
   # already fiction and this states what was always true. The ceiling
-  # is exclusive-of-0.17 rather than open because ruff moves its
+  # is exclusive-of-0.18 rather than open because ruff moves its
   # *defaults* on minor bumps; `[tool.ruff.lint] select` below makes
   # that harmless for the rule set, but formatter output still shifts.
-  "ruff>=0.13,<0.17",
+  "ruff>=0.13,<0.18",
   "pyright>=1.1.380",
   "maturin>=1.7,<2.0",
 ]
