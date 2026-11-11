@@ -311,7 +311,7 @@ The control probes are what make the other readings mean something.
   source under a metric that does not ask for a parent, is the metric
   control that stands in for one.
 
-### Adding a probe
+### Adding a probe {#adding-a-probe}
 
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
@@ -328,6 +328,30 @@ Then falsify it. Reintroduce the regression the probe claims to catch
 behind a local patch, confirm the probe goes red and its controls stay
 green, and record both numbers; a probe nobody has made fail is a
 guard on paper. The width probe's own run is quoted below.
+
+When a fix folds or memoises one ancestor climb, sweep for the others
+in the same change. A climb that stops at the nearest matching ancestor
+is linear on every shape where one is near, so its probe and its tests
+pass while the same loop is quadratic where none is. #1767 folded every
+climb its own sweep found and left `increment_function_depth` scanning
+(#1864), and the sweep made for that fix found another (#1867). These
+searches find the spellings of #1864 and #1867 and the adapter and
+helper spellings around them. `Ancestors::iter` is the only `iter` in
+these crates that takes an argument, which is what the first two key
+on; the third finds a `successors` climb over `Node::parent`, and the
+last lists the callers of the climbing helpers. They do not follow an
+iterator bound to a name or passed on as an `AncestorIter`: read those
+sites by hand.
+
+```bash
+rg -U '\.iter\([^)]+\)\)?\s*(\.(map|skip|by_ref|take|filter)\([^\n]*\)\s*)*\.(any|all|find|find_map|position|take_while|skip_while|map_while|last|count|fold|try_fold)\(' src big-code-analysis-ast/src
+rg 'for .* in .*\.iter\([^)]+\)' src big-code-analysis-ast/src
+rg 'successors\(.*parent' src big-code-analysis-ast/src
+rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind' src big-code-analysis-ast/src
+```
+
+For each match, name what stops the loop, then render a shape where
+that stop is absent or far and time it against a control.
 
 ### Why each probe exists
 
