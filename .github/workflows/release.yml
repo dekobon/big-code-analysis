@@ -41,10 +41,10 @@ env:
   # cargo-deb 2.x cannot parse `resolver = "3"` in Cargo.toml (stabilised
   # in Rust 1.84); 3.x adds support. cargo-generate-rpm 0.15 has the same
   # limitation — 0.20 is the first resolver-3-aware release.
-  CARGO_DEB_VERSION: "3.6.3"
-  CARGO_GENERATE_RPM_VERSION: "0.20.0"
-  CARGO_CYCLONEDX_VERSION: "0.5.7"
-  CARGO_ABOUT_VERSION: "0.8.4"
+  CARGO_DEB_VERSION: "3.8.0"
+  CARGO_GENERATE_RPM_VERSION: "0.21.1"
+  CARGO_CYCLONEDX_VERSION: "0.5.10"
+  CARGO_ABOUT_VERSION: "0.9.3"
 
 jobs:
   # ─── Stage 0 — preflight gate ────────────────────────────────────────

@@ -89,7 +89,7 @@ env:
   # cargo-about renders the per-binary TPL; pinned to the version
   # release.yml uses so the deb/rpm/archive/wheel TPLs are byte-identical
   # for a given tag.
-  CARGO_ABOUT_VERSION: "0.8.4"
+  CARGO_ABOUT_VERSION: "0.9.3"
 
 jobs:
   # Build the wheel matrix. PR-time builds are opt-in via the

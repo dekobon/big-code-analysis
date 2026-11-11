@@ -413,7 +413,7 @@ jobs:
           env-vars: PYO3_PYTHON
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
+          tool: cargo-nextest@0.9.151,cargo-llvm-cov@0.9.1
       # The instrumented run below is the same test set as the `test` job,
       # including the Node-driven inline-sort-script test, which fails
       # under `CI` when Node is missing rather than skipping.
@@ -729,7 +729,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          tool: cargo-about@0.8.4
+          tool: cargo-about@0.9.3
       # Fails if any dep in either binary crate's transitive closure
       # resolves to a license not in `about.toml` `accepted`. Dependabot
       # PRs that introduce an unapproved license now fail here instead of

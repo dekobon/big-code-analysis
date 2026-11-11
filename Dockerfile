@@ -56,8 +56,8 @@ ENV SHFMT_VERSION=3.14.1
 ENV SHELLCHECK_VERSION=0.11.0
 ENV CHECKMAKE_VERSION=0.3.2
 ENV ACTIONLINT_VERSION=1.7.12
-ENV BINSTALL_VERSION=1.22.0
-ENV UV_VERSION=0.12.7
+ENV BINSTALL_VERSION=1.26.2
+ENV UV_VERSION=0.13.7
 
 # ---------------------------------------------------------------------------
 # APT repositories: GitHub CLI + NodeSource. Keyrings are fetched and
@@ -152,8 +152,8 @@ RUN <<'EOF'
 set -eux
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64)  SHA256="df2921254924066627685ee09f6c8b9acd7acef68a338668f879d2b033c09458" ;;
-    aarch64) SHA256="2fdf0ad20ffc7c7f94f32c19566f417d227484ff0335664d5df429e459d1354b" ;;
+    x86_64)  SHA256="9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5" ;;
+    aarch64) SHA256="a235250cd684af9bf1e3a1e4c216b1d36e6c553553d5d789744f27689d81c2d6" ;;
     *)       echo "Unsupported architecture: $ARCH" && exit 1 ;;
 esac
 wget --quiet -O /tmp/cargo-binstall.tgz "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-${ARCH}-unknown-linux-musl.tgz"
@@ -190,10 +190,10 @@ EOF
 RUN set -eux; \
     cargo binstall --no-confirm \
         cargo-udeps@0.1.61 \
-        cargo-insta@1.48.0 \
-        cargo-nextest@0.9.143 \
-        cargo-llvm-cov@0.9.0 \
-        cargo-about@0.8.4 \
+        cargo-insta@1.49.0 \
+        cargo-nextest@0.9.151 \
+        cargo-llvm-cov@0.9.1 \
+        cargo-about@0.9.3 \
         cargo-deny@0.20.2 \
         mdbook@0.5.4; \
     cargo about --version; \
@@ -339,8 +339,8 @@ RUN <<'EOF'
 set -eux
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64)  SHA256="788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21" ;;
-    aarch64) SHA256="66393193038dd7eb108abd7a218d9cec04ac70ab98242b0720fa94de19223b7c" ;;
+    x86_64)  SHA256="c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83" ;;
+    aarch64) SHA256="71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc" ;;
     *)       echo "Unsupported architecture: $ARCH" && exit 1 ;;
 esac
 wget --quiet -O /tmp/uv.tgz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${ARCH}-unknown-linux-gnu.tar.gz"
