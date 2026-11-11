@@ -376,7 +376,7 @@ big-code-analysis-ast = { path = "big-code-analysis-ast", version = "=2.5.2", de
   "test-support",
 ] }
 insta = { version = "1.49.0", features = ["yaml", "json", "redactions"] }
-jsonschema = "^0.59"
+jsonschema = "^0.61"
 tempfile.workspace = true
 quick-xml = "^0.42"
 # Test-only: the integration corpus harness and the concurrent_files

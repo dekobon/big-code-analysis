@@ -63,7 +63,7 @@ assert_cmd = "^2.0"
 sha2.workspace = true
 csv.workspace = true
 insta = "1.49.0"
-jsonschema = "^0.59"
+jsonschema = "^0.61"
 predicates = "^3.0"
 quick-xml = "^0.42"
 
