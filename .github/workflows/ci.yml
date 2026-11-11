@@ -792,8 +792,8 @@ jobs:
       #   curl -fsSL https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-x86_64-unknown-linux-gnu.tar.gz.sha256
       - name: Install rumdl
         env:
-          RUMDL_VERSION: "0.3.2"
-          RUMDL_SHA256: "f527d1374765d826c1627ceab3d1f46e548268731a495b5b12a3af529b3d79e8"
+          RUMDL_VERSION: "0.3.3"
+          RUMDL_SHA256: "2e82399d566b4663625405bad6c36427477a81c7ff726a4986c4d9947e3a51ef"
         run: |
           set -euo pipefail
           url="https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
@@ -804,7 +804,7 @@ jobs:
           rumdl --version
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
+          tool: taplo-cli@0.10.0,shellcheck@0.11.0,shfmt@3.14.1
       # actionlint 1.7.12's prebuilt binary is not yet in
       # taiki-e/install-action's manifest, and cargo-binstall has no
       # fallback for it. Fetch the upstream release tarball directly,
@@ -833,11 +833,11 @@ jobs:
       # fails when they disagree (#1820).
       - name: Install checkmake
         env:
-          CHECKMAKE_VERSION: "0.2.2"
-          CHECKMAKE_SHA256: "bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5"
+          CHECKMAKE_VERSION: "0.3.2"
+          CHECKMAKE_SHA256: "e2effb876913f3ee2caef0ba35f6202c5e8a3cd55a077d8d2b9ce2034257b6af"
         run: |
           set -euo pipefail
-          url="https://github.com/mrtazz/checkmake/releases/download/${CHECKMAKE_VERSION}/checkmake-${CHECKMAKE_VERSION}.linux.amd64"
+          url="https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_VERSION}/checkmake-v${CHECKMAKE_VERSION}.linux.amd64"
           curl -fsSL -o /tmp/checkmake "$url"
           echo "${CHECKMAKE_SHA256}  /tmp/checkmake" | sha256sum -c -
           install -m 0755 /tmp/checkmake /usr/local/bin/checkmake

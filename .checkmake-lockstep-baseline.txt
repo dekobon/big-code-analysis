@@ -10,4 +10,4 @@
 # records the new pair; commit this file with that bump.
 #
 # One record: `<version> <sha256>`.
-0.2.2 bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5
+0.3.2 e2effb876913f3ee2caef0ba35f6202c5e8a3cd55a077d8d2b9ce2034257b6af

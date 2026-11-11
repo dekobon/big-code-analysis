@@ -33,7 +33,7 @@ needs:
   [`taplo`](https://taplo.tamasfe.dev/),
   [`shellcheck`](https://www.shellcheck.net/),
   [`shfmt`](https://github.com/mvdan/sh),
-  [`checkmake`](https://github.com/mrtazz/checkmake) (amd64 only),
+  [`checkmake`](https://github.com/checkmake/checkmake),
   [`actionlint`](https://github.com/rhysd/actionlint).
 - **MCP servers**: [Context7](https://github.com/upstash/context7),
   [codegraph](https://github.com/optave/ops-codegraph-tool), and
@@ -128,13 +128,9 @@ either way:
 
 ## Architecture notes
 
-Images build on `linux/amd64` and `linux/arm64`. `checkmake` is the one
-tool without a single cross-arch source: amd64 uses the exact CI pin
-(`mrtazz/checkmake` at the `CHECKMAKE_VERSION` pin, amd64-only upstream),
-and arm64 falls back to the maintained `checkmake/checkmake` fork
-(`CHECKMAKE_FORK_VERSION`, same rules and
-`.checkmake.ini` format). On any other architecture the build continues
-without it and `make makefile-check` is the single unavailable gate.
+Images build on `linux/amd64` and `linux/arm64`. Every pinned tool has a
+release build for both; on any other architecture the `checkmake` step is
+skipped and `make makefile-check` is the single unavailable gate.
 
 Developer tools install to system locations (`/usr/local`, `/opt`) so they
 are never shadowed by a mounted home directory. Only user state (Claude

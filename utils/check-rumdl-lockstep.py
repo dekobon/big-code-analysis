@@ -22,9 +22,8 @@ the same job's ``ACTIONLINT_VERSION`` / ``ACTIONLINT_SHA256``, and
 **checkmake** lints the Makefile and is pinned the same way as actionlint:
 ``CHECKMAKE_VERSION`` / ``CHECKMAKE_SHA256`` in the job, and
 ``ENV CHECKMAKE_VERSION`` plus the ``case`` in its ``RUN`` block (#1820).
-Only its amd64 arm installs CI's pin (mrtazz/checkmake); the arm64 arm
-installs a different fork, which is no obstacle since no arm64 hash is
-compared.
+Both arms install the same checkmake/checkmake release; only the amd64
+hash is compared, as for the other two tools.
 
 #1653 shows the cost. Its work list named ``mise.toml`` and ``ci.yml``
 and left out the ``Dockerfile``, which the bump caught only by grepping.
@@ -70,8 +69,7 @@ rewrites only the baselines whose pair moved, and refuses when none did.
 ``taiki-e/install-action``, which carries no SHA256 to compare.
 checkmake joined once its block took the rumdl/actionlint shape — one
 ``<arch variable>="…"; SHA256="…"`` line per arch arm, here with the
-whole ``URL`` as the variable since its two arms download from different
-repositories — in place of the inline ``echo "<sha>  /tmp/checkmake" |
+whole ``URL`` as the variable — in place of the inline ``echo "<sha>  /tmp/checkmake" |
 sha256sum --check`` the Dockerfile reader could not anchor on (#1820).
 
 **Adding a tool.** Four edits and a bootstrap, in this order: the CI
@@ -195,10 +193,8 @@ ACTIONLINT = Pin(
     baseline=pathlib.Path(".actionlint-lockstep-baseline.txt"),
     issue="#1799",
 )
-# Each arm sets its whole URL, since amd64 (mrtazz, `${CHECKMAKE_VERSION}`)
-# and arm64 (the checkmake/checkmake fork) download different templates;
-# `linux.amd64` is the mrtazz asset suffix the amd64 URL ends in, which is
-# what CI's URL ends in too.
+# Each arm sets its whole URL; `linux.amd64` is the asset suffix the amd64
+# URL ends in, which is what CI's URL ends in too.
 CHECKMAKE = Pin(
     tool="checkmake",
     version_var="CHECKMAKE_VERSION",

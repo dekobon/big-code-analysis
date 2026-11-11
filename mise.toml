@@ -8,7 +8,7 @@ node = "25.9.0"
 # release tarball directly rather than going through mise) and with
 # `RUMDL_VERSION` plus the per-arch SHA256 table in the `Dockerfile`.
 # `make check-rumdl-lockstep` fails when the three disagree (#1779).
-rumdl = "0.3.2"
+rumdl = "0.3.3"
 # Python is required for the `big-code-analysis-py` crate
 # (PyO3 + maturin). Pinned to a 3.12 series — bindings declare
 # `requires-python = ">=3.12"` in `big-code-analysis-py/pyproject.toml`.

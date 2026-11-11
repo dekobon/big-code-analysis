@@ -50,11 +50,11 @@ ENV PATH=/usr/local/cargo/bin:/home/dev/.local/bin:/usr/local/bin:$PATH
 #                         the per-arch SHA256 tables in their RUN blocks
 ENV RUST_VERSION=1.94.0
 ENV NODE_MAJOR=24
-ENV RUMDL_VERSION=0.3.2
+ENV RUMDL_VERSION=0.3.3
 ENV TAPLO_VERSION=0.10.0
-ENV SHFMT_VERSION=3.12.0
-ENV SHELLCHECK_VERSION=0.10.0
-ENV CHECKMAKE_VERSION=0.2.2
+ENV SHFMT_VERSION=3.14.1
+ENV SHELLCHECK_VERSION=0.11.0
+ENV CHECKMAKE_VERSION=0.3.2
 ENV ACTIONLINT_VERSION=1.7.12
 ENV BINSTALL_VERSION=1.22.0
 ENV UV_VERSION=0.12.7
@@ -224,8 +224,8 @@ EOF
 RUN <<'EOF'
 set -eux
 case $(dpkg --print-architecture) in
-    amd64) SHFMT_ARCH="amd64"; SHA256="d9fbb2a9c33d13f47e7618cf362a914d029d02a6df124064fff04fd688a745ea" ;;
-    arm64) SHFMT_ARCH="arm64"; SHA256="5f3fe3fa6a9f766e6a182ba79a94bef8afedafc57db0b1ad32b0f67fae971ba4" ;;
+    amd64) SHFMT_ARCH="amd64"; SHA256="76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf" ;;
+    arm64) SHFMT_ARCH="arm64"; SHA256="5f2db09dae91fca848f7adbdd014632e921a383863a2ad7e0450ad3aba0c6489" ;;
     *)     echo "Unsupported architecture: $(dpkg --print-architecture)" && exit 1 ;;
 esac
 wget --quiet -O /tmp/shfmt "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_${SHFMT_ARCH}"
@@ -242,8 +242,8 @@ RUN <<'EOF'
 set -eux
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64)  SHA256="6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87" ;;
-    aarch64) SHA256="324a7e89de8fa2aed0d0c28f3dab59cf84c6d74264022c00c22af665ed1a09bb" ;;
+    x86_64)  SHA256="8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" ;;
+    aarch64) SHA256="12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588" ;;
     *)       echo "Unsupported architecture: $ARCH" && exit 1 ;;
 esac
 wget --quiet -O /tmp/shellcheck.tar.xz "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.${ARCH}.tar.xz"
@@ -262,8 +262,8 @@ EOF
 RUN <<'EOF'
 set -eux
 case $(dpkg --print-architecture) in
-    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="f527d1374765d826c1627ceab3d1f46e548268731a495b5b12a3af529b3d79e8" ;;
-    arm64) TRIPLE="aarch64-unknown-linux-gnu"; SHA256="bdfca7a602f893fbe5d73d5e38f73b31f45a21d3bcf385b6ea819997d0449ec3" ;;
+    amd64) TRIPLE="x86_64-unknown-linux-gnu";  SHA256="2e82399d566b4663625405bad6c36427477a81c7ff726a4986c4d9947e3a51ef" ;;
+    arm64) TRIPLE="aarch64-unknown-linux-gnu"; SHA256="c9233ea9233f9cf23dc9b063363d32fb55d28f9b0bdcf472288fc29c305c5bc2" ;;
     *)     echo "Unsupported architecture: $(dpkg --print-architecture)" && exit 1 ;;
 esac
 wget --quiet -O /tmp/rumdl.tgz "https://github.com/rvben/rumdl/releases/download/v${RUMDL_VERSION}/rumdl-v${RUMDL_VERSION}-${TRIPLE}.tar.gz"
@@ -295,23 +295,18 @@ actionlint -version
 EOF
 
 # ---------------------------------------------------------------------------
-# checkmake (Makefile linter) — SHA256-verified release binary. amd64 uses
-# the exact CI pin (mrtazz/checkmake at CHECKMAKE_VERSION); arm64 uses the
-# checkmake/checkmake fork (see CHECKMAKE_FORK_VERSION below). Any other arch
+# checkmake (Makefile linter) — SHA256-verified release binary from
+# checkmake/checkmake (formerly mrtazz/checkmake), which publishes amd64 and
+# arm64 Linux builds of the CHECKMAKE_VERSION release. Any other arch
 # continues without it (`make makefile-check` becomes the one missing gate).
 # `make check-rumdl-lockstep` holds CHECKMAKE_VERSION and the amd64 hash
 # to the CI lint job's pin (#1820).
 # ---------------------------------------------------------------------------
 RUN <<'EOF'
 set -eux
-# mrtazz/checkmake (the CI pin, CHECKMAKE_VERSION) ships an amd64 Linux
-# binary only. On arm64, fall back to the maintained checkmake/checkmake
-# fork, which publishes arm64 builds and uses the same rules and
-# .checkmake.ini format.
-CHECKMAKE_FORK_VERSION="0.3.2"
 case $(dpkg --print-architecture) in
-    amd64) URL="https://github.com/mrtazz/checkmake/releases/download/${CHECKMAKE_VERSION}/checkmake-${CHECKMAKE_VERSION}.linux.amd64"; SHA256="bedd033b06f2563809855ec2a9950c7a81acea6cd82937fd2f124e2c1c5fc3d5" ;;
-    arm64) URL="https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_FORK_VERSION}/checkmake-v${CHECKMAKE_FORK_VERSION}.linux.arm64"; SHA256="409167c4abb99407bd232c3bbd351b8a39df57997feafde5a08bddffb0f2dcb4" ;;
+    amd64) URL="https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_VERSION}/checkmake-v${CHECKMAKE_VERSION}.linux.amd64"; SHA256="e2effb876913f3ee2caef0ba35f6202c5e8a3cd55a077d8d2b9ce2034257b6af" ;;
+    arm64) URL="https://github.com/checkmake/checkmake/releases/download/v${CHECKMAKE_VERSION}/checkmake-v${CHECKMAKE_VERSION}.linux.arm64"; SHA256="409167c4abb99407bd232c3bbd351b8a39df57997feafde5a08bddffb0f2dcb4" ;;
     *)     echo "WARNING: no checkmake build for $(dpkg --print-architecture); skipping (make makefile-check will be unavailable)"; exit 0 ;;
 esac
 wget --quiet -O /tmp/checkmake "${URL}"
