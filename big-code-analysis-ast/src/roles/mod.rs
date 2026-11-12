@@ -356,7 +356,11 @@
 //!   `text_gated_by` is carried as `gated_by`, and a gate that reads
 //!   bytes under a plain `gated_by`, `callable_when`, `pays_itself_when`
 //!   or `opens_by` is not flagged — the keyword is the declaration, and
-//!   a gate named under the wrong keyword is the author's error.
+//!   a gate named under the wrong keyword is the author's error. The
+//!   derived suite's `unmarked_owners_answer_alike_without_the_bytes`
+//!   is the behavioural backstop for the owner and `opens_by` cases
+//!   (#1863): it asks every owner the row does not mark, with the bytes
+//!   and without.
 //! - `CHAIN_GATED`: whether any owner carries a `gated_by` /
 //!   `text_gated_by` gate or an `opens_by` fn *without* `no_chain`
 //!   (#1793), or an `under` / `not_under` list, so a forward that
@@ -387,7 +391,8 @@
 //!
 //! Every production predicate and constant a table emits is `pub`
 //! (the test-support enumeration, `canonical()` and the per-row
-//! `MODE` / `HOLDS_PAYER` are not): the root crate's metric
+//! `MODE` / `HOLDS_PAYER` / `TEXT_GATED_OWNERS` are not): the root
+//! crate's metric
 //! dispatchers are consumers too (`abc`, `cyclomatic`, `cognitive` read
 //! the `Comparison` and `ShortCircuit` rows since #1694), and they reach
 //! a row as `big_code_analysis_ast::roles::<lang>::<role>`. The AST
@@ -571,11 +576,20 @@
 //! compared nor counted, and `make role-coverage-claimed` lists the
 //! claimed kinds with no corpus occurrence), a `callable_when` or payer
 //! gate (no chain-less forward reads them), and a text gate under the
-//! wrong keyword. So the derived suite still
-//! compares every forward on every corpus candidate, and a known
-//! disagreement is a named
-//! `KNOWN_DISAGREEMENTS` entry that must still occur (a stale entry
-//! fails too), never a tolerance. The check, when adding a chain- or
+//! wrong keyword whose answer no corpus candidate moves. The byte axis
+//! has the same kind of backstop as the chain axis since #1863:
+//! `unmarked_owners_answer_alike_without_the_bytes` asks every owner a
+//! row does not mark `text_gated_by`, and the `opens_space` fold, with
+//! the walk's bytes and with `&[]`. It found the Tcl family's
+//! `is_braced_literal` and Bash's two `test_operator` owner gates
+//! declared `gated_by`. It sees a gate only where the answer *moves*:
+//! a comparison of two spellings agrees with itself when both are
+//! empty, so the shape that separates them has to be in the corpus
+//! (`BYTE_GATE_FIXTURES` holds the ones no other source spells). So
+//! the derived suite still compares every forward on every corpus
+//! candidate, and a known disagreement is a named `KNOWN_DISAGREEMENTS`
+//! entry that must still occur (a stale entry fails too), never a
+//! tolerance. The check, when adding a chain- or
 //! byte-reading gate to a row: list every forward of that row
 //! (`rg 'Ancestors::known\(&\[\]\)'` and the `&[]` byte arguments),
 //! decide for each whether the dropped input changes the answer, and
@@ -862,6 +876,15 @@ pub const fn some_kinds<const N: usize>(marked: &[Option<u16>]) -> [u16; N] {
     kinds
 }
 
+/// `Some(kind)` where `marked`, for a per-owner list built from a
+/// detector that answers `true` or `false` (`TEXT_GATED_OWNERS`).
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+#[must_use]
+pub const fn marked_kind(marked: bool, kind: u16) -> Option<u16> {
+    if marked { Some(kind) } else { None }
+}
+
 /// The kinds of an `EXCLUDED` list, for the same checks.
 #[doc(hidden)]
 #[must_use]
@@ -916,6 +939,8 @@ pub struct DeclaredRow {
     pub excluded: &'static [(u16, &'static str)],
     /// `TEXT_GATED`.
     pub text_gated: bool,
+    /// `TEXT_GATED_OWNERS`.
+    pub text_gated_owners: &'static [u16],
     /// `CHAIN_GATED`.
     pub chain_gated: bool,
     /// `PAYS_NEVER`.
@@ -940,9 +965,10 @@ pub struct DeclaredRow {
 
 // `cfg(test)`, not `test-support`: nothing the feature exports reaches
 // it — `pub(crate)`, and no `pub` item calls it — so under the feature
-// alone it is dead. `rows()`, `view()`, `MODE` and `HOLDS_PAYER` are
-// `pub(crate)` under the feature too, and live, because `tables()`
-// reaches them; that reachability is the test, not the visibility.
+// alone it is dead. `rows()`, `view()`, `MODE`, `HOLDS_PAYER` and
+// `TEXT_GATED_OWNERS` are `pub(crate)` under the feature too, and live,
+// because `tables()` reaches them; that reachability is the test, not
+// the visibility.
 #[cfg(test)]
 impl DeclaredRow {
     /// Every kind the row names as owning, paying or paying at the
@@ -1698,6 +1724,22 @@ macro_rules! role_table {
                 $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
             };
 
+            /// Every owner marked `text_gated_by`: [`TEXT_GATED`] per
+            /// owner. The derived byte backstop asks every *other* owner
+            /// with and without the bytes, so a gate that reads them
+            /// under a plain `gated_by` is seen on a row another owner
+            /// already marks (#1863).
+            #[cfg(any(test, feature = "test-support"))]
+            pub(crate) const TEXT_GATED_OWNERS: &[u16] = &{
+                const MARKED: &[Option<u16>] = &[ $( $crate::roles::marked_kind(
+                    $crate::role_table!(
+                        @scan text_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
+                    ),
+                    $lang::$owner as u16,
+                ), )* ];
+                $crate::roles::some_kinds::<{ $crate::roles::count_some(MARKED) }>(MARKED)
+            };
+
             /// Whether `node` is a `callable` owner of the construct — a
             /// named function, for `Checker::is_func_with_code` — under
             /// its gate.
@@ -1791,6 +1833,7 @@ macro_rules! role_table {
                     wraps: WRAPS,
                     excluded: EXCLUDED,
                     text_gated: TEXT_GATED,
+                    text_gated_owners: TEXT_GATED_OWNERS,
                     chain_gated: CHAIN_GATED,
                     pays_never: PAYS_NEVER,
                     mode: MODE,
@@ -3995,6 +4038,70 @@ mod tests {
             &[] as &[u16],
             "unmarked owners"
         );
+    }
+
+    /// `TEXT_GATED_OWNERS` names every `text_gated_by` owner in each
+    /// position the attribute list can put the word — alone, after
+    /// `holds_payer`, after an `opens` and a `callable`, and marked
+    /// `no_chain` — and none whose gate is a plain `gated_by`, a
+    /// `callable_when` or absent. The derived byte backstop asks every
+    /// owner *not* listed here, so an owner wrongly listed is one it
+    /// stops asking, and a row wrongly empty is one it asks of a
+    /// declared byte reader (#1863).
+    #[test]
+    fn text_gated_owners_lists_the_marked_owners_in_every_spelling() {
+        assert_eq!(
+            dsl_gates::member::TEXT_GATED_OWNERS,
+            &[Java::FieldDeclaration as u16],
+            "alone"
+        );
+        assert_eq!(
+            dsl_gates::call::TEXT_GATED_OWNERS,
+            &[Java::MethodInvocation as u16],
+            "after holds_payer"
+        );
+        assert_eq!(
+            dsl_gates::func_opener::TEXT_GATED_OWNERS,
+            &[Java::RecordDeclaration as u16],
+            "one marked owner among kind-only, gated and callable_when ones"
+        );
+        assert_eq!(
+            dsl_gates::short_circuit::TEXT_GATED_OWNERS,
+            &[] as &[u16],
+            "gated_by, not text"
+        );
+        assert_eq!(
+            dsl_no_chain::catch::TEXT_GATED_OWNERS,
+            &[Java::CatchClause as u16],
+            "text_gated_by … no_chain"
+        );
+        assert_eq!(
+            dsl_no_chain::exit::TEXT_GATED_OWNERS,
+            &[] as &[u16],
+            "gated_by … no_chain"
+        );
+        // The flag is the list's emptiness, on every production row.
+        for table in super::tables() {
+            for row in (table.rows)() {
+                if let Some(row) = row.declared() {
+                    assert_eq!(
+                        row.text_gated,
+                        !row.text_gated_owners.is_empty(),
+                        "{} {}",
+                        table.name,
+                        row.role
+                    );
+                    assert!(
+                        row.text_gated_owners
+                            .iter()
+                            .all(|kind| row.owners.contains(kind)),
+                        "{} {}: a listed kind is no owner",
+                        table.name,
+                        row.role
+                    );
+                }
+            }
+        }
     }
 
     // `opens_by f`: one kind, two space kinds, by what `f` reads.

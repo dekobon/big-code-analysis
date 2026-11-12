@@ -93,16 +93,17 @@ role_table! {
     // `-eq`, `-lt`, `-z`, `-n`, … — one kind the grammar shares with the
     // `-a` / `-o` connectives, so that payer is text-gated: a
     // `test_operator` pays as a comparison exactly when its bytes are
-    // not a connective. `=` compares inside a test and assigns inside
+    // not a connective — and so is the owner, whose gate reads the same
+    // bytes off its `operator` field (#1863). `=` compares inside a test and assigns inside
     // `(( … ))`, which only the test's descent can tell (#1536); the
     // ABC consumer counts it from the test, as its own extra.
     Comparison {
         owns [
-            BinaryExpression(gated_by comparison_operator no_chain),
-            BinaryExpression2(gated_by comparison_operator no_chain),
-            BinaryExpression3(gated_by comparison_operator no_chain),
-            BinaryExpression4(gated_by comparison_operator no_chain),
-            BinaryExpression5(gated_by comparison_operator no_chain),
+            BinaryExpression(text_gated_by comparison_operator no_chain),
+            BinaryExpression2(text_gated_by comparison_operator no_chain),
+            BinaryExpression3(text_gated_by comparison_operator no_chain),
+            BinaryExpression4(text_gated_by comparison_operator no_chain),
+            BinaryExpression5(text_gated_by comparison_operator no_chain),
         ]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ, EQTILDE,
@@ -121,18 +122,18 @@ role_table! {
     // `&&` / `||` join two commands in a `list` and two tests inside
     // `[[ … ]]` / `(( … ))` in a `binary_expression`; inside `[ … ]` the
     // same join is the `-a` / `-o` spelling of `test_operator`, read by
-    // text. Bash's `&&` / `||` are command-list separators, so the ABC
+    // text, at the payer and at the owner alike. Bash's `&&` / `||` are command-list separators, so the ABC
     // consumer reads this row for nothing (#1536 — Fitzpatrick Rule 9
     // does not map onto its grammar) where cyclomatic and cognitive
     // read it.
     ShortCircuit {
         owns [
             List,
-            BinaryExpression(gated_by short_circuit_operator no_chain),
-            BinaryExpression2(gated_by short_circuit_operator no_chain),
-            BinaryExpression3(gated_by short_circuit_operator no_chain),
-            BinaryExpression4(gated_by short_circuit_operator no_chain),
-            BinaryExpression5(gated_by short_circuit_operator no_chain),
+            BinaryExpression(text_gated_by short_circuit_operator no_chain),
+            BinaryExpression2(text_gated_by short_circuit_operator no_chain),
+            BinaryExpression3(text_gated_by short_circuit_operator no_chain),
+            BinaryExpression4(text_gated_by short_circuit_operator no_chain),
+            BinaryExpression5(text_gated_by short_circuit_operator no_chain),
         ]
         pays [AMPAMP, PIPEPIPE, TestOperator text_gated_by is_test_connective]
         project "operator"

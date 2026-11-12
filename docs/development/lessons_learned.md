@@ -5345,7 +5345,8 @@ by a behavioural check. Before declaring a gate, list what it reads and
 declare each axis it uses; then confirm the derived suite has a
 backstop for that axis. The chain axis has
 `no_chain_rows_answer_alike_under_the_empty_chain`; the byte axis has
-none (#1863).
+`unmarked_owners_answer_alike_without_the_bytes` since #1863, which
+sees a gate only on a fixture whose answer moves without the bytes.
 
 Handed no bytes, a gate that compares spellings sees every spelling as
 the empty string and answers *equal*: a confident wrong `true` that

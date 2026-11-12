@@ -40,11 +40,13 @@ macro_rules! tcl_family_short_circuit_payers {
 /// `is_braced_literal`, which each dialect emits over its own
 /// `BracedWordKinds` through `Getter::is_braced_script_word` — the one
 /// reader Halstead, `find string` and the dump flattening share (#1382).
+/// The enclosing command is told by its leading word's bytes, so the
+/// gate is `text_gated_by` (#1863).
 macro_rules! tcl_family_strings {
     (@splice $cont:tt [$($acc:tt)*] $($rest:tt)*) => {
         $crate::role_table!(@owners $cont [$($acc)*
             QuotedWord,
-            BracedWord(gated_by is_braced_literal),
+            BracedWord(text_gated_by is_braced_literal),
             BracedWordSimple,
         ] $($rest)*);
     };

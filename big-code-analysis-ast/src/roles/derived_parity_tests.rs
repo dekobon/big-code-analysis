@@ -50,12 +50,13 @@
 //!
 //! `control_flow/<lang>/*` in the output submodule — the per-language
 //! fixtures #1744 preserved — plus the R09 documentation fixtures read
-//! in place through `doc_tests::fixtures()`. Mozcpp and Mozjs own no
-//! fixture of their own and read the C++ and JavaScript files under
-//! their own grammars; Ccomment and Preproc own no extension and have
-//! only inline fixtures. Every language must yield at least one
-//! candidate, so a language the routing forgets fails rather than
-//! passing empty.
+//! in place through `doc_tests::fixtures()`, plus `BYTE_GATE_FIXTURES`,
+//! the shapes a text gate's answer turns on that neither spells
+//! (#1863). Mozcpp and Mozjs own no fixture of their own and read the
+//! C++ and JavaScript files under their own grammars; Ccomment and
+//! Preproc own no extension and have only inline fixtures. Every
+//! language must yield at least one candidate, so a language the
+//! routing forgets fails rather than passing empty.
 //!
 //! The CI `features` and `chain-audit` legs run the lib tests with no
 //! submodule checked out. The structural assertions — the macro
@@ -73,8 +74,8 @@ use std::fmt::Write as _;
 
 use crate::roles::{DeclaredRow, LanguageTable, RowView};
 use crate::test_support::{
-    control_flow_corpus_present, control_flow_sources, for_each_node_with_sibling_cache,
-    for_each_node_with_sibling_cache_tolerating_errors,
+    control_flow_corpus_present, control_flow_sources, for_each_node_with_chain,
+    for_each_node_with_sibling_cache, for_each_node_with_sibling_cache_tolerating_errors,
 };
 use crate::{Ancestors, Checker, LANG, Node, with_code_tag};
 
@@ -102,11 +103,46 @@ struct Source {
     bytes: Vec<u8>,
 }
 
+/// Shapes a text gate's answer turns on that no other source spells,
+/// kept in the tree so the byte backstop
+/// (`unmarked_owners_answer_alike_without_the_bytes`) can see them on
+/// the legs that check out no submodule: a gate re-declared under a
+/// plain `gated_by` must *move* on some candidate to be caught, and
+/// each of these is the one candidate that moves it (#1863).
+///
+/// - A record whose body writes a same-arity constructor of another
+///   type: the header gate compares type spellings, and with no bytes
+///   every same-arity constructor spells the empty type and reads as
+///   canonical. `B` writes the canonical one, the control.
+/// - A `[ … ]` test joined by `-a` / `-o`: one `test_operator` kind
+///   spells the connectives and the comparisons, told apart by text.
+///
+/// Keyed by the table's name, as the exception tables below are: a
+/// language is asked its fixture only when its table is enabled.
+const BYTE_GATE_FIXTURES: &[(&str, &str, &[u8])] = &[
+    (
+        "Java",
+        "gate/java-records",
+        b"record A(int a) { A(long a) { this((int) a); } }\nrecord B(int b) { B(int b) { this.b = b; } }\n",
+    ),
+    (
+        "Groovy",
+        "gate/groovy-records",
+        b"record A(int a) { A(long a) { this(1) } }\nrecord B(int b) { B(int b) { this.b = b } }\n",
+    ),
+    (
+        "Bash",
+        "gate/bash-tests",
+        b"if [ \"$a\" -eq 1 -a \"$b\" -eq 2 ]; then :; fi\n[ -n \"$a\" -o -n \"$b\" ]\n",
+    ),
+];
+
 /// Every source `lang` is asked on: its control-flow files (routed by
-/// `test_support::control_flow_sources`) and its documentation
-/// fixtures, read in place. Without the output submodule — the CI legs
-/// that check out no submodules — the documentation fixtures alone,
-/// which every language has, and the census says so once.
+/// `test_support::control_flow_sources`), its documentation fixtures,
+/// read in place, and its [`BYTE_GATE_FIXTURES`]. Without the output
+/// submodule — the CI legs that check out no submodules — the in-tree
+/// fixtures alone, which every language has, and the census says so
+/// once.
 fn sources_for(lang: LANG) -> Vec<Source> {
     let mut out: Vec<Source> = if let Some(files) = control_flow_sources(lang) {
         files
@@ -129,6 +165,23 @@ fn sources_for(lang: LANG) -> Vec<Source> {
             .map(|f| Source {
                 name: f.name.to_owned(),
                 bytes: f.source.into_owned(),
+            }),
+    );
+    let tables = crate::roles::tables();
+    for (table, fixture, _) in BYTE_GATE_FIXTURES {
+        assert!(
+            tables.iter().any(|t| t.name == *table),
+            "`{fixture}` names `{table}`, which is no table: it would be asked of nothing"
+        );
+    }
+    let name = tables.iter().find(|t| t.lang == lang).map(|t| t.name);
+    out.extend(
+        BYTE_GATE_FIXTURES
+            .iter()
+            .filter(|(table, _, _)| Some(*table) == name)
+            .map(|(_, fixture, bytes)| Source {
+                name: (*fixture).to_owned(),
+                bytes: bytes.to_vec(),
             }),
     );
     out
@@ -462,12 +515,6 @@ fn macro_invariants_hold_on_every_candidate() {
 /// zero and fails. Per owner kind, not per row: a row with two owners
 /// can lose every positive of one while the other keeps it green.
 const NO_POSITIVE_IN_CORPUS: &[(&str, &str, &str, &str)] = &[
-    (
-        "Bash",
-        "ShortCircuit",
-        "binary_expression",
-        "a `binary_expression` owns a short circuit only when it holds `&&` / `||`; none in the fixtures",
-    ),
     (
         "C",
         "ShortCircuit",
@@ -1457,6 +1504,139 @@ fn no_chain_rows_answer_alike_under_the_empty_chain() {
         probe.climbs.is_empty(),
         "a `!CHAIN_GATED` row climbed with `Node::parent` / `Node::previous_sibling` while asked:\n{}",
         probe.climbs.into_iter().collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// What the byte backstop found across every probed table: the
+/// per-gate findings, deduplicated by `(role, kind)` since one
+/// byte-reading gate answers on every candidate of its kind.
+#[derive(Default)]
+struct ByteProbe {
+    asked: usize,
+    disagreements: BTreeSet<String>,
+}
+
+impl ByteProbe {
+    /// Asks every row that owns `node`'s kind through an owner it does
+    /// not mark `text_gated_by`, with the bytes and with none, then the
+    /// `opens_space` fold where no marked opener owns the kind.
+    fn probe<'a>(
+        &mut self,
+        table: &LanguageTable,
+        rows: &[DeclaredRow],
+        node: &Node<'a>,
+        code: &[u8],
+        chain: &[Node<'a>],
+    ) {
+        // One chain for both asks, and no `FoldCache` on it: a memo is
+        // keyed by node, never by buffer, so through the walk's cache
+        // the byte-less ask would be served what the real bytes stored
+        // a moment before, and a memoised byte reader would agree with
+        // itself.
+        let ancestors = Ancestors::known(chain);
+        let kind = node.kind_id();
+        let mut unmarked_owner = false;
+        for row in rows {
+            if !row.owners.contains(&kind) || row.text_gated_owners.contains(&kind) {
+                continue;
+            }
+            unmarked_owner = true;
+            self.asked += 1;
+            let real = (row.owns_kind)(kind, node, code, ancestors);
+            let byteless = (row.owns_kind)(kind, node, &[], ancestors);
+            if real != byteless {
+                self.disagreements.insert(format!(
+                    "{} {} on `{}`: owns {real} with the bytes, {byteless} without",
+                    table.name,
+                    row.role,
+                    node.kind()
+                ));
+            }
+        }
+        // The fold reads every row's `opens` / `opens_by`, so it is
+        // compared only where no space-opening row marks the node's
+        // kind: a marked opener reads the bytes by declaration.
+        let marked_opener = rows.iter().any(|r| {
+            matches!(r.role, "FuncOpener" | "Container") && r.text_gated_owners.contains(&kind)
+        });
+        if unmarked_owner && !marked_opener {
+            let real = (table.opens_space)(node, code, ancestors);
+            let byteless = (table.opens_space)(node, &[], ancestors);
+            if real != byteless {
+                self.disagreements.insert(format!(
+                    "{} opens_space on `{}`: {real:?} with the bytes, {byteless:?} without",
+                    table.name,
+                    node.kind()
+                ));
+            }
+        }
+    }
+}
+
+/// The behavioural backstop for `TEXT_GATED` (#1863): every owner a row
+/// does not mark `text_gated_by` answers `owns_kind` the same with the
+/// walk's bytes and with `&[]`, on every candidate of the corpus, and
+/// so does the table's `opens_space` fold, which `owns_kind` never
+/// reaches for an `opens_by` owner. The flag is the author's word — the
+/// keyword is the declaration, where `CHAIN_GATED` is held to the fn's
+/// signature — so a gate that reads bytes under a plain `gated_by`
+/// builds, passes every `!TEXT_GATED` assertion a byte-less forward
+/// makes, and answers that forward from an empty slice.
+/// `no_chain_rows_answer_alike_under_the_empty_chain` is the same
+/// backstop on the chain axis.
+///
+/// Per owner, not per row (`TEXT_GATED_OWNERS`): a row one owner marks
+/// is still asked through its others. What it sees is an owner whose
+/// answer *moves* without the bytes on some candidate the corpus
+/// spells; a byte reader no fixture can move — a gate comparing two
+/// spellings that happen to agree when both are empty — is not seen,
+/// nor an owner kind with no occurrence (`make role-coverage-claimed`).
+/// It asks ownership and the space fold, which is what `TEXT_GATED`
+/// claims: a `callable_when`, a `pays_itself_when` and a payer's gate
+/// are outside the flag and outside this.
+///
+/// Verified to discriminate by re-keywording three gates to a plain
+/// `gated_by` (recorded on #1863): Java's `opens_record_header`, whose
+/// answer moves on the same-arity alternative constructor of
+/// `gate/java-records`; Bash's `comparison_operator`, on the `-a` of
+/// `gate/bash-tests`; and Elixir's `control_branch`, whose target read
+/// the walk memoises per visited node.
+#[test]
+fn unmarked_owners_answer_alike_without_the_bytes() {
+    let mut probe = ByteProbe::default();
+    for table in crate::roles::tables() {
+        if !table.lang.is_enabled() {
+            continue;
+        }
+        let rows: Vec<DeclaredRow> = (table.rows)()
+            .iter()
+            .filter_map(RowView::declared)
+            .copied()
+            .collect();
+        for source in sources_for(table.lang) {
+            let code = source.bytes.as_slice();
+            with_code_tag!(table.lang, |C| {
+                for_each_node_with_chain::<C>(code, |node, chain| {
+                    if node.start_byte() != node.end_byte() {
+                        probe.probe(table, &rows, node, code, chain);
+                    }
+                });
+            });
+        }
+    }
+    assert!(
+        probe.asked > 0,
+        "no candidate of an owner without a text gate in the corpus"
+    );
+    assert!(
+        probe.disagreements.is_empty(),
+        "an owner not marked `text_gated_by` answers differently without the bytes — \
+         its gate reads them under the wrong keyword:\n{}",
+        probe
+            .disagreements
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
