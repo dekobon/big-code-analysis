@@ -215,7 +215,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1276.0
+value = 1285.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
@@ -311,13 +311,13 @@ value = 43.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 631.0
+value = 646.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1292.0
+value = 1390.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
@@ -329,7 +329,7 @@ value = 41.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "wmc"
-value = 75.0
+value = 76.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
@@ -1289,7 +1289,7 @@ value = 47754.83629866036
 path = "src/ops.rs"
 qualified = "ops_inner"
 metric = "halstead.effort"
-value = 86520.57284214481
+value = 86671.71674994178
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -1421,7 +1421,7 @@ value = 7.0
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 metric = "halstead.effort"
-value = 145947.09491072322
+value = 146090.56
 
 [[entry]]
 path = "src/spaces/compute.rs"

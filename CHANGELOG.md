@@ -191,6 +191,22 @@ for historical reference.
   angle-bracket pair reads the new `TypeArguments2` alias, which every
   `type_arguments` now reaches as. Snapshots in the integration corpus
   hold none of these constructs and did not move.
+- In `big-code-analysis-ast`, a walk's ancestor chain now states
+  whether the walk records siblings (#1601).
+  `Ancestors::for_walk(chain, node, &folds, &siblings)` takes the
+  walk's `SiblingCache` as a required argument, so a walk can no longer
+  drop it by forgetting `with_siblings`, which is now test-only. A walk
+  that records none constructs through the new
+  `Ancestors::for_walk_without_siblings(chain, node, &folds)` (the
+  suppression scan and the dump) or `Ancestors::checked` (comment
+  removal). Both lend an empty record, so in a debug build a sibling
+  asked under a parent wider than `WIDE_PARENT` panics through
+  `siblings_before` and `siblings_after` as well as `previous_sibling`.
+  Release builds answer as before. On a chain that is not a walk's own
+  (`of_children`, `below`, `Ancestors::known`), `siblings_before` and
+  `siblings_after` still seek, and `previous_sibling` keeps the
+  assertion #1785 gave it. The AST crate is outside `STABILITY.md`'s
+  shape contract. No metric value or output changes.
 
 ### Fixed
 

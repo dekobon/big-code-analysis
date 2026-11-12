@@ -305,8 +305,9 @@ impl<'a> Frame<'a> {
 ///
 /// That swap is invisible to the test suite: an unknown chain answers
 /// identically and only costs more, so nothing here pins the chain by
-/// asserting on output. Three things do. `Ancestors::for_walk` in
-/// [`Export::finish`] runs `Ancestors::checked`, whose `debug_assert!`
+/// asserting on output. Three things do.
+/// `Ancestors::for_walk_without_siblings` in [`Export::finish`] runs
+/// `Ancestors::checked`, whose `debug_assert!`
 /// catches a dropped pop on every fixture the dump walk sees, and
 /// `make chain-audit`
 /// upgrades it to the exact `chain.last() == node.parent()` check —
@@ -327,6 +328,12 @@ struct Export<'a, 'code> {
     /// asks whether a braced word's argument list is readable, and
     /// without this every word of a wide erroring line re-scanned the
     /// list (#1686). `dump/tcl-wide-erroring-eval` prices it.
+    ///
+    /// No `SiblingCache` beside it: no alterator asks for a sibling, and
+    /// this walk asks after a node's children are exported, so it has
+    /// no batch of pushed children to record. An alterator that starts
+    /// to ask under a wide parent trips the walk assertion in a debug
+    /// build (#1601).
     folds: FoldCache,
 }
 
@@ -364,7 +371,7 @@ impl<'a, 'code> Export<'a, 'code> {
             self.comment,
             frame.field,
             frame.children,
-            Ancestors::for_walk(&self.chain, &frame.node, &self.folds),
+            Ancestors::for_walk_without_siblings(&self.chain, &frame.node, &self.folds),
         );
         match self.stack.last_mut() {
             Some(parent) => {

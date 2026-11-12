@@ -147,8 +147,7 @@ pub fn for_each_node_with_chain_tolerating_errors<L: LanguageInfo>(
 /// run, which lends each node its chain together with the
 /// [`SiblingCache`](crate::node::SiblingCache) and
 /// [`FoldCache`](crate::node::FoldCache), built as `metrics_inner`
-/// builds them ([`Ancestors::for_walk`] plus
-/// [`Ancestors::with_siblings`]). A sibling read under a parent wider
+/// builds them ([`Ancestors::for_walk`]). A sibling read under a parent wider
 /// than [`WIDE_PARENT`](crate::node::WIDE_PARENT) therefore takes the
 /// cached binary search, and a change to how walks lend the caches
 /// reaches this helper without a hand-made copy to update.

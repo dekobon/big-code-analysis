@@ -95,7 +95,10 @@ pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
     // maintained by the same truncate/push rule as
     // `spaces::compute::metrics_inner` (#1096). Rust's
     // `is_useful_comment` reads the parent off it; `Node::parent` would
-    // cost `O(depth)` per comment.
+    // cost `O(depth)` per comment. `checked` says the walk records no
+    // siblings: no `is_useful_comment` asks for one, and one that started
+    // to under a wide parent would trip the walk assertion in a debug
+    // build (#1601).
     let mut chain: Vec<Node<'_>> = Vec::new();
 
     stack.push((node, 0));

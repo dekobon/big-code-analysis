@@ -20,7 +20,7 @@ pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
 pub use ancestors::{
     GateLane, KindLane, NodeQuestion, WIDE_PARENT, child_chains_derived, fold_slot_probes,
-    fold_steps, sibling_cache_reads,
+    fold_steps, sibling_cache_reads, sibling_seeks,
 };
 
 use tree_sitter::Node as OtherNode;
@@ -1036,10 +1036,7 @@ impl<'a> Search<'a> for Node<'a> {
 
         while let Some((node, depth)) = stack.pop() {
             chain.truncate(depth);
-            action(
-                &node,
-                Ancestors::for_walk(&chain, &node, &folds).with_siblings(&siblings),
-            );
+            action(&node, Ancestors::for_walk(&chain, &node, &folds, &siblings));
             chain.push(node);
             // Source order in, tail reversed in place, so the LIFO
             // `stack` yields the leftmost child first — pre-order with

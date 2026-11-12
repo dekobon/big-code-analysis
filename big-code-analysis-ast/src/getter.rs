@@ -373,6 +373,11 @@ pub trait Getter {
     /// needs it: its `def` / `defmodule` heads are ordinary `Call`
     /// nodes, and one inside a `quote` template names no space at all,
     /// which is a question about what encloses the call (#1088).
+    ///
+    /// The suppression scan asks this through a chain that records no
+    /// siblings, so an impl must not ask `ancestors` for one: under a
+    /// wide parent that trips the walk assertion in a debug build
+    /// (#1601).
     #[must_use]
     fn get_func_space_name<'a, 'tree>(
         node: &Node<'tree>,

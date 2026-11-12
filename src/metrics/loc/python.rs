@@ -693,8 +693,8 @@ fn python_joins_comment<'a>(
     first: usize,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    // Not #1601's non-extra skip: a comment is an extra too, and is what
-    // this looks for.
+    // Not the non-extra skip of #1572 (`is_extra() && !is_error()`): a
+    // comment is an extra too, and is what this looks for.
     ancestors
         .siblings_after(node)
         .find(|sibling| sibling.kind_id() != Python::LineContinuation as u16)

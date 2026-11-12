@@ -154,9 +154,11 @@ fn the_exclude_tests_prune_resolves_no_sibling_from_a_node_either_side_of_wide_p
     );
 
     // The last column is whether the walk's `SiblingCache` answers: a
-    // walk that stopped lending it (`with_siblings` dropped from
-    // `metrics_inner`) seeks instead, answers the same, and resolves no
-    // sibling from a node, so only `sibling_cache_reads` sees it.
+    // walk that lent an empty one (`metrics_inner` built through
+    // `for_walk_without_siblings`) seeks instead in a release build,
+    // answers the same, and resolves no sibling from a node, so of the
+    // two counters read here only `sibling_cache_reads` sees it there;
+    // a debug build panics first.
     for (shape, source, cached) in [
         ("a seven-child root", rust_root_of_width(7), false),
         (
@@ -731,4 +733,434 @@ fn the_member_walks_derive_a_chain_per_body_not_per_node() {
         shallow, deep,
         "a chain was derived per visited node, not per container body (#1696)"
     );
+}
+
+// The walks that record no siblings ask for none (#1601): the fixture
+// table, the witnesses that each walk did its work, and the test.
+// The table names every language as a `LANG` value and filters at run
+// time with `is_enabled`, so the module is gated on the union.
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+mod no_sibling_walks {
+    use crate::LANG;
+    use crate::node::{Ancestors, WIDE_PARENT, sibling_seeks};
+
+    /// One source: `head`, then `unit` repeated `WIDE_PARENT + 1` times,
+    /// then `tail`.
+    struct Fixture {
+        lang: LANG,
+        /// `[head, unit, tail]`. The head carries the one suppression
+        /// marker and each unit one `comment`.
+        source: [&'static str; 3],
+        /// The kind of the parent the repeats make wider than
+        /// `WIDE_PARENT`.
+        wide_parent: &'static str,
+        /// The kinds the source must spell for a chain-reading predicate
+        /// of these walks to run.
+        constructs: &'static [&'static str],
+        /// The comment each unit carries, which `strip_comments` removes.
+        comment: &'static str,
+    }
+
+    const JS_UNIT: &str = "function a() {}\nconst f = function () {};\nconst g = () => 1;\n// c\n";
+    const JS_KINDS: &[&str] = &[
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+    ];
+
+    /// A fixture for every `LANG` variant, the two C-family helper
+    /// grammars included, and a second shape for Rust. The
+    /// wide parent is a root or a body, a flat `ERROR` (Rust, Python,
+    /// Perl) or an argument list (Tcl, iRules). Where a predicate of
+    /// these walks reads the chain, the unit spells what makes it run:
+    /// a comment (Rust's `is_useful_comment` reads its parent), a JS
+    /// family function expression and arrow (the binding gates), a Java
+    /// or Groovy record header and a C# primary constructor (the gate,
+    /// and the name taken from the owner), a Kotlin primary constructor
+    /// (its name), an Elixir `def` (the `quote` fold), Tcl and iRules
+    /// braced words (`keeps_children`). A gate on a row that is not
+    /// `callable`, such as Ruby's `not_a_lambda_body`, is not asked by
+    /// these walks.
+    const FIXTURES: &[Fixture] = &[
+        Fixture {
+            lang: LANG::Rust,
+            source: ["// bca: suppress\n", "fn a() {}\n// c\n", ""],
+            wide_parent: "source_file",
+            constructs: &["line_comment"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Rust,
+            source: ["fn f() {\n// bca: suppress\n", "let x = ) ; // c\n", ""],
+            wide_parent: "ERROR",
+            constructs: &["line_comment"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Python,
+            source: ["def f():\n    # bca: suppress\n", "    x = ) # c\n", ""],
+            wide_parent: "ERROR",
+            constructs: &["comment"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Perl,
+            source: [
+                "# bca: suppress\nmy @r = (",
+                "{\nlast,\n$a && $b, # c\n",
+                "",
+            ],
+            wide_parent: "ERROR",
+            constructs: &["comments"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Java,
+            source: [
+                "class C {\n// bca: suppress\n",
+                "void a() {}\nrecord R(int x) {}\n// c\n",
+                "}\n",
+            ],
+            wide_parent: "class_body",
+            constructs: &["method_declaration", "record_declaration"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Groovy,
+            source: [
+                "class C {\n// bca: suppress\n",
+                "void a() {}\nrecord R(int x) {}\n// c\n",
+                "}\n",
+            ],
+            wide_parent: "class_body",
+            constructs: &["method_declaration", "record_components"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Csharp,
+            source: [
+                "class C {\n// bca: suppress\n",
+                "void A() {}\nclass P(int x) {}\n// c\n",
+                "}\n",
+            ],
+            wide_parent: "declaration_list",
+            constructs: &["method_declaration", "parameter_list"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Kotlin,
+            source: [
+                "// bca: suppress\n",
+                "fun a() {}\nclass K(val x: Int)\n// c\n",
+                "",
+            ],
+            wide_parent: "source_file",
+            constructs: &["function_declaration", "primary_constructor"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Javascript,
+            source: ["// bca: suppress\n", JS_UNIT, ""],
+            wide_parent: "program",
+            constructs: JS_KINDS,
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Mozjs,
+            source: ["// bca: suppress\n", JS_UNIT, ""],
+            wide_parent: "program",
+            constructs: JS_KINDS,
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Typescript,
+            source: ["// bca: suppress\n", JS_UNIT, ""],
+            wide_parent: "program",
+            constructs: JS_KINDS,
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Tsx,
+            source: ["// bca: suppress\n", JS_UNIT, ""],
+            wide_parent: "program",
+            constructs: JS_KINDS,
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Ruby,
+            source: ["# bca: suppress\n", "def a; end\n# c\n", ""],
+            wide_parent: "program",
+            constructs: &["method"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Elixir,
+            source: [
+                "defmodule M do\n# bca: suppress\n",
+                "def a, do: 1\n# c\n",
+                "end\n",
+            ],
+            wide_parent: "do_block",
+            constructs: &["call"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Tcl,
+            source: [
+                "# bca: suppress\nproc f {} {\n# c\neval ",
+                "{a b} ",
+                "]\n}\n",
+            ],
+            wide_parent: "word_list",
+            constructs: &["braced_word"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Irules,
+            source: [
+                "# bca: suppress\nwhen HTTP_REQUEST {\n# c\neval ",
+                "{a b} ",
+                "]\n}\n",
+            ],
+            wide_parent: "word_list",
+            constructs: &["braced_word"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Go,
+            source: ["package p\n// bca: suppress\n", "func a() {}\n// c\n", ""],
+            wide_parent: "source_file",
+            constructs: &["function_declaration"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::C,
+            source: ["// bca: suppress\n", "void a(void) {}\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["function_definition"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Cpp,
+            source: ["// bca: suppress\n", "void a() {}\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["function_definition"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Mozcpp,
+            source: ["// bca: suppress\n", "void a() {}\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["function_definition"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Objc,
+            source: ["// bca: suppress\n", "void a(void) {}\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["function_definition"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Php,
+            source: ["<?php\n// bca: suppress\n", "function a() {}\n// c\n", ""],
+            wide_parent: "program",
+            constructs: &["function_definition"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Lua,
+            source: ["-- bca: suppress\n", "function a() end\n-- c\n", ""],
+            wide_parent: "chunk",
+            constructs: &["function_declaration"],
+            comment: "-- c",
+        },
+        Fixture {
+            lang: LANG::Bash,
+            source: ["# bca: suppress\n", "a() { :; }\n# c\n", ""],
+            wide_parent: "program",
+            constructs: &["function_definition"],
+            comment: "# c",
+        },
+        Fixture {
+            lang: LANG::Ccomment,
+            source: ["// bca: suppress\n", "void a(void) {}\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["comment"],
+            comment: "// c",
+        },
+        Fixture {
+            lang: LANG::Preproc,
+            source: ["// bca: suppress\n", "#define A 1\n// c\n", ""],
+            wide_parent: "translation_unit",
+            constructs: &["define", "comment"],
+            comment: "// c",
+        },
+    ];
+
+    fn contains(haystack: &[u8], needle: &str) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+    }
+
+    fn finds_the_marker(ast: &crate::Ast, _: &Fixture, label: &str) {
+        // expected: 1, the marker in the fixture's head.
+        assert_eq!(ast.suppressions().len(), 1, "{label}: markers found");
+    }
+
+    fn strips_every_comment(ast: &crate::Ast, fixture: &Fixture, label: &str) {
+        let stripped = ast.strip_comments().expect("the fixture holds comments");
+        assert!(!stripped.is_empty(), "{label}: the code was stripped too");
+        assert!(
+            !contains(&stripped, fixture.comment) && !contains(&stripped, "bca: suppress"),
+            "{label}: a comment survived `strip_comments`"
+        );
+    }
+
+    /// Asserts `dump` holds the fixture's wide parent with more than
+    /// `WIDE_PARENT` children: the export visits a node's children
+    /// before the node, so the walk asked its predicates about each.
+    fn exports_the_wide_parent(dump: &crate::AstResponse, fixture: &Fixture, label: &str) {
+        let mut pending: Vec<&crate::AstNode> = dump.root.iter().collect();
+        let mut widest = 0;
+        while let Some(node) = pending.pop() {
+            if node.r#type == fixture.wide_parent {
+                widest = widest.max(node.children.len());
+            }
+            pending.extend(&node.children);
+        }
+        assert!(
+            widest > WIDE_PARENT,
+            "{label}: the widest {} the dump exported has {widest} children",
+            fixture.wide_parent
+        );
+    }
+
+    fn dump_cfg() -> crate::AstCfg {
+        crate::AstCfg {
+            id: String::new(),
+            language: String::new(),
+            comment: false,
+            span: false,
+        }
+    }
+
+    fn dumps_by_cursor(ast: &crate::Ast, fixture: &Fixture, label: &str) {
+        exports_the_wide_parent(&ast.dump_cursor(dump_cfg()), fixture, label);
+    }
+
+    fn dumps_by_index(ast: &crate::Ast, fixture: &Fixture, label: &str) {
+        exports_the_wide_parent(&ast.dump_indexed(dump_cfg()), fixture, label);
+    }
+
+    type Walk = fn(&crate::Ast, &Fixture, &str);
+
+    /// Each walk that records no siblings, as a run that also witnesses
+    /// the walk did its work on the fixture: the marker found, every
+    /// comment stripped, the wide parent exported with its children.
+    const WALKS: [(&str, Walk); 4] = [
+        ("Ast::suppressions", finds_the_marker),
+        ("Ast::strip_comments", strips_every_comment),
+        ("Ast::dump_cursor", dumps_by_cursor),
+        ("Ast::dump_indexed", dumps_by_index),
+    ];
+
+    /// The walks that record no siblings (the suppression scan, comment
+    /// removal and both dump builders) ask for none through `Ancestors`,
+    /// in any language and under narrow parents too (#1601).
+    ///
+    /// Their chains lend an empty record, so a sibling asked under a
+    /// parent wider than `WIDE_PARENT` panics in a debug build, and each
+    /// fixture holds one. A narrow ask answers the same as it would
+    /// through a lent cache and panics nowhere, so only `sibling_seeks`
+    /// sees it; the counter is exact at zero. Neither reading of the
+    /// output can tell a walk that asks from one that does not: the
+    /// answers agree.
+    ///
+    /// A predicate that fails this needs a sibling on one of these
+    /// walks. The walk must then record each wide node's children as it
+    /// pushes them and build its chain with `Ancestors::for_walk`, as
+    /// the metric walk does; the dump cannot, since it asks after a
+    /// node's children are exported, and needs another way to ask.
+    #[test]
+    fn the_walks_that_record_no_siblings_ask_for_none() {
+        for lang in LANG::into_enum_iter() {
+            assert!(
+                FIXTURES.iter().any(|fixture| fixture.lang == lang),
+                "{} has no fixture: add a row, or these walks are unguarded for it",
+                lang.name()
+            );
+        }
+        let mut ran = 0;
+        for fixture in FIXTURES.iter().filter(|fixture| fixture.lang.is_enabled()) {
+            ran += 1;
+            let [head, unit, tail] = fixture.source;
+            let source = format!("{head}{}{tail}", unit.repeat(WIDE_PARENT + 1));
+            let wide_parent = fixture.wide_parent;
+            let label = format!("{} under a wide {wide_parent}", fixture.lang.name());
+            let ast = crate::test_support::parse_named(fixture.lang, "fixture", &source);
+            let root = ast.root_node();
+            assert!(
+                root.preorder()
+                    .any(|node| node.kind() == wide_parent && node.child_count() > WIDE_PARENT),
+                "{label}: the fixture holds no such parent"
+            );
+            for construct in fixture.constructs {
+                assert!(
+                    root.preorder().any(|node| node.kind() == *construct),
+                    "{label}: the fixture must spell a {construct}"
+                );
+            }
+            // A positive control: the counter counts a seek, so the zeros
+            // below are a walk that asked for nothing, not a counter that
+            // never moves.
+            let first = root.child(0).expect("the fixture has a first node");
+            let chain = [root];
+            let before = sibling_seeks::observed();
+            let _ = Ancestors::known(&chain).siblings_after(&first).next();
+            assert_eq!(
+                sibling_seeks::observed() - before,
+                1,
+                "{label}: the control"
+            );
+            for (walk, run) in WALKS {
+                let before = sibling_seeks::observed();
+                run(&ast, fixture, &label);
+                // expected: 0, none of the predicates these walks call
+                // asks for a sibling through `Ancestors`.
+                assert_eq!(
+                    sibling_seeks::observed() - before,
+                    0,
+                    "{label}: {walk} asked for a sibling, and its walk records none; \
+                     see this test's doc for what the walk must do instead"
+                );
+            }
+        }
+        assert!(ran > 0, "no fixture's language is enabled");
+    }
 }

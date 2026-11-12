@@ -123,6 +123,10 @@ where
     /// `Ast::dump` on 8 KB of nested Tcl braces from 10 ms to 418 ms —
     /// the run `ast.rs` records beside the chain this reads, not a
     /// second measurement.
+    ///
+    /// That walk records no siblings, so an impl must not ask
+    /// `ancestors` for one: under a wide parent that trips the walk
+    /// assertion in a debug build (#1601).
     #[inline]
     #[must_use]
     fn keeps_children<'a>(_node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
