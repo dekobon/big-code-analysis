@@ -286,11 +286,12 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics_only_shim;
+    use crate::test_support::{check_func_space_only_shim, check_metrics_only_shim, child_space};
 
     use super::*;
 
     check_metrics_only_shim!(check_metrics, Nom);
+    check_func_space_only_shim!(check_func_space, Nom);
     // The C# indexer / property tests (#464, #472) assert that `nom`'s
     // function count agrees with `npm`'s method count for the same
     // member, so they need both families computed.
@@ -2584,6 +2585,33 @@ proc helper { x } {
                   "closures_max": 1
                 }
                 "#);
+            },
+        );
+    }
+
+    /// The per-scope accessors, read on the scopes that own the counts.
+    /// A block literal opens no space of its own, so a method holding
+    /// two of them is a scope whose `closures()` is neither 0 nor 1.
+    #[cfg(feature = "objc")]
+    #[test]
+    fn per_scope_accessors_read_their_own_counts() {
+        check_func_space::<ObjcParser, _>(
+            "@implementation Foo\n\
+             - (void)one {\n\
+                 void (^a)(void) = ^{ };\n\
+                 void (^b)(void) = ^{ };\n\
+             }\n\
+             @end\n",
+            "foo.m",
+            |unit| {
+                // expected: `one` is the one function its scope defines,
+                // and the two blocks are that scope's closures.
+                let method = child_space(child_space(&unit, "Foo"), "one");
+                assert_eq!(method.metrics.nom.functions(), 1);
+                assert_eq!(method.metrics.nom.closures(), 2);
+                // expected: the file root defines neither itself.
+                assert_eq!(unit.metrics.nom.functions(), 0);
+                assert_eq!(unit.metrics.nom.closures(), 0);
             },
         );
     }

@@ -451,6 +451,33 @@ mod tests {
 
     check_metrics_only_shim!(check_metrics, Cyclomatic);
 
+    /// `Display` writes the standard variant and then the modified one,
+    /// each value under its own label. The `switch` makes the two
+    /// variants differ, so a value printed under the other variant's
+    /// label shows.
+    #[cfg(feature = "c")]
+    #[test]
+    fn stats_display_labels_every_field() {
+        check_metrics::<CParser>(
+            "int f(int a) {\n    switch (a) {\n    case 1: return 1;\n    case 2: return 2;\n    \
+             default: return 0;\n    }\n}\nint g(void) { return 3; }\n",
+            "foo.c",
+            |metric| {
+                // expected, standard: the file (1), `f` (entry 1 + two
+                // `case`s = 3) and `g` (1) → sum 5; over the two
+                // functions average 2, min 1, max 3.
+                // expected, modified: a `switch` is one decision however
+                // many cases it holds, so `f` is 2 → sum 4, average 1.5,
+                // min 1, max 2.
+                assert_eq!(
+                    metric.cyclomatic.to_string(),
+                    "sum: 5, average: 2, min: 1, max: 3, \
+                     modified_sum: 4, modified_average: 1.5, modified_min: 1, modified_max: 2"
+                );
+            },
+        );
+    }
+
     /// The two `impl_cyclomatic_rows!` shapes no pilot language spells
     /// (#1697): a non-empty `constraints` list, and every list empty.
     /// `Probe` carries an inert `Checker` so the macro's `impl` has a

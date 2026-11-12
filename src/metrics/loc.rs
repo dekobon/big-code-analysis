@@ -1220,6 +1220,55 @@ mod tests {
         assert_eq!(stats.dloc_min(), 0);
     }
 
+    /// `Display` writes every accessor under its own label, in this
+    /// order, comma-separated. The table restates the pairing; the two
+    /// literal fragments anchor it to counts read off the fixture.
+    #[cfg(feature = "python")]
+    #[test]
+    fn stats_display_labels_every_accessor() {
+        check_metrics::<PythonParser>("# note\ndef f():\n\n    return 1\n", "foo.py", |metric| {
+            let s = &metric.loc;
+            let rendered = s.to_string();
+            // expected: four physical lines; the `def` and the `return`
+            // are code, the first line a comment and the third blank.
+            assert!(rendered.starts_with("sloc: 4, ploc: 2, "), "{rendered}");
+            assert!(rendered.contains(", cloc: 1, blank: 1, "), "{rendered}");
+
+            let fields = [
+                ("sloc", s.sloc().to_string()),
+                ("ploc", s.ploc().to_string()),
+                ("lloc", s.lloc().to_string()),
+                ("cloc", s.cloc().to_string()),
+                ("blank", s.blank().to_string()),
+                ("dloc", s.dloc().to_string()),
+                ("sloc_average", s.sloc_average().to_string()),
+                ("ploc_average", s.ploc_average().to_string()),
+                ("lloc_average", s.lloc_average().to_string()),
+                ("cloc_average", s.cloc_average().to_string()),
+                ("blank_average", s.blank_average().to_string()),
+                ("dloc_average", s.dloc_average().to_string()),
+                ("sloc_min", s.sloc_min().to_string()),
+                ("sloc_max", s.sloc_max().to_string()),
+                ("cloc_min", s.cloc_min().to_string()),
+                ("cloc_max", s.cloc_max().to_string()),
+                ("ploc_min", s.ploc_min().to_string()),
+                ("ploc_max", s.ploc_max().to_string()),
+                ("lloc_min", s.lloc_min().to_string()),
+                ("lloc_max", s.lloc_max().to_string()),
+                ("blank_min", s.blank_min().to_string()),
+                ("blank_max", s.blank_max().to_string()),
+                ("dloc_min", s.dloc_min().to_string()),
+                ("dloc_max", s.dloc_max().to_string()),
+            ];
+            let expected = fields
+                .iter()
+                .map(|(label, value)| format!("{label}: {value}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            assert_eq!(rendered, expected);
+        });
+    }
+
     /// Parses `source` with `PerlParser` and asserts the resulting tree has
     /// no `ERROR` nodes. Use alongside metric assertions whose expected
     /// values would happen to match what an error tree produces — a parse

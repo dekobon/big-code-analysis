@@ -4527,4 +4527,52 @@ mod tests {
             },
         );
     }
+
+    // The fixture above reads 1 from `interface_wmc`, which a constant 1
+    // returns as well. Here the interface and the class each weigh more
+    // than 1, and differently.
+    #[cfg(feature = "java")]
+    #[test]
+    fn per_space_accessors_read_their_own_weights() {
+        check_func_space::<JavaParser, _>(
+            "public interface I {\n    void p();\n    void q();\n    \
+             default int r(int n) { return n > 0 ? n : -n; }\n}\n\
+             public class C {\n    \
+             public int m(int n) { if (n > 0) { return 1; } return 0; }\n    void n() {}\n}\n",
+            "X.java",
+            |unit| {
+                // expected: p (1) + q (1) + r (entry 1 + ternary 1) = 4.
+                let iface = child_space(&unit, "I");
+                assert_eq!(iface.metrics.wmc.interface_wmc(), 4);
+                // expected: m (entry 1 + `if` 1) + n (1) = 3.
+                let class = child_space(&unit, "C");
+                assert_eq!(class.metrics.wmc.class_wmc(), 3);
+            },
+        );
+    }
+
+    // A class declared in a function nested in a method. The class's
+    // complexity reaches the method through the nested function, and the
+    // method must still keep it out of its own class's weight.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_class_in_a_nested_function_stays_out_of_the_outer_class() {
+        check_func_space::<PythonParser, _>(
+            "class Outer:\n    def m(self):\n        def helper():\n            \
+             class Local:\n                def l(self, x):\n                    \
+             if x:\n                        return 1\n                    return 0\n",
+            "foo.py",
+            |unit| {
+                // expected: `m` (entry 1) and the `helper` it holds
+                // (entry 1) → 2; `l` belongs to `Local`.
+                let outer = child_space(&unit, "Outer");
+                assert_eq!(outer.metrics.wmc.class_wmc(), 2);
+                // expected: `l` (entry 1 + `if` 1) → 2.
+                let local = child_space(child_space(child_space(outer, "m"), "helper"), "Local");
+                assert_eq!(local.metrics.wmc.class_wmc(), 2);
+                // expected: the two classes together → 4.
+                assert_eq!(unit.metrics.wmc.class_wmc_sum(), 4);
+            },
+        );
+    }
 }

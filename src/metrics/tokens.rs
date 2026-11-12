@@ -292,6 +292,25 @@ mod tests {
         );
     }
 
+    /// `Display` on the same fixture, each value under its own label.
+    #[cfg(feature = "python")]
+    #[test]
+    fn stats_display_labels_every_field() {
+        check_metrics::<PythonParser>(
+            "def outer():\n    def inner():\n        return 1\n",
+            "foo.py",
+            |metric| {
+                // expected: `inner` owns 7 tokens, `outer` 5 and the file
+                // none of its own → sum 12, average 12 / 3 scopes = 4,
+                // min 0, max 7.
+                assert_eq!(
+                    metric.tokens.to_string(),
+                    "tokens: 12, tokens_average: 4, tokens_min: 0, tokens_max: 7"
+                );
+            },
+        );
+    }
+
     /// C++ `/* … */` block comments must not contribute.
     /// Same fixture with and without comment yields the same count.
     #[cfg(feature = "cpp")]

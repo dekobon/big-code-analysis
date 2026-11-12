@@ -6412,4 +6412,30 @@ class C {
             },
         );
     }
+
+    // The fixture above reads 1 from three of the four singular
+    // accessors, which a constant 1 returns as well. Here none reads 0
+    // or 1, and the class pair differs.
+    #[cfg(feature = "java")]
+    #[test]
+    fn per_space_accessors_read_their_own_counts() {
+        check_func_space::<JavaParser, _>(
+            "public interface I {\n    void p();\n    void q();\n    void r();\n}\n\
+             public class C {\n    public void a() {}\n    public void b() {}\n    \
+             private void d() {}\n    private void e() {}\n    private void f() {}\n}\n",
+            "X.java",
+            |unit| {
+                // expected: I declares p, q and r, and an interface
+                // method with no modifier is public → 3 of 3.
+                let iface = child_space(&unit, "I");
+                assert_eq!(iface.metrics.npm.interface_npm(), 3);
+                assert_eq!(iface.metrics.npm.interface_nm(), 3);
+                // expected: C declares a and b public and d, e, f
+                // private → 2 public of 5.
+                let class = child_space(&unit, "C");
+                assert_eq!(class.metrics.npm.class_npm(), 2);
+                assert_eq!(class.metrics.npm.class_nm(), 5);
+            },
+        );
+    }
 }
