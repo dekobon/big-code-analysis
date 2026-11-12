@@ -5365,9 +5365,12 @@ reported the header's `nargs` as 0. A fixture with that exact record
 existed and passed: it counted the record's function *spaces*, which
 the walk opened through the with-code path, not the header's `nargs`,
 which the byte-less path zeroed. A reviewer reading the gate found it.
-The row is `text_gated_by` now, both checkers override
-`is_func_with_code`, and this gate's byte-less `is_func` forwards a
-known-empty chain so the header answers `false` there by design.
+The #1862 fix made the row `text_gated_by`, had both checkers override
+`is_func_with_code`, and had the byte-less `is_func` forward a
+known-empty chain so the header answered `false` there by design. The
+follow-up (#1863) removed `is_func` and made `is_func_with_code` a
+required `Checker` method, so no language can answer the callable test
+by forwarding to a spelling that drops the bytes.
 
 ---
 
