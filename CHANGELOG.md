@@ -70,6 +70,35 @@ for historical reference.
   a survey of every production read found no consumer asking a
   projection outside its role's profile, and which projection a
   consumer reads remains the manual check the module doc names.
+- **`big-code-analysis-ast`: every language writes the space-tree
+  predicates, and the byte-less `Checker::is_func` is removed** (#1863).
+  `Checker::is_func_with_code`, `Checker::is_func_space_with_code` and
+  `Getter::get_space_kind_with_code` defaulted to their byte-less
+  spellings, so a language that wrote only the byte-less one handed a
+  text-gated role row no bytes, silently. The three are now required
+  methods, and `is_func_space` and `get_space_kind` default to the
+  with-code form asked with no bytes and a known-empty chain.
+  `Checker::is_func` answered three different questions across the
+  languages and is gone; its readers ask `is_func_with_code`.
+  `Checker::holds_doc_comment_in_body` gains a `code` parameter for the
+  same test. The crate is outside `STABILITY.md`, and no item this
+  crate re-exports changes. Metric values are unchanged. With it:
+  - The derived role suite gains a byte-axis backstop,
+    `unmarked_owners_answer_alike_without_the_bytes`: every owner a row
+    does not mark `text_gated_by` must answer alike with the source
+    bytes and without. It found three gates that read bytes under a
+    plain `gated_by`, now re-declared: the Tcl family's
+    `is_braced_literal` and Bash's `comparison_operator` and
+    `short_circuit_operator`. The keyword changes no answer.
+  - `roles::java::record_header` and `roles::groovy::record_header`
+    name a record's component list once; the header gate, the space's
+    name, `nargs` and `npm` read them where each spelled the field or
+    the kind pair itself.
+  - The record-header gate reads the header's component types once per
+    evaluation rather than once per constructor it compares. New
+    scaling probes `nargs/java-record-alternative-ctors` and
+    `nargs/groovy-record-alternative-ctors` price the gate's scan of a
+    record's body.
 - **Release packaging tools are upgraded**: cargo-about 0.9.3,
   cargo-deb 3.8.0, cargo-generate-rpm 0.21.1 and cargo-cyclonedx
   0.5.10. Three outputs change:
@@ -302,6 +331,19 @@ for historical reference.
   `ChildAncestors` and `Ancestors` keep their signatures. New scaling
   probes `npa/ruby-nested-classes`, `npm/ruby-nested-classes` and their
   `loc` control price it.
+- **Python `loc` stays linear over a docstring nested in parentheses
+  that each open with bare `\` rows** (#1863). A bare `\` row inside a
+  parenthesised docstring asks whether code precedes its parenthesis on
+  the logical line, and the answer is read at the nearest enclosing
+  level that holds a token before its node. Where every level holds
+  only comments and `\` rows, each of `n` nested parentheses read every
+  level above it, quadratic in `n` up to the 200 levels Python's
+  tokenizer allows. The answer is now folded down the walk's ancestor
+  chain, so a parenthesis reads three levels: at 200 levels with 30
+  such rows each, a 37 KB file, the `loc` walk took 92 ms and takes
+  5.3 ms (one run each, on a host that was not idle). Metric values are
+  unchanged. New scaling probe `loc/python-deep-paren-extra-prefix`
+  prices it.
 - **`cognitive` stays linear over functions in nested containers**
   (#1864). The walk asks every function definition whether another
   function encloses it, to charge a nested function its depth, and
