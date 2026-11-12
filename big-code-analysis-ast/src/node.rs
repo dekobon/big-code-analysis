@@ -19,8 +19,8 @@ pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingC
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
 pub use ancestors::{
-    GateLane, KindLane, NodeQuestion, WIDE_PARENT, child_chains_derived, fold_slot_probes,
-    fold_steps, sibling_cache_reads, sibling_seeks,
+    GateLane, KindLane, LevelLane, NodeQuestion, WIDE_PARENT, child_chains_derived,
+    fold_slot_probes, fold_steps, sibling_cache_reads, sibling_seeks,
 };
 
 use tree_sitter::Node as OtherNode;
@@ -2351,6 +2351,74 @@ mod tests {
             depths,
             [3, 5, 5, 1],
             "h must sit as deep as g to meet the slots g's chain left"
+        );
+        assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
+    }
+
+    /// `nearest_level_answer` answers what the climb answers through
+    /// all three of its paths — the walk's memoised fold, a known chain
+    /// with no cache, the chainless climb — for every node of the
+    /// fixture (#1863).
+    ///
+    /// The answer fn says "yes" at a function and "no" at a closure, so
+    /// a node inside a closure inside a function reads the closure's
+    /// "no": the nearer answer replaces the outer one, where a fold
+    /// that only ever set its state would read "yes". A node under
+    /// neither reads `false`, and the answering node itself is not
+    /// asked: a function's own answer is its ancestors'. The second
+    /// cache is asked only at integer literals, so each ask meets the
+    /// slots the previous literal's chain left under other parents.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn nearest_level_answer_answers_the_climb_on_every_path() {
+        use crate::node::{FoldCache, LevelLane};
+        fn level(_code: &[u8], node: &Node, _chain: Ancestors) -> Option<bool> {
+            match node.kind() {
+                "function_item" => Some(true),
+                "closure_expression" => Some(false),
+                _ => None,
+            }
+        }
+        let code = b"fn f() { let c = || { let d = (1 + 2); }; let e = 3; }\n\
+                     const K: u8 = 4;\n\
+                     mod m { fn g() { let h = || 5; } fn i() { 6; } }\n";
+        let cache = FoldCache::default();
+        let asked_at_literals = FoldCache::default();
+        let lane = LevelLane::CodeBeforeOnLine;
+        let mut literals = Vec::new();
+        let (mut yes, mut no) = (0_usize, 0_usize);
+        for_each_node_with_chain::<crate::langs::RustCode>(code, |node, chain| {
+            let expected = std::iter::successors(node.parent(), Node::parent)
+                .find_map(|ancestor| level(code, &ancestor, Ancestors::unknown()))
+                .unwrap_or(false);
+            let folded = Ancestors::known(chain)
+                .with_folds(&cache)
+                .nearest_level_answer(node, lane, code, level);
+            let chained = Ancestors::known(chain).nearest_level_answer(node, lane, code, level);
+            let climbed = Ancestors::unknown().nearest_level_answer(node, lane, code, level);
+            let (kind, start) = (node.kind(), node.start_byte());
+            assert_eq!(
+                (folded, chained, climbed),
+                (expected, expected, expected),
+                "{kind} at byte {start}: (folded, chained, climbed) must all be the climb's answer"
+            );
+            if kind == "integer_literal" {
+                literals.push(
+                    Ancestors::known(chain)
+                        .with_folds(&asked_at_literals)
+                        .nearest_level_answer(node, lane, code, level),
+                );
+            }
+            if expected {
+                yes += 1;
+            } else {
+                no += 1;
+            }
+        });
+        assert_eq!(
+            literals,
+            [false, false, true, false, false, true],
+            "1 and 2 in f's closure, 3 in f, 4 under neither, 5 in g's closure, 6 in i"
         );
         assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
     }

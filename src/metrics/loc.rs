@@ -10384,6 +10384,48 @@ EOF
         }
     }
 
+    /// #1863: whether code precedes a parenthesis on its logical line is
+    /// folded down the walk's chain, so a docstring `depth` parentheses
+    /// deep, each opening with a bare `\` run, reads three levels per
+    /// parenthesis rather than every level above each.
+    ///
+    /// The rows cannot see it: the fold and the climb answer the same,
+    /// so every row but the last is a comment row either way, and only
+    /// the count of levels read tells the two apart. No level here has a
+    /// token before its node, so the question defers from each
+    /// parenthesis to the root, the shape the climb was quadratic on.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_code_before_a_parenthesis_reads_three_levels_each() {
+        let depth = 40;
+        let source = format!(
+            "{}\"\"\"doc\"\"\"\n{}\nx = 1\n",
+            "(\n\\\n# c\n".repeat(depth),
+            ")".repeat(depth)
+        );
+        let before = python::python_line_levels_read::observed();
+        let loc = metrics_verbatim(
+            crate::LANG::Python,
+            source.as_bytes(),
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc;
+        let read = python::python_line_levels_read::observed() - before;
+        // expected: per level the `(` row, the bare row and the comment
+        // row; then the string's row and the row of `)`.
+        assert_eq!(loc.cloc(), 3 * depth as u64 + 2);
+        // expected: each parenthesis is asked once, by its run, and reads
+        // its own level, the one ancestor state the fold has not stored
+        // yet, and its parent's level, which a fold never stores. The
+        // climb read `j + 2` levels from the parenthesis `j` deep,
+        // `depth * (depth + 5) / 2` in all: 900 here. `make chain-audit`
+        // checks every folded answer against that climb, which reads
+        // the levels this counts, so the count is asserted without it.
+        if cfg!(not(chain_audit)) {
+            assert_eq!(read, 3 * depth);
+        }
+    }
+
     /// #1818: the C-family bare-row index is built exactly once per
     /// walk, and only where the walk can use it. The output cannot tell
     /// one build from one per node — each build answers the same — so

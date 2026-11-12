@@ -455,6 +455,41 @@ pub fn python_bare_runs_before_string(width: usize) -> String {
     )
 }
 
+/// How many `\` + `# c` pairs [`python_deep_paren_extra_prefix`] puts
+/// ahead of the next parenthesis at every level: 63 children with the
+/// two parentheses and the next level, the most a node holds before the
+/// walk records it for sibling lookups (`WIDE_PARENT`). A level's read
+/// is then a seek over the parenthesis's children rather than a slice
+/// of the walk's sibling cache, which is what makes the number of
+/// levels read show in the timing: timed alone on a warm tree, the
+/// climb read 1.56 with 31 pairs and 2.05 with these 30.
+const PAREN_PREFIX_PAIRS: usize = 30;
+
+/// Python: a bare string `depth` parentheses deep, each parenthesis
+/// opening with [`PAREN_PREFIX_PAIRS`] one-row bare `\` runs, each
+/// joining a comment row, before the next parenthesis; then a retained
+/// `x = 1`.
+///
+/// [`python_bare_runs_before_string`] grows the prefix of one
+/// parenthesis and [`python_paren_bare_strings`] the nesting with no
+/// prefix; this grows both. A run asks whether its parenthesis is on
+/// the string's line with no code before it, and that question looks at
+/// each level above the parenthesis for a token before the level's
+/// node, past that level's extras. None of these levels has one, so the
+/// question defers to the root from every parenthesis: read by
+/// climbing, `depth` parentheses read `depth² / 2` levels, under the
+/// 200 levels Python's tokenizer lets parentheses nest. Folded down the
+/// walk's chain, each reads three (#1863).
+#[must_use]
+pub fn python_deep_paren_extra_prefix(depth: usize) -> String {
+    let level = format!("(\n{}", "\\\n# c\n".repeat(PAREN_PREFIX_PAIRS));
+    format!(
+        "{}\"\"\"doc\"\"\"\n{}\nx = 1\n",
+        level.repeat(depth),
+        ")".repeat(depth)
+    )
+}
+
 /// C: `width` units of a `{` that never closes, each followed by a row
 /// holding only `\` and a row holding two block comments.
 ///
@@ -3864,6 +3899,32 @@ pub const PROBES: &[Probe] = &[
                     a walk it does not run.",
     },
     Probe {
+        name: "loc/python-deep-paren-extra-prefix",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_deep_paren_extra_prefix,
+        sizes: PAREN_CAP_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1863: every parenthesis of a parenthesised bare string \
+                    that opens with bare `\\` runs asks whether code precedes \
+                    it on its logical line, which defers level by level to \
+                    the root where the levels hold only comments and \
+                    splices. Climbed from each parenthesis that is \
+                    `depth² / 2` levels under CPython's 200-level cap; the \
+                    answer is folded down the walk's chain on \
+                    `LevelLane::CodeBeforeOnLine`, three levels per \
+                    parenthesis. With the climb put back this reads 1.95, \
+                    92 ms at the top rung against 5.3 ms, and 1.00 \
+                    without. The reading is the comment rows: each level's \
+                    `(` row, bare rows and comments, the string's and the \
+                    `)` row.",
+    },
+    Probe {
         name: "loc/go-nested-doc-fields",
         lang: LANG::Go,
         axis: Axis::Depth,
@@ -4654,7 +4715,9 @@ pub const PROBES: &[Probe] = &[
 mod tests {
     use big_code_analysis::{Ast, AstCfg, AstNode, Source};
 
-    use super::{Axis, PROBES, Probe, RECORD_BASE_CTORS, Workload, exported_nodes};
+    use super::{
+        Axis, PAREN_PREFIX_PAIRS, PROBES, Probe, RECORD_BASE_CTORS, Workload, exported_nodes,
+    };
 
     /// How deep an export nests, counted on an explicit stack like
     /// [`exported_nodes`].
@@ -5130,6 +5193,53 @@ mod tests {
                     .expect("metrics walk");
                 assert_eq!(reading, size as u64 + 1, "{name} at {size}");
             }
+        }
+    }
+
+    /// `loc/python-deep-paren-extra-prefix` (#1863) keeps every
+    /// parenthesis as wide as a node can be before the walk records its
+    /// children for sibling lookups, so each level's read is a seek and
+    /// the count of levels read shows in the timing. One pair more and
+    /// the levels are served from the sibling cache: the probe would
+    /// still fit, and would read about 1.6 with the climb put back
+    /// where it reads about 2. The threshold is the walk's `WIDE_PARENT`, read from
+    /// the AST crate so a raised or lowered threshold fails here rather
+    /// than weakening the probe unseen. The reading is every row but
+    /// the retained `x = 1`.
+    #[test]
+    fn python_deep_paren_probe_levels_stay_under_the_sibling_cache() {
+        use big_code_analysis_ast::node::WIDE_PARENT;
+        let name = "loc/python-deep-paren-extra-prefix";
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} is a probe"));
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            assert_eq!(
+                count_kind(&ast, "parenthesized_expression"),
+                size,
+                "one parenthesis per level"
+            );
+            // expected: `(`, two nodes per pair, the next level, `)`.
+            let widest = 2 * PAREN_PREFIX_PAIRS + 3;
+            assert_eq!(max_child_count(&ast), widest, "{name} at {size}");
+            assert!(
+                widest <= WIDE_PARENT && widest + 2 > WIDE_PARENT,
+                "{widest} children per parenthesis must be the most that stays \
+                 under WIDE_PARENT ({WIDE_PARENT})"
+            );
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            // expected: per level the `(` row and a bare row and a
+            // comment row per pair; then the string's row and the `)` row.
+            assert_eq!(
+                reading,
+                ((2 * PAREN_PREFIX_PAIRS + 1) * size + 2) as u64,
+                "{name} at {size}"
+            );
         }
     }
 

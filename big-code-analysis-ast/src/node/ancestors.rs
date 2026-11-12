@@ -419,6 +419,62 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         folded
     }
 
+    /// The answer of the nearest ancestor of `node` that has one, or
+    /// `false` where none does: what
+    /// `self.iter(node).find_map(|(level, chain)| answer(code, &level,
+    /// chain)).unwrap_or(false)` answers. `node` itself is not asked.
+    ///
+    /// That climb stops at the first ancestor that answers, which bounds
+    /// it only where one is near. A node asked from each level of a nest
+    /// whose levels answer nothing — a parenthesis in each of `n`
+    /// parentheses around a Python docstring, each asking whether code
+    /// precedes it on its logical line — climbs the nest from every
+    /// level and is quadratic in its depth (#1863). Under a walk that
+    /// lent a [`FoldCache`] the answer is folded down the chain on
+    /// `lane` instead, each ancestor's own answer once per walk: a
+    /// `Some` replaces what the ancestors above it said, a `None` keeps
+    /// it. Elsewhere the climb is what runs, since an unmemoised fold
+    /// would start at the root for every ask.
+    ///
+    /// A lane memoises whatever its first asker folded, so each
+    /// [`LevelLane`] belongs to one `answer` per walk, and `answer` is a
+    /// plain `fn` of the source, the ancestor and the ancestor's own
+    /// chain: a closure that captured the asking node would hand every
+    /// later node the first one's answer. `make chain-audit` checks
+    /// every folded answer against the climb.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn nearest_level_answer(
+        self,
+        node: &Node<'tree>,
+        lane: LevelLane,
+        code: &[u8],
+        answer: fn(&[u8], &Node<'tree>, Ancestors<'tree, 'chain>) -> Option<bool>,
+    ) -> bool {
+        let climb = || {
+            self.iter(node)
+                .find_map(|(level, chain)| answer(code, &level, chain))
+                .unwrap_or(false)
+        };
+        if !self.memoises_folds() {
+            return climb();
+        }
+        let folded = self.fold_down(node, 0, lane.fold_lane(), 0, |held, ancestor, outer, _| {
+            answer(code, ancestor, outer).map_or(held, u8::from)
+        }) == 1;
+        // Opt-in only: the climb is the `O(depth)` per ask the fold
+        // exists to remove.
+        #[cfg(chain_audit)]
+        assert_eq!(
+            folded,
+            climb(),
+            "the {lane:?} fold disagrees with the climb on a {} node: a lane \
+             holds one answer fn per walk",
+            node.kind()
+        );
+        folded
+    }
+
     /// The walk's memo for `question`, when it lent a [`FoldCache`].
     pub(crate) fn node_memo(self, question: MemoQuestion) -> Option<&'chain NodeMemo> {
         self.folds.map(|cache| &cache.nodes[question as usize])
@@ -1031,6 +1087,28 @@ impl KindLane {
     }
 }
 
+/// The "nearest ancestor that answers" questions the metric crate asks
+/// through [`Ancestors::nearest_level_answer`], one per lane of the
+/// walk's [`FoldCache`]. Its own enum for the reason [`KindLane`] is:
+/// this entry point stores an answer, not a "seen one" flag, so a lane
+/// passed to the wrong one would hand each question the other's memo.
+#[doc(hidden)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LevelLane {
+    /// Python: whether code precedes a node on its logical line, read
+    /// at the nearest level above it that has a token before its node.
+    CodeBeforeOnLine,
+}
+
+impl LevelLane {
+    const fn fold_lane(self) -> FoldLane {
+        match self {
+            Self::CodeBeforeOnLine => FoldLane::CodeBeforeOnLine,
+        }
+    }
+}
+
 /// Which memoised fold a [`FoldCache`] slot holds. A language may run
 /// more than one fold over the same walk, and two folds' states must not
 /// share a slot.
@@ -1064,17 +1142,19 @@ pub(crate) enum FoldLane {
     LambdaDepth,
     /// [`KindLane::InsideFunction`].
     InsideFunction,
+    /// [`LevelLane::CodeBeforeOnLine`].
+    CodeBeforeOnLine,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 11;
+    const COUNT: usize = 12;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the
 // first walk that folds on it; this makes a variant added without the
 // bump a build error instead.
-const _: () = assert!(FoldLane::InsideFunction as usize + 1 == FoldLane::COUNT);
+const _: () = assert!(FoldLane::CodeBeforeOnLine as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each

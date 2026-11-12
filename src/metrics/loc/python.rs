@@ -605,14 +605,40 @@ fn python_code_before_string<'a>(
 // run's parent once the run's own level is read, and every level a
 // parenthesis's memoised answer reads — the parenthesis's inside, where
 // nothing before the string can be code, is never one of them.
+//
+// The levels above `node` are folded down the walk's chain rather than
+// climbed. A parenthesis whose own level holds only comments and `\`
+// splices before it defers to the level above, and so does that one:
+// asked from each of `n` nested parentheses, the climb read every level
+// above each, `Σ` of their extras, quadratic in `n` under CPython's
+// 200-level cap (#1863; `loc/python-deep-paren-extra-prefix` prices it).
 fn python_code_before_node<'a>(code: &[u8], node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    std::iter::once((*node, ancestors))
-        .chain(ancestors.iter(node))
-        .find_map(|(level, chain)| {
-            python_code_among(code, chain.siblings_before(&level), &level, Some(chain))
-        })
-        .unwrap_or(false)
+    python_code_at_level(code, node, ancestors).unwrap_or_else(|| {
+        ancestors.nearest_level_answer(
+            node,
+            LevelLane::CodeBeforeOnLine,
+            code,
+            python_code_at_level,
+        )
+    })
 }
+
+// `python_code_among` for `level` among its own siblings: one level of
+// `python_code_before_node`'s reading, a function of the level alone.
+fn python_code_at_level<'a>(
+    code: &[u8],
+    level: &Node<'a>,
+    chain: Ancestors<'a, '_>,
+) -> Option<bool> {
+    python_line_levels_read::record();
+    python_code_among(code, chain.siblings_before(level), level, Some(chain))
+}
+
+// Levels `python_code_before_node` reads for a token before their node.
+// The fold and the climb answer the same, so only this tells a walk that
+// reads each level once from one that reads every level above every
+// parenthesis (#1863).
+crate::observation::counter!(python_line_levels_read);
 
 // Whether the nearest of `siblings` (nearest first) that is neither a
 // `\` splice nor the bare string's own parenthesis ends on `next`'s

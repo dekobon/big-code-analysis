@@ -193,6 +193,7 @@ Read it as follows.
 | `halstead/python-nested-paren` | Python | depth | the climb from each parenthesis to its statement, capped at CPython's nesting limit (#1610) | linear |
 | `loc/python-paren-bare-strings` | Python | depth | each parenthesis of a bare string statement asking whether it wraps the string, memoised per statement under the cap (#1610) | linear |
 | `ops/python-paren-bare-strings` | Python | depth | the same test in the `bca ops` walk, which keeps its own fold cache (#1610) | linear |
+| `loc/python-deep-paren-extra-prefix` | Python | depth | each parenthesis of a parenthesised docstring asking whether code precedes it on its logical line, where every level defers to the one above, folded on `LevelLane::CodeBeforeOnLine` (#1863) | linear |
 | `loc/go-nested-doc-fields` | Go | depth | Go's package-level scope test over nested struct fields (#1597) | linear |
 | `loc/ruby-nested-doc-constants` | Ruby | depth | YARD's namespace scope test through nested `if`s (#1597) | linear |
 | `loc/lua-tagless-blocks` | Lua | width | LDoc's first-block test, scanning back to the previous block (#1597) | linear |
@@ -905,6 +906,48 @@ for Groovy on a warm tree; the exponent does not move.
 
 [record-header]: https://github.com/dekobon/big-code-analysis/issues/1842
 [roles-followups]: https://github.com/dekobon/big-code-analysis/issues/1863
+
+`loc/python-deep-paren-extra-prefix` guards the Python `loc` question
+"does code precede this node on its logical line". A bare `\` run
+inside a parenthesised docstring asks it of its parenthesis, once per
+parenthesis. The answer is read at the nearest level, from the node's
+own upward, that holds a token before its node; a level holding only
+comments and splices defers to the one above. Every existing Python
+parenthesis probe grows either the nesting or one level's prefix. With
+both, no level answers, so each of `depth` parentheses climbed to the
+root: `depth² / 2` levels under [CPython](https://www.python.org/)'s
+200-level cap. The answer is now folded down the walk's chain
+(`Ancestors::nearest_level_answer`), so a parenthesis reads three
+levels: its own, the one ancestor state not yet stored, and its
+parent's.
+
+The probe renders a docstring `depth` parentheses deep, each opening
+with 30 one-row `\` runs that each join a comment row. Thirty is the
+most that keeps a parenthesis under `WIDE_PARENT`, so a level's read is
+a seek over the parenthesis's children rather than a slice of the
+walk's sibling cache, and the number of levels read shows in the
+timing.
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| the climb per parenthesis | `loc/python-deep-paren-extra-prefix` | 1.00 | 1.95 | 5.3 ms → 92 ms |
+
+One run each, on a host that was not idle. In the regressed run
+`loc/python-paren-bare-strings`, `ops/python-paren-bare-strings`,
+`halstead/python-nested-paren` and `loc/python-bare-runs-before-string`
+read 0.95, 1.05, 0.87 and 1.02. The per-change guard is
+`python_code_before_a_parenthesis_reads_three_levels_each` in
+`src/metrics/loc.rs`, which pins the exact number of levels read over
+40 parentheses: 120 folded, 900 climbed. Under `--cfg chain_audit`
+every folded answer is also checked against the climb.
+
+The climb sweep above was re-run for this fold and each match re-read,
+not re-timed. Every other match stops within a fixed distance of all
+but one asker per subtree, is capped, or already folds where a walk
+lends a cache. The one exception was filed before this change:
+`python_is_bound_self_attribute` ([#1867][python-npa]).
+
+[python-npa]: https://github.com/dekobon/big-code-analysis/issues/1867
 
 ### Child scans, and where the allocation actually was {#child-scans}
 
