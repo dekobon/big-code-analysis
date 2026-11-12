@@ -1,6 +1,11 @@
 //! [`Ancestors`], the chain of a node's ancestors a walker threads down
 //! to its predicates, and the [`SiblingCache`] and [`FoldCache`] it can
 //! lend with it.
+//!
+//! The chain and its constructors are here. What a predicate asks of a
+//! chain is in two submodules: sibling lookups, with the record a walk
+//! keeps for them, in `siblings`; folds and memos, with their cache, in
+//! `folds`.
 
 use super::Node;
 
