@@ -736,22 +736,30 @@ fn the_member_walks_derive_a_chain_per_body_not_per_node() {
 }
 
 /// Kotlin's Halstead classification asks for a previous sibling only of
-/// a `string_content` token, the one kind that can be the `name` of a
+/// a `string_content` token whose own text could be the `name` of a
 /// short template's `$name` (#454). `get_operand_id` asked it of every
 /// operand, ahead of the kind test inside the short-template check, so
 /// each identifier and literal paid a lookup that could only answer
-/// "not a name" (#1871).
+/// "not a name"; and the check asked it of every `$` sigil before
+/// reading the sigil's own text (#1871).
 ///
-/// The operand keys cannot see it: the answer was discarded for every
-/// other kind. Each row gives the seeks and the record reads apart: a
-/// lookup seeks under a parent of at most `WIDE_PARENT` children and
-/// reads the walk's record under a wider one, which the last row's
-/// string is. Only Halstead is selected, and no fixture spells a
-/// modifier keyword, whose row gate asks for a sibling of its own.
+/// The operand keys cannot see it: the answer was discarded each time.
+/// Each row gives the seeks and the record reads apart: a lookup seeks
+/// under a parent of at most `WIDE_PARENT` children and reads the
+/// walk's record under a wider one, which the last row's string is.
+/// The two counters of lookups that resolve from the node itself, the
+/// spelling that goes round `Ancestors`, are held at zero; the parent
+/// one only without `make chain-audit`, whose exact check asks
+/// `Node::parent` of every chain a walk builds. Only Halstead is
+/// selected, and no fixture spells a modifier keyword, whose row gate
+/// asks for a sibling of its own.
 #[cfg(feature = "kotlin")]
 #[test]
 fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
-    use crate::node::{WIDE_PARENT, sibling_cache_reads, sibling_seeks};
+    use crate::node::{
+        WIDE_PARENT, node_resolved_parent_lookups, node_resolved_sibling_lookups,
+        sibling_cache_reads, sibling_seeks,
+    };
 
     type Seam = fn(&crate::Ast);
     let seams: [(&str, Seam); 2] = [
@@ -763,7 +771,15 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
             ast.ops().expect("the walk must yield a top-level space");
         }),
     ];
+    // (seeks, record reads), and the siblings and parents resolved from
+    // a node itself.
     let lookups = || (sibling_seeks::observed(), sibling_cache_reads::observed());
+    let resolved = || {
+        (
+            node_resolved_sibling_lookups::observed(),
+            node_resolved_parent_lookups::observed(),
+        )
+    };
 
     let wide = format!(
         "fun h(a: Int): String {{\n    return \"{}\"\n}}\n",
@@ -782,25 +798,36 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
             (0, 0),
         ),
         (
+            "a plain string",
+            "fun p(): String {\n    return \"plain\"\n}\n",
+            2,
+            1,
+            // expected: 1 seek. The token's text could be a name, so
+            // `get_op_type_with_code` asks; the token before it is the
+            // quote, so it is none, and the literal is the operand.
+            (1, 0),
+        ),
+        (
             "a short template",
             "fun g(a: Int, b: Int): String {\n    return \"$a and $b\"\n}\n",
             6,
             4,
-            // expected: 6 seeks, the string being narrow.
-            // `get_op_type_with_code` asks once of each of the four
-            // tokens (`$`, `a and `, `$`, `b`), and `get_operand_id` once
-            // more of the two it found to be names.
-            (6, 0),
+            // expected: 4 seeks, the string being narrow. Of the four
+            // tokens (`$`, `a and `, `$`, `b`) the two sigils are told by
+            // their own text. `get_op_type_with_code` asks once of each
+            // of the other two, and `get_operand_id` once more, since
+            // both are names.
+            (4, 0),
         ),
         (
             "a template wider than `WIDE_PARENT`",
             wide.as_str(),
             4,
             2 * WIDE_PARENT,
-            // expected: as above per repeat, a `$` and a name: two asks
-            // by `get_op_type_with_code` and one by `get_operand_id`, all
+            // expected: as above per repeat, for the name: one ask by
+            // `get_op_type_with_code` and one by `get_operand_id`, both
             // answered from the record of the string's children.
-            (0, 3 * WIDE_PARENT),
+            (0, 2 * WIDE_PARENT),
         ),
     ];
     for (shape, source, plain_operands, string_contents, expected) in rows {
@@ -823,14 +850,26 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
         );
         for (seam, run) in seams {
             let (seeks, reads) = lookups();
+            let (siblings, parents) = resolved();
             run(&ast);
             let (sought, read) = lookups();
             assert_eq!(
                 (sought - seeks, read - reads),
                 expected,
-                "{shape}: {seam} asked for the previous sibling of a node that is no \
-                 `string_content`, or stopped asking it of one (seeks, record reads)"
+                "{shape}: {seam} asked for the previous sibling of a node that could be no \
+                 name, or stopped asking it of one that could (seeks, record reads)"
             );
+            let (siblings_after, parents_after) = resolved();
+            assert_eq!(
+                siblings_after, siblings,
+                "{shape}: {seam} resolved a sibling from a node instead of through the chain"
+            );
+            if !cfg!(chain_audit) {
+                assert_eq!(
+                    parents_after, parents,
+                    "{shape}: {seam} resolved a parent from a node instead of through the chain"
+                );
+            }
         }
     }
 }

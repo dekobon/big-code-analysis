@@ -52,7 +52,17 @@ fn kotlin_leading_identifier_len(text: &str) -> usize {
 /// identifier prefix is sufficient; the prefix is the recovered operand
 /// and the remainder is literal text. Only a token with no identifier
 /// prefix (`"price: $5"` → `"5"`) stays literal.
-fn kotlin_is_short_interp_name(node: &Node, previous: Option<Node<'_>>, code: &[u8]) -> bool {
+///
+/// `previous` finds the sibling before `node`, and is called only once
+/// the token's own kind and text have passed. Through an ancestor chain
+/// that is a lookup, and the Halstead walk asks this of every operand,
+/// so a `$` sigil and every node that is no `string_content` pay for
+/// none (#1871).
+fn kotlin_is_short_interp_name<'a>(
+    node: &Node<'a>,
+    previous: impl FnOnce() -> Option<Node<'a>>,
+    code: &[u8],
+) -> bool {
     use Kotlin::{StringContent, StringContent2, StringContent3};
 
     // The grammar emits three aliased `string_content` kind ids
@@ -64,17 +74,13 @@ fn kotlin_is_short_interp_name(node: &Node, previous: Option<Node<'_>>, code: &[
         StringContent3 as u16,
     ];
 
-    if !STRING_CONTENT_KINDS.contains(&node.kind_id()) {
-        return false;
-    }
-    let Some(prev) = previous else {
-        return false;
-    };
-    if !STRING_CONTENT_KINDS.contains(&prev.kind_id()) || prev.utf8_text(code) != Some("$") {
-        return false;
-    }
-    node.utf8_text(code)
-        .is_some_and(|text| kotlin_leading_identifier_len(text) > 0)
+    STRING_CONTENT_KINDS.contains(&node.kind_id())
+        && node
+            .utf8_text(code)
+            .is_some_and(|text| kotlin_leading_identifier_len(text) > 0)
+        && previous().is_some_and(|prev| {
+            STRING_CONTENT_KINDS.contains(&prev.kind_id()) && prev.utf8_text(code) == Some("$")
+        })
 }
 
 /// Returns the byte slice keying the Halstead operand for a Kotlin
@@ -116,7 +122,7 @@ fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
     let mut previous = None;
     node.children().any(|child| {
         let found = crate::roles::kotlin::string_lit::WRAPS.contains(&child.kind_id())
-            || kotlin_is_short_interp_name(&child, previous, code);
+            || kotlin_is_short_interp_name(&child, || previous, code);
         previous = Some(child);
         found
     })
@@ -331,7 +337,7 @@ impl Getter for KotlinCode {
             // those are left as literal text rather than emitting a
             // partial-literal operand.
             StringContent | StringContent2 | StringContent3
-                if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) =>
+                if kotlin_is_short_interp_name(node, || ancestors.previous_sibling(node), code) =>
             {
                 TokenRole::Operand
             }
@@ -357,21 +363,15 @@ impl Getter for KotlinCode {
         code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
     ) -> &'a [u8] {
-        use Kotlin::*;
-
-        match node.kind_id().into() {
-            // Narrow a recovered short-interpolation name token to its
-            // leading identifier prefix so `"$a $b"` keys operand `"a"`,
-            // not `"a "`, matching the long `${a}` form (#454). The kind
-            // is tested first, as in `get_op_type_with_code`: every
-            // operand is asked here, and only a `string_content` can be
-            // a name, so only it pays for its previous sibling.
-            StringContent | StringContent2 | StringContent3
-                if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) =>
-            {
-                kotlin_short_interp_operand_bytes(node, code)
-            }
-            _ => &code[node.start_byte()..node.end_byte()],
+        // Narrow a recovered short-interpolation name token to its
+        // leading identifier prefix so `"$a $b"` keys operand `"a"`,
+        // not `"a "`, matching the long `${a}` form (#454). Every
+        // operand is asked here; the test looks for the previous
+        // sibling only of a `string_content` whose text could be a name.
+        if kotlin_is_short_interp_name(node, || ancestors.previous_sibling(node), code) {
+            kotlin_short_interp_operand_bytes(node, code)
+        } else {
+            &code[node.start_byte()..node.end_byte()]
         }
     }
 
