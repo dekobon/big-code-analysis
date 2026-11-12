@@ -425,9 +425,7 @@ macro_rules! js_doc_gates {
             use $lang::*;
             let mut expr = node.child(0);
             while let Some(e) = expr.filter(|e| e.kind_id() == ParenthesizedExpression) {
-                expr = e
-                    .children()
-                    .find(|c| c.is_named() && !c.as_tree_sitter().is_extra());
+                expr = e.children().find(|c| c.is_named() && !c.is_extra());
             }
             expr.filter(|e| {
                 matches!(
@@ -531,8 +529,7 @@ macro_rules! ts_doc_gates {
                     return true;
                 }
                 let assignment = if e.kind_id() == AwaitExpression {
-                    e.children()
-                        .find(|c| c.is_named() && !c.as_tree_sitter().is_extra())
+                    e.children().find(|c| c.is_named() && !c.is_extra())
                 } else {
                     Some(e)
                 };

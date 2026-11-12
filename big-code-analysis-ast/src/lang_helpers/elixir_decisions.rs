@@ -31,7 +31,7 @@ crate::observation::counter!(section_position_scans, cfg(test));
 /// `extra`. The root's `metrics::abc::is_operand`, which the rows
 /// cannot reach.
 fn is_operand(child: &Node) -> bool {
-    child.is_named() && !child.as_tree_sitter().is_extra()
+    child.is_named() && !child.is_extra()
 }
 
 /// Whether `node` is a `binary_operator` applying `operator`.

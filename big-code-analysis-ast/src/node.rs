@@ -191,6 +191,19 @@ impl<'a> Node<'a> {
         self.0.is_missing()
     }
 
+    /// Whether the grammar lists this node among its `extras`: a node
+    /// that may appear anywhere, which in most grammars is a comment.
+    ///
+    /// Not a synonym for "comment". Error recovery marks some `ERROR`
+    /// nodes as extras too, and such a node can wrap a token the author
+    /// wrote, as the `,` of Perl's `(name, => 1)` is. A scan that means
+    /// to step over comments skips `is_extra() && !is_error()`.
+    #[must_use]
+    #[inline]
+    pub fn is_extra(&self) -> bool {
+        self.0.is_extra()
+    }
+
     /// An id unique to this node within its tree, stable for the tree's
     /// lifetime. Suitable as a map key for per-node walk state.
     #[inline]
@@ -2455,5 +2468,23 @@ mod tests {
             .collect();
         assert_eq!(asked, expected);
         assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
+    }
+
+    /// `is_extra` marks a comment, and it marks the `ERROR` recovery
+    /// wraps a stray token in, which is why a scan that steps over
+    /// comments must not skip on it alone (lesson 95). `(name, => 1)` is
+    /// the shape #1572 met: valid Perl, whose `,` the grammar wraps in
+    /// an extra `ERROR`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn is_extra_marks_a_comment_and_a_recovered_token_alike() {
+        let tree = Tree::new::<crate::langs::PerlCode>(b"my %h = (name, => 1); # c\n");
+        let extras: Vec<(&str, bool)> = tree
+            .get_root()
+            .preorder()
+            .filter(Node::is_extra)
+            .map(|node| (node.kind(), node.is_error()))
+            .collect();
+        assert_eq!(extras, [("ERROR", true), ("comments", false)]);
     }
 }

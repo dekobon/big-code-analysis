@@ -60,7 +60,7 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
         .find_map(|(level, level_ancestors)| {
             level_ancestors
                 .siblings_after(&level)
-                .find(|sibling| !sibling.as_tree_sitter().is_extra())
+                .find(|sibling| !sibling.is_extra())
         })
         .is_some_and(|mut next| {
             while let Some(first) = next.child(0) {
@@ -81,7 +81,7 @@ fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> 
 /// which no syntax can tell from `Boolean.and`.
 fn eager_infix(node: &Node<'_>, code: &[u8]) -> bool {
     node.children()
-        .filter(|child| !child.as_tree_sitter().is_extra())
+        .filter(|child| !child.is_extra())
         .nth(1)
         .filter(|name| name.kind_id() == Kotlin::Identifier as u16)
         .and_then(|name| node_text(code, &name))

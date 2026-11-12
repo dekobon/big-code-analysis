@@ -182,7 +182,7 @@ pub fn perl_not_is_key<'a>(not: &Node<'a>, parent: &Node<'a>) -> bool {
             .children_after(not)
             // The parser marks the `ERROR` it wraps a skipped `=>` in
             // as an extra, so only comments are passed over here.
-            .find(|child| child.is_error() || !child.as_tree_sitter().is_extra())
+            .find(|child| child.is_error() || !child.is_extra())
             .is_some_and(|next| {
                 (next.is_error() && next.is_child(Perl::FatComma as u16))
                     || next.start_byte() == next.end_byte()
@@ -230,7 +230,7 @@ pub(crate) fn perl_file_test_is_dash_key<'a>(
 ) -> bool {
     test.children()
         // As in `perl_not_is_key`: the `ERROR` is an extra.
-        .find(|child| child.is_error() || !child.as_tree_sitter().is_extra())
+        .find(|child| child.is_error() || !child.is_extra())
         .is_some_and(|operand| {
             if operand.is_error() {
                 operand.is_child(Perl::FatComma as u16) && operand.start_row() == test.start_row()
@@ -439,7 +439,7 @@ pub fn perl_key_is_signed<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> b
     up.next().is_some_and(|(_, parent_ancestors)| {
         let beside = ancestors
             .siblings_before(key)
-            .find(|sibling| !sibling.as_tree_sitter().is_extra());
+            .find(|sibling| !sibling.is_extra());
         // A `-` beside the key shares its chain; the `operator` of the
         // expression the key leads is a sibling of that expression.
         if let Some(dash) = beside.filter(|node| node.kind_id() == Perl::DASH as u16) {
@@ -507,7 +507,7 @@ fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         // of that name is visible, which no single file says.
         if let Some(next) = node_ancestors
             .siblings_after(&node)
-            .find(|sibling| sibling.is_error() || !sibling.as_tree_sitter().is_extra())
+            .find(|sibling| sibling.is_error() || !sibling.is_extra())
         {
             return next.kind_id() == Perl::FatComma as u16;
         }
@@ -533,7 +533,7 @@ fn is_plain_bareword(word: &Node) -> bool {
             .is_some_and(|child| child.kind_id() == Perl::Identifier as u16),
         _ => word
             .children()
-            .filter(|child| !child.as_tree_sitter().is_extra())
+            .filter(|child| !child.is_extra())
             .map(|child| child.kind_id())
             .eq([Perl::Identifier as u16]),
     }
@@ -552,9 +552,7 @@ fn dash_operator<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 }
 
 fn non_extra_count(node: &Node) -> usize {
-    node.children()
-        .filter(|child| !child.as_tree_sitter().is_extra())
-        .count()
+    node.children().filter(|child| !child.is_extra()).count()
 }
 
 // The sibling after `node`, whose ancestor chain is `ancestors`,
@@ -564,7 +562,7 @@ fn non_extra_count(node: &Node) -> usize {
 fn next_non_extra<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<Node<'a>> {
     ancestors
         .siblings_after(node)
-        .find(|sibling| !sibling.as_tree_sitter().is_extra())
+        .find(|sibling| !sibling.is_extra())
 }
 
 // `next_non_extra` for a caller holding `node`'s `parent` and no chain:
@@ -573,12 +571,11 @@ fn next_non_extra<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> Option<N
 fn next_non_extra_under<'a>(node: &Node<'a>, parent: &Node<'a>) -> Option<Node<'a>> {
     parent
         .children_after(node)
-        .find(|sibling| !sibling.as_tree_sitter().is_extra())
+        .find(|sibling| !sibling.is_extra())
 }
 
 fn first_non_extra<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    node.children()
-        .find(|child| !child.as_tree_sitter().is_extra())
+    node.children().find(|child| !child.is_extra())
 }
 
 #[cfg(test)]

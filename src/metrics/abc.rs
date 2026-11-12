@@ -464,7 +464,7 @@ pub(super) fn last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 // The `extra` flag is read off the tree-sitter node because the `Node`
 // wrapper exposes no accessor for it.
 pub(super) fn is_operand(child: &Node) -> bool {
-    child.is_named() && !child.as_tree_sitter().is_extra()
+    child.is_named() && !child.is_extra()
 }
 
 // One step of a language's value peel: the operand a wrapper evaluates

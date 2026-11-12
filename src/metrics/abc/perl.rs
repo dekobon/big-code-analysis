@@ -335,7 +335,7 @@ fn perl_misparse_absorbs_leading_operand<'a>(
         (parent.kind_id() == P::BinaryExpression as u16 || parent.is_error())
             && child_ancestors
                 .siblings_before(&child)
-                .find(|sibling| !sibling.as_tree_sitter().is_extra())
+                .find(|sibling| !sibling.is_extra())
                 .is_some_and(|operator| {
                     matches!(
                         operator.kind_id().into(),

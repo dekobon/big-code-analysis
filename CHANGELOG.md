@@ -24,6 +24,15 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- **`Node::is_extra()`** (#1871): whether the grammar lists a node
+  among its `extras`, which in most grammars is a comment. It wraps the
+  tree-sitter accessor of the same name, beside `Node::is_error()` and
+  `Node::is_missing()`, and follows the tree-sitter pin as they do.
+  Error recovery marks some `ERROR` nodes as extras too, so a scan that
+  means to step over comments skips `is_extra() && !is_error()`.
+
 ### Removed
 
 - **The `bca-check.sh` compatibility hook wrapper and the book's

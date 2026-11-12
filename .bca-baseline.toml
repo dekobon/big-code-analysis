@@ -293,7 +293,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/node.rs"
 qualified = "Node<'a>"
 metric = "nom"
-value = 43.0
+value = 44.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
