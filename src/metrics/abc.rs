@@ -461,8 +461,6 @@ pub(super) fn last_operand<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 }
 
 // Whether `child` can occupy an operand slot: named, and not an `extra`.
-// The `extra` flag is read off the tree-sitter node because the `Node`
-// wrapper exposes no accessor for it.
 pub(super) fn is_operand(child: &Node) -> bool {
     child.is_named() && !child.is_extra()
 }

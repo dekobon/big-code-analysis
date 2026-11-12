@@ -26,12 +26,15 @@ for historical reference.
 
 ### Added
 
-- **`Node::is_extra()`** (#1871): whether the grammar lists a node
-  among its `extras`, which in most grammars is a comment. It wraps the
-  tree-sitter accessor of the same name, beside `Node::is_error()` and
-  `Node::is_missing()`, and follows the tree-sitter pin as they do.
-  Error recovery marks some `ERROR` nodes as extras too, so a scan that
-  means to step over comments skips `is_extra() && !is_error()`.
+- **`Node::is_extra()`** (#1871): whether tree-sitter marks a node as
+  an *extra*, one that may appear anywhere, such as a comment in most
+  grammars or Python's line continuation. It wraps the tree-sitter
+  accessor of the same name, beside `Node::is_error()` and
+  `Node::is_missing()`. Like them it is outside `STABILITY.md`'s list
+  of shape-stable `Node` accessors, and its answers follow the
+  tree-sitter pin. Error recovery marks some `ERROR` nodes as extras
+  too, so a scan that steps over extras must still stop at one: skip
+  `is_extra() && !is_error()`.
 
 ### Removed
 
@@ -240,14 +243,17 @@ for historical reference.
   drop it by forgetting `with_siblings`, which is now test-only. A walk
   that records none constructs through the new
   `Ancestors::for_walk_without_siblings(chain, node, &folds)` (the
-  suppression scan and the dump). `Ancestors::checked`, the constructor
-  for a walk that lends no cache at all, is renamed
-  `for_walk_chain_only` and is now crate-private (#1871): comment
-  removal is its one caller, and a walk outside the crate uses one of
-  the other two. The two constructors for a walk that records no
-  siblings lend an empty record, so in a debug build a sibling
-  asked under a parent wider than `WIDE_PARENT` panics through
+  suppression scan and the dump). `Ancestors::checked`, public through
+  2.5.1 and the constructor for a walk that lends no cache at all, is
+  renamed `for_walk_chain_only` and is now crate-private (#1871):
+  comment removal is its one caller, and a walk outside the crate uses
+  one of the other two. The two constructors for a walk that records no
+  siblings lend an empty record, so in a debug build a sibling asked
+  under a parent wider than `WIDE_PARENT` panics through
   `siblings_before` and `siblings_after` as well as `previous_sibling`.
+  `SiblingCache::record` also panics in a debug build when the batch
+  recorded for a wide node is not as long as the node's child count
+  (#1871).
   Release builds answer as before. On a chain that is not a walk's own
   (`of_children`, `below`, `Ancestors::known`), `siblings_before` and
   `siblings_after` still seek, and `previous_sibling` keeps the

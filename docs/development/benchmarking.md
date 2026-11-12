@@ -675,10 +675,10 @@ by forgetting to lend it: `Ancestors::for_walk` takes the
 no sibling (suppression, the dump and comment removal) construct their
 chains through `Ancestors::for_walk_without_siblings` or the
 crate-private `Ancestors::for_walk_chain_only`, which lend an empty
-record. A predicate added to
-one of them that asks for a sibling under a parent wider than
-`WIDE_PARENT` trips the walk assertion wherever a debug build runs that
-walk over such a parent. `the_walks_that_record_no_siblings_ask_for_none`
+record. A predicate added to one of them that asks for a sibling under
+a parent wider than `WIDE_PARENT` trips the walk assertion wherever a
+debug build runs that walk over such a parent.
+`the_walks_that_record_no_siblings_ask_for_none`
 in `src/observation_tests.rs` does so for every `LANG` variant, and
 fails for a variant with no fixture. It runs the three walks over a
 fixture with a wide parent and requires the `sibling_seeks` counter to
@@ -688,15 +688,24 @@ through a derived chain. The scaling gate does not price these walks'
 sibling lookups, because they make none.
 
 The metric walk's member consumers (`npa` and `npm`) read a body's
-members through a chain derived with `Ancestors::of_children`. That
-chain carries no sibling record, since the walk has not recorded the
-body's children while it visits the container, so a sibling asked for
-there seeks. `the_member_walks_ask_for_no_sibling_under_a_wide_body` in
+members, in most languages through a chain derived with
+`Ancestors::of_children`. That chain carries no sibling record, since
+the walk has not recorded the body's children while it visits the
+container. Through it `siblings_before` and `siblings_after` seek, and
+`previous_sibling` trips its own assertion under a wide parent.
+`the_member_walks_ask_for_no_sibling_under_a_wide_body` in
 `src/observation_tests.rs` holds both sibling counters at zero over a
 body wider than `WIDE_PARENT`, for every language with a member walk.
+Its fixtures spell a field and a method, the two plainest members.
+
 The walk's record is not forwarded to a derived chain
-([#1871][sibling-follow-ups]): a probe over the test suite and the
-repository corpora found no walk asking for a sibling through one.
+([#1871][sibling-follow-ups]). A probe over the test suite and the
+repository corpora found no walk asking for a sibling through one. The
+one predicate found that can is Java's package gate, which
+`error_holds_target` asks of a parse error's children: at most one seek
+per call, counted by `a_wide_error_s_children_ask_for_one_sibling_in_java`
+in `big-code-analysis-ast/src/lang_helpers/doc_comment.rs`. The same
+file holds the Doxygen grammars' target tests at no seek.
 
 What `bca find` does after that walk went unpriced until
 [#1416][find-render]. It printed each match through

@@ -616,9 +616,9 @@ mod tests {
                 // `for_walk_chain_only`, not `known`: the walk's chain
                 // discipline is asserted at every `-`, so a desync fails
                 // here rather than as a wrong answer below. Such a chain
-                // lends no sibling record, and the key test asks for the
-                // token after the `-`: that holds because every parent
-                // in this fixture is narrow (#1601).
+                // lends an empty sibling record, and the key test asks
+                // for the token after the `-`: that holds because every
+                // parent in this fixture is narrow (#1601).
                 let walk = Ancestors::for_walk_chain_only(chain, node);
                 let with_chain = perl_dash_signs_keyword_key(node, walk);
                 let with_parent = perl_dash_signs_keyword_key_under(node, parent);

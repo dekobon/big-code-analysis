@@ -191,13 +191,14 @@ impl<'a> Node<'a> {
         self.0.is_missing()
     }
 
-    /// Whether the grammar lists this node among its `extras`: a node
-    /// that may appear anywhere, which in most grammars is a comment.
+    /// Whether tree-sitter marks this node as an *extra*: one that may
+    /// appear anywhere, such as a comment in most grammars, or Python's
+    /// line continuation.
     ///
-    /// Not a synonym for "comment". Error recovery marks some `ERROR`
-    /// nodes as extras too, and such a node can wrap a token the author
-    /// wrote, as the `,` of Perl's `(name, => 1)` is. A scan that means
-    /// to step over comments skips `is_extra() && !is_error()`.
+    /// Error recovery marks some `ERROR` nodes as extras too, and such a
+    /// node can wrap a token the author wrote, as the `,` of Perl's
+    /// `(name, => 1)` is. A scan that steps over extras must still stop
+    /// at one of those: skip `is_extra() && !is_error()`.
     #[must_use]
     #[inline]
     pub fn is_extra(&self) -> bool {
@@ -1906,8 +1907,8 @@ mod tests {
     /// contains itself — so the identity half of the guard is what
     /// catches it.
     ///
-    /// Debug-gated because `debug_assert!` compiles out under
-    /// `--release`, where the check compiles out by design.
+    /// Debug-gated because the check is a `debug_assert!`, which
+    /// `--release` compiles out by design.
     #[cfg(feature = "c")]
     #[test]
     #[cfg(debug_assertions)]
@@ -2004,9 +2005,10 @@ mod tests {
     /// `<anonymous>`.
     ///
     /// No caller passes a subtree yet, so nothing else would catch this;
-    /// the fixture below is the guard, and it fails against an empty
-    /// seed both here and through the walk constructors' debug
-    /// assertion.
+    /// the fixture below is the guard. It fails against an empty seed
+    /// here, and under `make chain-audit` through the walk constructors'
+    /// exact parent check; their default `O(1)` check passes an empty
+    /// chain.
     #[cfg(feature = "mozjs")]
     #[test]
     fn act_on_node_hands_a_subtree_its_real_ancestry() {
