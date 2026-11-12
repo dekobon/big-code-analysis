@@ -5315,6 +5315,55 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_npa_protocol_groups_count_every_property() {
+        // A group holds every declaration up to the next `@optional` /
+        // `@required`, so one group can carry several properties.
+        // expected: `a` direct, `y` and `z` under `@optional`, `w` under
+        // `@required` → 4 attributes, all public.
+        check_metrics::<ObjcParser>(
+            "@protocol Drawable <NSObject>\n\
+             @property (readonly) int a;\n\
+             @optional\n\
+             @property (readonly) int y;\n\
+             @property (readonly) int z;\n\
+             @required\n\
+             @property (readonly) int w;\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 4);
+                assert_eq!(metric.npa.interface_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn objc_npa_implementation_ivars_feed_the_class_bucket() {
+        // An `@implementation` is the class bucket, and its only
+        // attributes are the instance variables of its `{ … }` block.
+        // expected: `_a` (default `@protected`), `_b` and `_c` (under
+        // `@public`) → 3 attributes, 2 public, none on the interface side.
+        check_metrics::<ObjcParser>(
+            "@implementation Foo {\n\
+                 int _a;\n\
+             @public\n\
+                 int _b, _c;\n\
+             }\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
+                assert_eq!(metric.npa.interface_npa_sum(), 0);
+            },
+        );
+    }
+
     // ----- C++ -----
 
     #[cfg(feature = "cpp")]
