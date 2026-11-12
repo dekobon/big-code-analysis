@@ -2371,9 +2371,10 @@ mod tests {
     /// effect: the answers cannot tell it from the climb. `2` meets the
     /// answer `1` left on their shared `binary_expression`; `4` reads
     /// its own `let` and meets the one `3` left on the block they
-    /// share, a level `3` passed without an answer. `3` sits in the
-    /// tuple after the closure: a memo that handed `1`'s "no" to a
-    /// level above the closure would answer "no" for it.
+    /// share, a level `3` passed without an answer; `7` meets the one
+    /// `6` left on the closure itself, the level that answered. `3`
+    /// sits in the tuple after the closure: a memo that handed `1`'s
+    /// "no" to a level above the closure would answer "no" for it.
     #[cfg(feature = "rust")]
     #[test]
     fn nearest_level_answer_answers_the_climb_on_every_path() {
@@ -2392,7 +2393,7 @@ mod tests {
         }
         let code = b"fn f() { let c = (|| { let d = (1 + 2); }, 3); let e = 4; }\n\
                      const K: u8 = 5;\n\
-                     mod m { fn g() { let h = || 6; } fn i() { 7; } }\n";
+                     mod m { fn g() { let h = |_: [u8; 6]| 7; } fn i() { 8; } }\n";
         let cache = FoldCache::default();
         let asked_at_literals = FoldCache::default();
         let question = LevelQuestion::CodeBeforeOnLine;
@@ -2429,18 +2430,20 @@ mod tests {
         let (answers, asked): (Vec<_>, Vec<_>) = literals.into_iter().unzip();
         assert_eq!(
             answers,
-            [false, false, true, true, false, false, true],
-            "1 and 2 in f's closure, 3 and 4 in f, 5 under neither, 6 in g's closure, 7 in i"
+            [false, false, true, true, false, false, false, true],
+            "1 and 2 in f's closure, 3 and 4 in f, 5 under neither, 6 and 7 in g's closure, 8 in i"
         );
         // expected: `1` climbs binary, parenthesis, `let`, block and the
         // closure; `2` meets the memo on the binary; `3` climbs tuple,
         // `let`, block and `f`; `4` its `let`, then the memo on the
-        // block; `5` the const and the file; `6` its closure; `7` the
-        // statement, the block and `i`. The unmemoised climb asks 5 for
-        // `2` and 3 for `4`. `make chain-audit` runs that climb beside
-        // every ask, so the count is asserted without it.
+        // block; `5` the const and the file; `6` the array type, the
+        // parameter, the parameter list and the closure; `7` meets the
+        // memo on the closure; `8` the statement, the block and `i`.
+        // The unmemoised climb asks 5 for `2`, 3 for `4` and 1 for `7`.
+        // `make chain-audit` runs that climb beside every ask, so the
+        // count is asserted without it.
         if cfg!(not(chain_audit)) {
-            assert_eq!(asked, [5, 0, 4, 1, 2, 1, 3]);
+            assert_eq!(asked, [5, 0, 4, 1, 2, 4, 0, 3]);
         }
         assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
     }
