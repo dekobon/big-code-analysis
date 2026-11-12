@@ -881,6 +881,11 @@ fn vcs_score_diff<'py>(py: Python<'py>, diff: &str) -> PyResult<Bound<'py, PyAny
 /// `big_code_analysis._native.analyze(...)`. The exception classes
 /// are placed both on `_native` (for `isinstance` / `except`) and on
 /// the top-level package via the same re-export.
+// `_native` is the name the Python package imports, so the underscore
+// is the module's spelling and not a mark of an unused item.
+// `#[pymodule]`'s expansion calls the function, which clippy reports as
+// a use of an underscore-prefixed item from Rust 1.100.
+#[allow(clippy::used_underscore_items)]
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Module manifest: one registration call per exported symbol. The ABC
