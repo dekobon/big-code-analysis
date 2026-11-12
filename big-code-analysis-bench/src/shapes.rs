@@ -466,7 +466,7 @@ pub fn python_bare_runs_before_string(width: usize) -> String {
 const PAREN_PREFIX_PAIRS: usize = 30;
 
 /// Python: a bare string `depth` parentheses deep, each parenthesis
-/// opening with [`PAREN_PREFIX_PAIRS`] one-row bare `\` runs, each
+/// opening with `PAREN_PREFIX_PAIRS` one-row bare `\` runs, each
 /// joining a comment row, before the next parenthesis; then a retained
 /// `x = 1`.
 ///
