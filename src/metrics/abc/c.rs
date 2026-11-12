@@ -49,18 +49,18 @@ impl Abc for CCode {
             // single named node so we count once per
             // `assignment_expression`. `update_expression` covers both
             // prefix and postfix `++` / `--`.
-            AssignmentExpression | UpdateExpression => {
-                stats.assignments += 1.;
-            }
+            //
             // `int x = expr;` parses as a `declaration` carrying an
-            // `init_declarator` of the form `declarator = value`. Per
-            // Fitzpatrick (1997), every `=` operator increments A, so we
-            // count every `init_declarator` whose body contains an
-            // explicit `=` token (`const int x = 5;` counts like
-            // `int x = 5;`). `int x;` parses as a plain declarator inside
-            // the `declaration`, not an `init_declarator`, so this arm
-            // never fires for un-initialised declarations.
-            InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
+            // `init_declarator`. Per Fitzpatrick (1997), every `=`
+            // operator increments A, and tree-sitter-c 0.24.2 spells an
+            // `init_declarator` as `declarator = value` and nothing
+            // else, so each one counts (`const int x = 5;` like
+            // `int x = 5;`) with no look at its children. `int x;`
+            // parses as a plain declarator inside the `declaration`, so
+            // it never reaches this arm. The C++ grammar also spells
+            // `int x(5);` and `int x{5};` as an `init_declarator`, which
+            // is why its arm reads the `=` and this one does not.
+            AssignmentExpression | UpdateExpression | InitDeclarator => {
                 stats.assignments += 1.;
             }
             // Every call — the `Call` row — counts. C has no `new`

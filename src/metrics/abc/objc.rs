@@ -58,10 +58,13 @@ impl Abc for ObjcCode {
         let scores: ScoresItself = &|expr| objc_condition_scores_itself(expr, code);
         let kind = node.kind_id();
         match kind.into() {
-            AssignmentExpression | UpdateExpression => {
-                stats.assignments += 1.;
-            }
-            InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
+            // An `init_declarator` counts with no look at its children:
+            // tree-sitter-objc 3.0.2 spells it `declarator [attribute] =
+            // value` and nothing else, so each one holds an `=`. The C
+            // sibling says the same of its grammar; the C++ grammar's
+            // `int x(5);` and `int x{5};` are why that arm reads the
+            // token.
+            AssignmentExpression | UpdateExpression | InitDeclarator => {
                 stats.assignments += 1.;
             }
             // Every call — the `Call` row: a C `call_expression` (two
