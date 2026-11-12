@@ -31896,16 +31896,19 @@ msgstr ""
 "checker.rs) の **`Checker`** — 文法の `kind_id` に対する、コメント、関数、ク"
 "ロージャ、呼び出し、文字列リテラル、`else-if` の各述語。"
 
-#: src/developers/new-language.md:117
-#, fuzzy
+#: src/developers/new-language.md:119
 msgid ""
-"**`Getter`** in [/big-code-analysis-ast/src/getter.rs](https://github.com/"
-"dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/getter.rs): "
-"`get_space_kind` plus the Halstead operator/operand classification table."
+"**`Getter`** in a new per-language file under [/big-code-analysis-ast/src/"
+"getter/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-"
+"analysis-ast/src/getter) (`getter/<lang>.rs`, registered in `getter.rs`): "
+"`get_space_kind_with_code`, its byte-less `get_space_kind`, and the Halstead "
+"operator/operand classification table."
 msgstr ""
-"[/src/getter.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/"
-"getter.rs) の **`Getter`** — `get_space_kind` に加え、Halstead の演算子／オペ"
-"ランド分類テーブル。"
+"[/big-code-analysis-ast/src/getter/](https://github.com/dekobon/big-code-"
+"analysis/tree/main/big-code-analysis-ast/src/getter) 配下に言語ごとに新しく作"
+"るファイル（`getter/<lang>.rs`、`getter.rs` に登録）の **`Getter`** — "
+"`get_space_kind_with_code`、そのソースバイト列を受け取らない版である "
+"`get_space_kind`、および Halstead の演算子 / オペランド分類テーブル。"
 
 #: src/developers/new-language.md:121
 #, fuzzy
