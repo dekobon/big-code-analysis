@@ -2249,6 +2249,49 @@ mod tests {
         assert_doc_rows(LANG::Mozjs, cases);
     }
 
+    /// A JS-family doc comment in a function body keeps the unbound
+    /// reading (JSDoc's inner symbols, #1613) however the function is
+    /// spelled. The body test asks the callable test with the walk's
+    /// chain, which is what tells a *bound* arrow or function expression
+    /// from a closure (#1088): asked without it a bound one is neither,
+    /// its body holds nothing, and the comment binds forward to the call
+    /// below it, which is no declaration — `dloc` 0 where each of these
+    /// reads 1 (#1863). The positional rows are the closure half of the
+    /// same test.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_in_body_doc_comments_read_the_function_s_binding() {
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            (
+                "bound arrow",
+                b"const f = () => {\n  /** d */\n  foo();\n};\n",
+                1,
+                1,
+            ),
+            (
+                "bound function expression",
+                b"const f = function () {\n  /** d */\n  foo();\n};\n",
+                1,
+                1,
+            ),
+            (
+                "positional arrow",
+                b"run(() => {\n  /** d */\n  foo();\n});\n",
+                1,
+                1,
+            ),
+            (
+                "positional function expression",
+                b"run(function () {\n  /** d */\n  foo();\n});\n",
+                1,
+                1,
+            ),
+        ];
+        for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            assert_doc_rows(lang, cases);
+        }
+    }
+
     /// tsc's `getJSDocCommentsAndTags` gives a declaration the last `/**`
     /// before its first token, past every plain comment, and declares no
     /// symbol for an assignment statement; a comment after a decorator is

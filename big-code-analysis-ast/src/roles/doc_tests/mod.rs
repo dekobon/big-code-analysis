@@ -1176,6 +1176,40 @@ mod csharp {
             "the row is read before the callable test"
         );
     }
+
+    /// A primary constructor's `parameter_list` is a callable only under
+    /// a type declaration (#1828), which the body test learns from the
+    /// chain the walk hands it: asked of that list it holds, as a method
+    /// holds what sits in it, and a method's own list does not. No
+    /// `dloc` reads the difference — a `///` in the list binds forward
+    /// to a parameter, which is no target — so this is the one pin that
+    /// the callable half of the body test is asked with the walk's chain
+    /// rather than a known-empty one, under which the list is no
+    /// callable at all (#1863).
+    #[test]
+    fn primary_constructor_list_holds_doc_by_the_chain() {
+        let source = b"class C(int a) { void M(int b) { } }\n";
+        let mut lists = Vec::new();
+        for_each_node_with_chain::<CsharpCode>(source, |node, chain| {
+            if node.kind_id() != Csharp::ParameterList as u16 {
+                return;
+            }
+            let first = node.child(0).expect("a list opens with `(`");
+            lists.push((
+                node.utf8_text(source).expect("UTF-8").to_owned(),
+                CsharpCode::holds_doc_comment_in_body(
+                    node,
+                    source,
+                    Ancestors::known(chain),
+                    &first,
+                ),
+            ));
+        });
+        assert_eq!(
+            lists,
+            [("(int a)".to_owned(), true), ("(int b)".to_owned(), false)]
+        );
+    }
 }
 
 #[cfg(feature = "php")]
