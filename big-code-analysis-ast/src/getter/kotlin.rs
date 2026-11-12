@@ -357,13 +357,21 @@ impl Getter for KotlinCode {
         code: &'a [u8],
         ancestors: Ancestors<'a, '_>,
     ) -> &'a [u8] {
-        // Narrow a recovered short-interpolation name token to its
-        // leading identifier prefix so `"$a $b"` keys operand `"a"`,
-        // not `"a "`, matching the long `${a}` form (#454).
-        if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) {
-            kotlin_short_interp_operand_bytes(node, code)
-        } else {
-            &code[node.start_byte()..node.end_byte()]
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            // Narrow a recovered short-interpolation name token to its
+            // leading identifier prefix so `"$a $b"` keys operand `"a"`,
+            // not `"a "`, matching the long `${a}` form (#454). The kind
+            // is tested first, as in `get_op_type_with_code`: every
+            // operand is asked here, and only a `string_content` can be
+            // a name, so only it pays for its previous sibling.
+            StringContent | StringContent2 | StringContent3
+                if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) =>
+            {
+                kotlin_short_interp_operand_bytes(node, code)
+            }
+            _ => &code[node.start_byte()..node.end_byte()],
         }
     }
 
