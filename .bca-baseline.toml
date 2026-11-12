@@ -296,37 +296,13 @@ metric = "nom"
 value = 44.0
 
 [[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 580.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1284.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
-qualified = "Ancestors<'tree, 'chain>"
-metric = "nom"
-value = 34.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
-qualified = "Ancestors<'tree, 'chain>"
-metric = "wmc"
-value = 59.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
+path = "big-code-analysis-ast/src/node/ancestors/folds.rs"
 qualified = "Ancestors<'tree, 'chain>::fold_down"
 metric = "nargs"
 value = 5.0
 
 [[entry]]
-path = "big-code-analysis-ast/src/node/ancestors.rs"
+path = "big-code-analysis-ast/src/node/ancestors/folds.rs"
 qualified = "FoldCache::fold"
 metric = "nargs"
 value = 5.0
