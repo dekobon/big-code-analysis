@@ -165,11 +165,7 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(record) = ancestors.parent(node) else {
         return false;
     };
-    if record.kind_id() != Java::RecordDeclaration as u16
-        || record
-            .child_by_field_name("parameters")
-            .is_none_or(|p| p.id() != node.id())
-    {
+    if record_header(&record).is_none_or(|header| header.id() != node.id()) {
         return false;
     }
     let Some(body) = record.child_by_field_name("body") else {
@@ -182,6 +178,24 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
         }
         _ => false,
     })
+}
+
+/// A record's header: the component list in the `parameters` field of
+/// a `record_declaration`, a sibling of its `class_body` — the node the
+/// `FuncOpener` row opens the implicit canonical constructor's space on
+/// (#1842). `None` for any other node: every callable holds its own
+/// list in a field of the same name, so the record's kind is part of
+/// the relation. A structural fact about the construct the rows
+/// recognise, held once for the row's gate and for the consumers that
+/// step between a record and its header — the space's name, `nargs`'
+/// parameter owner, `npm`'s method count (#1863); pinned by
+/// `record_header_is_the_records_own_list`.
+#[inline]
+#[must_use]
+pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
+    (record.kind_id() == Java::RecordDeclaration as u16)
+        .then(|| record.child_by_field_name("parameters"))
+        .flatten()
 }
 
 /// The container a `switch` nests its arms in: the `switch_block`, the

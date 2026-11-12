@@ -1300,6 +1300,113 @@ fn plain(text: &str, name: &'static str) -> ListAnswer {
     )
 }
 
+/// What a language's `record_header` projection and its `FuncOpener`
+/// row say of every list of `source`: the declarations the projection
+/// answers for, by kind, and per list its text, whether it is its
+/// parent's projected header, and whether the row owns it there.
+#[cfg(any(feature = "java", feature = "groovy"))]
+type HeaderAnswers = (Vec<String>, Vec<(String, bool, bool)>);
+
+#[cfg(any(feature = "java", feature = "groovy"))]
+fn header_answers<L: LanguageInfo>(
+    source: &'static [u8],
+    list_kinds: &[&str],
+    record_header: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
+    opener_owns: crate::roles::RowPred,
+) -> HeaderAnswers {
+    let mut projecting = Vec::new();
+    let mut lists = Vec::new();
+    for_each_node_with_chain::<L>(source, |node, chain| {
+        if let Some(header) = record_header(node) {
+            assert!(
+                node.children().any(|child| child.id() == header.id()),
+                "the projection is the declaration's own child"
+            );
+            projecting.push(node.kind().to_owned());
+        }
+        if !list_kinds.contains(&node.kind()) {
+            return;
+        }
+        let ancestors = Ancestors::known(chain);
+        let is_header = ancestors
+            .parent(node)
+            .and_then(|owner| record_header(&owner))
+            .is_some_and(|header| header.id() == node.id());
+        let owned = opener_owns(node, source, ancestors);
+        assert!(
+            is_header || !owned,
+            "the row owns a `{}` that is no record's header",
+            node.kind()
+        );
+        lists.push((
+            node.utf8_text(source).unwrap_or("?").to_owned(),
+            is_header,
+            owned,
+        ));
+    });
+    (projecting, lists)
+}
+
+/// Java's `record_header` projects a record's own component list and
+/// nothing else: a method's and a constructor's lists sit in a field of
+/// the same name and are no header, which is the record-kind half of
+/// the relation. The `FuncOpener` row owns a list only where it is that
+/// projection — `Q`'s, whose body writes no constructor; `R`'s compact
+/// constructor closes its header — so the gate, the space's name,
+/// `nargs` and `npm` read one definition of "the header" (#1863).
+#[cfg(feature = "java")]
+#[test]
+fn java_record_header_is_the_records_own_list() {
+    use crate::roles::java::{func_opener, record_header};
+    let source =
+        b"record R(int x) { R { } void m(int y) { } }\nrecord Q(int q) { }\nclass C { C(int z) { } }\n";
+    let (projecting, lists) = header_answers::<crate::JavaCode>(
+        source,
+        &["formal_parameters"],
+        record_header,
+        func_opener::owns,
+    );
+    assert_eq!(projecting, ["record_declaration", "record_declaration"]);
+    assert_eq!(
+        lists,
+        [
+            ("(int x)".to_owned(), true, false),
+            ("(int y)".to_owned(), false, false),
+            ("(int q)".to_owned(), true, true),
+            ("(int z)".to_owned(), false, false),
+        ]
+    );
+}
+
+/// Groovy's twin: the header is the `components` field, a kind of its
+/// own, so a method's `formal_parameters` could not be mistaken for one
+/// and the record-kind check guards only a grammar that reuses the
+/// field name. `R`'s header is open; `B` writes its canonical
+/// constructor.
+#[cfg(feature = "groovy")]
+#[test]
+fn groovy_record_header_is_the_records_own_list() {
+    use crate::roles::groovy::{func_opener, record_header};
+    let source = b"record R(int x) { void m(int y) { } }\nrecord B(int b) { B(int b) { this.b = b } }\nclass C { C(int z) { } }\n";
+    let (projecting, lists) = header_answers::<crate::GroovyCode>(
+        source,
+        &["record_components", "formal_parameters"],
+        record_header,
+        func_opener::owns,
+    );
+    assert_eq!(projecting, ["record_declaration", "record_declaration"]);
+    assert_eq!(
+        lists,
+        [
+            ("(int x)".to_owned(), true, true),
+            ("(int y)".to_owned(), false, false),
+            ("(int b)".to_owned(), true, false),
+            ("(int b)".to_owned(), false, false),
+            ("(int z)".to_owned(), false, false),
+        ]
+    );
+}
+
 /// A Java record's header opens the implicit canonical constructor's
 /// space, named after the record, where the body writes none (#1842) —
 /// which the byte-less spellings cannot see, as C#'s primary constructor

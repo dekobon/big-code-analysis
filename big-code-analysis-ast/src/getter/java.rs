@@ -43,10 +43,8 @@ impl Getter for JavaCode {
             return Some("<static-init>");
         }
         // A record's header takes the record's name (#1842).
-        // role-bypass: allow(FuncOpener, Container) — a naming rule over the
-        // list and the record it names, not whether either opens a space
         crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
-            list == Java::FormalParameters as u16 && owner == Java::RecordDeclaration as u16
+            crate::roles::java::record_header(owner).is_some_and(|header| header.id() == list.id())
         })
     }
 

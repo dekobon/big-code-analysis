@@ -146,12 +146,26 @@ fn is_record_canonical_constructor(
     declared.eq(components)
 }
 
+/// A record's header: the component list in the `components` field of
+/// a `record_declaration`, a sibling of its `class_body` — the node the
+/// `FuncOpener` row opens the implicit canonical constructor's space on
+/// (#1842), and Java's twin (`roles/java.rs`, the rationale there).
+/// `None` for any other node. Held once for the row's gate and for the
+/// consumers that step between a record and its header (#1863); pinned
+/// by `record_header_is_the_records_own_list`.
+#[inline]
+#[must_use]
+pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
+    (record.kind_id() == Groovy::RecordDeclaration as u16)
+        .then(|| record.child_by_field_name("components"))
+        .flatten()
+}
+
 /// Whether a `record_components` list is a record's header in a record
 /// that declares no canonical constructor, so the header stands for
-/// the implicitly declared one (#1842): the `components` field of a
-/// `record_declaration`, a sibling of its `class_body`, checked by
-/// field as Java's is so a grammar bump that reuses the kind elsewhere
-/// under the record opens nothing there. A written canonical
+/// the implicitly declared one (#1842): the record's [`record_header`],
+/// checked by field as Java's is so a grammar bump that reuses the kind
+/// elsewhere under the record opens nothing there. A written canonical
 /// constructor ([`is_record_canonical_constructor`]) owns the
 /// components instead; a non-canonical one is a callable of its own
 /// and leaves the header open. The gate reads the record's body, so it
@@ -162,11 +176,7 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(record) = ancestors.parent(node) else {
         return false;
     };
-    if record.kind_id() != Groovy::RecordDeclaration as u16
-        || record
-            .child_by_field_name("components")
-            .is_none_or(|p| p.id() != node.id())
-    {
+    if record_header(&record).is_none_or(|header| header.id() != node.id()) {
         return false;
     }
     let Some(body) = record.child_by_field_name("body") else {

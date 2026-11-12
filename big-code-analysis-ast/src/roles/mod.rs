@@ -457,7 +457,15 @@
 //!   form: `is_preproc_conditional_kind` (`roles/c_family.rs`) names the
 //!   C-family `DocTarget` row's conditional owners, held to their names
 //!   over every runtime id by `<dialect>_old_names_are_the_conditional_kinds`
-//!   (`roles/doc_tests/doxygen.rs`, #1795).
+//!   (`roles/doc_tests/doxygen.rs`, #1795). So does the step from a
+//!   declaration to the child a row gates: `record_header`
+//!   (`roles/java.rs`, `roles/groovy.rs`) projects a record's component
+//!   list, read by the `FuncOpener` gate and by the getter's naming,
+//!   `nargs` and `npm`, where each had spelled the field name or the
+//!   kind pair itself (#1863). C#'s primary constructor has no such
+//!   projection: its list sits in no field, the grammar admits more
+//!   than one under a type declaration, and the row's `under` list is
+//!   the whole relation.
 //! - **A kind a row claims is not restated as classification inside the
 //!   consumer boundary** — the per-language dispatch files, their
 //!   dispatcher modules and macros (`utils/check-role-bypass.py`,

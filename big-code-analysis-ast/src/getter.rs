@@ -254,19 +254,19 @@ pub fn default_func_space_name<'a, 'tree>(
 /// the list carries no `name` field, so it takes its owner's, as a
 /// constructor's `name` already spells the type it constructs, where
 /// the default would read `<anonymous>` and `bca check` a closure.
-/// `owned_list` reads the `(list kind, parent kind)` pair and says
-/// whether the parent is such an owner; a method's list sits under a
-/// method and keeps the default.
+/// `owned_list` reads the list and its parent and says whether the
+/// parent is such an owner; a method's list sits under a method and
+/// keeps the default.
 #[must_use]
 pub(crate) fn func_space_name_from_owner<'a, 'tree>(
     node: &Node<'tree>,
     code: &'a [u8],
     ancestors: Ancestors<'tree, '_>,
-    owned_list: impl FnOnce(u16, u16) -> bool,
+    owned_list: impl FnOnce(&Node<'tree>, &Node<'tree>) -> bool,
 ) -> Option<&'a str> {
     let named = ancestors
         .parent(node)
-        .filter(|owner| owned_list(node.kind_id(), owner.kind_id()))
+        .filter(|owner| owned_list(node, owner))
         .unwrap_or(*node);
     default_func_space_name(&named, code, ancestors)
 }

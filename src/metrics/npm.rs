@@ -264,21 +264,23 @@ fn direct_child_funcs<'a, 'c, C: Checker>(
         .filter(move |child| C::is_func_with_code(child, code, members))
 }
 
-/// Whether a record declaration's header — the component list held in
-/// its `field`, a sibling of the body and so never a body member — is
-/// the record's implicit canonical constructor, a method the body scan
-/// cannot see (#1842; Java and Groovy). The question is the `FuncOpener`
-/// row's, asked of the list under the record's own child chain so the
-/// row's gate reads the body, and the answer is read here while the walk
-/// is still on the class space: the list's own function space opens one
-/// node later.
+/// Whether a record declaration's header — the component list
+/// `record_header` projects, a sibling of the body and so never a body
+/// member — is the record's implicit canonical constructor, a method
+/// the body scan cannot see (#1842; Java and Groovy). `record_header`
+/// is the language's projection beside its role table
+/// (`roles::java::record_header`, `roles::groovy::record_header`). The
+/// question is the `FuncOpener` row's, asked of the list under the
+/// record's own child chain so the row's gate reads the body, and the
+/// answer is read here while the walk is still on the class space: the
+/// list's own function space opens one node later.
 fn record_header_is_a_method<'a, C: Checker>(
     record: &Node<'a>,
-    field: &str,
+    record_header: impl FnOnce(&Node<'a>) -> Option<Node<'a>>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    record.child_by_field_name(field).is_some_and(|header| {
+    record_header(record).is_some_and(|header| {
         C::is_func_with_code(&header, code, ancestors.of_children(record).get())
     })
 }
@@ -331,7 +333,9 @@ where
 // `impl_npa_java_like!` in `npa.rs`; issue #280). Groovy has since moved
 // to a hand-written impl — the dekobon grammar flattens modifiers, see
 // `npm/groovy.rs` — so this expands against Java alone. It is kept in
-// macro form because the next Java-shaped grammar can reuse it.
+// macro form because the next Java-shaped grammar can reuse it. `$roles`
+// is the language's module under `crate::roles`, whose `record_header`
+// projects a record's component list.
 //
 // `ClassBody` covers class and record explicit bodies;
 // `EnumBodyDeclarations` is the optional declarations block inside
@@ -343,7 +347,7 @@ where
 // `AnnotationTypeBody`: annotation type elements are abstract public
 // methods at the bytecode level and obey the same rule.
 macro_rules! impl_npm_java_like {
-    ($code:ty, $lang:ident) => {
+    ($code:ty, $lang:ident, $roles:ident) => {
         impl Npm for $code {
             fn compute<'a>(
                 node: &Node<'a>,
@@ -383,7 +387,12 @@ macro_rules! impl_npm_java_like {
                     // the record to the list the `FuncOpener` row then judges,
                     // not whether the record opens a space
                     RecordDeclaration => {
-                        if record_header_is_a_method::<Self>(node, "parameters", code, ancestors) {
+                        if record_header_is_a_method::<Self>(
+                            node,
+                            crate::roles::$roles::record_header,
+                            code,
+                            ancestors,
+                        ) {
                             stats.class_nm += 1;
                             let interface_member = ancestors.parent(node).is_some_and(|body| {
                                 matches!(body.kind_id().into(), InterfaceBody | AnnotationTypeBody)

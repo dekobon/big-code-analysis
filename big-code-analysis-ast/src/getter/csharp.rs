@@ -124,8 +124,8 @@ impl Getter for CsharpCode {
         // The `Container` row carries no gate, so its kind table is the
         // whole answer.
         crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
-            list == Csharp::ParameterList as u16
-                && crate::roles::csharp::container::lists_kind(owner)
+            list.kind_id() == Csharp::ParameterList as u16
+                && crate::roles::csharp::container::lists_kind(owner.kind_id())
         })
     }
 

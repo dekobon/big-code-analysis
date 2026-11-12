@@ -35,7 +35,12 @@ impl Npm for GroovyCode {
             // record to the list the `FuncOpener` row then judges, not
             // whether the record opens a space
             RecordDeclaration
-                if record_header_is_a_method::<Self>(node, "components", code, ancestors) =>
+                if record_header_is_a_method::<Self>(
+                    node,
+                    crate::roles::groovy::record_header,
+                    code,
+                    ancestors,
+                ) =>
             {
                 stats.class_nm += 1;
                 stats.class_npm += usize::from(groovy_record_is_public(node, ancestors));

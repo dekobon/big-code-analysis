@@ -8,4 +8,4 @@
 
 use super::*;
 
-impl_npm_java_like!(JavaCode, Java);
+impl_npm_java_like!(JavaCode, Java, java);

@@ -851,8 +851,8 @@ impl NArgs for CsharpCode {
 // itself where the body writes neither a compact nor a normal canonical
 // constructor (#1842, revisiting #1160's "declared code rather than
 // generated code": the component list *is* declared, as a C# positional
-// record's is — #1828), so the list's owner is its parent, the record.
-// The row's gate keeps the count to one owner: with a compact
+// record's is — #1828), so the list's owner is the record whose
+// `record_header` it is (`roles/java.rs`). The row's gate keeps the count to one owner: with a compact
 // constructor the header opens nothing and the redirect counts the
 // components there; with neither the header is the callable. A
 // non-canonical constructor is a callable of its own, owns its own
@@ -860,7 +860,10 @@ impl NArgs for CsharpCode {
 impl NArgs for JavaCode {
     fn params_owner<'tree>(node: &Node<'tree>, ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
         let record = match node.kind_id().into() {
-            Java::FormalParameters => ancestors.parent(node),
+            Java::FormalParameters => ancestors.parent(node).filter(|record| {
+                crate::roles::java::record_header(record)
+                    .is_some_and(|header| header.id() == node.id())
+            }),
             Java::CompactConstructorDeclaration => ancestors
                 .iter(node)
                 .nth(1)

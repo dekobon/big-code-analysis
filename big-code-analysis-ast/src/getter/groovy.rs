@@ -58,10 +58,9 @@ impl Getter for GroovyCode {
             return Some("<static-init>");
         }
         // A record's header takes the record's name (#1842).
-        // role-bypass: allow(FuncOpener, Container) — a naming rule over the
-        // list and the record it names, not whether either opens a space
         crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
-            list == Groovy::RecordComponents as u16 && owner == Groovy::RecordDeclaration as u16
+            crate::roles::groovy::record_header(owner)
+                .is_some_and(|header| header.id() == list.id())
         })
     }
 
