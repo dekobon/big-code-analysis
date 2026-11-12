@@ -382,6 +382,17 @@ fn ops_and_metrics_agree_on_the_space_tree() {
             first_divergence(&from_metrics, &from_ops),
         );
 
+        // The record's header space must be there to compare. Dropped by
+        // both walks it leaves the trees equal, and the fixture's other
+        // members keep `space.spaces` non-empty, so neither assertion
+        // around this one would see it go.
+        if matches!(lang, LANG::Java | LANG::Groovy) {
+            assert!(
+                from_metrics.contains("Function Some(\"R\")"),
+                "{lang:?}: the record's header opened no space:\n{from_metrics}"
+            );
+        }
+
         // A fixture whose only space is the file root would satisfy the
         // assertion above no matter how badly the two walks disagreed
         // about nested spaces — which is precisely the #1130 shape. The

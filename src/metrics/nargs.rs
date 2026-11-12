@@ -885,8 +885,12 @@ impl NArgs for JavaCode {
 // writes no canonical constructor (#1842) — so the list is the node
 // itself and its `record_component` children are the arguments, one
 // wrapper each (a variable-arity component's stray `...` lands in an
-// `ERROR` beside its type, inside the one wrapper). Every other
-// callable holds its list in the `parameters` field. The header's gate
+// `ERROR` beside its type, inside the one wrapper). They are counted by
+// kind and not through `count_args`: the two agree on a clean parse,
+// but `count_args` takes every child that is no parenthesis, comma or
+// comment, so the `ERROR` recovery leaves beside a component
+// (`record R(int a,)`) would read as a second argument (#1863). Every
+// other callable holds its list in the `parameters` field. The header's gate
 // reads the body's constructor types, so the callable test is the
 // `_with_code` spelling, as the shared impl's.
 impl NArgs for GroovyCode {
@@ -4915,6 +4919,60 @@ record A(int x) {}",
                 ]
             );
             assert_eq!(space.metrics.nom.functions_sum(), 2);
+        });
+    }
+
+    /// A header's arguments are its `record_component` children, counted
+    /// by kind: the `ERROR` recovery leaves in the list beside a
+    /// component — here for a trailing comma — is none, so the header
+    /// reads 1. `count_args`, which counts every other callable's list,
+    /// takes each child that is no parenthesis, comma or comment and
+    /// reads 2 on this list. The two agree on every clean parse, which
+    /// is why #1863 proposed swapping one for the other; the swap would
+    /// move this row. The second assertion keeps that claim honest: a
+    /// `count_args` that learns to skip an `ERROR` fails it, and the
+    /// header arm can then share the one definition.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_header_counts_components_and_no_recovery_error() {
+        use crate::languages::language_groovy::Groovy;
+        let source = "record R(int a,) { }";
+        let parser = GroovyParser::new(
+            source.as_bytes().to_vec(),
+            std::path::Path::new("trailing.groovy"),
+            None,
+        );
+        let headers: Vec<_> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Groovy::RecordComponents)
+            .map(|header| {
+                (
+                    header
+                        .children()
+                        .map(|child| child.kind().to_owned())
+                        .collect::<Vec<_>>(),
+                    count_args::<GroovyCode>(&header, source.as_bytes()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            headers,
+            [(
+                ["(", "record_component", "ERROR", ")"]
+                    .map(str::to_owned)
+                    .to_vec(),
+                2
+            )]
+        );
+        check_spaces::<GroovyParser, _>(source, "trailing.groovy", |space| {
+            assert_eq!(
+                space_rows(&space),
+                [
+                    row("R", SpaceKind::Class, 0),
+                    row("R", SpaceKind::Function, 1),
+                ]
+            );
         });
     }
 

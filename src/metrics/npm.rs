@@ -358,11 +358,14 @@ macro_rules! impl_npm_java_like {
                 use $lang::*;
 
                 // Whether a declaration spells `public` in its `modifiers`
-                // child, the first child when present. Source:
+                // child, the first child when present, so it is read by
+                // index: a search for it builds a cursor per declaration.
+                // Source:
                 // https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
                 fn has_public_modifier(declaration: &Node) -> bool {
                     declaration
-                        .first_child(|id| id == Modifiers)
+                        .child(0)
+                        .filter(|first| first.kind_id() == Modifiers)
                         .is_some_and(|modifiers| modifiers.first_child(|id| id == Public).is_some())
                 }
 

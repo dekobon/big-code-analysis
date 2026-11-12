@@ -154,7 +154,7 @@ fn check_gated<L: LanguageInfo + Checker + Getter>(
     member_owns: OpensSpace,
     owners: &[&[u16]],
     defensive: &[u16],
-    gated: &str,
+    gated: Option<&str>,
 ) -> Vec<(String, Answers)> {
     let mut rows = Vec::new();
     let mut seen_kinds = std::collections::BTreeSet::new();
@@ -180,7 +180,7 @@ fn check_gated<L: LanguageInfo + Checker + Getter>(
             promoted,
             "{kind}: is_func_space is what the walk promotes"
         );
-        if kind == gated {
+        if gated == Some(kind) {
             rows.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
             return;
         }
@@ -229,8 +229,8 @@ fn check<L: LanguageInfo + Checker + Getter>(
     owners: &[&[u16]],
     defensive: &[u16],
 ) {
-    let rows = check_gated::<L>(source, expected, member_owns, owners, defensive, "");
-    assert!(rows.is_empty(), "no node has the empty kind: {rows:?}");
+    let rows = check_gated::<L>(source, expected, member_owns, owners, defensive, None);
+    assert!(rows.is_empty(), "no kind is gated: {rows:?}");
 }
 
 #[cfg(feature = "rust")]
@@ -869,7 +869,7 @@ fn groovy_space_tree_rows() {
         member::owns,
         &[func_opener::OWNERS, closure::OWNERS, container::OWNERS, member::OWNERS],
         &[],
-        "record_components",
+        Some("record_components"),
     );
     assert_eq!(
         headers,

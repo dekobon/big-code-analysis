@@ -228,6 +228,18 @@ fn unparenthesized_once<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<
     node.children_with(cursor).find(not_extra)
 }
 
+/// Whether `node` is one of the grammar's two extras, a `#` comment or
+/// a `\` line continuation: the nodes tree-sitter-python admits between
+/// any two tokens, which spell no part of the construct they sit in.
+#[inline]
+#[must_use]
+pub fn python_is_extra(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Python::Comment | Python::LineContinuation
+    )
+}
+
 /// Whether `node` is a named child that spells an expression or a
 /// statement rather than one of the grammar's two extras. Both extras
 /// are *named* nodes, so `is_named` alone takes the first `\` of
@@ -235,11 +247,7 @@ fn unparenthesized_once<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<
 /// string as none (#1830); every selector of "the first real child"
 /// skips both.
 fn not_extra(node: &Node) -> bool {
-    node.is_named()
-        && !matches!(
-            node.kind_id().into(),
-            Python::Comment | Python::LineContinuation
-        )
+    node.is_named() && !python_is_extra(node)
 }
 
 /// Whether `statement` is a bare string statement: an

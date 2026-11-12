@@ -18,7 +18,8 @@ use super::shared::{
 use super::*;
 use crate::lang_helpers::python::{
     python_documentation_string_run, python_is_bare_statement_value, python_is_bare_string,
-    python_is_bare_string_parenthesis, python_is_bare_string_statement, python_sphinx_doc_comment,
+    python_is_bare_string_parenthesis, python_is_bare_string_statement, python_is_extra,
+    python_sphinx_doc_comment,
 };
 
 impl Loc for PythonCode {
@@ -663,12 +664,10 @@ fn python_code_among<'a>(
     next: &Node<'a>,
     parens: Option<Ancestors<'a, '_>>,
 ) -> Option<bool> {
-    let mut tokens = siblings.skip_while(|sibling| match sibling.kind_id().into() {
-        Python::LineContinuation | Python::Comment => true,
-        Python::LPAREN | Python::RPAREN => {
-            parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain))
-        }
-        _ => false,
+    let mut tokens = siblings.skip_while(|sibling| {
+        python_is_extra(sibling)
+            || matches!(sibling.kind_id().into(), Python::LPAREN | Python::RPAREN)
+                && parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain))
     });
     tokens
         .next()
