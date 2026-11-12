@@ -71,6 +71,15 @@ visit order rotated between rounds, and the reported figure is the
 slope of `ln(time)` against `ln(size)`. A linear walk sits near 1.0;
 a quadratic one sits near 2.0.
 
+The timer starts after the parse, so a probe prices the walk and
+never the grammar. A scanner that is itself super-linear on a shape
+shows in no exponent here: tree-sitter-python's external scanner is
+quadratic in a run of comment rows inside a block and in a run of bare
+`\` rows, so `bca metrics` on the shape
+`loc/python-block-comments-paren-strings` renders is dominated by the
+parse at the top rung while the probe fits 1.00. Time `bca count -t
+error` on the same file to see the parse alone.
+
 A probe declares which **axis** its size parameter grows along, because
 a walk can be linear in one and quadratic in the other:
 
@@ -351,7 +360,7 @@ sites by hand.
 rg -U '\.iter\([^)]+\)\)?\s*(\.(map|skip|by_ref|take|filter)\([^\n]*\)\s*)*\.(any|all|find|find_map|position|take_while|skip_while|map_while|last|count|fold|try_fold)\(' src big-code-analysis-ast/src
 rg 'for .* in .*\.iter\([^)]+\)' src big-code-analysis-ast/src
 rg 'successors\(.*parent' src big-code-analysis-ast/src
-rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind' src big-code-analysis-ast/src
+rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind|nearest_level_answer' src big-code-analysis-ast/src
 ```
 
 For each match, name what stops the loop, then render a shape where
@@ -837,8 +846,9 @@ up. A
 method in a class has none, so its scan read the whole chain, and a
 method in each of `n` nested classes read `Σ depth` entries. The answer
 is now folded down the chain on `KindLane::InsideFunction`
-(`Ancestors::has_ancestor_of_kind`), each ancestor once per walk, the
-way #1767 folded the other ancestor questions that have no stop nearby.
+(`Ancestors::has_ancestor_of_kind`), each ancestor's kind once per
+child the walk asks under, the way #1767 folded the other ancestor
+questions that have no stop nearby.
 
 Both probes render the same source, `depth` nested classes each holding
 one method with one `if`, on 4 000 / 8 000 / 16 000. The Groovy row is
@@ -888,8 +898,9 @@ costs a handful of scans, each linear in its body. No probe rendered a
 record before [#1863][roles-followups].
 
 Both probes render one record of ten components whose body holds
-`width` alternative constructors, each spelling nine component types
-and a tenth that differs, which is the most a constructor can cost.
+`width + 4` alternative constructors, each spelling nine component
+types and a tenth that differs, which is the most a constructor can
+cost.
 
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
@@ -900,10 +911,15 @@ One run each, on a host that was not idle. The regressed walk runs past
 `MAX_CELL_WALK` at the top rung, so the gate reports an abandoned walk
 in place of an exponent. `loc/java-package-docs`,
 `loc/rust-attributed-docs` and `cognitive/wide-if-siblings` read 0.84,
-1.00 and 0.86 in the same run. The same change reads the header's
-component types once per scan rather than once per constructor, which
-took the top rung from 44 ms to 29 ms for Java and from 35 ms to 21 ms
-for Groovy on a warm tree; the exponent does not move.
+1.00 and 0.86 in the same run.
+
+The same change reads the header's component types once per scan
+rather than once per constructor. A separate timing of the `nargs`
+walk alone on the top rung's shape, the minimum of 31 walks, read
+44 ms before and 29 ms after for Java, and 35 ms and 21 ms for Groovy.
+The exponent does not move, so no probe sees it;
+`java_header_types_are_read_once_per_gate_evaluation` and its Groovy
+twin count the reads.
 
 [record-header]: https://github.com/dekobon/big-code-analysis/issues/1842
 [roles-followups]: https://github.com/dekobon/big-code-analysis/issues/1863
@@ -946,12 +962,13 @@ is linear on the other's shape:
 (`LevelQuestion`): it stops at the first level that answers or already
 holds an answer, and hands what it found to the levels it passed. A
 level is read at most once per walk, and never above the nearest
-answer.
+answer. The run asks from itself, so its parenthesis is a level like
+the rest.
 
 | Walk put back | Probe that fails | Clean | Regressed | Top rung |
 |---|---|---|---|---|
-| the climb per parenthesis | `loc/python-deep-paren-extra-prefix` | 0.93 | 1.96 | 4.7 ms → 100 ms |
-| the fold down the chain | `loc/python-block-comments-paren-strings` | 1.04 | 2.02 | 28 ms → 763 ms |
+| the climb per parenthesis | `loc/python-deep-paren-extra-prefix` | 0.99 | 1.96 | 3.5 ms → 100 ms |
+| the fold down the chain | `loc/python-block-comments-paren-strings` | 1.00 | 2.02 | 26 ms → 763 ms |
 
 One run each, on a host that was not idle. With the climb put back
 `loc/python-block-comments-paren-strings` reads 1.08, and with the fold
@@ -962,9 +979,9 @@ other's defect. In the climb run `loc/python-paren-bare-strings`,
 The per-change guard is
 `python_code_before_a_parenthesis_reads_each_level_once` in
 `src/metrics/loc.rs`, which pins the exact number of levels read on
-both shapes at size 40: 81 and 81 memoised, 900 and 81 climbed, 120
-and 122 folded. Under `--cfg chain_audit` every memoised answer is also
-checked against the climb.
+both shapes at size 40: 42 and 81 memoised, one per level; 900 and 81
+climbed; 120 and 122 folded. Under `--cfg chain_audit` every memoised
+answer is also checked against the climb.
 
 Before putting a question on `fold_down`, check what its step costs:
 the step runs for every ancestor on an asker's chain, once per child

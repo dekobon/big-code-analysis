@@ -432,7 +432,7 @@ fn python_run_inside_bare_string_parentheses<'a>(
     };
     ancestors.memoised_answer(NodeQuestion::BareStringParenthesisLine, &parent, || {
         python_is_bare_string_parenthesis(&parent, chain)
-            && !python_code_before_node(code, &parent, chain)
+            && !python_code_before_parent(code, node, ancestors)
     })
 }
 
@@ -594,41 +594,43 @@ fn python_code_before_string<'a>(
     if let Some(answer) = python_code_among(code, before_holder, &line.holder, Some(ancestors)) {
         return answer;
     }
-    ancestors
-        .iter(node)
-        .next()
-        .is_some_and(|(parent, chain)| python_code_before_node(code, &parent, chain))
+    python_code_before_parent(code, node, ancestors)
 }
 
-// Whether code precedes `node` on its logical line: among its own
-// siblings, or at the deepest level above it that has a token before
-// its node. The levels `python_code_before_string` climbs from the
-// run's parent once the run's own level is read, and every level a
-// parenthesis's memoised answer reads — the parenthesis's inside, where
-// nothing before the string can be code, is never one of them.
+// Whether code precedes `node`'s parent on its logical line: among the
+// parent's own siblings, or at the nearest level above it that has a
+// token before its node. The levels `python_code_before_string` climbs
+// from the run's parent once the run's own level is read, and every
+// level a parenthesis's memoised answer reads — the parenthesis's
+// inside, where nothing before the string can be code, is never one of
+// them.
 //
-// The levels above `node` are read through the walk's memo of each
-// level's nearest answer rather than climbed afresh. A parenthesis whose
-// own level holds only comments and `\` splices before it defers to the
-// level above, and so does that one: asked from each of `n` nested
-// parentheses, the climb read every level above each, `Σ` of their
-// extras, quadratic in `n` under CPython's 200-level cap (#1863;
-// `loc/python-deep-paren-extra-prefix` prices it). The memo keeps the
-// climb's stop at the first level that answers, so a level above it is
-// never read (`loc/python-block-comments-paren-strings`).
-fn python_code_before_node<'a>(code: &[u8], node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    python_code_at_level(code, node, ancestors).unwrap_or_else(|| {
-        ancestors.nearest_level_answer(
-            node,
-            LevelQuestion::CodeBeforeOnLine,
-            code,
-            python_code_at_level,
-        )
-    })
+// Asked of the run rather than of its parent, so the parent is a level
+// like any other: read once per walk through the memo of each level's
+// nearest answer, however many runs and nested parentheses reach it. A
+// parenthesis whose own level holds only comments and `\` splices
+// before it defers to the level above, and so does that one: climbed
+// afresh from each of `n` nested parentheses, that read every level
+// above each, `Σ` of their extras, quadratic in `n` under CPython's
+// 200-level cap (#1863; `loc/python-deep-paren-extra-prefix` prices
+// it). The memo keeps the climb's stop at the first level that answers,
+// so a level above it is never read
+// (`loc/python-block-comments-paren-strings`).
+fn python_code_before_parent<'a>(
+    code: &[u8],
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.nearest_level_answer(
+        node,
+        LevelQuestion::CodeBeforeOnLine,
+        code,
+        python_code_at_level,
+    )
 }
 
 // `python_code_among` for `level` among its own siblings: one level of
-// `python_code_before_node`'s reading, a function of the level alone.
+// `python_code_before_parent`'s reading, a function of the level alone.
 fn python_code_at_level<'a>(
     code: &[u8],
     level: &Node<'a>,
@@ -638,7 +640,7 @@ fn python_code_at_level<'a>(
     python_code_among(code, chain.siblings_before(level), level, Some(chain))
 }
 
-// Levels `python_code_before_node` reads for a token before their node.
+// Levels `python_code_before_parent` reads for a token before their node.
 // Every way of reading them answers the same, so only this tells a walk
 // that reads each level once from one that reads every level above
 // every parenthesis, or a level above the one that answers (#1863).

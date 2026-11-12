@@ -484,8 +484,9 @@ pub fn python_block_comments_paren_strings(width: usize) -> String {
 /// walk records it for sibling lookups (`WIDE_PARENT`). A level's read
 /// is then a seek over the parenthesis's children rather than a slice
 /// of the walk's sibling cache, which is what makes the number of
-/// levels read show in the timing: timed alone on a warm tree, the
-/// climb read 1.56 with 31 pairs and 2.05 with these 30.
+/// levels read show in the timing: with 31 pairs a climb per
+/// parenthesis fits about 1.6, under no bound that would also pass the
+/// memoised walk on a shared host, where these 30 fit about 2.
 const PAREN_PREFIX_PAIRS: usize = 30;
 
 /// Python: a bare string `depth` parentheses deep, each parenthesis
@@ -503,7 +504,8 @@ const PAREN_PREFIX_PAIRS: usize = 30;
 /// question defers to the root from every parenthesis: read by
 /// climbing, `depth` parentheses read `depth² / 2` levels, under the
 /// 200 levels Python's tokenizer lets parentheses nest. Read through the
-/// walk's memo of each level's nearest answer, each reads two (#1863).
+/// walk's memo of each level's nearest answer, each level is read once
+/// (#1863).
 #[must_use]
 pub fn python_deep_paren_extra_prefix(depth: usize) -> String {
     let level = format!("(\n{}", "\\\n# c\n".repeat(PAREN_PREFIX_PAIRS));
@@ -1080,8 +1082,9 @@ pub fn nested_classes_with_method(depth: usize) -> String {
 const RECORD_BASE_CTORS: usize = 4;
 
 /// Java and Groovy, which read it alike: one record of ten components
-/// whose body holds `width` alternative constructors, each spelling the
-/// first nine component types and a tenth that differs.
+/// whose body holds `width` alternative constructors and
+/// `RECORD_BASE_CTORS` more, each spelling the first nine component
+/// types and a tenth that differs.
 ///
 /// The record's header stands for the implicit canonical constructor
 /// only where the body writes none, and a written one is told from an
@@ -3516,8 +3519,8 @@ pub const PROBES: &[Probe] = &[
                     the component's. One scan is linear in the body, and \
                     each consumer of the gate pays one per record: 1.01. \
                     With the gate asked once per constructor instead, one \
-                    walk of 2 000 constructors took 47 s against 32 ms and \
-                    the gate abandons the probe over its per-walk budget. \
+                    walk at the top rung took 47 s against 32 ms and the \
+                    gate abandons the probe over its per-walk budget. \
                     The reading is ten arguments per constructor and ten \
                     for the header.",
     },
@@ -3537,8 +3540,8 @@ pub const PROBES: &[Probe] = &[
                     `nargs/java-record-alternative-ctors`, under the \
                     Groovy grammar, whose header is a `record_components` \
                     list and whose gate is a twin in `roles/groovy.rs`: \
-                    1.01, and 49 s against 26 ms at 2 000 constructors \
-                    with the gate asked once per constructor.",
+                    1.01, and 49 s against 26 ms at the top rung with the \
+                    gate asked once per constructor.",
     },
     Probe {
         name: "loc/rust-attributed-docs",
@@ -3941,12 +3944,11 @@ pub const PROBES: &[Probe] = &[
                     splices. Climbed from each parenthesis that is \
                     `depth² / 2` levels under CPython's 200-level cap; each \
                     level's nearest answer is memoised on \
-                    `LevelQuestion::CodeBeforeOnLine`, two levels per \
-                    parenthesis. With the climb put back this reads 1.96, \
-                    100 ms at the top rung against 4.7 ms, and 0.93 \
-                    without. The reading is the comment rows: each level's \
-                    `(` row, bare rows and comments, the string's and the \
-                    `)` row.",
+                    `LevelQuestion::CodeBeforeOnLine` and read once. With \
+                    the climb put back this reads 1.96, 100 ms at the top \
+                    rung against 3.5 ms, and 0.99 without. The reading is \
+                    the comment rows: each level's `(` row, bare rows and \
+                    comments, the string's and the `)` row.",
     },
     Probe {
         name: "loc/python-block-comments-paren-strings",
@@ -3969,7 +3971,7 @@ pub const PROBES: &[Probe] = &[
                     first statement needs. Read for every statement, as a \
                     fold of the answer down the chain reads it, the walk is \
                     quadratic in `width`: 2.02 and 763 ms at the top rung \
-                    with that fold, 1.04 and 28 ms with the memoised climb. \
+                    with that fold, 1.00 and 26 ms with the memoised climb. \
                     The reading is the comment rows: the `width` comments \
                     and three rows per string.",
     },

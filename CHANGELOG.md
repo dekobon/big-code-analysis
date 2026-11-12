@@ -338,10 +338,10 @@ for historical reference.
   level that holds a token before its node. Where every level holds
   only comments and `\` rows, each of `n` nested parentheses read every
   level above it, quadratic in `n` up to the 200 levels Python's
-  tokenizer allows. Each level's answer is now memoised for the walk,
-  so a parenthesis reads two levels: at 200 levels with 30 such rows
-  each, a 37 KB file, the `loc` walk took 100 ms and takes 4.7 ms (one
-  run each, on a host that was not idle). Metric values are unchanged.
+  tokenizer allows. Each level's answer is now memoised for the walk
+  and read once: at 200 levels with 30 such rows each, a 37 KB file,
+  the `loc` walk took 100 ms and takes 3.5 ms (one run each, on a host
+  that was not idle). Metric values are unchanged.
   New scaling probes `loc/python-deep-paren-extra-prefix` and
   `loc/python-block-comments-paren-strings` price it, the second for
   the levels above the nearest answer, which are never read.

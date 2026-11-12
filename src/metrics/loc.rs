@@ -10392,7 +10392,7 @@ EOF
     /// - `nested`: a docstring `n` parentheses deep, each opening with a
     ///   bare `\` run. No level has a token before its node, so the
     ///   question defers from every parenthesis to the root. A climb per
-    ///   parenthesis reads `j + 2` levels from the one `j` deep.
+    ///   parenthesis reads `j + 3` levels from the one `j` deep.
     /// - `block`: `n` parenthesised strings in an `if` block behind `n`
     ///   comments. Each statement's own level answers. A fold of the
     ///   answer down the chain reads the block's level too, for every
@@ -10434,16 +10434,19 @@ EOF
         // row, then the string's row and the row of `)`; and a row per
         // comment plus three per string.
         assert_eq!((nested_cloc, block_cloc), (3 * n as u64 + 2, 4 * n as u64));
-        // expected: each parenthesis is asked once, by its run. `nested`:
-        // its own level and its parent's, where it meets the answer the
-        // parent's ask left on the levels above; the outermost reads its
-        // statement and the module instead. `block`: its own level and
-        // its statement's, which answers; the first statement has no
-        // statement before it and reads the block. The climb reads 900
-        // and 81, the fold 120 and 122. `make chain-audit` runs the
-        // climb beside every ask, so the count is asserted without it.
+        // expected: each parenthesis is asked once, by its run. `nested`
+        // has `n + 2` levels, the parentheses, the statement and the
+        // module: a run reads its parenthesis and meets the answer the
+        // run outside it left on the levels above, and the outermost
+        // reads all three of its own. `block` has `2n + 1`, the
+        // parentheses, their statements and the block: a run reads its
+        // parenthesis and its statement, which answers, and the first
+        // statement has none before it and reads the block. The climb
+        // reads 900 and 81, the fold 120 and 122. `make chain-audit`
+        // runs the climb beside every ask, so the count is asserted
+        // without it.
         if cfg!(not(chain_audit)) {
-            assert_eq!((nested_read, block_read), (2 * n + 1, 2 * n + 1));
+            assert_eq!((nested_read, block_read), (n + 2, 2 * n + 1));
         }
     }
 
