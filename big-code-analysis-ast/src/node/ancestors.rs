@@ -1014,7 +1014,11 @@ const NOTHING_RECORDED: &SiblingCache<'static> = &SiblingCache(Vec::new());
 impl<'tree> SiblingCache<'tree> {
     /// Records `children`, in order, as the children of `node`, which
     /// sits at `depth` in the walk's chain. A node of no more than a
-    /// short scan's children is not recorded.
+    /// short scan's children is not recorded, and its batch is not read.
+    ///
+    /// `children` is every child of `node`: a lookup indexes into the
+    /// record, so a batch that left one out would answer with the wrong
+    /// sibling. A debug build rejects a batch of any other length.
     pub fn record(
         &mut self,
         node: &Node<'tree>,
@@ -1033,6 +1037,12 @@ impl<'tree> SiblingCache<'tree> {
         *id = node.id();
         recorded.clear();
         recorded.extend(children);
+        debug_assert_eq!(
+            recorded.len(),
+            node.child_count(),
+            "a walk must record every child of a wide {}, in one batch (#1871)",
+            node.kind()
+        );
     }
 
     // `parent`'s children, when the walk recorded them at `depth`.
@@ -2264,6 +2274,35 @@ mod tests {
         let _ = Ancestors::known(&chain)
             .with_siblings(&cache)
             .lookup(&first);
+    }
+
+    /// A walk records every child of a wide node. A lookup indexes into
+    /// the record, so a batch that drops a child shifts each answer
+    /// after it rather than slowing it, and no cost probe shows that
+    /// (#1871). The recording walks pass what `children_with` yields,
+    /// whole; one that came to filter at the push would trip this on its
+    /// first wide node. The setup cannot raise the message: it parses
+    /// and builds an empty record.
+    #[cfg(all(feature = "perl", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "a walk must record every child of a wide ERROR")]
+    fn recording_a_short_batch_is_caught() {
+        let tree = flat_error();
+        let root = tree.get_root();
+        let mut cache = SiblingCache::default();
+        cache.record(&root, 0, root.children().skip(1));
+    }
+
+    /// And a batch that holds more than the node's children, as a slice
+    /// of the walk's stack cut one entry too early would.
+    #[cfg(all(feature = "perl", debug_assertions))]
+    #[test]
+    #[should_panic(expected = "a walk must record every child of a wide ERROR")]
+    fn recording_a_padded_batch_is_caught() {
+        let tree = flat_error();
+        let root = tree.get_root();
+        let mut cache = SiblingCache::default();
+        cache.record(&root, 0, std::iter::once(root).chain(root.children()));
     }
 
     // The walk's own chain for `node`, built by each constructor of a walk
