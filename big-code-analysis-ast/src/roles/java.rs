@@ -217,8 +217,8 @@ pub fn is_record_header(list: &Node<'_>, record: &Node<'_>) -> bool {
 
 // Times `opens_record_header` spelled a header's component types. Once
 // per evaluation that meets a constructor, however many it compares:
-// re-spelled per constructor the gate answers the same, a third slower
-// on a record of alternatives (#1863).
+// re-spelled per constructor the gate answers the same and costs about
+// half as much again on a record of alternatives (#1863).
 crate::observation::counter!(record_header_types_read);
 
 /// The container a `switch` nests its arms in: the `switch_block`, the

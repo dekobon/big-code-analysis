@@ -1302,16 +1302,22 @@ fn plain(text: &str, name: &'static str) -> ListAnswer {
 
 /// What a language's `record_header` projection and its `FuncOpener`
 /// row say of every list of `source`: the declarations the projection
-/// answers for, by kind, and per list its text, whether it is its
-/// parent's projected header, and whether the row owns it there.
+/// answers for, by kind, and per list its text, whether
+/// `is_record_header` reads it as its parent's header, and whether the
+/// row owns it there.
 #[cfg(any(feature = "java", feature = "groovy"))]
 type HeaderAnswers = (Vec<String>, Vec<(String, bool, bool)>);
+
+/// A language's `is_record_header`, by value.
+#[cfg(any(feature = "java", feature = "groovy"))]
+type IsRecordHeader = for<'a, 'b> fn(&Node<'a>, &Node<'b>) -> bool;
 
 #[cfg(any(feature = "java", feature = "groovy"))]
 fn header_answers<L: LanguageInfo>(
     source: &'static [u8],
     list_kinds: &[&str],
     record_header: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
+    is_record_header: IsRecordHeader,
     opener_owns: crate::roles::RowPred,
 ) -> HeaderAnswers {
     let mut projecting = Vec::new();
@@ -1330,8 +1336,7 @@ fn header_answers<L: LanguageInfo>(
         let ancestors = Ancestors::known(chain);
         let is_header = ancestors
             .parent(node)
-            .and_then(|owner| record_header(&owner))
-            .is_some_and(|header| header.id() == node.id());
+            .is_some_and(|owner| is_record_header(node, &owner));
         let owned = opener_owns(node, source, ancestors);
         assert!(
             is_header || !owned,
@@ -1357,13 +1362,14 @@ fn header_answers<L: LanguageInfo>(
 #[cfg(feature = "java")]
 #[test]
 fn java_record_header_is_the_records_own_list() {
-    use crate::roles::java::{func_opener, record_header};
+    use crate::roles::java::{func_opener, is_record_header, record_header};
     let source =
         b"record R(int x) { R { } void m(int y) { } }\nrecord Q(int q) { }\nclass C { C(int z) { } }\n";
     let (projecting, lists) = header_answers::<crate::JavaCode>(
         source,
         &["formal_parameters"],
         record_header,
+        is_record_header,
         func_opener::owns,
     );
     assert_eq!(projecting, ["record_declaration", "record_declaration"]);
@@ -1386,12 +1392,13 @@ fn java_record_header_is_the_records_own_list() {
 #[cfg(feature = "groovy")]
 #[test]
 fn groovy_record_header_is_the_records_own_list() {
-    use crate::roles::groovy::{func_opener, record_header};
+    use crate::roles::groovy::{func_opener, is_record_header, record_header};
     let source = b"record R(int x) { void m(int y) { } }\nrecord B(int b) { B(int b) { this.b = b } }\nclass C { C(int z) { } }\n";
     let (projecting, lists) = header_answers::<crate::GroovyCode>(
         source,
         &["record_components", "formal_parameters"],
         record_header,
+        is_record_header,
         func_opener::owns,
     );
     assert_eq!(projecting, ["record_declaration", "record_declaration"]);
@@ -1413,7 +1420,7 @@ fn groovy_record_header_is_the_records_own_list() {
 #[cfg(any(feature = "java", feature = "groovy"))]
 fn header_type_reads<L: LanguageInfo>(
     source: &'static [u8],
-    record_header: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
+    is_record_header: IsRecordHeader,
     opener_owns: crate::roles::RowPred,
     observed: fn() -> usize,
 ) -> Vec<(bool, usize)> {
@@ -1422,8 +1429,7 @@ fn header_type_reads<L: LanguageInfo>(
         let ancestors = Ancestors::known(chain);
         let is_header = ancestors
             .parent(node)
-            .and_then(|owner| record_header(&owner))
-            .is_some_and(|header| header.id() == node.id());
+            .is_some_and(|owner| is_record_header(node, &owner));
         if is_header {
             let before = observed();
             let owned = opener_owns(node, source, ancestors);
@@ -1442,12 +1448,12 @@ fn header_type_reads<L: LanguageInfo>(
 #[cfg(feature = "java")]
 #[test]
 fn java_header_types_are_read_once_per_gate_evaluation() {
-    use crate::roles::java::{func_opener, record_header, record_header_types_read};
+    use crate::roles::java::{func_opener, is_record_header, record_header_types_read};
     let source = b"record R(int a, int b) { R(int a, long b) { this(a, 0); } R(int a, short b) { this(a, 0); } R(int a, byte b) { this(a, 0); } }\nrecord Q(int q) { int m() { return q; } }\n";
     assert_eq!(
         header_type_reads::<crate::JavaCode>(
             source,
-            record_header,
+            is_record_header,
             func_opener::owns,
             record_header_types_read::observed,
         ),
@@ -1461,12 +1467,12 @@ fn java_header_types_are_read_once_per_gate_evaluation() {
 #[cfg(feature = "groovy")]
 #[test]
 fn groovy_header_types_are_read_once_per_gate_evaluation() {
-    use crate::roles::groovy::{func_opener, record_header, record_header_types_read};
+    use crate::roles::groovy::{func_opener, is_record_header, record_header_types_read};
     let source = b"record R(int a, int b) { R(int a, long b) { this(a, 0) } R(int a, short b) { this(a, 0) } R(int a, byte b) { this(a, 0) } }\nrecord Q(int q) { int m() { return q } }\n";
     assert_eq!(
         header_type_reads::<crate::GroovyCode>(
             source,
-            record_header,
+            is_record_header,
             func_opener::owns,
             record_header_types_read::observed,
         ),

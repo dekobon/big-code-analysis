@@ -198,6 +198,21 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
+    /// This chain with the walk's [`FoldCache`] withheld and its
+    /// [`SiblingCache`] kept. Test-only, for a test that asks one
+    /// question twice with different inputs: a memo is keyed by node,
+    /// so through the cache the second ask would be served the first
+    /// one's answer.
+    #[cfg(test)]
+    #[inline]
+    #[must_use]
+    pub(crate) const fn without_folds(self) -> Self {
+        Self {
+            folds: None,
+            ..self
+        }
+    }
+
     /// The chain a walk hands its predicates for `node`, the node it is
     /// visiting: [`checked`](Self::checked) on `chain`, lending `folds`
     /// with the visit recorded on it (#1737) and answering sibling
@@ -333,7 +348,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// ambient — climbs to the root from every node and is quadratic in
     /// depth (#1767). Under a walk that lent a [`FoldCache`] this folds
     /// the answer down the chain on `lane` instead, each ancestor once
-    /// per walk: a `stop` resets it, a `check` sets it. Elsewhere the
+    /// per child the walk asks under: a `stop` resets it, a `check` sets
+    /// it, and both are kind tests. Elsewhere the
     /// climb is the cheaper of the two and is what runs, so a caller
     /// with no cache keeps the climb's cost.
     ///
@@ -384,8 +400,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// chain where there is none: a function in each of `n` nested
     /// containers scanned `n²` entries (#1864). Under a walk that lent a
     /// [`FoldCache`] the answer is folded down the chain on `lane`, each
-    /// ancestor once per walk; elsewhere the scan is what runs, since an
-    /// unmemoised fold would start at the root for every ask.
+    /// ancestor's kind once per child the walk asks under; elsewhere the
+    /// scan is what runs, since an unmemoised fold would start at the
+    /// root for every ask.
     ///
     /// A lane memoises whatever its first asker folded, so every ask on
     /// `lane` within one walk must pass the same `kinds`: each
@@ -443,19 +460,24 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// passed. So `answer` runs at most once per level per walk, and
     /// never on a level above the nearest one that answers.
     ///
-    /// Not [`fold_down`](Self::fold_down), which this was first written
-    /// on: a fold evaluates every ancestor, the ones above the nearest
+    /// A fold ([`fold_down`](Self::fold_down)) does not fit this
+    /// question: it evaluates every ancestor, the ones above the nearest
     /// answer included, and stores an ancestor's state under the child
-    /// on the path, so a level whose answer is a long scan was scanned
-    /// again for each child asked from. `n` statements in a block behind
-    /// `k` comments cost `n × k` where the plain climb costs `n + k`.
+    /// on the path, so a level whose answer is a long scan is scanned
+    /// again for each child asked from.
     ///
-    /// The memo hands every later asker the first one's answer, so each
-    /// [`LevelQuestion`] belongs to one `answer` per walk, and `answer`
-    /// is a plain `fn` of the source, the ancestor and the ancestor's
-    /// own chain: a closure that captured the asking node would answer
-    /// for it at every level. `make chain-audit` checks every memoised
-    /// answer against the climb.
+    /// The memo is keyed by the level alone and hands every later asker
+    /// the first one's answer. Three things follow. Each
+    /// [`LevelQuestion`] belongs to one `answer` per walk. `answer` is a
+    /// plain `fn` of the source, the ancestor and the ancestor's own
+    /// chain: a closure that captured the asking node would answer for
+    /// it at every level. And `self` must be `node`'s whole ancestry: a
+    /// chain re-rooted part-way (`below`) runs off its top early, and
+    /// "no level answers" would be stored on levels whose real ancestors
+    /// do answer. Nothing checks that last one, since the audit's climb
+    /// reads the same chain; no caller asks from a re-rooted chain.
+    /// `make chain-audit` checks every memoised answer against the
+    /// climb.
     #[doc(hidden)]
     #[must_use]
     pub fn nearest_level_answer(
@@ -710,7 +732,12 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// reads and stores through the same one. Rebuilding with
     /// [`Ancestors::known`] instead dropped it silently — the shape
     /// lesson 101 is about — and left Doxygen's conditionals inside an
-    /// `ERROR` child unmemoised (#1686 review).
+    /// `ERROR` child unmemoised (#1686 review). Sharing it is sound for
+    /// a fold lane, whose slots are keyed by depth and id, and for a
+    /// memo of a node's own subtree. It is not for
+    /// [`nearest_level_answer`](Self::nearest_level_answer), whose memo
+    /// holds an answer about the ancestry this chain cuts short: do not
+    /// ask one from a re-rooted chain.
     ///
     /// The sibling cache is keyed by depth and holds only the nodes the
     /// walk has pushed; the node this chain descends into is one the walk
@@ -1164,7 +1191,9 @@ const _: () = assert!(FoldLane::InsideFunction as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each
-/// has a memo of its own.
+/// has a memo of its own. A [`NodeQuestion`] or one of this crate's own
+/// stores the node's answer; a [`LevelQuestion`] the nearest answer at
+/// or above it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoQuestion {
     /// Doxygen: whether a preprocessor conditional holds an entry, in
@@ -1340,14 +1369,17 @@ impl WordSlot {
 
 const _: () = assert!(WordSlot::TclCommandWord as usize + 1 == WordSlot::COUNT);
 
-/// Answers about a node's own subtree, memoised for one walk and keyed
-/// by node id, which is unique within a tree: Doxygen's "does this
-/// preprocessor conditional hold an entry", asked of every conditional
-/// a doc comment's stretch meets; the Tcl family's "can this argument
-/// list be read by position", asked by every braced word in it. Unlike
-/// a [`FoldLane`] it is not tied to the chain, so an answer stored for
-/// one sibling subtree serves every later question about it (#1613).
-/// Each holds one [`MemoQuestion`].
+/// Answers that are a fact of one node, memoised for one walk and keyed
+/// by node id, which is unique within a tree. Most are about the node's
+/// own subtree: Doxygen's "does this preprocessor conditional hold an
+/// entry", asked of every conditional a doc comment's stretch meets;
+/// the Tcl family's "can this argument list be read by position", asked
+/// by every braced word in it. A [`LevelQuestion`]'s is about the
+/// node's ancestry instead: the nearest answer at or above it, which
+/// [`Ancestors::nearest_level_answer`] stores only from a whole chain.
+/// Unlike a [`FoldLane`] slot the entry is not keyed by depth, so an
+/// answer stored for one sibling subtree serves every later question
+/// about it (#1613). Each holds one [`MemoQuestion`].
 #[derive(Debug, Default)]
 pub(crate) struct NodeMemo(RefCell<HashMap<usize, bool>>);
 

@@ -119,8 +119,9 @@ both reads `pays_at_wrapper` and `pays_at_leaf` explicitly.
 Deleting a kind from the `FuncOpener` row to stop an over-count
 regresses its childless variant to zero. Gate the owner on child
 presence, which keeps `is_func_with_code`, `is_func_space_with_code`
-and `get_space_kind_with_code` on the same predicate. When a wrapper/leaf pair double-counts, the keeper is the
-node present for every spelling, verified with `bca dump` on valid and
+and `get_space_kind_with_code` on the same predicate. When a
+wrapper/leaf pair double-counts, the keeper is the node present for
+every spelling, verified with `bca dump` on valid and
 on recovery input: `node-types.json` describes the well-formed grammar
 only, and an `ERROR` root routinely holds the leaf with no wrapper.
 Where neither choice strands a node, keep the node whose span is the

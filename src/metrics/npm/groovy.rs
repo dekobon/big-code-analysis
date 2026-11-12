@@ -37,7 +37,7 @@ impl Npm for GroovyCode {
             RecordDeclaration
                 if record_header_is_a_method::<Self>(
                     node,
-                    crate::roles::groovy::record_header,
+                    crate::roles::groovy::record_header(node),
                     code,
                     ancestors,
                 ) =>

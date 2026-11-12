@@ -74,8 +74,8 @@ use std::fmt::Write as _;
 
 use crate::roles::{DeclaredRow, LanguageTable, RowView};
 use crate::test_support::{
-    control_flow_corpus_present, control_flow_sources, for_each_node_with_chain,
-    for_each_node_with_sibling_cache, for_each_node_with_sibling_cache_tolerating_errors,
+    control_flow_corpus_present, control_flow_sources, for_each_node_with_sibling_cache,
+    for_each_node_with_sibling_cache_tolerating_errors,
 };
 use crate::{Ancestors, Checker, LANG, Node, with_code_tag};
 
@@ -118,7 +118,11 @@ struct Source {
 ///   spells the connectives and the comparisons, told apart by text.
 ///
 /// Keyed by the table's name, as the exception tables below are: a
-/// language is asked its fixture only when its table is enabled.
+/// language is asked its fixture only when its table is enabled. Not
+/// by `LANG`, as the documentation fixtures are: a `LANG` literal here
+/// makes `utils/check-test-lang-gates.py` derive a gate on these three
+/// languages for every test that loads a source, all of which run
+/// under any one language.
 const BYTE_GATE_FIXTURES: &[(&str, &str, &[u8])] = &[
     (
         "Java",
@@ -183,16 +187,47 @@ fn sources_for(lang: LANG) -> Vec<Source> {
     out
 }
 
-/// A fixture keyed by a name no table carries is asked of nothing, and
-/// the byte backstop loses the one candidate that moves its gate
-/// without a failure anywhere.
+/// Each fixture names a table and still moves a gate that table marks
+/// `text_gated_by`: some node of a marked owner kind answers `owns`
+/// differently under the fixture's bytes and under none. That is the
+/// fixture's whole use — it is the candidate that would move the gate
+/// were it re-declared `gated_by` — and nothing else would notice it
+/// gone. The backstop skips a marked owner, so a fixture keyed by a
+/// name no table carries, or one a grammar bump or a gate edit left
+/// answering alike both ways, leaves the backstop passing with that
+/// gate unguarded.
 #[test]
-fn byte_gate_fixtures_each_name_a_table() {
+fn byte_gate_fixtures_each_move_a_marked_gate() {
     let tables = crate::roles::tables();
-    for (table, fixture, _) in BYTE_GATE_FIXTURES {
+    for (name, fixture, code) in BYTE_GATE_FIXTURES {
+        let table = tables
+            .iter()
+            .find(|t| t.name == *name)
+            .unwrap_or_else(|| panic!("`{fixture}` names `{name}`, which is no table"));
+        if !table.lang.is_enabled() {
+            continue;
+        }
+        let rows: Vec<DeclaredRow> = (table.rows)()
+            .iter()
+            .filter_map(RowView::declared)
+            .copied()
+            .collect();
+        let mut moved = false;
+        with_code_tag!(table.lang, |C| {
+            for_each_node_with_sibling_cache::<C>(code, |node, ancestors| {
+                let ancestors = ancestors.without_folds();
+                let kind = node.kind_id();
+                moved |= rows.iter().any(|row| {
+                    row.text_gated_owners.contains(&kind)
+                        && (row.owns_kind)(kind, node, code, ancestors)
+                            != (row.owns_kind)(kind, node, &[], ancestors)
+                });
+            });
+        });
         assert!(
-            tables.iter().any(|t| t.name == *table),
-            "`{fixture}` names `{table}`, which is no table"
+            moved,
+            "`{fixture}` moves no `text_gated_by` owner of {name}: the gate it was written \
+             for answers alike with and without its bytes"
         );
     }
 }
@@ -1004,8 +1039,8 @@ fn forwards_on<'a, C: Checker + crate::Getter>(
     // body-child test on `below` that no row spells, so the forward is compared
     // against the composition *without* the child test on the one
     // side it can be — a node the forward admits for some child is one
-    // the composition admits. The row half is what the `&[]` forward
-    // in `doc_body_residual_kind!` drops; the chain is the real one.
+    // the composition admits. Every term reads the real bytes and the
+    // real chain, as the adapters do since #1863.
     let holds_for_any_child = node
         .children()
         .any(|below| C::holds_doc_comment_in_body(node, code, ancestors, &below));
@@ -1536,14 +1571,15 @@ impl ByteProbe {
         rows: &[DeclaredRow],
         node: &Node<'a>,
         code: &[u8],
-        chain: &[Node<'a>],
+        ancestors: Ancestors<'a, '_>,
     ) {
         // One chain for both asks, and no `FoldCache` on it: a memo is
         // keyed by node, never by buffer, so through the walk's cache
         // the byte-less ask would be served what the real bytes stored
         // a moment before, and a memoised byte reader would agree with
-        // itself.
-        let ancestors = Ancestors::known(chain);
+        // itself. The `SiblingCache` stays: a gate that reads a sibling
+        // under a wide parent needs it, as on the walk.
+        let ancestors = ancestors.without_folds();
         let kind = node.kind_id();
         let mut unmarked_owner = false;
         for row in rows {
@@ -1626,9 +1662,9 @@ fn unmarked_owners_answer_alike_without_the_bytes() {
         for source in sources_for(table.lang) {
             let code = source.bytes.as_slice();
             with_code_tag!(table.lang, |C| {
-                for_each_node_with_chain::<C>(code, |node, chain| {
+                for_each_node_with_sibling_cache::<C>(code, |node, ancestors| {
                     if node.start_byte() != node.end_byte() {
-                        probe.probe(table, &rows, node, code, chain);
+                        probe.probe(table, &rows, node, code, ancestors);
                     }
                 });
             });

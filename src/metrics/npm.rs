@@ -264,23 +264,22 @@ fn direct_child_funcs<'a, 'c, C: Checker>(
         .filter(move |child| C::is_func_with_code(child, code, members))
 }
 
-/// Whether a record declaration's header — the component list
-/// `record_header` projects, a sibling of the body and so never a body
-/// member — is the record's implicit canonical constructor, a method
-/// the body scan cannot see (#1842; Java and Groovy). `record_header`
-/// is the language's projection beside its role table
-/// (`roles::java::record_header`, `roles::groovy::record_header`). The
-/// question is the `FuncOpener` row's, asked of the list under the
-/// record's own child chain so the row's gate reads the body, and the
-/// answer is read here while the walk is still on the class space: the
-/// list's own function space opens one node later.
+/// Whether a record declaration's `header` — the component list the
+/// language's `record_header` projects (`roles::java`, `roles::groovy`),
+/// a sibling of the body and so never a body member — is the record's
+/// implicit canonical constructor, a method the body scan cannot see
+/// (#1842; Java and Groovy). The question is the `FuncOpener` row's,
+/// asked of the list under the record's own child chain so the row's
+/// gate reads the body, and the answer is read here while the walk is
+/// still on the class space: the list's own function space opens one
+/// node later.
 fn record_header_is_a_method<'a, C: Checker>(
     record: &Node<'a>,
-    record_header: impl FnOnce(&Node<'a>) -> Option<Node<'a>>,
+    header: Option<Node<'a>>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    record_header(record).is_some_and(|header| {
+    header.is_some_and(|header| {
         C::is_func_with_code(&header, code, ancestors.of_children(record).get())
     })
 }
@@ -392,7 +391,7 @@ macro_rules! impl_npm_java_like {
                     RecordDeclaration => {
                         if record_header_is_a_method::<Self>(
                             node,
-                            crate::roles::$roles::record_header,
+                            crate::roles::$roles::record_header(node),
                             code,
                             ancestors,
                         ) {
@@ -1890,6 +1889,43 @@ mod tests {
                         ("N", 1, 0),
                         ("A", 2, 2)
                     ]
+                );
+            },
+        );
+    }
+
+    /// `public` is read off `modifiers` as the declaration's first child
+    /// (#1863), which holds for whatever is written ahead of the
+    /// keyword: a doc comment before the declaration is its sibling,
+    /// annotations and a comment among them sit inside `modifiers`, a
+    /// comment after `public` follows it, and type parameters come
+    /// after. Were any of these the declaration's first child, the
+    /// record or its method would read as package-private.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_public_is_read_past_what_precedes_it() {
+        check_func_space::<JavaParser, _>(
+            "/** d */
+             @Deprecated
+             // among the modifiers
+             public /* after */ record P(int a) {
+                 /** m */
+                 @Override
+                 public <T> String toString() { return \"\"; }
+                 /* lead */ public static void s() { }
+                 @Deprecated void p() { }
+             }",
+            "trivia.java",
+            |space| {
+                let record = child_space(&space, "P");
+                // expected: the header, `toString`, `s` and `p`; all but
+                // `p` public.
+                assert_eq!(
+                    (
+                        record.metrics.npm.class_nm(),
+                        record.metrics.npm.class_npm()
+                    ),
+                    (4, 3)
                 );
             },
         );

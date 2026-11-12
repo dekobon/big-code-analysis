@@ -2675,9 +2675,11 @@ if the `do` section has one, otherwise `after`.
 set to fix an over-count, enumerate the construct's variants and find
 the one with **no qualifying children** — it is relying on the
 membership you are about to delete. Gate the arm on child-presence
-rather than removing it, and keep `is_func`, `is_func_space`, and
-`get_space_kind` gated by the *same* predicate so the space tree stays
-self-consistent. The same holds for any classification arm, not only the
+rather than removing it, and keep the callable test, the space test and
+the space kind (`is_func_with_code`, `is_func_space_with_code` and
+`get_space_kind_with_code` since #1863; `is_func`, `is_func_space` and
+`get_space_kind` when this was written) gated by the *same* predicate
+so the space tree stays self-consistent. The same holds for any classification arm, not only the
 space dispatch: a kind that fills several grammatical roles must be
 fixtured in each role before an arm naming it is deleted — the reported
 fixtures show one role.
@@ -5357,7 +5359,7 @@ assertion reads the value the collapse moves, not just the shape.
 **A same-arity alternative constructor closed a record's header**
 (#1842, PR #1862). `opens_record_header` reads the body's constructor
 parameter types to tell the canonical constructor from an alternative,
-and was declared `gated_by`. `JavaCode::is_func` forwards the row with
+and was declared `gated_by`. `JavaCode::is_func` forwarded the row with
 `&[]`; `is_func_with_code` defaulted to it. Under no bytes `A(long a)`
 and component `int a` both spelled `""`, the constructor read as
 canonical, the header closed, and `record A(int a) { A(long a) {…} }`
