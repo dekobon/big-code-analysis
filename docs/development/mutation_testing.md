@@ -168,9 +168,13 @@ cargo install cargo-mutants --locked
 the test-timeout floor, the output directory, and the test-package
 set (every mutant runs both the root crate's and
 `big-code-analysis-ast`'s tests, because the checker and getter are
-pinned almost entirely by the root crate's metric tests). cargo-mutants
-reads it from the workspace root, so a plain `cargo mutants` picks it
-up. Which packages to mutate and `--in-place` have no config-file key
+pinned almost entirely by the root crate's metric tests). It also
+excludes the `*_tests.rs` modules, and the mutants listed under
+`exclude_re`. cargo-mutants skips a module under a bare `#[cfg(test)]`
+and treats `#[cfg(all(test, …))]` as ordinary code, so without the
+glob it mutates the two `derived_parity_tests.rs` suites. cargo-mutants
+reads the file from the workspace root, so a plain `cargo mutants`
+picks it up. Which packages to mutate and `--in-place` have no config-file key
 and stay on the command line; which files could be configured
 (`examine_globs`) but is not, because cargo-mutants 27 unions that key
 with `-f` and a single-file local run would silently widen to the

@@ -26,6 +26,14 @@ output = "target/mutants"
 # runs both suites.
 test_package = ["big-code-analysis", "big-code-analysis-ast"]
 
+# Test modules are not the subject. cargo-mutants skips a module
+# declared under a bare `#[cfg(test)]`, and reads
+# `#[cfg(all(test, any(feature = …)))]` as ordinary code: the two
+# `derived_parity_tests.rs` suites are gated that way, and their helpers
+# were being mutated as if they were classifiers. An exclusion, unlike
+# `examine_globs`, cannot widen a single-file local run.
+exclude_globs = ["**/*_tests.rs"]
+
 # Mutants no run tests. Each entry is one mutant shown to behave
 # identically on every reachable input, panics and side effects
 # included, or one that never terminates; the reason sits above it. A
