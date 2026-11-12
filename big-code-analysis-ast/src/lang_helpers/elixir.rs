@@ -649,8 +649,8 @@ mod tests {
 
     // The word slot's budget (#1697, #1737): asked about one `call`
     // several times while it is visited — as cyclomatic, cognitive, ABC
-    // and nexits ask on one visit — a walk that lent a cache through
-    // `for_walk` reads the target once per `call`, and one that lent
+    // and nexits ask on one visit — a walk that lent a cache through a
+    // walk constructor reads the target once per `call`, and one that lent
     // none reads it every time. Between the repeats each `call` is also
     // asked about its enclosing `call` through the same chain, as the
     // `else:` pair and the `CaseArm` gate ask about theirs: that ask is
@@ -676,7 +676,7 @@ mod tests {
                 return;
             }
             calls += 1;
-            let walk = Ancestors::for_walk(chain, node, &cache);
+            let walk = Ancestors::for_walk_without_siblings(chain, node, &cache);
             let first = elixir_call_target(node, source, walk);
             let enclosing = chain
                 .iter()

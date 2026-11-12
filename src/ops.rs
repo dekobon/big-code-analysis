@@ -339,7 +339,7 @@ pub(crate) fn ops_inner<T: MetricSuite>(
             last_level = level;
         }
 
-        let ancestors = Ancestors::for_walk(&chain, &node, &folds).with_siblings(&siblings);
+        let ancestors = Ancestors::for_walk(&chain, &node, &folds, &siblings);
 
         // Same predicate `spaces::compute::metrics_inner` opens on, so
         // the two walks agree on which nodes become spaces. The

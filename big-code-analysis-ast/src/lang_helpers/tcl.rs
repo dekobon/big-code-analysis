@@ -245,8 +245,8 @@ mod tests {
 
     // The word slot's budget (#1697, #1737): asked about one `command`
     // several times while it is visited — as cyclomatic, cognitive, ABC
-    // and nexits ask on one visit — a walk that lent a cache through
-    // `for_walk` reads the name once per `command`, and one that lent
+    // and nexits ask on one visit — a walk that lent a cache through a
+    // walk constructor reads the name once per `command`, and one that lent
     // none reads it every time. Between the repeats each `command` is
     // also asked about its enclosing `command` through the same chain,
     // as the `CaseArm` gate asks about an arm's `switch`: that ask is
@@ -272,7 +272,7 @@ mod tests {
                 return;
             }
             commands += 1;
-            let walk = Ancestors::for_walk(chain, node, &cache);
+            let walk = Ancestors::for_walk_without_siblings(chain, node, &cache);
             let first = tcl_command_word(node, source, walk);
             let enclosing = chain
                 .iter()

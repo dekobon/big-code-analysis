@@ -375,6 +375,10 @@ pub trait Checker {
     /// through. Rust's impl reads the parent to keep a comment that is
     /// a macro token; reaching it with [`Node::parent`] costs
     /// `O(depth)` per comment (#1096).
+    ///
+    /// That walk records no siblings, so an impl must not ask
+    /// `ancestors` for one: under a wide parent that trips the walk
+    /// assertion in a debug build (#1601).
     #[inline]
     #[must_use]
     fn is_useful_comment<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
@@ -534,6 +538,11 @@ pub trait Checker {
     /// costs `O(depth)` each however few of them a walk takes (#1088).
     /// Every other grammar answers `is_func` from the node's own kind
     /// and ignores the parameter.
+    ///
+    /// The suppression scan asks this through a chain that records no
+    /// siblings, so an impl must not ask `ancestors` for one: under a
+    /// wide parent that trips the walk assertion in a debug build
+    /// (#1601).
     #[inline]
     #[must_use]
     fn is_func<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {

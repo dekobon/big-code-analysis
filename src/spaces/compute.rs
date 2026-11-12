@@ -956,7 +956,7 @@ pub(crate) fn metrics_inner<T: MetricSuite>(
         // and `chain` is already correct here — the truncate above is
         // the only thing that touches it between the pop and this
         // point (#1100).
-        let ancestors = Ancestors::for_walk(&chain, &node, &folds).with_siblings(&siblings);
+        let ancestors = Ancestors::for_walk(&chain, &node, &folds, &siblings);
 
         // Prune test-only subtrees before any per-metric work runs.
         // The hook is gated on `exclude_tests` so the default

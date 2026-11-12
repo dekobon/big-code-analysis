@@ -656,6 +656,23 @@ one now, and `count/perl-error-tail-calls` prices it:
 |---|---|---|---|---|
 | `act_on_node` lends no cache | `count/perl-error-tail-calls` | 0.88 | 1.89 | 2.8 ms → 84.5 ms |
 
+Since [#1601][sibling-capability], a walk cannot leave the cache out
+by forgetting to lend it: `Ancestors::for_walk` takes the
+`SiblingCache` as an argument. The three walks whose predicates ask for
+no sibling (suppression, the dump and comment removal) construct their
+chains through `Ancestors::for_walk_without_siblings` or
+`Ancestors::checked`, which lend an empty record. A predicate added to
+one of them that asks for a sibling under a parent wider than
+`WIDE_PARENT` trips the walk assertion wherever a debug build runs that
+walk over such a parent. `the_walks_that_record_no_siblings_ask_for_none`
+in `src/observation_tests.rs` does so for every `LANG` variant, and
+fails for a variant with no fixture. It runs the three walks over a
+fixture with a wide parent and requires the `sibling_seeks` counter to
+stay at zero, so it also catches the asks that trip no assertion: one
+under a narrow parent, and `siblings_before` or `siblings_after`
+through a derived chain. The scaling gate does not price these walks'
+sibling lookups, because they make none.
+
 What `bca find` does after that walk went unpriced until
 [#1416][find-render]. It printed each match through
 `dump_node_with_color` at depth 1, which chose the match's connector by
@@ -1191,6 +1208,7 @@ treating it as a regression.
 [perl-bash-probes]: https://github.com/dekobon/big-code-analysis/issues/1575
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
 [find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
+[sibling-capability]: https://github.com/dekobon/big-code-analysis/issues/1601
 [dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
 [tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
 [find-render]: https://github.com/dekobon/big-code-analysis/issues/1416

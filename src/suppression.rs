@@ -757,15 +757,19 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
         if let Some(marker) = marker_at::<T>(&node, code, enclosing) {
             markers.push(marker);
         }
-        // `is_func_with_code` rather than `is_func`: C/C++ identify
-        // functions only via the code-aware predicate, and the default
-        // impl delegates to `is_func` for every other language. The
-        // predicates that consult an ancestor — Elixir's `quote`
-        // template check, the JS-family name-binding walk — read it off
-        // `chain` rather than climbing with `Node::parent` (#1088).
-        // `for_walk` lends the memo and records the visit in one step,
-        // the only way a walk may attach a `FoldCache` (#1737).
-        let ancestors = Ancestors::for_walk(&chain, &node, &folds);
+        // `is_func_with_code` rather than `is_func`: Java, Groovy and
+        // Elixir identify some functions only with the source bytes,
+        // and the default impl delegates to `is_func` for every other
+        // language. The predicates that consult an ancestor — Elixir's
+        // `quote` template check, the JS-family name-binding walk — read
+        // it off `chain` rather than climbing with `Node::parent`
+        // (#1088). `for_walk_without_siblings` is one of the two walk
+        // constructors, which lend the memo and record the visit in one
+        // step (#1737), and the one that says this walk records no
+        // siblings: none of these predicates asks for one, and one that
+        // started to under a wide parent would trip the walk assertion
+        // in a debug build (#1601).
+        let ancestors = Ancestors::for_walk_without_siblings(&chain, &node, &folds);
         let child_enclosing = if T::Checker::is_func_with_code(&node, code, ancestors) {
             T::Getter::get_func_name(&node, code, ancestors).or(enclosing)
         } else {
