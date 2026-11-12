@@ -88,8 +88,8 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "sum: {}, average: {}, min:{}, max: {}",
-            self.cognitive(),
+            "sum: {}, average: {}, min: {}, max: {}",
+            self.cognitive_sum(),
             self.cognitive_average(),
             self.cognitive_min(),
             self.cognitive_max()
@@ -786,6 +786,30 @@ mod tests {
     fn cognitive_empty_file_min_is_zero() {
         let stats = Stats::default();
         assert_eq!(stats.cognitive_min(), 0);
+    }
+
+    /// `Display` writes the subtree's sum under `sum`, as the wire
+    /// format does, and separates every field alike. Read on the file
+    /// root, whose own score is 0, so a headline that prints the
+    /// space's own value instead of the sum reads 0 here.
+    #[cfg(feature = "python")]
+    #[test]
+    fn stats_display_prints_the_sum_and_separates_every_field() {
+        check_metrics::<PythonParser>(
+            "def f(a):\n    if a:\n        return 1\n    return 2\n\n\
+             def g(a, b):\n    if a:\n        if b:\n            return 1\n    return 2\n",
+            "foo.py",
+            |metric| {
+                // expected: `f` scores its `if` (1); `g` scores its outer
+                // `if` (1) and the nested one (1, plus 1 for its depth)
+                // = 3 → sum 4, and over the two functions average 2,
+                // min 1, max 3.
+                assert_eq!(
+                    metric.cognitive.to_string(),
+                    "sum: 4, average: 2, min: 1, max: 3"
+                );
+            },
+        );
     }
 
     #[cfg(feature = "python")]

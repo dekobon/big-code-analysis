@@ -243,6 +243,15 @@ for historical reference.
 
 ### Fixed
 
+- **`cognitive::Stats` and `nexits::Stats` print a well-formed
+  `Display` line** (#1736). The cognitive line printed the space's own
+  score under `sum`, where the JSON `sum` field and every sibling
+  metric's `Display` print the subtree's sum, and wrote `min:` with no
+  space after it; the `nexits` line had no comma between `average` and
+  `min`. Both now read as `sum: 4, average: 2, min: 1, max: 3` does.
+  Per `STABILITY.md` the exact wording of `Display` output is not part
+  of the stable surface.
+
 - **A Java or Groovy record's components are counted on its header**
   (#1842). `record R(int a, int b, int c, int d, int e, int f) {}`
   declared six components and reported `nargs` 0, with no function

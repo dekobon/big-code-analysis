@@ -43,7 +43,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "sum: {}, average: {} min: {}, max: {}",
+            "sum: {}, average: {}, min: {}, max: {}",
             self.nexits_sum(),
             self.nexits_average(),
             self.nexits_min(),
@@ -272,6 +272,25 @@ mod tests {
     fn exit_empty_file_min_is_zero() {
         let stats = Stats::default();
         assert_eq!(stats.nexits_min(), 0);
+    }
+
+    /// `Display` writes the four headline values, each under its label
+    /// and each separated from the next by a comma.
+    #[cfg(feature = "python")]
+    #[test]
+    fn stats_display_labels_and_separates_every_field() {
+        check_metrics::<PythonParser>(
+            "def f(a):\n    if a:\n        return 1\n    return 2\n\ndef g():\n    return 3\n",
+            "foo.py",
+            |metric| {
+                // expected: `f` has two `return`s and `g` one → sum 3,
+                // and over the two functions average 1.5, min 1, max 2.
+                assert_eq!(
+                    metric.nexits.to_string(),
+                    "sum: 3, average: 1.5, min: 1, max: 2"
+                );
+            },
+        );
     }
 
     #[cfg(feature = "python")]
