@@ -2528,6 +2528,17 @@ mod tests {
         assert_eq!(some_kinds::<0>(EMPTY), [0u16; 0]);
     }
 
+    /// `marked_kind` runs at compile time as well, once per owner of
+    /// every `TEXT_GATED_OWNERS`: it keeps the kind of an owner the
+    /// detector marks and nothing of one it does not, which is the
+    /// `Option` list `some_kinds` compacts.
+    #[test]
+    fn marked_kind_keeps_the_kind_of_a_marked_owner_only() {
+        use super::marked_kind;
+        assert_eq!(marked_kind(true, 7), Some(7));
+        assert_eq!(marked_kind(false, 7), None);
+    }
+
     /// An absent row's `lists_kind` is false for every kind, as its
     /// `OWNERS` is empty; the one a declared row emits reads the table.
     /// The rows are declarations, built in every feature set.

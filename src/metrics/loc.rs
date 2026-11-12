@@ -10442,12 +10442,18 @@ EOF
         // parentheses, their statements and the block: a run reads its
         // parenthesis and its statement, which answers, and the first
         // statement has none before it and reads the block. The climb
-        // reads 900 and 81, the fold 120 and 122. `make chain-audit`
-        // runs the climb beside every ask, so the count is asserted
-        // without it.
-        if cfg!(not(chain_audit)) {
-            assert_eq!((nested_read, block_read), (n + 2, 2 * n + 1));
-        }
+        // reads `j + 3` levels from the parenthesis `j` deep on
+        // `nested`, 900 in all, and the same 81 on `block`; the fold
+        // read 120 and 122. `make chain-audit` runs the climb beside
+        // every ask, so there each count is the two together.
+        let audited = usize::from(cfg!(chain_audit));
+        assert_eq!(
+            (nested_read, block_read),
+            (
+                n + 2 + audited * (n * (n + 5) / 2),
+                (1 + audited) * (2 * n + 1)
+            )
+        );
     }
 
     /// #1818: the C-family bare-row index is built exactly once per

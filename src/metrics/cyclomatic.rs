@@ -453,8 +453,8 @@ mod tests {
 
     /// The two `impl_cyclomatic_rows!` shapes no pilot language spells
     /// (#1697): a non-empty `constraints` list, and every list empty.
-    /// `Probe` carries the default `Checker` so the macro's `impl` has
-    /// a type to hang on; its body is driven on C++ nodes with the walk's
+    /// `Probe` carries an inert `Checker` so the macro's `impl` has a
+    /// type to hang on; its body is driven on C++ nodes with the walk's
     /// own chain. A `requires` clause opens a reach under which a later
     /// `&&` scores nothing, and the first node past the reach scores
     /// again — the C++ invocation (`cyclomatic/cpp.rs`) relies on exactly this, and

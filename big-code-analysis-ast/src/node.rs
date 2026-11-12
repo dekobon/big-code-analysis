@@ -2439,12 +2439,19 @@ mod tests {
         // block; `5` the const and the file; `6` the array type, the
         // parameter, the parameter list and the closure; `7` meets the
         // memo on the closure; `8` the statement, the block and `i`.
-        // The unmemoised climb asks 5 for `2`, 3 for `4` and 1 for `7`.
-        // `make chain-audit` runs that climb beside every ask, so the
-        // count is asserted without it.
-        if cfg!(not(chain_audit)) {
-            assert_eq!(asked, [5, 0, 4, 1, 2, 4, 0, 3]);
-        }
+        // The unmemoised climb asks every level up to the one that
+        // answers: 5 for `2`, 3 for `4` and 1 for `7`, the rest as
+        // memoised. `make chain-audit` runs that climb beside every ask,
+        // so there each count is the two together.
+        let memoised = [5, 0, 4, 1, 2, 4, 0, 3];
+        let climbed = [5, 5, 4, 3, 2, 4, 1, 3];
+        let audited = usize::from(cfg!(chain_audit));
+        let expected: Vec<usize> = memoised
+            .iter()
+            .zip(climbed)
+            .map(|(memo, climb)| memo + audited * climb)
+            .collect();
+        assert_eq!(asked, expected);
         assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
     }
 }
