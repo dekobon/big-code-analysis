@@ -440,6 +440,22 @@ mod tests {
         assert!(!set.contains(2));
     }
 
+    /// Growing upward adds only the words between the last one held and
+    /// the new row's. Rows cannot show a surplus word of zero padding,
+    /// so the word count is read directly, and from a non-zero offset:
+    /// at offset 0 an offset added in place of subtracted computes the
+    /// same length.
+    #[test]
+    fn upward_growth_from_a_nonzero_offset_adds_only_the_missing_words() {
+        const W: usize = BITS_PER_WORD;
+        let mut set = set_of(&[3 * W + 8]);
+        set.insert(5 * W + 1);
+
+        assert_eq!(rows_of(&set), vec![3 * W + 8, 5 * W + 1]);
+        // expected: words 3..=5, three words.
+        assert_eq!(set.words.len(), 3);
+    }
+
     /// `insert_range` must set exactly the inclusive range, including
     /// when it starts and ends mid-word, spans whole interior words, or
     /// sits inside one word. These are the block-comment shapes
@@ -589,6 +605,21 @@ mod tests {
         assert_eq!(rows_of(&empty), vec![9, 200]);
     }
 
+    /// A union grows the parent to the span of both sets and no
+    /// further. A last-word index counted one or two too high reserves
+    /// zero words past the child's end, which no row shows and every
+    /// later merge and popcount then walks.
+    #[test]
+    fn union_with_grows_only_to_the_span_of_both_sets() {
+        const W: usize = BITS_PER_WORD;
+        let mut parent = set_of(&[5]);
+        parent.union_with(&set_of(&[2 * W + 2]));
+
+        assert_eq!(rows_of(&parent), vec![5, 2 * W + 2]);
+        // expected: words 0..=2, three words.
+        assert_eq!(parent.words.len(), 3);
+    }
+
     /// `Cloc::cloc()` counts the union of the comment-only and
     /// code-comment sets. Seeded with an overlap, a parent-only row and a
     /// child-only row so the inclusion-exclusion terms are all non-zero.
@@ -663,6 +694,22 @@ mod tests {
         assert_eq!(set.words.capacity(), capacity, "subtract must not allocate");
     }
 
+    /// The subtrahend's words are read at its own offset. Both sets
+    /// start past word 0, and the subtrahend holds words beyond the
+    /// overlap, so a read at the wrong offset lands on another of its
+    /// words and clears the wrong row rather than indexing out of
+    /// bounds.
+    #[test]
+    fn subtract_reads_the_other_set_at_its_own_offset() {
+        const W: usize = BITS_PER_WORD;
+        // Word 1 only.
+        let mut set = set_of(&[W, W + 1]);
+        // Words 1..=3: bit 1 of word 1 and bit 0 of word 3.
+        set.subtract(&set_of(&[W + 1, 3 * W]));
+
+        assert_eq!(rows_of(&set), vec![W]);
+    }
+
     /// Equality is over rows, so two sets that reached the same rows
     /// through different offsets and different amounts of zero padding
     /// compare equal. `Loc::Stats` derives `PartialEq`.
@@ -684,6 +731,24 @@ mod tests {
         let mut set = set_of(&[4_096]);
         set.remove(4_096);
         set
+    }
+
+    /// Two sets differ when one holds a row past the other's last word,
+    /// whichever side holds it, so the comparison has to run to the end
+    /// of the longer set. One word at a non-zero offset, and two words
+    /// at offset 1, are the shapes where an end computed from the wrong
+    /// combination of offset and length stops short of that row.
+    #[test]
+    fn inequality_sees_rows_past_the_other_sets_last_word() {
+        const W: usize = BITS_PER_WORD;
+        let high = set_of(&[5 * W]);
+        assert_ne!(high, LineSet::default());
+        assert_ne!(LineSet::default(), high);
+
+        let longer = set_of(&[W, 2 * W]);
+        let prefix = set_of(&[W]);
+        assert_ne!(longer, prefix);
+        assert_ne!(prefix, longer);
     }
 
     /// The representation is the point of #1109: a dense run of rows
