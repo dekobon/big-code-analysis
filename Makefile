@@ -348,8 +348,9 @@ test-doc:
 	cargo test --workspace --all-features --doc
 
 # The ancestor-chain audit (#1122). `--cfg chain_audit` restores the
-# exact `chain.last() == node.parent()` assertion in `Ancestors::checked`
-# that the default build trades for an O(1) approximation, so every walk
+# exact `chain.last() == node.parent()` assertion in the walk
+# constructors (`Ancestors::for_walk_chain_only`, which the others build
+# on) that the default build trades for an O(1) approximation, so every walk
 # that threads a chain is verified node-by-node against the tree.
 #
 # Out of band because that assertion is `Node::parent`'s O(depth) lookup

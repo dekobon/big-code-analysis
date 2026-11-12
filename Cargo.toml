@@ -129,7 +129,8 @@ tempfile = "^3.0"
 # workspace.
 [workspace.lints.rust]
 missing_docs = "warn"
-# `chain_audit` turns `Ancestors::checked` back into the exact
+# `chain_audit` turns the walk constructors' chain check
+# (`Ancestors::for_walk_chain_only`) back into the exact
 # parent-identity assertion it was before #1122. Off by default because
 # that assertion costs `Node::parent`'s `O(depth)` per node on every
 # checked walk; `make chain-audit` and the CI lane of the same name set

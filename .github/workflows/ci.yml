@@ -343,7 +343,8 @@ jobs:
           include_passed: false
           fail_on_failure: false
 
-  # The exact ancestor-chain assertion (#1122). `Ancestors::checked` keeps
+  # The exact ancestor-chain assertion (#1122). The walk constructors
+  # (`Ancestors::for_walk_chain_only`, which the others build on) keep
   # only an O(1) approximation on by default, because the exact
   # `chain.last() == node.parent()` form costs Node::parent's O(depth) per
   # node and makes every debug-build walk quadratic. This lane restores it
