@@ -167,24 +167,34 @@ fn sources_for(lang: LANG) -> Vec<Source> {
                 bytes: f.source.into_owned(),
             }),
     );
-    let tables = crate::roles::tables();
-    for (table, fixture, _) in BYTE_GATE_FIXTURES {
-        assert!(
-            tables.iter().any(|t| t.name == *table),
-            "`{fixture}` names `{table}`, which is no table: it would be asked of nothing"
-        );
-    }
-    let name = tables.iter().find(|t| t.lang == lang).map(|t| t.name);
+    let table = crate::roles::tables()
+        .iter()
+        .find(|t| t.lang == lang)
+        .map(|t| t.name);
     out.extend(
         BYTE_GATE_FIXTURES
             .iter()
-            .filter(|(table, _, _)| Some(*table) == name)
+            .filter(|(name, _, _)| Some(*name) == table)
             .map(|(_, fixture, bytes)| Source {
                 name: (*fixture).to_owned(),
                 bytes: bytes.to_vec(),
             }),
     );
     out
+}
+
+/// A fixture keyed by a name no table carries is asked of nothing, and
+/// the byte backstop loses the one candidate that moves its gate
+/// without a failure anywhere.
+#[test]
+fn byte_gate_fixtures_each_name_a_table() {
+    let tables = crate::roles::tables();
+    for (table, fixture, _) in BYTE_GATE_FIXTURES {
+        assert!(
+            tables.iter().any(|t| t.name == *table),
+            "`{fixture}` names `{table}`, which is no table"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
