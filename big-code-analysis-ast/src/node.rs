@@ -1655,7 +1655,8 @@ mod tests {
     /// same either way — none of the words is a string, since an
     /// unreadable list keeps the script answer — so the scan count is
     /// what sees the cache; rebuilding the walk's chain with
-    /// `Ancestors::checked` alone, the cache unlent, takes it to `width`.
+    /// `Ancestors::for_walk_chain_only`, the cache unlent, takes it to
+    /// `width`.
     #[cfg(feature = "tcl")]
     #[test]
     fn act_on_node_scans_an_erroring_argument_list_once() {
@@ -1845,8 +1846,9 @@ mod tests {
         );
     }
 
-    /// The `O(1)` guard [`Ancestors::checked`] keeps on by default must
-    /// accept every chain a walker really builds — over several grammar
+    /// The `O(1)` guard the walk constructors keep on by default, asked
+    /// here through [`Ancestors::for_walk_chain_only`], must accept
+    /// every chain a walker really builds — over several grammar
     /// families, not just the one fixture a failure would surface in.
     ///
     /// The assertion that an equal-span pair was seen is what makes the
@@ -1856,10 +1858,10 @@ mod tests {
     /// bound to `<` would reject a correct chain on most real input.
     #[cfg(all(feature = "c", feature = "javascript", feature = "python"))]
     #[test]
-    fn checked_accepts_the_chains_the_walkers_build() {
+    fn the_chain_check_accepts_the_chains_the_walkers_build() {
         let mut equal_span_pairs = 0;
         let mut check = |node: &Node<'_>, chain: &[Node<'_>]| {
-            let _ = Ancestors::checked(chain, node);
+            let _ = Ancestors::for_walk_chain_only(chain, node);
             if let Some(parent) = chain.last()
                 && parent.start_byte() == node.start_byte()
                 && parent.end_byte() == node.end_byte()
@@ -1892,19 +1894,19 @@ mod tests {
     /// catches it.
     ///
     /// Debug-gated because `debug_assert!` compiles out under
-    /// `--release`, where `checked` degrades to `known` by design.
+    /// `--release`, where the check compiles out by design.
     #[cfg(feature = "c")]
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "ancestor chain desynchronised")]
-    fn checked_rejects_a_chain_ending_in_the_node_itself() {
+    fn the_chain_check_rejects_a_chain_ending_in_the_node_itself() {
         let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
         let body = tree
             .get_root()
             .preorder()
             .find(|n| n.kind() == "compound_statement")
             .expect("fixture has a function body");
-        let _ = Ancestors::checked(std::slice::from_ref(&body), &body);
+        let _ = Ancestors::for_walk_chain_only(std::slice::from_ref(&body), &body);
     }
 
     /// A dropped `truncate` leaves the previous subtree's path in place,
@@ -1914,7 +1916,7 @@ mod tests {
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "ancestor chain desynchronised")]
-    fn checked_rejects_a_chain_from_a_disjoint_subtree() {
+    fn the_chain_check_rejects_a_chain_from_a_disjoint_subtree() {
         let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; int b; }");
         let body = tree
             .get_root()
@@ -1927,7 +1929,7 @@ mod tests {
             .collect();
         assert_eq!(declarations.len(), 2, "fixture has two declarations");
         // `int a;` neither contains nor equals `int b;`.
-        let _ = Ancestors::checked(&declarations[..1], &declarations[1]);
+        let _ = Ancestors::for_walk_chain_only(&declarations[..1], &declarations[1]);
     }
 
     /// [`Node::has_sibling`] must answer the same whether its parent
@@ -1990,7 +1992,7 @@ mod tests {
     ///
     /// No caller passes a subtree yet, so nothing else would catch this;
     /// the fixture below is the guard, and it fails against an empty
-    /// seed both here and through `Ancestors::checked`'s debug
+    /// seed both here and through the walk constructors' debug
     /// assertion.
     #[cfg(feature = "mozjs")]
     #[test]

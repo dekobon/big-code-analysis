@@ -135,8 +135,8 @@ const MAX_INHERITED_RUN: usize = 2;
 impl<'tree, 'chain> HeldChain<'tree, 'chain> {
     /// `chain` extended by `node`, which `chain.last()` must contain:
     /// the same `O(1)` consequence of "`chain.last()` is `node`'s parent"
-    /// that [`Ancestors::checked`](super::Ancestors::checked) asks of a
-    /// walk's chain, and the exact question under `--cfg chain_audit`.
+    /// that `Ancestors::for_walk_chain_only` asks of a walk's chain, and
+    /// the exact question under `--cfg chain_audit`.
     pub(super) fn below(chain: Chain<'tree, 'chain>, node: Node<'tree>) -> Self {
         #[cfg(chain_audit)]
         assert_eq!(

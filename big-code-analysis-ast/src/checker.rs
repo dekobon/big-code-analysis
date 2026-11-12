@@ -1217,7 +1217,7 @@ fn rust_attribute_run_verdict<'a>(
 ///
 /// A chain that does not describe `node` finds no siblings after it and
 /// answers `None`, i.e. "nothing is pruned" — the conservative reading,
-/// and a caller error either way (`Ancestors::checked`, #1122).
+/// and a caller error either way (a walk constructor's check, #1122).
 ///
 /// Reusing [`rust_item_is_test_only`] for the verdict rather than
 /// fusing this lookahead and the run reading into one pass is

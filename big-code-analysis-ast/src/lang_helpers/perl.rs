@@ -616,13 +616,14 @@ mod tests {
                     return;
                 }
                 let parent = chain.last().expect("a `-` token is never the root");
-                // `checked`, not `known`: the walk's chain discipline is
-                // asserted at every `-`, so a desync fails here rather
-                // than as a wrong answer below. A checked chain lends no
-                // sibling record, and the key test asks for the token
-                // after the `-`: that holds because every parent in this
-                // fixture is narrow (#1601).
-                let with_chain = perl_dash_signs_keyword_key(node, Ancestors::checked(chain, node));
+                // `for_walk_chain_only`, not `known`: the walk's chain
+                // discipline is asserted at every `-`, so a desync fails
+                // here rather than as a wrong answer below. Such a chain
+                // lends no sibling record, and the key test asks for the
+                // token after the `-`: that holds because every parent
+                // in this fixture is narrow (#1601).
+                let walk = Ancestors::for_walk_chain_only(chain, node);
+                let with_chain = perl_dash_signs_keyword_key(node, walk);
                 let with_parent = perl_dash_signs_keyword_key_under(node, parent);
                 assert_eq!(
                     with_chain,

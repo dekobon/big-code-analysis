@@ -306,8 +306,8 @@ impl<'a> Frame<'a> {
 /// That swap is invisible to the test suite: an unknown chain answers
 /// identically and only costs more, so nothing here pins the chain by
 /// asserting on output. Three things do.
-/// `Ancestors::for_walk_without_siblings` in [`Export::finish`] runs
-/// `Ancestors::checked`, whose `debug_assert!`
+/// `Ancestors::for_walk_without_siblings` in [`Export::finish`] checks
+/// the chain against the node, and that `debug_assert!`
 /// catches a dropped pop on every fixture the dump walk sees, and
 /// `make chain-audit`
 /// upgrades it to the exact `chain.last() == node.parent()` check —
@@ -1117,7 +1117,7 @@ mod tests {
     /// The ancestor chain each builder hands `keeps_children` names the
     /// node's real parent, on every push as well as every pop.
     ///
-    /// `Ancestors::checked`'s default-build `debug_assert!` sees a
+    /// The walk constructors' default-build `debug_assert!` sees a
     /// dropped *pop* — the stale entry no longer contains the node —
     /// but not a dropped *push*: `finish` pops before it asks, so a walk
     /// that never pushes empties the chain on its first node, and the
@@ -1167,8 +1167,8 @@ mod tests {
     /// once per braced word (#1686). The export is the same either way —
     /// every word keeps its children, as the count pins — so only the
     /// scan count can see the cache; rebuilding the chain in
-    /// `Export::finish` with `Ancestors::checked` alone, the cache
-    /// unlent, takes it to `width` for both strategies.
+    /// `Export::finish` with `Ancestors::for_walk_chain_only`, the
+    /// cache unlent, takes it to `width` for both strategies.
     #[cfg(feature = "tcl")]
     #[test]
     fn each_strategy_scans_an_erroring_argument_list_once() {

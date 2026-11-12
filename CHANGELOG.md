@@ -231,8 +231,11 @@ for historical reference.
   drop it by forgetting `with_siblings`, which is now test-only. A walk
   that records none constructs through the new
   `Ancestors::for_walk_without_siblings(chain, node, &folds)` (the
-  suppression scan and the dump) or `Ancestors::checked` (comment
-  removal). Both lend an empty record, so in a debug build a sibling
+  suppression scan and the dump). `Ancestors::checked`, the constructor
+  for a walk that lends no cache at all, is renamed
+  `for_walk_chain_only` and is now crate-private (#1871): comment
+  removal is its one caller, and a walk outside the crate uses one of
+  the other two. Both lend an empty record, so in a debug build a sibling
   asked under a parent wider than `WIDE_PARENT` panics through
   `siblings_before` and `siblings_after` as well as `previous_sibling`.
   Release builds answer as before. On a chain that is not a walk's own

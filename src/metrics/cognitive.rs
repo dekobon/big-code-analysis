@@ -11882,7 +11882,7 @@ end",
         // Half the depth of `cognitive_nesting_is_inherited_at_depth`
         // because each level here also opens a `FuncSpace`. The debug
         // build is no longer the reason: #1122 took the `Node::parent`
-        // re-derivation out of `Ancestors::checked`, so an unoptimised
+        // re-derivation out of the walk's chain check, so an unoptimised
         // walk is linear like the release one and this case dropped from
         // ~1.0 s to ~0.02 s. `make chain-audit` puts the quadratic
         // assertion back deliberately.

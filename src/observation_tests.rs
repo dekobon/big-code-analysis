@@ -17,8 +17,8 @@
 /// so every metric, the Halstead vocabulary, the dump and the `string`
 /// count come out the same either way, and only the scan counter tells
 /// a memoised walk from the quadratic one. Rebuilding the chain in
-/// `metrics_inner` or `ops_inner` with `Ancestors::checked` alone, the
-/// cache unlent, takes that seam's row to `width`; the
+/// `metrics_inner` or `ops_inner` with no `FoldCache` lent takes that
+/// seam's row to `width`; the
 /// dump and count seams are pinned the same way beside their walks in
 /// `big-code-analysis-ast`, and listed here so the four cannot drift
 /// apart.

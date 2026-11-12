@@ -190,8 +190,9 @@ fn dump_span_ansi_layout_error_branch() {
 /// the JS getter recovers both from the enclosing `variable_declarator`
 /// / `pair`, which #1088 moved onto the walk's ancestor chain. This is
 /// also the only lib-level exercise of that chain — `act_on_node`
-/// constructs it through `Ancestors::checked`, so a bookkeeping slip
-/// trips its assertion here rather than only in the web crate's
+/// constructs it through `Ancestors::for_walk`, which checks it, so a
+/// bookkeeping slip trips its assertion here rather than only in the
+/// web crate's
 /// endpoint tests (fully under `make chain-audit`; in a plain debug
 /// build, for the slips the `O(1)` guard sees — see #1122).
 #[cfg(feature = "javascript")]

@@ -673,8 +673,9 @@ Since [#1601][sibling-capability], a walk cannot leave the cache out
 by forgetting to lend it: `Ancestors::for_walk` takes the
 `SiblingCache` as an argument. The three walks whose predicates ask for
 no sibling (suppression, the dump and comment removal) construct their
-chains through `Ancestors::for_walk_without_siblings` or
-`Ancestors::checked`, which lend an empty record. A predicate added to
+chains through `Ancestors::for_walk_without_siblings` or the
+crate-private `Ancestors::for_walk_chain_only`, which lend an empty
+record. A predicate added to
 one of them that asks for a sibling under a parent wider than
 `WIDE_PARENT` trips the walk assertion wherever a debug build runs that
 walk over such a parent. `the_walks_that_record_no_siblings_ask_for_none`
@@ -1065,8 +1066,9 @@ truncate/push bookkeeping.
 The chain those bounds depend on is only as good as the walker's
 truncate/push bookkeeping, and `Ancestors::parent` reads `chain.last()`
 without checking it, so a slip feeds every predicate a wrong ancestor
-silently rather than failing. `Ancestors::checked` is the guard, and
-until [#1122][chain-audit-issue] it asked the exact question:
+silently rather than failing. The check every walk constructor makes
+(`Ancestors::for_walk_chain_only`, which the others build on) is the
+guard, and until [#1122][chain-audit-issue] it asked the exact question:
 `chain.last() == node.parent()`. That is `Node::parent` again, per node,
 on all five walks that build a chain, which made every *debug* walk
 quadratic while the shipped one stayed linear, and put the cost in every

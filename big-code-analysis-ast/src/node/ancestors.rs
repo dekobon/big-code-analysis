@@ -98,10 +98,10 @@ impl<'tree> ChildAncestors<'tree, '_> {
 /// A walk's own chain states whether the walk records siblings: it is
 /// built with [`for_walk`](Self::for_walk), which requires the walk's
 /// [`SiblingCache`], or with
-/// [`for_walk_without_siblings`](Self::for_walk_without_siblings) or
-/// [`checked`](Self::checked), which say that it records none. A walk
-/// can no longer leave the cache out by forgetting a builder call
-/// (#1601).
+/// [`for_walk_without_siblings`](Self::for_walk_without_siblings) or,
+/// inside this crate, `for_walk_chain_only`, which say that it records
+/// none. A walk can no longer leave the cache out by forgetting a
+/// builder call (#1601).
 #[derive(Clone, Copy, Debug)]
 pub struct Ancestors<'tree, 'chain> {
     chain: Option<Chain<'tree, 'chain>>,
@@ -114,7 +114,8 @@ pub struct Ancestors<'tree, 'chain> {
     ///   parent the record lacks trips the assertion in
     ///   [`lookup`](Self::lookup).
     /// - [`for_walk_without_siblings`](Self::for_walk_without_siblings)
-    ///   and [`checked`](Self::checked): [`NOTHING_RECORDED`], the
+    ///   and [`for_walk_chain_only`](Self::for_walk_chain_only):
+    ///   [`NOTHING_RECORDED`], the
     ///   record of a walk that records none, so every wide parent trips
     ///   that assertion.
     /// - [`known`](Self::known), [`below`](Self::below) and
@@ -150,12 +151,12 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// means the node is the root.
     ///
     /// Not for the chain a walk keeps: a walk constructs through
-    /// [`for_walk`](Self::for_walk),
-    /// [`for_walk_without_siblings`](Self::for_walk_without_siblings) or
-    /// [`checked`](Self::checked), which check the chain against the
-    /// node and state whether the walk records siblings. A chain built
-    /// here seeks for a sibling under a wide parent with no such check
-    /// (#1601).
+    /// [`for_walk`](Self::for_walk) or
+    /// [`for_walk_without_siblings`](Self::for_walk_without_siblings)
+    /// (or, inside this crate, `for_walk_chain_only`), which check the
+    /// chain against the node and state whether the walk records
+    /// siblings. A chain built here seeks for a sibling under a wide
+    /// parent with no such check (#1601).
     #[inline]
     #[must_use]
     pub const fn known(chain: &'chain [Node<'tree>]) -> Self {
@@ -216,7 +217,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     }
 
     /// The chain a walk hands its predicates for `node`, the node it is
-    /// visiting: [`checked`](Self::checked) on `chain`, lending `folds`
+    /// visiting: `chain`, checked against `node`, lending `folds`
     /// with the visit recorded on it (#1737) and answering sibling
     /// lookups from `siblings`, the children the walk recorded of every
     /// wide node on `chain` (#1584). Lending the caches and naming the
@@ -270,7 +271,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         folds.visited.set(node.id());
         Self {
             folds: Some(folds),
-            ..Self::checked(chain, node)
+            ..Self::for_walk_chain_only(chain, node)
         }
     }
 
@@ -432,8 +433,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         let folded = self.fold_down(node, 0, lane.fold_lane(), 0, |held, ancestor, _, _| {
             u8::from(held == 1 || kinds.contains(&ancestor.kind_id()))
         }) == 1;
-        // Opt-in only, as the exact check in `checked` is: the scan is the
-        // `O(depth)` per ask the fold exists to remove.
+        // Opt-in only, as the exact check in `for_walk_chain_only` is:
+        // the scan is the `O(depth)` per ask the fold exists to remove.
         #[cfg(chain_audit)]
         assert_eq!(
             folded,
@@ -617,9 +618,12 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         self.folds.is_some() && self.chain.is_some()
     }
 
-    /// [`Ancestors::known`] for the chain a walk keeps: it first checks
-    /// that `chain` really is `node`'s ancestry, and it lends the empty
-    /// sibling record of a walk that records none.
+    /// The chain of a walk that lends no cache, the comment-removal
+    /// walk: [`Ancestors::known`] for the chain a walk keeps. It first
+    /// checks that `chain` really is `node`'s ancestry, and it lends the
+    /// empty sibling record of a walk that records none. Both are what
+    /// every `for_walk` constructor says of its chain; this one adds
+    /// nothing to them, which is its name.
     ///
     /// The parity test below proves the walker's truncate/push rule on a
     /// *replica* walker, so it cannot see `metrics_inner` itself
@@ -636,8 +640,13 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     ///
     /// A checked chain is a walk's own, so a sibling asked through it
     /// under a parent wider than [`WIDE_PARENT`] trips the assertion in
-    /// `lookup` (#1601). The comment-removal walk, which lends no
-    /// cache, constructs through here.
+    /// `lookup` (#1601).
+    ///
+    /// Crate-private: a walk outside this crate lends a [`FoldCache`]
+    /// and says so with [`for_walk`](Self::for_walk) or
+    /// [`for_walk_without_siblings`](Self::for_walk_without_siblings).
+    /// It was the public `checked` until #1871, a name that said only
+    /// the first of the two things it does.
     ///
     /// # Two checks, because the exact one is not affordable by default
     ///
@@ -663,7 +672,7 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// shows them, at four integer comparisons.
     #[inline]
     #[must_use]
-    pub fn checked(chain: &'chain [Node<'tree>], node: &Node<'tree>) -> Self {
+    pub(crate) fn for_walk_chain_only(chain: &'chain [Node<'tree>], node: &Node<'tree>) -> Self {
         // Opt-in only: `Node::parent` restarts at the root, so this is
         // the `O(nodes × depth)` walk described above.
         #[cfg(chain_audit)]
@@ -914,8 +923,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// parent's children, both this and `siblings_after` yield nothing on
     /// either lookup, where [`previous_sibling`](Self::previous_sibling)
     /// falls back to [`Node::previous_sibling`]. The asymmetry is
-    /// deliberate: the mismatch is a caller error `Ancestors::checked`
-    /// reports (#1122), and "no siblings" is the conservative answer for
+    /// deliberate: the mismatch is a caller error the walk constructors
+    /// report (#1122), and "no siblings" is the conservative answer for
     /// the `exclude_tests` prune that reads these (nothing is pruned).
     pub fn siblings_before(
         self,
@@ -2316,7 +2325,10 @@ mod tests {
         folds: &'c FoldCache,
     ) -> [(&'static str, Ancestors<'t, 'c>); 2] {
         [
-            ("checked", Ancestors::checked(chain, node)),
+            (
+                "for_walk_chain_only",
+                Ancestors::for_walk_chain_only(chain, node),
+            ),
             (
                 "for_walk_without_siblings",
                 Ancestors::for_walk_without_siblings(chain, node, folds),
@@ -3035,7 +3047,8 @@ mod tests {
     /// chain — lesson 103's hazard, the derivation hoisted ahead of the
     /// test that names the body — every gate under it would read a parent
     /// the node does not have. A debug build trips the same containment
-    /// check `descend` and `checked` make, naming the kind; under
+    /// check `descend` and `for_walk_chain_only` make, naming the kind;
+    /// under
     /// `--cfg chain_audit` the exact parent check fires first, with its
     /// own message. Only the derivation can raise either;
     /// `Ancestors::known` checks nothing.
