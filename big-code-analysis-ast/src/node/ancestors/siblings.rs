@@ -1,6 +1,7 @@
 //! Sibling lookups on an [`Ancestors`] chain, and the [`SiblingCache`] a
 //! walk records its wide nodes' children in, so that a lookup under one
 //! is a search rather than a seek from the parent's first child (#1584).
+//! Tested in the parent module's `tests`.
 
 use super::Ancestors;
 use crate::node::Node;
@@ -197,7 +198,7 @@ pub(super) fn position_by_start(children: &[Node], node: &Node) -> Option<usize>
 ///
 /// A walk lends it through [`Ancestors::for_walk`] (#1601).
 #[derive(Debug, Default)]
-pub struct SiblingCache<'tree>(pub(super) Vec<(usize, Vec<Node<'tree>>)>);
+pub struct SiblingCache<'tree>(Vec<(usize, Vec<Node<'tree>>)>);
 
 /// The record a walk that records no siblings lends: empty, so a sibling
 /// asked under a wide parent finds no record and trips the walk
@@ -238,6 +239,13 @@ impl<'tree> SiblingCache<'tree> {
             "a walk must record every child of a wide {}, in one batch (#1871)",
             node.kind()
         );
+    }
+
+    /// Whether no node is recorded. Test-only: the record is otherwise
+    /// read through a lookup.
+    #[cfg(test)]
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     // `parent`'s children, when the walk recorded them at `depth`.

@@ -2,10 +2,11 @@
 //! to its predicates, and the [`SiblingCache`] and [`FoldCache`] it can
 //! lend with it.
 //!
-//! The chain and its constructors are here. What a predicate asks of a
-//! chain is in two submodules: sibling lookups, with the record a walk
-//! keeps for them, in `siblings`; folds and memos, with their cache, in
-//! `folds`.
+//! The chain, its constructors and its plain reads (`parent`, `iter`,
+//! `of_children`) are here, with the tests of the whole module. Three
+//! submodules hold the rest: `chain`, the two runs a chain reads as one;
+//! `siblings`, the sibling lookups and the record a walk keeps for them;
+//! `folds`, the folds and memos and their cache.
 
 use super::Node;
 
@@ -18,11 +19,7 @@ pub use folds::{
     FoldCache, GateLane, KindLane, LevelQuestion, NodeQuestion, fold_slot_probes, fold_steps,
 };
 pub(crate) use folds::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
-#[cfg(test)]
-use folds::{climbed_chain, same_lane_reentry};
 use siblings::NOTHING_RECORDED;
-#[cfg(test)]
-use siblings::{Lookup, position_by_start};
 pub use siblings::{SiblingCache, WIDE_PARENT, sibling_cache_reads, sibling_seeks};
 
 /// The chain of a node's children, held by a consumer that reads them
@@ -128,9 +125,8 @@ pub struct Ancestors<'tree, 'chain> {
     ///   [`lookup`](Self::lookup).
     /// - [`for_walk_without_siblings`](Self::for_walk_without_siblings)
     ///   and [`for_walk_chain_only`](Self::for_walk_chain_only):
-    ///   [`NOTHING_RECORDED`], the
-    ///   record of a walk that records none, so every wide parent trips
-    ///   that assertion.
+    ///   [`NOTHING_RECORDED`], the record of a walk that records none,
+    ///   so every wide parent trips that assertion.
     /// - [`known`](Self::known), [`below`](Self::below) and
     ///   [`of_children`](Self::of_children): `None`, a chain that is
     ///   not a walk's own. `siblings_before` and `siblings_after` seek a
@@ -230,10 +226,12 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     }
 
     /// The chain a walk hands its predicates for `node`, the node it is
-    /// visiting: `chain`, checked against `node`, lending `folds`
-    /// with the visit recorded on it (#1737) and answering sibling
-    /// lookups from `siblings`, the children the walk recorded of every
-    /// wide node on `chain` (#1584). Lending the caches and naming the
+    /// visiting: `chain`, checked against `node` as
+    /// [`for_walk_without_siblings`](Self::for_walk_without_siblings)
+    /// checks it, lending `folds` with the visit recorded on it (#1737)
+    /// and answering sibling lookups from `siblings`, the children the
+    /// walk recorded of every wide node on `chain` (#1584). Lending the
+    /// caches and naming the
     /// visited node are one step that no walk can split: outside the
     /// walk constructors, only the test-only `with_folds` and
     /// `with_siblings` set either cache (#1601). A walk that records no
@@ -274,6 +272,19 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// When a predicate of such a walk needs a sibling, the walk records
     /// each wide node's children as it pushes them and constructs
     /// through [`for_walk`](Self::for_walk) instead (#1601).
+    ///
+    /// # Panics
+    ///
+    /// When `chain` is not `node`'s ancestry, as a walk's chain is after
+    /// a slip in its truncate/push bookkeeping. A debug build checks an
+    /// `O(1)` consequence: `chain.last()` is not `node` itself, and its
+    /// byte span contains `node`'s. That catches a `push` moved ahead of
+    /// the per-node work and a dropped `truncate`, and misses a chain
+    /// short by exactly one entry. Under `--cfg chain_audit`, which
+    /// `make chain-audit` sets, every profile asserts the exact
+    /// `chain.last() == node.parent()` instead, at [`Node::parent`]'s
+    /// `O(depth)` per node (#1122). [`for_walk`](Self::for_walk) builds
+    /// on this constructor and panics the same way.
     #[inline]
     #[must_use]
     pub fn for_walk_without_siblings(
@@ -281,31 +292,24 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         node: &Node<'tree>,
         folds: &'chain FoldCache,
     ) -> Self {
-        folds.visited.set(node.id());
+        folds.record_visit(node);
         Self {
             folds: Some(folds),
             ..Self::for_walk_chain_only(chain, node)
         }
     }
 
-    /// Whether the chain is known — a walk handed it in — rather than
-    /// the climbing [`Ancestors::unknown`]. A caller about to replace the
-    /// chain with [`below`](Self::below) checks it first: the climb is
-    /// already exact, where a replacing chain is exact only for what it
-    /// holds. [`of_children`](Self::of_children) needs no check, since it
-    /// derives an unknown chain from an unknown one.
-    pub(crate) const fn is_known(self) -> bool {
-        self.chain.is_some()
-    }
-
     /// The chain of a walk that lends no cache, the comment-removal
     /// walk: [`Ancestors::known`] for the chain a walk keeps. It first
     /// checks that `chain` really is `node`'s ancestry, and it lends the
-    /// empty sibling record of a walk that records none. Both are what
-    /// every `for_walk` constructor says of its chain; this one adds
-    /// nothing to them, which is its name.
+    /// empty sibling record of a walk that records none. Every
+    /// `for_walk` constructor makes the check, and
+    /// [`for_walk_without_siblings`](Self::for_walk_without_siblings)
+    /// lends the same record; this one adds nothing to them, which is
+    /// its name.
     ///
-    /// The parity test below proves the walker's truncate/push rule on a
+    /// The parity test (`a_known_chain_answers_exactly_what_climbing_answers`
+    /// in `node.rs`) proves the walker's truncate/push rule on a
     /// *replica* walker, so it cannot see `metrics_inner` itself
     /// desynchronising — a `chain.push` moved ahead of the per-node
     /// computes, say, or a `continue` inserted above the truncate.
@@ -375,6 +379,27 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self {
             siblings: Some(NOTHING_RECORDED),
             ..Self::known(chain)
+        }
+    }
+
+    /// Whether the chain is known — a walk handed it in — rather than
+    /// the climbing [`Ancestors::unknown`]. A caller about to replace the
+    /// chain with [`below`](Self::below) checks it first: the climb is
+    /// already exact, where a replacing chain is exact only for what it
+    /// holds. [`of_children`](Self::of_children) needs no check, since it
+    /// derives an unknown chain from an unknown one.
+    pub(crate) const fn is_known(self) -> bool {
+        self.chain.is_some()
+    }
+
+    /// The chain of the ancestor at `depth` on this one: this chain cut
+    /// above it, with the same caches. What a fold step is handed for
+    /// the ancestor it judges, built here so that what a derived chain
+    /// keeps is decided in this file, as it is for [`iter`](Self::iter).
+    fn above(self, depth: usize) -> Self {
+        Self {
+            chain: self.chain.map(|chain| chain.above(depth)),
+            ..self
         }
     }
 
@@ -574,6 +599,8 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
+    use super::folds::{climbed_chain, same_lane_reentry};
+    use super::siblings::{Lookup, position_by_start};
     use super::*;
     use crate::node::Tree;
 
@@ -1231,7 +1258,7 @@ mod tests {
             .expect("the fixture holds a narrow node with several children");
         let mut cache = SiblingCache::default();
         cache.record(&narrow, 1, narrow.children());
-        assert!(cache.0.is_empty(), "a narrow node must not be recorded");
+        assert!(cache.is_empty(), "a narrow node must not be recorded");
 
         let narrow_chain = [root, narrow];
         let all = raw_children(&narrow);

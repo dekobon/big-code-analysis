@@ -1,7 +1,9 @@
 //! The folds and memos an [`Ancestors`] chain answers through, and the
-//! [`FoldCache`] a walk lends for them: a question about a node's whole
-//! ancestry, folded down the chain once per walk rather than climbed
-//! from every node that asks (#1597).
+//! [`FoldCache`] a walk lends for them. A fold answers a question about
+//! a node's whole ancestry down the chain once per walk, where a climb
+//! from every node that asks is quadratic in depth (#1597). A memo
+//! keeps one node's answer for the walk, and a word slot the visited
+//! node's. Tested in the parent module's `tests`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -59,15 +61,10 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         // nothing this one holds; a step folding on *this* lane finds it
         // borrowed and runs unmemoised instead (`FoldCache::fold`).
         let step_at = |state: u8, depth: usize| {
-            let outer = Ancestors {
-                chain: Some(chain.above(depth)),
-                siblings: self.siblings,
-                folds: self.folds,
-            };
             step(
                 state,
                 &chain[depth],
-                outer,
+                self.above(depth),
                 chain.get(depth + 1).unwrap_or(node),
             )
         };
@@ -620,7 +617,7 @@ pub struct FoldCache {
     /// The id of the node the walk is visiting, as [`Ancestors::for_walk`]
     /// or [`Ancestors::for_walk_without_siblings`] last recorded it; 0 —
     /// no node's id — until a walk records one.
-    pub(super) visited: Cell<usize>,
+    visited: Cell<usize>,
 }
 
 /// The text-classified constructs whose answer for the visited node a
@@ -700,6 +697,13 @@ impl NodeMemo {
 }
 
 impl FoldCache {
+    /// Records `node` as the one the walk is visiting, which the word
+    /// slots serve. The walk constructors call it, and nothing else
+    /// writes the visit (#1737).
+    pub(super) fn record_visit(&self, node: &Node<'_>) {
+        self.visited.set(node.id());
+    }
+
     // The state after folding `step(state, depth)` over `chain[..end]`,
     // reusing and storing the per-depth states on `lane`.
     //
