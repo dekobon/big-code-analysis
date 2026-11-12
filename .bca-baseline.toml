@@ -305,7 +305,7 @@ value = 710.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1529.0
+value = 1531.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"

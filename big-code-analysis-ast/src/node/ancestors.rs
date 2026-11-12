@@ -33,7 +33,9 @@ impl<'tree> ChildAncestors<'tree, '_> {
     /// sibling cache deliberately not: the children are nodes the walk
     /// has not recorded. Neither does an [`iter`](Ancestors::iter) from
     /// it regain the sibling cache once it climbs back into the walk's
-    /// own chain.
+    /// own chain. Forwarding the record for that climb was measured and
+    /// left out: no walk asks for a sibling there, in the suite or the
+    /// repository corpora (#1871).
     #[inline]
     #[must_use]
     pub fn get(&self) -> Ancestors<'tree, '_> {

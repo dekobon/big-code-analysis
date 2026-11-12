@@ -832,6 +832,332 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
     }
 }
 
+// The member walks ask for no sibling (#1871): the fixture table and the
+// test. The table names each language as a `LANG` value and filters at
+// run time with `is_enabled`, so the module is gated on the union.
+#[cfg(any(
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "typescript",
+))]
+mod member_walk_siblings {
+    use crate::LANG;
+    use crate::node::{
+        Ancestors, WIDE_PARENT, child_chains_derived, sibling_cache_reads, sibling_seeks,
+    };
+
+    /// What the member walks count over a whole fixture.
+    #[derive(Clone, Copy)]
+    enum Count {
+        /// One per unit: `WIDE_PARENT + 1`.
+        Each,
+        /// This many, whatever the width.
+        Just(u64),
+    }
+
+    /// One source: `head`, then `unit` repeated `WIDE_PARENT + 1` times,
+    /// then `tail`.
+    struct Fixture {
+        lang: LANG,
+        source: [&'static str; 3],
+        /// The kind of the body the repeats make wider than
+        /// `WIDE_PARENT`.
+        wide_body: &'static str,
+        /// The methods `npm` counts and the attributes `npa` counts:
+        /// the witness that each walk read the wide body's members.
+        members: [Count; 2],
+        /// Whether a member walk reads the members through a chain
+        /// derived with `Ancestors::of_children`, where a sibling ask
+        /// seeks, or through the walk's own, where it reads the record.
+        derives_a_chain: bool,
+    }
+
+    const JAVA: [&str; 3] = ["class C {\n", "int x;\nvoid m() {}\n", "}\n"];
+    const CPP: [&str; 3] = ["class C {\npublic:\n", "int x;\nvoid m() {}\n", "};\n"];
+    const JS: [&str; 3] = ["class C {\n", "x = 1;\nm() {}\n", "}\n"];
+    const TS: [&str; 3] = ["class C {\n", "public x = 1;\nm() {}\n", "}\n"];
+
+    /// A row for every language whose `Npa` or `Npm` is not the no-op
+    /// impl, and two for Rust, whose attributes and methods sit in
+    /// different bodies. Python counts an attribute once however often
+    /// it is assigned (the class's `x`, the instance's `y`), and reads
+    /// its members through the walk's own chain, as Rust's `impl` walk
+    /// does. Elixir's one attribute is the `defstruct` field.
+    const FIXTURES: &[Fixture] = &[
+        Fixture {
+            lang: LANG::Java,
+            source: JAVA,
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Groovy,
+            source: ["class C {\n", "int x\nvoid m() {}\n", "}\n"],
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Csharp,
+            source: ["class C {\n", "public int x;\nvoid M() {}\n", "}\n"],
+            wide_body: "declaration_list",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Kotlin,
+            source: ["class C {\n", "val x = 1\nfun m() {}\n", "}\n"],
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Cpp,
+            source: CPP,
+            wide_body: "field_declaration_list",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Mozcpp,
+            source: CPP,
+            wide_body: "field_declaration_list",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Objc,
+            source: [
+                "@interface C : NSObject\n",
+                "@property int x;\n- (void)m;\n",
+                "@end\n",
+            ],
+            wide_body: "class_interface",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Php,
+            source: ["<?php\nclass C {\n", "public $x;\nfunction m() {}\n", "}\n"],
+            wide_body: "declaration_list",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Python,
+            source: [
+                "class C:\n",
+                "    x = 1\n    def m(self):\n        self.y = 1\n",
+                "",
+            ],
+            wide_body: "block",
+            members: [Count::Each, Count::Just(2)],
+            derives_a_chain: false,
+        },
+        Fixture {
+            lang: LANG::Ruby,
+            source: ["class C\n", "  attr_reader :x\n  def m\n  end\n", "end\n"],
+            wide_body: "body_statement",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Rust,
+            source: ["struct S {\n", "pub x: i32,\n", "}\n"],
+            wide_body: "field_declaration_list",
+            members: [Count::Just(0), Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Rust,
+            source: ["struct S;\nimpl S {\n", "pub fn m(&self) {}\n", "}\n"],
+            wide_body: "declaration_list",
+            members: [Count::Each, Count::Just(0)],
+            derives_a_chain: false,
+        },
+        Fixture {
+            lang: LANG::Go,
+            source: ["package p\ntype S struct {\n", "X int\n", "}\n"],
+            wide_body: "field_declaration_list",
+            members: [Count::Just(0), Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Javascript,
+            source: JS,
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Mozjs,
+            source: JS,
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Typescript,
+            source: TS,
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Tsx,
+            source: TS,
+            wide_body: "class_body",
+            members: [Count::Each, Count::Each],
+            derives_a_chain: true,
+        },
+        Fixture {
+            lang: LANG::Elixir,
+            source: [
+                "defmodule M do\n  defstruct [:a]\n",
+                "  def a, do: 1\n",
+                "end\n",
+            ],
+            wide_body: "do_block",
+            members: [Count::Each, Count::Just(1)],
+            derives_a_chain: true,
+        },
+    ];
+
+    /// The languages whose `Npa` and `Npm` are the no-op impls
+    /// (`implement_metric_trait!` in `metrics/npa.rs` and
+    /// `metrics/npm.rs`): no member walk runs for them. Nothing here
+    /// notices one of them gaining a member walk; whoever writes it
+    /// moves the language to `FIXTURES`.
+    const NO_MEMBER_WALK: &[LANG] = &[
+        LANG::C,
+        LANG::Preproc,
+        LANG::Ccomment,
+        LANG::Perl,
+        LANG::Bash,
+        LANG::Lua,
+        LANG::Tcl,
+        LANG::Irules,
+    ];
+
+    /// The `npa` and `npm` walks ask for no sibling of a member, under a
+    /// body wider than `WIDE_PARENT`, in any language that has them
+    /// (#1871).
+    ///
+    /// Most of them read a body's members through a chain derived with
+    /// `Ancestors::of_children`, which carries no sibling record: the
+    /// walk has not recorded the body's children while it visits the
+    /// container. A row gate that asked for a sibling of each member
+    /// would seek from the body's first child every time, quadratic in
+    /// the members, and answer the same. `sibling_seeks` is what sees
+    /// it. The two rows that read through the walk's own chain would
+    /// read the record instead, so `sibling_cache_reads` is held at
+    /// zero as well.
+    ///
+    /// A probe in `Ancestors::lookup`, run over the whole suite and the
+    /// repository corpora, found no walk asking for a sibling through a
+    /// derived chain, under a wide parent or a narrow one. The one
+    /// predicate that can is Java's package gate, asked of a parse
+    /// error's children, which
+    /// `a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache`
+    /// pins beside it. So the walk's record is not forwarded to a
+    /// derived chain: no caller would read it.
+    #[test]
+    fn the_member_walks_ask_for_no_sibling_under_a_wide_body() {
+        for lang in LANG::into_enum_iter() {
+            let rows = FIXTURES.iter().filter(|row| row.lang == lang).count();
+            assert_eq!(
+                rows > 0,
+                !NO_MEMBER_WALK.contains(&lang),
+                "{} needs a fixture, or a place among the languages with no member walk",
+                lang.name()
+            );
+        }
+        let units = WIDE_PARENT + 1;
+        let expected = |count: Count| match count {
+            Count::Each => units as u64,
+            Count::Just(fixed) => fixed,
+        };
+        let mut ran = 0;
+        for fixture in FIXTURES.iter().filter(|fixture| fixture.lang.is_enabled()) {
+            ran += 1;
+            let [head, unit, tail] = fixture.source;
+            let source = format!("{head}{}{tail}", unit.repeat(units));
+            let wide_body = fixture.wide_body;
+            let label = format!("{} under a wide {wide_body}", fixture.lang.name());
+            let ast = crate::test_support::parse_named(fixture.lang, "fixture", &source);
+            let root = ast.root_node();
+            assert!(
+                !root.preorder().any(|node| node.is_error()),
+                "{label}: the fixture must parse"
+            );
+            assert!(
+                root.preorder()
+                    .any(|node| node.kind() == wide_body && node.child_count() > WIDE_PARENT),
+                "{label}: the fixture holds no such body"
+            );
+            // A positive control: both counters count, so the zeros
+            // below are walks that asked for nothing.
+            let first = root.child(0).expect("the fixture has a first node");
+            let chain = [root];
+            let before = sibling_seeks::observed();
+            let _ = Ancestors::known(&chain).siblings_after(&first).next();
+            assert_eq!(
+                sibling_seeks::observed() - before,
+                1,
+                "{label}: the control"
+            );
+
+            let before = (
+                sibling_seeks::observed(),
+                sibling_cache_reads::observed(),
+                child_chains_derived::observed(),
+            );
+            let space = ast
+                .metrics(
+                    crate::MetricsOptions::default()
+                        .with_only(&[crate::Metric::Npa, crate::Metric::Npm]),
+                )
+                .expect("the walk must yield a top-level space");
+            let [methods, attributes] = fixture.members.map(expected);
+            assert_eq!(
+                (space.metrics.npm.total_nm(), space.metrics.npa.total_na()),
+                (methods, attributes),
+                "{label}: the methods and attributes the walks counted"
+            );
+            assert_eq!(
+                child_chains_derived::observed() > before.2,
+                fixture.derives_a_chain,
+                "{label}: whether a member walk derived a chain"
+            );
+            // expected: 0 and 0, no member row's gate asks for a sibling.
+            assert_eq!(
+                (
+                    sibling_seeks::observed() - before.0,
+                    sibling_cache_reads::observed() - before.1
+                ),
+                (0, 0),
+                "{label}: a member walk asked for a sibling (seeks, record reads); under a \
+                 derived chain each ask seeks from the body's first child"
+            );
+        }
+        assert!(ran > 0, "no fixture's language is enabled");
+    }
+}
+
 // The walks that record no siblings ask for none (#1601): the fixture
 // table, the witnesses that each walk did its work, and the test.
 // The table names every language as a `LANG` value and filters at run

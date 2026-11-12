@@ -686,6 +686,17 @@ under a narrow parent, and `siblings_before` or `siblings_after`
 through a derived chain. The scaling gate does not price these walks'
 sibling lookups, because they make none.
 
+The metric walk's member consumers (`npa` and `npm`) read a body's
+members through a chain derived with `Ancestors::of_children`. That
+chain carries no sibling record, since the walk has not recorded the
+body's children while it visits the container, so a sibling asked for
+there seeks. `the_member_walks_ask_for_no_sibling_under_a_wide_body` in
+`src/observation_tests.rs` holds both sibling counters at zero over a
+body wider than `WIDE_PARENT`, for every language with a member walk.
+The walk's record is not forwarded to a derived chain
+([#1871][sibling-follow-ups]): a probe over the test suite and the
+repository corpora found no walk asking for a sibling through one.
+
 What `bca find` does after that walk went unpriced until
 [#1416][find-render]. It printed each match through
 `dump_node_with_color` at depth 1, which chose the match's connector by
@@ -1332,6 +1343,7 @@ treating it as a regression.
 [flat-error]: https://github.com/dekobon/big-code-analysis/issues/1584
 [find-call]: https://github.com/dekobon/big-code-analysis/issues/1580
 [sibling-capability]: https://github.com/dekobon/big-code-analysis/issues/1601
+[sibling-follow-ups]: https://github.com/dekobon/big-code-analysis/issues/1871
 [dump-cursor]: https://github.com/dekobon/big-code-analysis/issues/1684
 [tcl-slots]: https://github.com/dekobon/big-code-analysis/issues/1686
 [find-render]: https://github.com/dekobon/big-code-analysis/issues/1416

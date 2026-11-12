@@ -763,9 +763,15 @@ mod tests {
     /// sibling cache onto the derived chain tripped the walk-must-record
     /// assertion in `Ancestors::lookup` on this exact shape (#1686
     /// review): a debug-build panic on malformed Java, where a release
-    /// build answered quietly. Discriminates only through that
+    /// build answered quietly. That half discriminates only through the
     /// `debug_assert!`, so it is meaningful under `make pre-commit`'s
     /// debug build and vacuous under `--release` (lesson #80).
+    ///
+    /// The seek is counted too, in every build: this is the one sibling
+    /// a production predicate asks for through a derived chain (#1871).
+    /// A flat `ERROR` is sought from its first child, so the count is
+    /// what keeps the gate to the packages: asked of every child, it
+    /// would be quadratic in the error and answer the same.
     #[cfg(feature = "java")]
     #[test]
     fn a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache() {
@@ -802,9 +808,18 @@ mod tests {
         let walk = Ancestors::known(&chain)
             .with_siblings(&siblings)
             .with_folds(&folds);
+        let before = crate::node::sibling_seeks::observed();
         assert!(
             error_holds_target::<JavaCode>(&error, source.as_bytes(), walk),
             "a package with no declaration after it is javadoc's target"
+        );
+        // expected: 1. Only a `package_declaration`'s gate asks for a
+        // sibling; the error holds one, and it is a target, so the scan
+        // of the error's children stops there.
+        assert_eq!(
+            crate::node::sibling_seeks::observed() - before,
+            1,
+            "the package gate's one seek through the derived chain"
         );
     }
 
