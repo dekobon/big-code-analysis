@@ -299,7 +299,10 @@ mod tests {
     /// `Nom::compute` reads the byte-less `is_closure` for every
     /// language, which hands the walk's chain through and no bytes to
     /// the `Closure` row — the row's answer only while no owner is
-    /// `text_gated_by`. Every row is pinned here, so one that grows a
+    /// `text_gated_by`. `NArgs::compute` reads the same spelling of
+    /// the same rows, in the shared impl and in each override that
+    /// tests for a closure, and has no pin of its own since #1863.
+    /// Every row is pinned here, so one that grows a
     /// text gate names the impl that must move to a `_with_code`
     /// spelling (#1696 AC 3); Ruby's chain-reading gate is answered
     /// with the chain and is not what this pins. The rows are
@@ -336,7 +339,7 @@ mod tests {
         for (lang, text_gated) in rows {
             assert!(
                 !text_gated,
-                "{lang}'s Closure row grew a text gate: `Nom::compute` must read a `_with_code` spelling"
+                "{lang}'s Closure row grew a text gate: `Nom::compute` and `NArgs::compute` must read a `_with_code` spelling"
             );
         }
     }

@@ -152,8 +152,8 @@ fn mozcpp_bodiless_specifiers_open_no_space_1555() {
 /// `get_space_kind_with_code` — the spellings the walker calls — agree on
 /// every struct / class specifier node, checked node by node because the
 /// space tree alone cannot see the getter half: it only labels spaces the
-/// checker already opened. Today both forward to `is_func_space` /
-/// `get_space_kind`, so only a `_with_code` override could split them
+/// checker already opened. Both read the role table's `opens_space`
+/// fold, so only a hand-written spelling could split them
 /// (grammar-dispatch §7). The oracle is independent of the `body` field:
 /// a specifier defines a type exactly when its text has a `{`.
 #[cfg(any(feature = "cpp", feature = "mozcpp"))]

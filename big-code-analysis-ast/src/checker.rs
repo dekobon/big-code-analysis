@@ -130,7 +130,7 @@ macro_rules! impl_byte_gated_row_predicate {
 // design and keeps a hand-written forward pinned at runtime instead
 // (`ruby_byte_less_spellings_stay_the_kind_table`), as C#'s is since
 // #1828 (`csharp_byte_less_spellings_omit_the_primary_constructor`);
-// Elixir overrides both spellings. Per-language rationale — which
+// Elixir hand-writes the byte-less one. Per-language rationale — which
 // rows, what the gated one reads — sits above the invocation.
 macro_rules! impl_byte_less_func_space {
     ($roles:ident) => {

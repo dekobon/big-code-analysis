@@ -58,10 +58,12 @@ impl Getter for GroovyCode {
             return Some("<static-init>");
         }
         // A record's header takes the record's name (#1842).
-        crate::getter::func_space_name_from_owner(node, code, ancestors, |list, owner| {
-            crate::roles::groovy::record_header(owner)
-                .is_some_and(|header| header.id() == list.id())
-        })
+        crate::getter::func_space_name_from_owner(
+            node,
+            code,
+            ancestors,
+            crate::roles::groovy::is_record_header,
+        )
     }
 
     // The mapping is the `opens` annotations of `roles/groovy.rs`

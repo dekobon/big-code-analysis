@@ -11030,7 +11030,7 @@ end",
         // expected: nesting.conditional 2 from `outer`'s two `if`s, so the
         // callback's own `if` costs +3. The `nom` assertion states the
         // premise — that this shape really is on the closure side of
-        // function / closure split — rather than leaving it implied.
+        // the function / closure split — rather than leaving it implied.
         check_func_space::<T, _>(
             "function outer(a, b) {
                  if (a) { if (b) { run(function (c) { if (c) { return 1; } }); } }

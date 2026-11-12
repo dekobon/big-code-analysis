@@ -365,7 +365,7 @@ value = 906.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2322.0
+value = 2321.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -1265,7 +1265,7 @@ value = 5.0
 path = "src/metrics/nargs.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 525.0
+value = 524.0
 
 [[entry]]
 path = "src/metrics/npa/php.rs"

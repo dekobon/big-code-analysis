@@ -852,18 +852,17 @@ impl NArgs for CsharpCode {
 // constructor (#1842, revisiting #1160's "declared code rather than
 // generated code": the component list *is* declared, as a C# positional
 // record's is — #1828), so the list's owner is the record whose
-// `record_header` it is (`roles/java.rs`). The row's gate keeps the count to one owner: with a compact
-// constructor the header opens nothing and the redirect counts the
-// components there; with neither the header is the callable. A
-// non-canonical constructor is a callable of its own, owns its own
-// list, and suppresses nothing.
+// `record_header` it is (`roles/java.rs`). The row's gate keeps the
+// count to one owner: with a compact constructor the header opens
+// nothing and the redirect counts the components there; with neither
+// the header is the callable. A non-canonical constructor is a callable
+// of its own, owns its own list, and suppresses nothing.
 impl NArgs for JavaCode {
     fn params_owner<'tree>(node: &Node<'tree>, ancestors: Ancestors<'tree, '_>) -> Node<'tree> {
         let record = match node.kind_id().into() {
-            Java::FormalParameters => ancestors.parent(node).filter(|record| {
-                crate::roles::java::record_header(record)
-                    .is_some_and(|header| header.id() == node.id())
-            }),
+            Java::FormalParameters => ancestors
+                .parent(node)
+                .filter(|record| crate::roles::java::is_record_header(node, record)),
             Java::CompactConstructorDeclaration => ancestors
                 .iter(node)
                 .nth(1)
@@ -890,9 +889,7 @@ impl NArgs for JavaCode {
 // but `count_args` takes every child that is no parenthesis, comma or
 // comment, so the `ERROR` recovery leaves beside a component
 // (`record R(int a,)`) would read as a second argument (#1863). Every
-// other callable holds its list in the `parameters` field. The header's gate
-// reads the body's constructor types, so the callable test is the
-// `_with_code` spelling, as the shared impl's.
+// other callable holds its list in the `parameters` field.
 impl NArgs for GroovyCode {
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
@@ -946,37 +943,6 @@ mod tests {
     // The same selection, handed the whole space tree: the per-space own
     // count is only observable one space at a time.
     check_func_space_only_shim!(check_spaces, Nargs);
-
-    /// Every `compute` impl above reads the byte-less `is_closure`: it
-    /// hands the walk's chain through and no bytes, which answers the
-    /// `Closure` row's question only while no owner of that row is
-    /// `text_gated_by`. This pins that for the impls that spell the
-    /// call themselves — a row that grows a text gate fails here,
-    /// naming the impl that must stop dropping the bytes rather than
-    /// silently missing the gated owner (#1696 AC 3). The callable half
-    /// needs no such pin since #1863: every impl asks
-    /// `is_func_with_code`, the only spelling. The rows are
-    /// declarations, built in every feature set, so this needs no
-    /// grammar.
-    #[test]
-    fn byte_less_is_closure_reads_only_rows_without_a_text_gate() {
-        use crate::roles::{elixir, go, groovy, java, kotlin, lua, perl};
-        let rows: &[(&str, bool)] = &[
-            ("go Closure", go::closure::TEXT_GATED),
-            ("kotlin Closure", kotlin::closure::TEXT_GATED),
-            ("lua Closure", lua::closure::TEXT_GATED),
-            ("perl Closure", perl::closure::TEXT_GATED),
-            ("java Closure", java::closure::TEXT_GATED),
-            ("groovy Closure", groovy::closure::TEXT_GATED),
-            ("elixir Closure", elixir::closure::TEXT_GATED),
-        ];
-        for (row, text_gated) in rows {
-            assert!(
-                !text_gated,
-                "{row} grew a text gate: its `NArgs::compute` must stop reading the byte-less `is_closure`"
-            );
-        }
-    }
 
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for

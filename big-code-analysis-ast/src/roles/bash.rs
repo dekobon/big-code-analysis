@@ -94,9 +94,10 @@ role_table! {
     // `-a` / `-o` connectives, so that payer is text-gated: a
     // `test_operator` pays as a comparison exactly when its bytes are
     // not a connective — and so is the owner, whose gate reads the same
-    // bytes off its `operator` field (#1863). `=` compares inside a test and assigns inside
-    // `(( … ))`, which only the test's descent can tell (#1536); the
-    // ABC consumer counts it from the test, as its own extra.
+    // bytes off its `operator` field (#1863). `=` compares inside a test
+    // and assigns inside `(( … ))`, which only the test's descent can
+    // tell (#1536); the ABC consumer counts it from the test, as its own
+    // extra.
     Comparison {
         owns [
             BinaryExpression(text_gated_by comparison_operator no_chain),
@@ -122,10 +123,10 @@ role_table! {
     // `&&` / `||` join two commands in a `list` and two tests inside
     // `[[ … ]]` / `(( … ))` in a `binary_expression`; inside `[ … ]` the
     // same join is the `-a` / `-o` spelling of `test_operator`, read by
-    // text, at the payer and at the owner alike. Bash's `&&` / `||` are command-list separators, so the ABC
-    // consumer reads this row for nothing (#1536 — Fitzpatrick Rule 9
-    // does not map onto its grammar) where cyclomatic and cognitive
-    // read it.
+    // text, at the payer and at the owner alike. Bash's `&&` / `||` are
+    // command-list separators, so the ABC consumer reads this row for
+    // nothing (#1536 — Fitzpatrick Rule 9 does not map onto its grammar)
+    // where cyclomatic and cognitive read it.
     ShortCircuit {
         owns [
             List,

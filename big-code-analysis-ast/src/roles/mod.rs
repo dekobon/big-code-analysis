@@ -235,8 +235,7 @@
 //!   rejects it (#1793).
 //! - `callable` marks a `FuncOpener` owner that is a *named function* —
 //!   what `Checker::is_func_with_code` answers — beside openers that are
-//!   not
-//!   (Java's `static { … }` opens a `Function` space and is nobody's
+//!   not (Java's `static { … }` opens a `Function` space and is nobody's
 //!   callee; Elixir's `fn … end` opens one and is a `Closure`), and
 //!   `callable_when f` one that is a named function only where `f` says
 //!   so, under a gate of its own beside the owner's — a JS

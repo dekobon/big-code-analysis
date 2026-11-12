@@ -2668,9 +2668,9 @@ mod tests {
         // charged to the enclosing class space without WMC ever seeing
         // it, and `bca check` could not flag one however complex it got.
         //
-        // WMC keys on `SpaceKind::Function` rather than on the callable test,
-        // which is why this moves even though the block is deliberately
-        // *not* a callable (it is not a callable anyone names).
+        // WMC keys on `SpaceKind::Function` rather than on the callable
+        // test, which is why this moves even though the block is
+        // deliberately *not* a callable (nobody names it at a call site).
         check_metrics::<KotlinParser>(
             "class C(val n: Int) {                       // +1 since #1828
                 init {                                   // +1 since #1184

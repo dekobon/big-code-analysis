@@ -5,6 +5,8 @@
 //! `Catch`, `ElseIf`, `Exit` (#1697) — and
 //! the documentation rows (#1699) are declared.
 
+use std::cell::LazyCell;
+
 use crate::getter::node_text;
 use crate::lang_helpers::doc_comment::{java_doc, node_bytes, token_spelling};
 use crate::role_table;
@@ -100,10 +102,10 @@ fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
 /// with as many formal parameters as the record's header has
 /// `components` — their types, read once per header by
 /// [`opens_record_header`] — each spelling the same type as its
-/// component (Java's
-/// rule, JLS 8.10.4.1 and 8.8, which Groovy records follow). Parameter
-/// names and annotations do not take part. The same spelling, not the
-/// same type — the tokens, so a comment inside the type is nothing —
+/// component (Java's rule, JLS 8.10.4.1 and 8.8, which Groovy records
+/// follow). Parameter names and annotations do not take part. The same
+/// spelling, not the same type — the tokens, so a comment inside the
+/// type is nothing —
 /// so `java.util.List<T>` and `List<T>` are two spellings here, as in
 /// `roles/java.rs`. The name test is for the grammar, not the language:
 /// the grammar does not check a constructor's name, so `record R(int a)
@@ -153,13 +155,21 @@ fn is_record_canonical_constructor(
 /// (#1842), and Java's twin (`roles/java.rs`, the rationale there).
 /// `None` for any other node. Held once for the row's gate and for the
 /// consumers that step between a record and its header (#1863); pinned
-/// by `record_header_is_the_records_own_list`.
+/// by `groovy_record_header_is_the_records_own_list`.
 #[inline]
 #[must_use]
 pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
     (record.kind_id() == Groovy::RecordDeclaration as u16)
         .then(|| record.child_by_field_name("components"))
         .flatten()
+}
+
+/// Whether `list` is `record`'s [`record_header`]: the same node, not
+/// one of its kind.
+#[inline]
+#[must_use]
+pub fn is_record_header(list: &Node<'_>, record: &Node<'_>) -> bool {
+    record_header(record).is_some_and(|header| header.id() == list.id())
 }
 
 /// Whether a `record_components` list is a record's header in a record
@@ -177,34 +187,29 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(record) = ancestors.parent(node) else {
         return false;
     };
-    if record_header(&record).is_none_or(|header| header.id() != node.id()) {
+    if !is_record_header(node, &record) {
         return false;
     }
     let Some(body) = record.child_by_field_name("body") else {
         return true;
     };
-    let mut components = None;
+    let components = LazyCell::new(|| {
+        record_header_types_read::record();
+        node.children()
+            .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
+            .map(|p| groovy_parameter_type(&p, code))
+            .collect::<Vec<_>>()
+    });
     !body.children().any(|member| {
-        member.kind_id() == Groovy::ConstructorDeclaration as u16 && {
-            let components = components.get_or_insert_with(|| {
-                record_header_types_read::record();
-                node.children()
-                    .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
-                    .map(|p| groovy_parameter_type(&p, code))
-                    .collect::<Vec<_>>()
-            });
-            is_record_canonical_constructor(&member, &record, components, code)
-        }
+        member.kind_id() == Groovy::ConstructorDeclaration as u16
+            && is_record_canonical_constructor(&member, &record, &components, code)
     })
 }
 
 // Times `opens_record_header` spelled a header's component types: once
 // per evaluation that meets a constructor, as Java's twin counts
 // (`roles/java.rs`, #1863).
-crate::observation::counter!(
-    record_header_types_read,
-    cfg(any(test, feature = "test-support"))
-);
+crate::observation::counter!(record_header_types_read);
 
 /// Java's eight primitive type keywords and `void`, which Groovy
 /// reserves as Java does.

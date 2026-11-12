@@ -7,6 +7,8 @@
 //! `Catch`, `ElseIf`, `Exit` (#1697) — and
 //! the documentation rows (#1699) are declared.
 
+use std::cell::LazyCell;
+
 use crate::checker::java_anonymous_class_body;
 use crate::lang_helpers::doc_comment::{java_doc, node_bytes, token_spelling};
 use crate::role_table;
@@ -166,23 +168,22 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(record) = ancestors.parent(node) else {
         return false;
     };
-    if record_header(&record).is_none_or(|header| header.id() != node.id()) {
+    if !is_record_header(node, &record) {
         return false;
     }
     let Some(body) = record.child_by_field_name("body") else {
         return true;
     };
-    let mut components = None;
+    let components = LazyCell::new(|| {
+        record_header_types_read::record();
+        node.children()
+            .filter_map(|p| java_parameter_type(&p, code))
+            .collect::<Vec<_>>()
+    });
     !body.children().any(|member| match member.kind_id().into() {
         Java::CompactConstructorDeclaration => true,
         Java::ConstructorDeclaration => {
-            let components = components.get_or_insert_with(|| {
-                record_header_types_read::record();
-                node.children()
-                    .filter_map(|p| java_parameter_type(&p, code))
-                    .collect::<Vec<_>>()
-            });
-            is_record_canonical_constructor(&member, &record, components, code)
+            is_record_canonical_constructor(&member, &record, &components, code)
         }
         _ => false,
     })
@@ -197,7 +198,7 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
 /// recognise, held once for the row's gate and for the consumers that
 /// step between a record and its header — the space's name, `nargs`'
 /// parameter owner, `npm`'s method count (#1863); pinned by
-/// `record_header_is_the_records_own_list`.
+/// `java_record_header_is_the_records_own_list`.
 #[inline]
 #[must_use]
 pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
@@ -206,14 +207,19 @@ pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
         .flatten()
 }
 
+/// Whether `list` is `record`'s [`record_header`]: the same node, not
+/// one of its kind.
+#[inline]
+#[must_use]
+pub fn is_record_header(list: &Node<'_>, record: &Node<'_>) -> bool {
+    record_header(record).is_some_and(|header| header.id() == list.id())
+}
+
 // Times `opens_record_header` spelled a header's component types. Once
 // per evaluation that meets a constructor, however many it compares:
 // re-spelled per constructor the gate answers the same, a third slower
 // on a record of alternatives (#1863).
-crate::observation::counter!(
-    record_header_types_read,
-    cfg(any(test, feature = "test-support"))
-);
+crate::observation::counter!(record_header_types_read);
 
 /// The container a `switch` nests its arms in: the `switch_block`, the
 /// `Switch` owner's child — a structural fact about the construct the
