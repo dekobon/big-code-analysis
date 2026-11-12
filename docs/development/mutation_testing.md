@@ -279,6 +279,56 @@ Triage:
    `minimum_test_timeout = 120` in `.cargo/mutants.toml` guards
    against spurious timeouts on slow runners, not against slow tests.
 
+### Replaying chosen mutants
+
+`-F` takes a regular expression over the names `--list` prints, so a
+new test is checked against the mutants it was written for and no
+others:
+
+```bash
+cargo mutants --in-place -f src/metrics/loc/line_set.rs \
+  -F 'replace - with \+ in LineSet::subtract'
+```
+
+A description can occur at more than one site: this one names both
+subtractions in `subtract`. Run the same arguments with `--list` first
+to see what is selected.
+
+Read each mutant's log under `mutants.out/log/` as well as the verdict.
+The test written for the mutant must be among the failures, at the
+assertion that states the contract. Other tests may catch the same
+mutant; that says nothing about the new one, so look for its name.
+
+cargo-mutants 27.1.0 applies no name filter to its `delete field …`
+mutants, so every one in the selected files runs whatever `-F` says.
+
+### Writing an `exclude_re` entry
+
+An entry is a regular expression over the same names. Write it to
+survive edits elsewhere in the file and to match one mutant:
+
+- Leave the line and column as `\d+:\d+`. Both move with any edit above
+  the site, and a pattern pinned to them stops matching after the next
+  one.
+- Anchor the pattern with `^` and `$`, and escape the mutant's text: the
+  names are full of `(`, `|`, `+` and `*`.
+- Keep the column where another site in the same function carries the
+  same description. A column moves only when its own line is edited.
+  Say in the comment what it distinguishes.
+- Compare `cargo mutants --list --no-config` with `cargo mutants --list`
+  over the CI selection. The difference must be exactly the mutants the
+  entries name.
+- Put the proof above the entry: why no reachable input, panic or side
+  effect tells the mutant from the original, and what would change that.
+  An entry that rests on a grammar's productions names the pin.
+
+A `delete field …` mutant cannot be excluded in 27.1.0, for the reason
+above; kill it with a test. To replay a mutant that is already
+excluded, pass `--no-config` and repeat the file's settings as
+`--test-package`, `--minimum-test-timeout` and `--output` arguments.
+Since 27.0 the command line's filters are added to the file's, so `-F`
+alone cannot bring an excluded mutant back.
+
 ## When the workflow files an issue
 
 The auto-filed issue (title `Mutation testing: escaped mutants`; a

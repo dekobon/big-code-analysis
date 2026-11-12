@@ -25,3 +25,44 @@ output = "target/mutants"
 # almost entirely by the root crate's metric tests, so every mutant
 # runs both suites.
 test_package = ["big-code-analysis", "big-code-analysis-ast"]
+
+# Mutants no run tests. Each entry is one mutant shown to behave
+# identically on every reachable input, panics and side effects
+# included, or one that never terminates; the reason sits above it. A
+# pattern omits the line and column, which move with any edit above the
+# site, and is anchored at both ends so it matches that mutant alone.
+# Compare `cargo mutants --list --no-config` with `cargo mutants --list`
+# after adding one: the difference must be exactly the mutants named.
+# Where another site in the same function shares the description, the
+# entry keeps the column to tell the two apart and says so. A
+# `delete field …` mutant cannot be listed here at all: cargo-mutants
+# 27.1.0 applies no name filter to those.
+exclude_re = [
+  # Equivalent. With `<=` the downward branch is also taken when `word`
+  # equals `first_word`: `below` is 0, the splice inserts nothing and
+  # `first_word` is assigned its own value. The branch it displaces is
+  # the upward one, which does nothing there either, since `words` is
+  # non-empty and `word - first_word >= words.len()` reads `0 >= len`.
+  '^src/metrics/loc/line_set\.rs:\d+:\d+: replace < with <= in LineSet::reserve$',
+  # Equivalent while tree-sitter-c is pinned at 0.24.2, whose one
+  # `init_declarator` production is `declarator = value`. Every such node
+  # holds an `=` child (one the parser inserted in recovery is still that
+  # kind) and a child that is not `=`, so the guard's one child scan
+  # finds a match whether it looks for the `=` or for anything else.
+  # Re-derive on a grammar bump: the C++ grammar also has `int x(5);` and
+  # `int x{5};`, which keep this mutant live there.
+  '^src/metrics/abc/c\.rs:\d+:\d+: replace == with != in <impl Abc for CCode>::compute$',
+  # The same mutant in the Objective-C impl, equivalent for the same
+  # reason while tree-sitter-objc is pinned at 3.0.2: its one
+  # `init_declarator` production is `declarator [attribute] = value`.
+  # `compute` has a second `==`, in `kind == MessageExpression`, whose
+  # mutant is live and caught; the column (56 against 25) is what tells
+  # this one from it.
+  '^src/metrics/abc/objc\.rs:\d+:56: replace == with != in <impl Abc for ObjcCode>::compute$',
+  # Non-terminating under mutation. The loop then breaks when
+  # `goto_next_sibling` succeeds and repeats when it fails, so a list
+  # with one child is visited forever. Its one caller walks the values
+  # of a Go `return`, so every Go ABC test that returns a single value
+  # hangs, and no added test can make that suite finish.
+  '^src/metrics/abc\.rs:\d+:\d+: delete ! in for_each_named_child$',
+]
