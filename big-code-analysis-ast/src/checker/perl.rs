@@ -24,8 +24,8 @@ impl Checker for PerlCode {
         crate::roles::perl::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::perl::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::perl::func_opener::is_callable(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

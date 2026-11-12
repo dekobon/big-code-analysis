@@ -152,7 +152,7 @@ Read it as follows.
 | `loc/nested-fn-rows` | Rust | depth | `Ploc::merge` / `Cloc::merge` row-set union (#1109) | linear |
 | `nom/nested-fn-rows` | Rust | depth | metric control for the row above | linear |
 | `nom/nested-declared-function` | JavaScript | depth | shape control for the row below | linear |
-| `nom/nested-arrow` | JavaScript | depth | JS-family `is_func` / `is_closure` (#1088) | linear |
+| `nom/nested-arrow` | JavaScript | depth | JS-family `is_func_with_code` / `is_closure` (#1088) | linear |
 | `nom/js-arrow-per-array-depth` | JavaScript | depth | the same binding question with no frame below the root, folded on `FoldLane::NamedBinding` (#1767) | linear |
 | `cognitive/python-and-per-list-depth` | Python | depth | a boolean operator's "inside another chain" and enclosing-`lambda` questions, with no stop in a list, folded on `GateLane::InsideBooleanChain` and `FoldLane::LambdaDepth` (#1767) | linear |
 | `nom/wide-arrow-array` | JavaScript | width | the arrow binding gate's parent sibling scan on `run(() => 1, …)`, memoised per parent under `MemoQuestion::NamesAnArrow` (#1696) | linear |

@@ -116,8 +116,9 @@
 //!   kind that moves between `FuncOpener` or `Closure` and this row
 //!   changes nothing the Checker answers; only a kind on none of the
 //!   three does (#1797 named the residual; `holds_doc_comment_in_body
-//!   ⇒ is_func ∨ is_closure ∨ row` in `derived_parity_tests.rs` pins the
-//!   composition). A class body is never one.
+//!   ⇒ is_func_with_code ∨ is_closure ∨ row` in
+//!   `derived_parity_tests.rs` pins the composition). A class body is
+//!   never one.
 //!
 //! The seven documentation roles are what a language's doc-comment
 //! adapter (`checker/<lang>.rs`, the per-language half of the
@@ -233,7 +234,8 @@
 //!   flags, so an opener on a third role would bypass them — the macro
 //!   rejects it (#1793).
 //! - `callable` marks a `FuncOpener` owner that is a *named function* —
-//!   what `Checker::is_func` answers — beside openers that are not
+//!   what `Checker::is_func_with_code` answers — beside openers that are
+//!   not
 //!   (Java's `static { … }` opens a `Function` space and is nobody's
 //!   callee; Elixir's `fn … end` opens one and is a `Closure`), and
 //!   `callable_when f` one that is a named function only where `f` says
@@ -400,30 +402,38 @@
 //!
 //! - **Reach for the `_with_code` spelling** — that is what the walk
 //!   calls (`promotes_to_func_space_with_code`,
-//!   `get_space_kind_with_code`). The legacy `Checker` spellings come
-//!   in three shapes, and only one of them is the ungated kind set.
-//!   `is_call`, `is_string` and `is_comment` take neither bytes nor a
-//!   chain and read `lists_kind`. `is_func_space` and `get_space_kind`
-//!   take neither either, and forward to the `_with_code` form with
-//!   `&[]` and a *known-empty* chain, `Ancestors::known(&[])` — never
-//!   `Ancestors::unknown()`, which climbs through `Node::parent` and
-//!   answers the gated result, so the spelling would silently stop
-//!   being the kind set (lesson 114); a gate that reads only the node's
-//!   own children (Java's anonymous-class body) still applies there.
-//!   `is_func`, `is_closure` and `is_else_if` take the caller's chain
-//!   and hand it through with `&[]` bytes, so a chain gate (Ruby's
-//!   `block` under a stabby lambda) answers exactly and only a byte
-//!   gate is dropped — unless one gate reads both, as a Java or Groovy
-//!   record header's does (#1842): there `is_func` forwards the
-//!   known-empty chain too, so the header answers `false` as
-//!   `is_func_space` does, not the degenerate no-bytes comparison. The
-//!   chain-less pair disagrees with the walk wherever a gate reads
-//!   what it drops — Elixir's text-gated `call` openers, Ruby's
-//!   `block`, C#'s `parameter_list` under a type declaration (#1828),
-//!   the record header — and the derived parity suite pins each such
-//!   disagreement by name (`KNOWN_DISAGREEMENTS`). Every other
-//!   language's pair asserts `!TEXT_GATED && !CHAIN_GATED` on its
-//!   `FuncOpener` and `Container` rows at build time (#1793).
+//!   `get_space_kind_with_code`). The three the space tree is built
+//!   from — `Checker::is_func_with_code`,
+//!   `Checker::is_func_space_with_code` and
+//!   `Getter::get_space_kind_with_code` — are required of every
+//!   language, and a byte-less spelling derives from one, never the
+//!   reverse (#1863): a trait default forwarding with-code to byte-less
+//!   handed a text-gated row no bytes without a word. The callable test
+//!   has no byte-less spelling at all: a callable can be told by its
+//!   bytes, by its chain, or by one gate reading both (a Java or Groovy
+//!   record's header, #1842), so a byte-less `is_func` answered three
+//!   different questions across the languages. The legacy `Checker`
+//!   spellings that remain come in three shapes, and only one of them
+//!   is the ungated kind set. `is_call`, `is_string` and `is_comment`
+//!   take neither bytes nor a chain and read `lists_kind`.
+//!   `is_func_space` and `get_space_kind` take neither either, and
+//!   forward to the `_with_code` form with `&[]` and a *known-empty*
+//!   chain, `Ancestors::known(&[])` — never `Ancestors::unknown()`,
+//!   which climbs through `Node::parent` and answers the gated result,
+//!   so the spelling would silently stop being the kind set (lesson
+//!   114); a gate that reads only the node's own children (Java's
+//!   anonymous-class body) still applies there. That forward is the
+//!   trait default, and a language's own spelling of it adds only the
+//!   build-time pin below. `is_closure` and `is_else_if` take the
+//!   caller's chain and hand it through with `&[]` bytes, so a chain
+//!   gate (Ruby's `block` under a stabby lambda) answers exactly and
+//!   only a byte gate is dropped. The chain-less pair disagrees with
+//!   the walk wherever a gate reads what it drops — Elixir's text-gated
+//!   `call` openers, Ruby's `block`, C#'s `parameter_list` under a type
+//!   declaration (#1828), the record header — and the derived parity
+//!   suite pins each such disagreement by name (`KNOWN_DISAGREEMENTS`).
+//!   Every other language's pair asserts `!TEXT_GATED && !CHAIN_GATED`
+//!   on its `FuncOpener` and `Container` rows at build time (#1793).
 //! - **Ask several rows of one node through the `_kind` projections**,
 //!   reading `kind_id()` once.
 //! - **A consumer's policy over a row is the consumer's.** Which
@@ -1689,7 +1699,8 @@ macro_rules! role_table {
             };
 
             /// Whether `node` is a `callable` owner of the construct — a
-            /// named function, for `Checker::is_func` — under its gate.
+            /// named function, for `Checker::is_func_with_code` — under
+            /// its gate.
             #[inline]
             pub fn is_callable<'a>(
                 node: &Node<'a>,

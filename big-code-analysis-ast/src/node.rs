@@ -1570,7 +1570,7 @@ mod tests {
         );
 
         // The shape #1088 added as a consumer: the JS-family
-        // `Checker::is_func` / `is_closure` walk upward from an
+        // callable and closure tests walk upward from an
         // `arrow_function` / `function_expression` looking for the
         // binding that names it, and end on `Ancestors::previous_sibling`
         // through `has_sibling`. None of the fixtures above contains

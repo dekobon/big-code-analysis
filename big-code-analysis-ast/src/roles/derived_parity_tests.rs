@@ -943,20 +943,20 @@ fn forwards_on<'a, C: Checker + crate::Getter>(
         owns(&rows.closure),
     );
     // The body-holding residual: every hand-written adapter composes
-    // `is_func ∨ is_closure ∨ doc_body_residual::owns` with a body-child
-    // test on `below` that no row spells, so the forward is compared
+    // `is_func_with_code ∨ is_closure ∨ doc_body_residual::owns` with a
+    // body-child test on `below` that no row spells, so the forward is compared
     // against the composition *without* the child test on the one
     // side it can be — a node the forward admits for some child is one
     // the composition admits. The row half is what the `&[]` forward
     // in `doc_body_residual_kind!` drops; the chain is the real one.
     let holds_for_any_child = node
         .children()
-        .any(|below| C::holds_doc_comment_in_body(node, ancestors, &below));
-    let composition = C::is_func(node, ancestors)
+        .any(|below| C::holds_doc_comment_in_body(node, code, ancestors, &below));
+    let composition = C::is_func_with_code(node, code, ancestors)
         || C::is_closure(node, ancestors)
         || owns(&rows.doc_body_residual);
     push(
-        "holds_doc_comment_in_body ⇒ is_func ∨ is_closure ∨ row",
+        "holds_doc_comment_in_body ⇒ is_func_with_code ∨ is_closure ∨ row",
         holds_for_any_child,
         holds_for_any_child && composition,
     );

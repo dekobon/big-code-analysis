@@ -4629,7 +4629,7 @@ fn ie(x: bool) -> i32 {
 
     /// Regression for #1160: a record's compact constructor is its own
     /// grammar kind (`compact_constructor_declaration`), which was absent
-    /// from `is_func`, `get_space_kind`, and the boundary arm in
+    /// from the callable test, `get_space_kind`, and the boundary arm in
     /// `cognitive/java.rs`. It therefore opened no function space and its
     /// control flow was charged to the enclosing class, so `bca check`
     /// could never flag one however complex it got.
@@ -11030,7 +11030,7 @@ end",
         // expected: nesting.conditional 2 from `outer`'s two `if`s, so the
         // callback's own `if` costs +3. The `nom` assertion states the
         // premise — that this shape really is on the closure side of
-        // `is_func` / `is_closure` — rather than leaving it implied.
+        // function / closure split — rather than leaving it implied.
         check_func_space::<T, _>(
             "function outer(a, b) {
                  if (a) { if (b) { run(function (c) { if (c) { return 1; } }); } }

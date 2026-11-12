@@ -38,17 +38,18 @@ impl Checker for GroovyCode {
     // `roles/groovy.rs` — `static { … }` (#1699). A record's header
     // (`record_components`) is a callable to the walk (#1842, below)
     // but never a doc comment's body, as Java's is not: a comment
-    // inside the parentheses sits in no body. Excluded by kind, not
-    // left to the byte-less `is_func`'s discarded chain.
+    // inside the parentheses sits in no body. Excluded by kind, before
+    // the callable test that would admit it.
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
     ) -> bool {
         // role-bypass: allow(FuncOpener) — the record header's kind is subtracted from
         // the body test, a doc-binding policy over the row, not whether it opens a space
         ancestor.kind_id() != Groovy::RecordComponents as u16
-            && (Self::is_func(ancestor, ancestors)
+            && (Self::is_func_with_code(ancestor, code, ancestors)
                 || Self::is_closure(ancestor, ancestors)
                 || doc_body_residual_kind!(groovy, ancestor, ancestors))
     }
@@ -76,14 +77,8 @@ impl Checker for GroovyCode {
         crate::roles::groovy::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    // As Java's pair (`checker/java.rs`): the `_with_code` spelling is
-    // the row, which the record header's text gate needs; the byte-less
-    // one forwards a known-empty chain so the header answers `false`
-    // rather than the degenerate gate.
-    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::groovy::func_opener::is_callable(node, &[], Ancestors::known(&[]))
-    }
-
+    // As Java's (`checker/java.rs`): the row, whose record-header gate
+    // reads the chain and the bytes.
     fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
         crate::roles::groovy::func_opener::is_callable(node, code, ancestors)
     }

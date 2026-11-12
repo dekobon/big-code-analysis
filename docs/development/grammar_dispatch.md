@@ -116,10 +116,10 @@ both reads `pays_at_wrapper` and `pays_at_leaf` explicitly.
 
 ## 6. Narrow a dispatch set with a gate, never by deletion
 
-Deleting a kind from `is_func` / `is_func_space` to stop an over-count
-regresses its childless variant to zero. Gate the arm on child presence
-and keep `is_func`, `is_func_space` and `get_space_kind` on the same
-predicate. When a wrapper/leaf pair double-counts, the keeper is the
+Deleting a kind from the `FuncOpener` row to stop an over-count
+regresses its childless variant to zero. Gate the owner on child
+presence, which keeps `is_func_with_code`, `is_func_space_with_code`
+and `get_space_kind_with_code` on the same predicate. When a wrapper/leaf pair double-counts, the keeper is the
 node present for every spelling, verified with `bca dump` on valid and
 on recovery input: `node-types.json` describes the well-formed grammar
 only, and an `ERROR` root routinely holds the leaf with no wrapper.
@@ -141,16 +141,18 @@ differently.
 last pair fails quietly: a space the walker opens but the getter leaves
 `Unknown` is not a member scope, so it serialises no `npm` / `npa`
 block and nothing diffs. Cross-walk the `_with_code` spellings, which
-are what the walk calls: the byte-less defaults forward to them and
-agree everywhere except the languages that override (Elixir's
-keyword-text containers, Ruby's lambda-body blocks, C#'s primary
-constructor — a `parameter_list` gated `under` a type declaration
-(#1828) — and a Java or Groovy record's header, gated on a record
-parent whose body writes no canonical constructor, told by the
-constructors' names and types as bytes (#1842); the known-empty chain sees
-neither gate, and for the header the byte-less `is_func` forwards it
-too), which is exactly where the answer matters. `tests/parity/ops_metrics_space_parity.rs`
-keeps `bca ops` and `bca metrics` opening the same spaces.
+are what the walk calls and what every language must write: the
+byte-less `is_func_space` and `get_space_kind` derive from them (#1863)
+and agree everywhere except where a gate reads what they drop
+(Elixir's keyword-text containers, Ruby's lambda-body blocks, C#'s
+primary constructor — a `parameter_list` gated `under` a type
+declaration (#1828) — and a Java or Groovy record's header, gated on a
+record parent whose body writes no canonical constructor, told by the
+constructors' names and types as bytes (#1842); the known-empty chain
+sees neither gate), which is exactly where the answer matters. The
+callable test has no byte-less spelling: ask `is_func_with_code`.
+`tests/parity/ops_metrics_space_parity.rs` keeps `bca ops` and
+`bca metrics` opening the same spaces.
 
 ## 8. Anchor a default/fallback exclusion to the construct
 

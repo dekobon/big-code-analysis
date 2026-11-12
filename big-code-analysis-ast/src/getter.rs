@@ -387,32 +387,32 @@ pub trait Getter {
         default_func_space_name(node, code, ancestors)
     }
 
-    /// The kind of space `node` opens, or [`SpaceKind::Unknown`] when it
-    /// opens none.
+    /// The kind of space `node` opens by its kind alone, or
+    /// [`SpaceKind::Unknown`] when it opens none: the byte-less spelling
+    /// of [`get_space_kind_with_code`](Self::get_space_kind_with_code),
+    /// and by default that classifier asked with no bytes and a
+    /// known-empty chain, as `Checker::is_func_space` is of its own
+    /// (#1863). The walk calls the `_with_code` one.
     #[must_use]
-    fn get_space_kind(_node: &Node) -> SpaceKind {
-        SpaceKind::Unknown
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
     }
 
-    /// Source-aware variant of [`get_space_kind`](Self::get_space_kind). The default
-    /// forwards to the byte-less classifier; languages whose space
-    /// kinds are encoded in macro identifier text (Elixir's
-    /// `defmodule` / `def` / `defp` / `defmacro` / `defmacrop` Calls)
-    /// override this so the walker can attribute the correct
-    /// `SpaceKind` to each promoted func space (#275).
+    /// The kind of space `node` opens, as the walk asks it: with the
+    /// source bytes and the chain it descended through. Required: every
+    /// language answers from its role table's `opens_space` fold, and
+    /// the byte-less [`get_space_kind`](Self::get_space_kind) derives
+    /// from this, never the reverse (#1863).
     ///
-    /// `ancestors` is the chain the caller descended through; Elixir
-    /// needs it to see whether the `Call` sits inside a `quote`
-    /// template without paying `Node::parent`'s `O(depth)` (#1084).
-    #[inline]
+    /// Elixir's `defmodule` / `def` are `Call`s told apart by their
+    /// target text (#275), and a `def` inside a `quote` template by the
+    /// chain rather than `Node::parent`'s `O(depth)` (#1084).
     #[must_use]
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
-        _code: &[u8],
-        _ancestors: Ancestors<'a, '_>,
-    ) -> SpaceKind {
-        Self::get_space_kind(node)
-    }
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind;
 
     /// Classifies `node` as a Halstead operator, operand, or neither.
     ///
@@ -2058,6 +2058,14 @@ mod keyword_role_tests {
     macro_rules! conflicting_getter {
         ($name:ident, $row:ident, $arm:ident) => {
             impl Getter for $name {
+                fn get_space_kind_with_code<'a>(
+                    _node: &Node<'a>,
+                    _code: &[u8],
+                    _ancestors: Ancestors<'a, '_>,
+                ) -> crate::SpaceKind {
+                    crate::SpaceKind::Unknown
+                }
+
                 fn get_keyword_role<'a>(
                     _node: &Node<'a>,
                     _code: &[u8],

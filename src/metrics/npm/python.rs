@@ -23,7 +23,7 @@ use super::*;
 //
 // Nested classes and async functions are handled naturally:
 // `async def m(self):` still parses as `FunctionDefinition`, so the
-// `is_func` check covers it without special-casing. Nested
+// callable test covers it without special-casing. Nested
 // `ClassDefinition` children of a class body are skipped here — they
 // open their own class space, where their methods will be counted.
 impl Npm for PythonCode {

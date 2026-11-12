@@ -133,8 +133,8 @@ impl Checker for RubyCode {
         crate::roles::ruby::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::ruby::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::ruby::func_opener::is_callable(node, code, ancestors)
     }
 
     // Ruby is the one non-JS grammar whose closure test is not

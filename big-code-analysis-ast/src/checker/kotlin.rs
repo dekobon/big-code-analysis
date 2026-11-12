@@ -65,10 +65,11 @@ impl Checker for KotlinCode {
     // body, decided by its kind so that a lambda holding thousands of
     // statements is not rescanned for every comment in it (#1597).
     // Accessors and `init` blocks open function spaces without being
-    // `is_func` (#1184), and Dokka reads a KDoc in them no more than one
+    // callables (#1184), and Dokka reads a KDoc in them no more than one
     // in a method.
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
@@ -78,7 +79,7 @@ impl Checker for KotlinCode {
         if ancestor.kind_id() == Kotlin::LambdaLiteral {
             return true;
         }
-        (Self::is_func(ancestor, ancestors)
+        (Self::is_func_with_code(ancestor, code, ancestors)
             || Self::is_closure(ancestor, ancestors)
             || doc_body_residual_kind!(kotlin, ancestor, ancestors))
             && matches!(below.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
@@ -99,8 +100,8 @@ impl Checker for KotlinCode {
         crate::roles::kotlin::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::kotlin::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::kotlin::func_opener::is_callable(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

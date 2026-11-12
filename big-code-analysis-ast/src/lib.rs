@@ -21,7 +21,7 @@
 //!
 //! This crate turns source bytes into a [`tree_sitter`] tree and
 //! answers structural questions about it: which [`LANG`] a file is in,
-//! what a [`Node`] is (`is_func`, `is_call`, `is_string`, … through
+//! what a [`Node`] is (`is_func_with_code`, `is_call`, `is_string`, … through
 //! [`Checker`]), what it is called and which Halstead class or
 //! [`SpaceKind`] it opens ([`Getter`]), and how it should be rendered
 //! as an [`AstNode`] ([`Alterator`]). It also owns the C-family

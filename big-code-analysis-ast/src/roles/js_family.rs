@@ -164,8 +164,8 @@ macro_rules! js_family_binding_gates {
         // `property_identifier` child at all, an `O(width)` scan. Asked
         // through the walk's memo it runs once per parent, so a wide
         // argument list or array literal of positional arrows is linear;
-        // `nom` and `nargs` each ask twice per arrow (`is_func` then
-        // `is_closure`), and off the walk it is computed each time.
+        // `nom` and `nargs` each ask twice per arrow (`is_func_with_code`
+        // then `is_closure`), and off the walk it is computed each time.
         //
         // At the pinned grammars no parent reaches this clause with a
         // `property_identifier` child: `node-types.json` places one only
@@ -637,7 +637,7 @@ run(function* () {});\n";
             let ancestors = Ancestors::known(chain);
             let kind = node.kind();
             let got = (
-                L::is_func(node, ancestors),
+                L::is_func_with_code(node, source, ancestors),
                 L::is_closure(node, ancestors),
                 L::promotes_to_func_space_with_code(node, source, ancestors),
                 L::get_space_kind_with_code(node, source, ancestors),

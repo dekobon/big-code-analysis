@@ -174,9 +174,10 @@ pub(crate) fn token_spelling<C: Checker>(node: &Node, code: &[u8]) -> Vec<u8> {
 #[must_use]
 pub(crate) fn outside_function_bodies<'a, T: Checker>(
     comment: &Node<'a>,
+    code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    !held_in_body::<T>(comment, 0, ancestors)
+    !held_in_body::<T>(comment, code, 0, ancestors)
 }
 
 /// Whether an ancestor of `node`, past the `skip` nearest ones, holds it
@@ -186,6 +187,7 @@ pub(crate) fn outside_function_bodies<'a, T: Checker>(
 /// everywhere.
 fn held_in_body<'a, T: Checker>(
     node: &Node<'a>,
+    code: &[u8],
     skip: usize,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
@@ -195,7 +197,7 @@ fn held_in_body<'a, T: Checker>(
         FoldLane::DocInBody,
         0,
         |held, ancestor, outer, below| {
-            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, outer, below))
+            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, code, outer, below))
         },
     ) != 0
 }
@@ -236,14 +238,14 @@ pub fn documents_where_it_sits<'a, T: Checker>(
     // once per walk rather than climbed once per comment.
     let mut below = *node;
     for (ancestor, outer) in ancestors.iter(node).take(2) {
-        if T::holds_doc_comment_in_body(&ancestor, outer, &below)
+        if T::holds_doc_comment_in_body(&ancestor, code, outer, &below)
             && !T::doc_comment_opens_body(node, &ancestor, &below, code)
         {
             return false;
         }
         below = ancestor;
     }
-    !held_in_body::<T>(node, 2, ancestors)
+    !held_in_body::<T>(node, code, 2, ancestors)
 }
 
 /// Whether a doc comment documents without a following declaration,

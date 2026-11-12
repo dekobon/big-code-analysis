@@ -40,8 +40,8 @@ impl Checker for CCode {
         crate::roles::c::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::c::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::c::func_opener::is_callable(node, code, ancestors)
     }
 
     // C has no closures/lambdas.

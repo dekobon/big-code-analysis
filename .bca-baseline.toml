@@ -215,19 +215,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1285.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/checker.rs"
-qualified = "Checker"
-metric = "nom"
-value = 29.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/getter.rs"
-qualified = "Getter"
-metric = "wmc"
-value = 58.0
+value = 1288.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -377,7 +365,7 @@ value = 894.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2268.0
+value = 2279.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"

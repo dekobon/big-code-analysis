@@ -85,7 +85,7 @@ impl Npm for KotlinCode {
         // tree-sitter-kotlin elides the `class_member_declaration` and
         // `declaration` rule layers, so function declarations and
         // secondary constructors appear as direct children of
-        // `class_body`. `Self::is_func` recognises both kinds.
+        // `class_body`. The callable test recognises both kinds.
         let under = ancestors.of_children(node);
         for func in direct_child_funcs::<Self>(node, code, under.get()) {
             if is_interface {

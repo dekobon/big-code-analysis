@@ -60,8 +60,7 @@ pub(crate) fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
         // `is_func_with_code`, not `promotes_to_func_space_with_code`:
         // this seam enumerates *functions*, so an Elixir `defmodule`
         // stays out for the same reason a Rust `impl` block and a Java
-        // class do. Every language but Elixir inherits the byte-less
-        // `is_func` through the default impl (#1162).
+        // class do (#1162).
         if T::Checker::is_func_with_code(n, code, ancestors) {
             let start_line = n.start_row() + 1;
             // `Node::end_line`, not a blanket `end_row() + 1`: a function

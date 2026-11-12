@@ -92,8 +92,8 @@ mod c_metrics {
     /// return type wraps the declarator therefore parses as a plain
     /// `declaration` that swallows the first parameter declaration, with
     /// the body orphaned as a bare `compound_statement` sibling — no
-    /// `ERROR` node, no `function_definition`, so `is_func` never sees a
-    /// node to match. `LANG::Objc` shares the defect and `Cpp` / `Mozcpp`
+    /// `ERROR` node, no `function_definition`, so the callable test never
+    /// sees a node to match. `LANG::Objc` shares the defect and `Cpp` / `Mozcpp`
     /// open no space for either form (no K&R rule at all); both are
     /// recorded in the book's Supported Languages page rather than here,
     /// since this suite drives `LANG::C` only.

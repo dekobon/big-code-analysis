@@ -125,6 +125,7 @@ impl Checker for PhpCode {
     // comment in the signature (#1612).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
+        _code: &[u8],
         _ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
@@ -156,8 +157,8 @@ impl Checker for PhpCode {
         crate::roles::php::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::php::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::php::func_opener::is_callable(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

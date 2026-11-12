@@ -55,13 +55,14 @@ impl Checker for CsharpCode {
     // each of them (#1612); then the callables and the closures (#1699).
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
         if doc_body_residual_kind!(csharp, ancestor, ancestors) {
             return below.kind_id() != Csharp::AccessorList;
         }
-        Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
+        Self::is_func_with_code(ancestor, code, ancestors) || Self::is_closure(ancestor, ancestors)
     }
 
     // A bodied indexer (`this[int i] { get; set; }`) or property
@@ -107,8 +108,8 @@ impl Checker for CsharpCode {
         crate::roles::csharp::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::csharp::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::csharp::func_opener::is_callable(node, code, ancestors)
     }
 
     fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {

@@ -757,13 +757,11 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
         if let Some(marker) = marker_at::<T>(&node, code, enclosing) {
             markers.push(marker);
         }
-        // `is_func_with_code` rather than `is_func`: Java, Groovy and
-        // Elixir identify some functions only with the source bytes,
-        // and the default impl delegates to `is_func` for every other
-        // language. The predicates that consult an ancestor — Elixir's
-        // `quote` template check, the JS-family name-binding walk — read
-        // it off `chain` rather than climbing with `Node::parent`
-        // (#1088). `for_walk_without_siblings` is one of the two walk
+        // The callable test takes the bytes and the chain. The
+        // predicates that consult an ancestor — Elixir's `quote`
+        // template check, the JS-family name-binding walk — read it off
+        // `chain` rather than climbing with `Node::parent` (#1088).
+        // `for_walk_without_siblings` is one of the two walk
         // constructors, which lend the memo and record the visit in one
         // step (#1737), and the one that says this walk records no
         // siblings: none of these predicates asks for one, and one that
@@ -1607,11 +1605,10 @@ mod tests {
     #[cfg(feature = "elixir")]
     #[test]
     fn collector_elixir_requires_code_aware_func_predicate() {
-        // Elixir is the language whose `Checker::is_func` returns `false`
-        // unconditionally — it identifies functions only through the
-        // code-aware `is_func_with_code`. This test fails if the walk
-        // reverts to plain `is_func` (the enclosing function would then
-        // resolve to `None`), so it pins the predicate choice in
+        // Elixir tells a function only by the bytes: a `def` is a `call`
+        // whose target text says so. This test fails if the walk's
+        // callable test is handed none (the enclosing function would
+        // then resolve to `None`), so it pins the predicate choice in
         // `suppression_markers`.
         let src =
             "defmodule M do\n  def parse_long do\n    # bca: suppress\n    x = 1\n  end\nend\n";

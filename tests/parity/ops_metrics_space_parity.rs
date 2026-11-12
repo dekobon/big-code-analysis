@@ -115,7 +115,7 @@ pub(super) fn fixture(lang: LANG) -> (&'static str, &'static str) {
             "m",
         ),
         // An expression-bodied property alongside an ordinary method:
-        // per `docs/development/grammar_dispatch.md` §6, `is_func`,
+        // per `docs/development/grammar_dispatch.md` §6, the callable test,
         // `is_func_space`, and `get_space_kind` must stay gated by the
         // same child-presence predicate for these, and a mismatch shows
         // up here as an ops/metrics divergence.

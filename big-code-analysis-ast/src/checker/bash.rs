@@ -21,8 +21,8 @@ impl Checker for BashCode {
         crate::roles::bash::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::bash::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::bash::func_opener::is_callable(node, code, ancestors)
     }
 
     // `Call` and `StringLit` are the rows of `roles/bash.rs` (#1698);

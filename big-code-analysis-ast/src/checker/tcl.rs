@@ -21,8 +21,8 @@ impl Checker for TclCode {
         crate::roles::tcl::opens_space(node, code, ancestors) != SpaceKind::Unknown
     }
 
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::tcl::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::tcl::func_opener::is_callable(node, code, ancestors)
     }
 
     // Tcl closures (`apply`) are ordinary commands; the grammar has no distinct closure node.

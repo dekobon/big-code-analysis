@@ -173,7 +173,7 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> ParserTrait for P
                 "string" => res.push(Box::new(move |node: &Node, ancestors| {
                     T::is_string_with_code(node, code, ancestors)
                 })),
-                // The JS-family `is_func` and Elixir's `is_func_with_code`
+                // The JS family's and Elixir's `is_func_with_code`
                 // consult the chain to tell a named function from a
                 // closure and a `def` `Call` from any other (#1088,
                 // #1162). Both answer the same off an unknown chain —

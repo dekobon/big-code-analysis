@@ -29,10 +29,10 @@ use crate::*;
 /// This metric counts the number of arguments
 /// of functions/closures.
 ///
-/// A callable is whatever opens a `Function` space and is `is_func`:
-/// a Kotlin or C# primary constructor is one, its space being the
-/// parameter list in the class header (#1828), so its parameters are
-/// its own and never the class's.
+/// A callable is whatever opens a `Function` space and is
+/// `is_func_with_code`: a Kotlin or C# primary constructor is one, its
+/// space being the parameter list in the class header (#1828), so its
+/// parameters are its own and never the class's.
 ///
 /// Unlike the per-function fields of cyclomatic, cognitive and nexits
 /// (#1284), the extrema and the averages here read different
@@ -316,13 +316,12 @@ where
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
     ///
-    /// Uses the source-aware [`Checker::is_func_with_code`] rather than the
-    /// byte-less `is_func`, exactly as [`crate::nom::Nom::compute`] does.
-    /// For every grammar with a syntactic function-definition node the two
-    /// are the same predicate, so no count moves; the point is that a
-    /// language whose declarations are only recognisable from the source
-    /// text — Elixir's `def` is an ordinary `Call` (#275) — does not
-    /// silently report 0 here (#1142).
+    /// Asks [`Checker::is_func_with_code`], the bytes and the chain in
+    /// hand, exactly as [`crate::nom::Nom::compute`] does: a callable
+    /// recognisable only from the source text — Elixir's `def` is an
+    /// ordinary `Call` (#275) — or from what encloses it must not
+    /// silently report 0 here (#1142). Every override below asks the
+    /// same predicate; there is no byte-less one to reach for (#1863).
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         if Self::is_func_with_code(node, code, ancestors) {
             compute_args::<Self>(
@@ -348,7 +347,7 @@ where
     /// Exists so a language that spells its parameters somewhere other
     /// than on the function node can say *that* and inherit everything
     /// else. Overriding [`Self::compute`] to change this one expression
-    /// means re-stating the `is_func_with_code`-not-`is_func` rule and
+    /// means re-stating the callable test and
     /// the closure fallback, and a language that copied them does not
     /// pick up a later correction — which is the drift #1142 and #1162
     /// were both filed about.
@@ -487,8 +486,8 @@ fn compute_go_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_go_args(node, &mut stats.fn_nargs);
             return;
         }
@@ -534,7 +533,7 @@ fn compute_kotlin_lambda_args(node: &Node, code: &[u8], nargs: &mut usize) {
 
 impl NArgs for KotlinCode {
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_kotlin_func_args(node, &mut stats.fn_nargs);
             return;
         }
@@ -560,8 +559,8 @@ fn compute_lua_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for LuaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_lua_args(node, &mut stats.fn_nargs);
         } else if Self::is_closure(node, ancestors) {
             compute_lua_args(node, &mut stats.closure_nargs);
@@ -580,8 +579,8 @@ fn compute_tcl_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for TclCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_tcl_args(node, &mut stats.fn_nargs);
         }
     }
@@ -603,8 +602,8 @@ fn compute_irules_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_irules_args(node, &mut stats.fn_nargs);
         }
     }
@@ -659,7 +658,7 @@ fn compute_perl_args(node: &Node, code: &[u8], nargs: &mut usize) {
 
 impl NArgs for PerlCode {
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        if Self::is_func(node, ancestors) {
+        if Self::is_func_with_code(node, code, ancestors) {
             compute_perl_args(node, code, &mut stats.fn_nargs);
             return;
         }
@@ -735,11 +734,9 @@ fn elixir_unwrap_guard<'a>(node: &Node<'a>, code: &[u8]) -> Node<'a> {
 
 impl NArgs for ElixirCode {
     fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
-        // `is_func` is byte-less and constant `false` for Elixir, because a
-        // `def` is textually indistinguishable from any other `Call`. The
-        // code-aware predicate (#275) is the only one that identifies one,
-        // and it also excludes a `def` inside `quote do … end`, which
-        // declares nothing until the macro expands (#310).
+        // A `def` is a `Call` told from any other by its target text
+        // (#275), and one inside `quote do … end` declares nothing until
+        // the macro expands (#310): the predicate reads both.
         if Self::is_func_with_code(node, code, ancestors) {
             stats.fn_nargs += elixir_declared_args(node, code);
             return;
@@ -943,36 +940,24 @@ mod tests {
     // count is only observable one space at a time.
     check_func_space_only_shim!(check_spaces, Nargs);
 
-    /// The `compute` impls above for Go, Kotlin, Lua, Tcl, iRules and
-    /// Perl read the byte-less `is_func` / `is_closure`, and Elixir's,
-    /// Groovy's and the shared impl read the byte-less `is_closure`:
-    /// each hands the walk's chain through and no bytes, which answers
-    /// the row's question only while no owner of that row is
-    /// `text_gated_by`. This pins that — a row that grows a text gate
-    /// fails here, naming the impl that must move to the `_with_code`
-    /// spelling rather than silently missing the gated owner (#1696
-    /// AC 3). The text-gated `FuncOpener` rows are read through
-    /// `is_func_with_code`: Elixir's by its impl, and since #1842
-    /// Java's by the shared impl and Groovy's by its own — a record's
-    /// header is gated on the body's constructor *types*, and the
-    /// byte-less spelling forwards a known-empty chain under which the
-    /// header is no callable at all
-    /// (`java_header_beside_a_same_arity_alternative_counts_its_components`).
-    /// The rows are declarations, built in every feature set, so this
-    /// needs no grammar.
+    /// Every `compute` impl above reads the byte-less `is_closure`: it
+    /// hands the walk's chain through and no bytes, which answers the
+    /// `Closure` row's question only while no owner of that row is
+    /// `text_gated_by`. This pins that for the impls that spell the
+    /// call themselves — a row that grows a text gate fails here,
+    /// naming the impl that must stop dropping the bytes rather than
+    /// silently missing the gated owner (#1696 AC 3). The callable half
+    /// needs no such pin since #1863: every impl asks
+    /// `is_func_with_code`, the only spelling. The rows are
+    /// declarations, built in every feature set, so this needs no
+    /// grammar.
     #[test]
-    fn byte_less_spellings_read_only_rows_without_a_text_gate() {
-        use crate::roles::{elixir, go, groovy, irules, java, kotlin, lua, perl, tcl};
+    fn byte_less_is_closure_reads_only_rows_without_a_text_gate() {
+        use crate::roles::{elixir, go, groovy, java, kotlin, lua, perl};
         let rows: &[(&str, bool)] = &[
-            ("go FuncOpener", go::func_opener::TEXT_GATED),
             ("go Closure", go::closure::TEXT_GATED),
-            ("kotlin FuncOpener", kotlin::func_opener::TEXT_GATED),
             ("kotlin Closure", kotlin::closure::TEXT_GATED),
-            ("lua FuncOpener", lua::func_opener::TEXT_GATED),
             ("lua Closure", lua::closure::TEXT_GATED),
-            ("tcl FuncOpener", tcl::func_opener::TEXT_GATED),
-            ("irules FuncOpener", irules::func_opener::TEXT_GATED),
-            ("perl FuncOpener", perl::func_opener::TEXT_GATED),
             ("perl Closure", perl::closure::TEXT_GATED),
             ("java Closure", java::closure::TEXT_GATED),
             ("groovy Closure", groovy::closure::TEXT_GATED),
@@ -981,18 +966,7 @@ mod tests {
         for (row, text_gated) in rows {
             assert!(
                 !text_gated,
-                "{row} grew a text gate: its `NArgs::compute` must read the `_with_code` spelling"
-            );
-        }
-        let read_with_code = [
-            ("elixir FuncOpener", elixir::func_opener::TEXT_GATED),
-            ("java FuncOpener", java::func_opener::TEXT_GATED),
-            ("groovy FuncOpener", groovy::func_opener::TEXT_GATED),
-        ];
-        for (row, text_gated) in read_with_code {
-            assert!(
-                text_gated,
-                "{row} is read through `is_func_with_code` above"
+                "{row} grew a text gate: its `NArgs::compute` must stop reading the byte-less `is_closure`"
             );
         }
     }
@@ -2720,7 +2694,7 @@ mod tests {
         );
     }
 
-    /// Perl 5.38's `method` is a second `is_func` kind
+    /// Perl 5.38's `method` is a second callable kind
     /// (`function_definition_without_sub`) reaching the same helper, so it
     /// gets its own fixture rather than riding on the `sub` tests.
     #[cfg(feature = "perl")]
@@ -4634,13 +4608,14 @@ class A(val x: Int)",
     }
 
     /// The header's row is gated on the *bytes* of the body's
-    /// constructor types, so a byte-less `is_func` asked of it reads
+    /// constructor types, so a callable test handed none reads
     /// every same-arity constructor as canonical — `A(long a)` beside
     /// component `int a` closes the header under no bytes and leaves it
     /// open under the real ones. The space walk opens the header with
-    /// the bytes; a `compute` whose callable test fell through to the
-    /// byte-less spelling counted nothing on that space, and the header
-    /// row read `nargs` 0 beside the alternative's 1. Both rows are 1:
+    /// the bytes; a `compute` whose callable test dropped them (the
+    /// byte-less `is_func` #1863 removed) counted nothing on that space,
+    /// and the header row read `nargs` 0 beside the alternative's 1.
+    /// Both rows are 1:
     /// the header's one component and the alternative's one parameter.
     #[cfg(feature = "java")]
     #[test]
@@ -4664,9 +4639,9 @@ class A(val x: Int)",
 
     /// Groovy's twin of
     /// `java_header_beside_a_same_arity_alternative_counts_its_components`:
-    /// the `record_components` row's gate compares type bytes, so the
-    /// byte-less `is_func` closes the header beside any same-arity
-    /// constructor and the walk's space read 0.
+    /// the `record_components` row's gate compares type bytes, so a
+    /// callable test handed none closes the header beside any
+    /// same-arity constructor and the walk's space read 0.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_header_beside_a_same_arity_alternative_counts_its_components() {

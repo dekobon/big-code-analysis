@@ -12,8 +12,8 @@ impl Checker for ElixirCode {
     // the macro identifier in the `target` field, so the rows that name
     // them (`roles/elixir.rs`) read source bytes and, for a `def` inside
     // a `quote` template (#310), the chain. The byte-less `is_func_space`
-    // and `is_func` cannot read either and so answer the kind table
-    // alone: the file root and an anonymous function. The `_with_code`
+    // cannot read either and so answers the kind table alone: the file
+    // root and an anonymous function. The `_with_code`
     // spellings read the rows, and the walk promotes through
     // `promotes_to_func_space_with_code` below, which reads the one
     // keyword lookup both rows share rather than each row in turn.
@@ -30,10 +30,6 @@ impl Checker for ElixirCode {
             node.kind_id().into(),
             Elixir::Source | Elixir::AnonymousFunction
         )
-    }
-
-    fn is_func<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        false
     }
 
     fn is_func_space_with_code<'a>(

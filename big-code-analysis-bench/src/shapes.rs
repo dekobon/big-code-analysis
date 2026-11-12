@@ -251,7 +251,7 @@ pub fn nested_declarations(depth: usize) -> String {
 
 /// Elixir: a module of nested `quote` blocks, each wrapping a `def`.
 ///
-/// Elixir's `is_func` asks `elixir_is_inside_quote_block` for every
+/// Elixir's callable test asks `elixir_is_inside_quote_block` for every
 /// `def`-like call, because a `def` inside `quote` is quoted AST
 /// rather than a definition. That predicate walks the ancestor chain
 /// reading each ancestor's call keyword out of the source bytes. It
@@ -505,7 +505,7 @@ pub fn c_unclosed_comment_rows(width: usize) -> String {
 /// The linear control for [`nested_arrows`]: one function per nesting
 /// level and one `FuncSpace` per level, as there, but *declared* rather
 /// than written as an expression. `function_declaration` is a distinct
-/// grammar production, so `Checker::is_func` answers it from the node's
+/// grammar production, so the callable test answers it from the node's
 /// own kind and never starts the ancestor walk. What is left is the
 /// space-nesting bookkeeping the two shapes share.
 ///
@@ -1127,7 +1127,7 @@ pub fn nested_cfg_predicate(depth: usize) -> String {
 ///
 /// The JS grammars have no production for "named function": `const f =
 /// () => …` and `g(() => …)` are the same `arrow_function` node, and
-/// `Checker::is_func` tells them apart by asking the ancestors for a
+/// the callable test tells them apart by asking the ancestors for a
 /// name binding before a frame that proves positional use. Here the
 /// enclosing `statement_block` is that frame two steps up — which is
 /// the point; [`js_arrow_per_array_depth`] is the shape with no frame
@@ -2587,7 +2587,7 @@ pub const PROBES: &[Probe] = &[
         render: nested_quotes,
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1084: Elixir's `is_func` asks \
+        rationale: "#1084: Elixir's callable test asks \
                     `elixir_is_inside_quote_block` for every `def`. The \
                     predicate short-circuits on the first `quote` \
                     ancestor, and each step now indexes the walker's \
@@ -3066,7 +3066,7 @@ pub const PROBES: &[Probe] = &[
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `nom/nested-arrow`: one function and \
                     one `FuncSpace` per level as there, but declared with \
-                    `function`, which `Checker::is_func` answers from the \
+                    `function`, which the callable test answers from the \
                     node's own kind without an ancestor walk.",
     },
     Probe {
@@ -3081,7 +3081,7 @@ pub const PROBES: &[Probe] = &[
         render: nested_arrows,
         sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1088: the JS-family `Checker::is_func` / `is_closure` \
+        rationale: "#1088: the JS-family callable test and `is_closure` \
                     decide whether an `arrow_function` is bound to a name by \
                     walking upward. The enclosing `statement_block` stops \
                     that walk after two steps, but `Node::parent` is \

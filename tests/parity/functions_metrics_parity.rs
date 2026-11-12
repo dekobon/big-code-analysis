@@ -40,7 +40,7 @@ use super::ops_metrics_space_parity::fixture;
 /// only some call it a *function*: Rust's `ClosureExpression`, Go's
 /// `FuncLiteral`, Perl's and PHP's anonymous `sub`/`function`, Ruby's
 /// `lambda` and Lua's `function` expression are `is_func_space` without
-/// being `is_func`, while a JavaScript arrow function and an iRules
+/// being callables, while a JavaScript arrow function and an iRules
 /// `when` block are both. `bca functions` therefore reports some such
 /// spaces and not others, which is a per-grammar judgement this test has
 /// no business pinning — so the coverage claim below is scoped to spaces
@@ -56,7 +56,7 @@ use super::ops_metrics_space_parity::fixture;
 ///
 /// `<anonymous>` is the trait default; #1184 added the other four for
 /// constructs that carry executable code but no name token, each
-/// `is_func_space` without being `is_func` for exactly the reason above.
+/// `is_func_space` without being a callable for exactly the reason above.
 #[cfg(any(
     feature = "bash",
     feature = "c",

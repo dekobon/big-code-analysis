@@ -463,8 +463,29 @@ mod tests {
     #[cfg(feature = "cpp")]
     mod constrained_probe {
         use super::*;
+
+        // A `Checker` that opens no space and names no function: the two
+        // predicates the trait requires, answered `false`.
+        macro_rules! probe_checker {
+            ($name:ident) => {
+                impl Checker for $name {
+                    fn is_func_space_with_code<'a>(
+                        _: &Node<'a>,
+                        _: &[u8],
+                        _: Ancestors<'a, '_>,
+                    ) -> bool {
+                        false
+                    }
+
+                    fn is_func_with_code<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+                        false
+                    }
+                }
+            };
+        }
+
         struct Probe;
-        impl Checker for Probe {}
+        probe_checker!(Probe);
         impl_cyclomatic_rows!(
             Probe,
             Cpp,
@@ -476,7 +497,7 @@ mod tests {
             constraints = [RequiresClause, RequiresExpression],
         );
         struct Empty;
-        impl Checker for Empty {}
+        probe_checker!(Empty);
         impl_cyclomatic_rows!(
             Empty,
             Cpp,

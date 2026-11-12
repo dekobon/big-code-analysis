@@ -280,7 +280,7 @@ mod tests {
 
     // Until #1696 the space rows restated `checker/python.rs` and
     // `getter/python.rs` and this compared the two; now the classifiers
-    // read the rows, so the expected `(is_func, is_closure, promoted,
+    // read the rows, so the expected `(is_func_with_code, is_closure, promoted,
     // SpaceKind, is_member)` per node is pinned independently, as are
     // the `Call` and `StringLit` rows by kind string since R08 (#1698)
     // made the classifiers read those too. The per-shape tests below do
@@ -297,7 +297,7 @@ mod tests {
             let kind = node.kind();
             let promoted = PythonCode::promotes_to_func_space_with_code(node, source, ancestors);
             let got = (
-                PythonCode::is_func(node, ancestors),
+                PythonCode::is_func_with_code(node, source, ancestors),
                 PythonCode::is_closure(node, ancestors),
                 promoted,
                 PythonCode::get_space_kind_with_code(node, source, ancestors),

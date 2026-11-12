@@ -42,8 +42,8 @@ impl Checker for ObjcCode {
     // A `method_definition` is the `@implementation`-side method with a
     // body; the `@interface`-side `method_declaration` has no body and
     // is therefore not a function.
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::objc::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::objc::func_opener::is_callable(node, code, ancestors)
     }
 
     // A plain C function written inside `@implementation` / `@interface`
@@ -69,7 +69,7 @@ impl Checker for ObjcCode {
     // `true` at file scope is deliberate and inert: `wmc::Stats::merge`
     // credits a `Function` child only to a `Class` or `Interface`
     // parent. Both aliases ride together per the #285 contract this file
-    // follows in `is_func` / `is_func_space`.
+    // follows in the callable and space tests.
     fn is_non_member_function<'a>(
         node: &Node<'a>,
         _code: &[u8],

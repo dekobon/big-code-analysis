@@ -1,10 +1,10 @@
 //! The space-tree rows of the kind-only languages, pinned independently
 //! (#1696): for each language, a fixture spelling every `FuncOpener`,
 //! `Closure`, `Container` and `Member` kind, and the expected
-//! `(is_func, is_closure, promoted, SpaceKind, is_member)` per kind as
-//! the classifiers answered before they read the rows. A kind absent
-//! from a language's table answers all-false; every declared owner must
-//! be met by the fixture.
+//! `(is_func_with_code, is_closure, promoted, SpaceKind, is_member)` per
+//! kind as the classifiers answered before they read the rows. A kind
+//! absent from a language's table answers all-false; every declared
+//! owner must be met by the fixture.
 
 use crate::test_support::{for_each_node_with_chain, owners_covered};
 use crate::{Ancestors, Checker, Getter, LanguageInfo, Node, SpaceKind};
@@ -184,17 +184,13 @@ fn check_gated<L: LanguageInfo + Checker + Getter>(
             rows.push((node.utf8_text(source).unwrap_or("?").to_owned(), got));
             return;
         }
-        // The byte-less triple is the kind table, gates aside: on a row
+        // The byte-less pair is the kind table, gates aside: on a row
         // whose owners read no chain and no bytes it answers exactly
-        // what the `_with_code` triple answers (Ruby's chain-reading gate
+        // what the `_with_code` pair answers (Ruby's chain-reading gate
         // is pinned apart, in `ruby_byte_less_spellings_stay_the_kind_table`).
         assert_eq!(
-            (
-                L::is_func(node, ancestors),
-                L::is_func_space(node),
-                L::get_space_kind(node)
-            ),
-            (got.0, promoted, got.3),
+            (L::is_func_space(node), L::get_space_kind(node)),
+            (promoted, got.3),
             "{kind}: the byte-less spellings are the kind table"
         );
         let want = expected
@@ -459,7 +455,7 @@ fn check_cpp<L: LanguageInfo + Checker + Getter>(
         let kind = node.kind();
         let promoted = L::promotes_to_func_space_with_code(node, source, ancestors);
         let got = (
-            L::is_func(node, ancestors),
+            L::is_func_with_code(node, source, ancestors),
             L::is_closure(node, ancestors),
             promoted,
             L::get_space_kind_with_code(node, source, ancestors),
@@ -629,7 +625,7 @@ fn csharp_space_tree_rows() {
         let kind = node.kind();
         let promoted = CsharpCode::promotes_to_func_space_with_code(node, source, ancestors);
         let got = (
-            CsharpCode::is_func(node, ancestors),
+            CsharpCode::is_func_with_code(node, source, ancestors),
             CsharpCode::is_closure(node, ancestors),
             promoted,
             CsharpCode::get_space_kind_with_code(node, source, ancestors),
@@ -738,7 +734,7 @@ fn kotlin_space_tree_rows() {
         let kind = node.kind();
         let promoted = KotlinCode::promotes_to_func_space_with_code(node, source, ancestors);
         let got = (
-            KotlinCode::is_func(node, ancestors),
+            KotlinCode::is_func_with_code(node, source, ancestors),
             KotlinCode::is_closure(node, ancestors),
             promoted,
             KotlinCode::get_space_kind_with_code(node, source, ancestors),
@@ -898,7 +894,7 @@ fn ruby_space_tree_rows() {
         let kind = node.kind();
         let promoted = RubyCode::promotes_to_func_space_with_code(node, source, ancestors);
         let got = (
-            RubyCode::is_func(node, ancestors),
+            RubyCode::is_func_with_code(node, source, ancestors),
             RubyCode::is_closure(node, ancestors),
             promoted,
             RubyCode::get_space_kind_with_code(node, source, ancestors),
@@ -1246,13 +1242,13 @@ fn csharp_byte_less_spellings_omit_the_primary_constructor() {
 }
 
 /// One parameter list's answers for the two record-header tests below:
-/// its text, the byte-less `(is_func, is_func_space, get_space_kind)`
-/// and the with-code `(is_func_with_code, is_func_space_with_code,
+/// its text, the byte-less `(is_func_space, get_space_kind)` and the
+/// with-code `(is_func_with_code, is_func_space_with_code,
 /// get_space_kind_with_code, get_func_space_name)`.
 #[cfg(any(feature = "java", feature = "groovy"))]
 type ListAnswer = (
     String,
-    (bool, bool, SpaceKind),
+    (bool, SpaceKind),
     (bool, bool, SpaceKind, Option<&'static str>),
 );
 
@@ -1271,11 +1267,7 @@ fn list_answers<L: Checker + Getter + LanguageInfo>(
         let ancestors = Ancestors::known(chain);
         lists.push((
             node.utf8_text(source).unwrap_or("?").to_owned(),
-            (
-                L::is_func(node, ancestors),
-                L::is_func_space(node),
-                L::get_space_kind(node),
-            ),
+            (L::is_func_space(node), L::get_space_kind(node)),
             (
                 L::is_func_with_code(node, source, ancestors),
                 L::is_func_space_with_code(node, source, ancestors),
@@ -1293,7 +1285,7 @@ fn list_answers<L: Checker + Getter + LanguageInfo>(
 fn header(text: &str, name: &'static str) -> ListAnswer {
     (
         text.to_owned(),
-        (false, false, SpaceKind::Unknown),
+        (false, SpaceKind::Unknown),
         (true, true, SpaceKind::Function, Some(name)),
     )
 }
@@ -1303,7 +1295,7 @@ fn header(text: &str, name: &'static str) -> ListAnswer {
 fn plain(text: &str, name: &'static str) -> ListAnswer {
     (
         text.to_owned(),
-        (false, false, SpaceKind::Unknown),
+        (false, SpaceKind::Unknown),
         (false, false, SpaceKind::Unknown, Some(name)),
     )
 }
@@ -1313,9 +1305,8 @@ fn plain(text: &str, name: &'static str) -> ListAnswer {
 /// which the byte-less spellings cannot see, as C#'s primary constructor
 /// (`csharp_byte_less_spellings_omit_the_primary_constructor`): the
 /// gate reads the record's body through the chain and its constructors'
-/// types from the bytes, so the byte-less `is_func` forwards the
-/// known-empty chain as `is_func_space` does, and the header is no
-/// callable to it. Every other `formal_parameters` — a method's, a
+/// types from the bytes, neither of which the byte-less pair hands it.
+/// Every other `formal_parameters` — a method's, a
 /// constructor's, and the header of a record whose body writes a
 /// compact or a normal canonical constructor — answers alike on both.
 /// The normal canonical constructor is told from an alternative by its

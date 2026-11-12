@@ -39,8 +39,8 @@ impl Checker for IrulesCode {
     // Event handlers count as functions (not closures): `nom.functions` on
     // a typical iRules file is then the handler count, the intuitive
     // metric. `try` handlers are excluded — see `is_func_space`.
-    fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-        crate::roles::irules::func_opener::is_callable(node, &[], ancestors)
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        crate::roles::irules::func_opener::is_callable(node, code, ancestors)
     }
 
     // iRules has no anonymous lambda node (`apply` is an ordinary command).

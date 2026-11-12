@@ -8,4 +8,13 @@ impl Getter for PreprocCode {
     // reading the rows rather than inheriting a default is what lets
     // the trait require the method of every language (#1693).
     keyword_roles!(preproc);
+
+    // No row of `roles/preproc.rs` opens a space.
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
+        crate::roles::preproc::opens_space(node, code, ancestors)
+    }
 }

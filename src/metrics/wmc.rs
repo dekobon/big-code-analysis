@@ -276,7 +276,7 @@ impl Wmc for PhpCode {
 //   the enclosing class).
 // - `Unknown` (anything else — skipped).
 //
-// Lambdas (`Lambda`) are not `is_func` and therefore do not open a
+// Lambdas (`Lambda`) are not `is_func_with_code` and so do not open a
 // `Function` space, so they correctly do *not* contribute to WMC
 // — they are anonymous expressions, not methods.
 impl Wmc for PythonCode {
@@ -2668,9 +2668,9 @@ mod tests {
         // charged to the enclosing class space without WMC ever seeing
         // it, and `bca check` could not flag one however complex it got.
         //
-        // WMC keys on `SpaceKind::Function` rather than on `is_func`,
+        // WMC keys on `SpaceKind::Function` rather than on the callable test,
         // which is why this moves even though the block is deliberately
-        // *not* in `is_func` (it is not a callable anyone names).
+        // *not* a callable (it is not a callable anyone names).
         check_metrics::<KotlinParser>(
             "class C(val n: Int) {                       // +1 since #1828
                 init {                                   // +1 since #1184

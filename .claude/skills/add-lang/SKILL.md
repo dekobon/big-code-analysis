@@ -536,13 +536,15 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
   answer `false`, which is right for a language with no doc
   convention. Where one exists, `lang_helpers/doc_text.rs` has the
   shared opener tests.
-- `is_func_space` / `is_func_space_with_code`, `is_func`,
-  `is_closure` — forward to the table: `crate::roles::<lang>::opens_space`
-  (emitted once per table as the fold over every `opens K` annotation
-  on the `FuncOpener` and `Container` rows) for the space predicates,
-  `func_opener::is_callable` for `is_func`, `closure::owns` for
-  `is_closure` (#1696). Copy the Lua or Go shape, including the
-  byte-less `is_func_space` forwarding with `Ancestors::known(&[])`.
+- `is_func_space_with_code`, `is_func_with_code`, `is_closure` —
+  forward to the table: `crate::roles::<lang>::opens_space` (emitted
+  once per table as the fold over every `opens K` annotation on the
+  `FuncOpener` and `Container` rows) for the space predicate,
+  `func_opener::is_callable` for `is_func_with_code`, `closure::owns`
+  for `is_closure` (#1696). The two `_with_code` predicates are
+  required: the trait gives them no default (#1863). Copy the Lua or
+  Go shape, including `impl_byte_less_func_space!`, which emits the
+  byte-less `is_func_space` with its build-time pin.
 - `is_call`, `is_call_with_code`, `is_string`,
   `is_string_with_code` — one `impl_row_predicates!(<lang>, call, …)`
   and one `impl_row_predicates!(<lang>, string_lit, …)` line each
@@ -594,12 +596,13 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
 Create the file, add `mod <lang>;` to `getter.rs`, and write
 `impl Getter for <LangName>Code`. Required methods:
 
-- `get_space_kind` / `get_space_kind_with_code` — forward to
-  `crate::roles::<lang>::opens_space`, the fold over every `opens K`
-  annotation on the `FuncOpener` and `Container` rows (#1696). The
-  byte-less spelling forwards with `Ancestors::known(&[])`, as the
-  Lua and Go impls do; `is_func_space` and `get_space_kind` must read
-  the same predicate or the space tree disagrees with itself
+- `get_space_kind_with_code` — **required** by the trait (no default,
+  #1863); forward to `crate::roles::<lang>::opens_space`, the fold
+  over every `opens K` annotation on the `FuncOpener` and `Container`
+  rows (#1696). `impl_byte_less_space_kind!(<lang>);` emits the
+  byte-less `get_space_kind` with its build-time pin, as the Lua and
+  Go impls do; `is_func_space` and `get_space_kind` must read the same
+  predicate or the space tree disagrees with itself
   (`grammar-dispatch.md` §7).
 - `keyword_roles!(<lang>);` — emits `get_keyword_role`, which is
   **required** by the trait (no default), from the `Modifier`,
@@ -893,8 +896,8 @@ Add real impls for the remaining metrics where the grammar exposes
 the necessary nodes:
 
 - **Nom** (`src/metrics/nom.rs`): default trait body usually works if
-  `Checker::is_func` and `Checker::is_closure` are correct. Verify
-  with a unit test before assuming.
+  `Checker::is_func_with_code` and `Checker::is_closure` are correct.
+  Verify with a unit test before assuming.
 - **NArgs** (`src/metrics/nargs.rs`): default counts direct children
   of the parameter list. Some grammars group same-typed parameters
   into a single node (Go does this with `parameter_declaration`,

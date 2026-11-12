@@ -20,7 +20,7 @@ macro_rules! impl_js_family_doc_binding {
                 skips: |node, _| node.kind_id() == $lang::Decorator,
                 forward: |comment, code, ancestors| {
                     $crate::lang_helpers::doc_comment::outside_function_bodies::<Self>(
-                        comment, ancestors,
+                        comment, code, ancestors,
                     ) && !$standalone($crate::lang_helpers::doc_comment::node_bytes(comment, code))
                 },
                 ..$crate::lang_helpers::DocBinding::new($crate::lang_helpers::KeptDocs::Leading {
@@ -40,10 +40,13 @@ macro_rules! impl_js_family_doc_binding {
         // ends it without starting it.
         fn holds_doc_comment_in_body<'a>(
             ancestor: &Node<'a>,
+            code: &[u8],
             ancestors: Ancestors<'a, '_>,
             below: &Node<'a>,
         ) -> bool {
-            if !Self::is_func(ancestor, ancestors) && !Self::is_closure(ancestor, ancestors) {
+            if !Self::is_func_with_code(ancestor, code, ancestors)
+                && !Self::is_closure(ancestor, ancestors)
+            {
                 return false;
             }
             // role-bypass: allow(FuncOpener, Closure) — where a comment

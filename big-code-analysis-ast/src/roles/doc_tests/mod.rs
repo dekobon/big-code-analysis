@@ -705,7 +705,7 @@ mod java {
         for_each_node_with_chain::<JavaCode>(source, |node, chain| {
             let ancestors = Ancestors::known(chain);
             let target = JavaCode::is_doc_target(node, source, ancestors);
-            let holds = JavaCode::holds_doc_comment_in_body(node, ancestors, node);
+            let holds = JavaCode::holds_doc_comment_in_body(node, source, ancestors, node);
             if target || holds {
                 seen.push((node.kind(), target, holds));
             }
@@ -750,7 +750,7 @@ mod java {
             if node.kind() == "formal_parameters" {
                 headers.push((
                     JavaCode::is_func_with_code(node, source, ancestors),
-                    JavaCode::holds_doc_comment_in_body(node, ancestors, node),
+                    JavaCode::holds_doc_comment_in_body(node, source, ancestors, node),
                 ));
             } else if JavaCode::is_doc_comment(node, source) {
                 comments.push((
@@ -876,7 +876,7 @@ mod groovy {
             if node.kind() == "record_components" {
                 headers.push((
                     GroovyCode::is_func_with_code(node, source, ancestors),
-                    GroovyCode::holds_doc_comment_in_body(node, ancestors, node),
+                    GroovyCode::holds_doc_comment_in_body(node, source, ancestors, node),
                 ));
             } else if GroovyCode::is_doc_comment(node, source) {
                 comments.push((
@@ -991,8 +991,10 @@ mod kotlin {
             let not_body = node.child(0).expect("every listed node has a child");
             seen.push((
                 node.kind(),
-                body.is_some_and(|b| KotlinCode::holds_doc_comment_in_body(node, ancestors, &b)),
-                KotlinCode::holds_doc_comment_in_body(node, ancestors, &not_body),
+                body.is_some_and(|b| {
+                    KotlinCode::holds_doc_comment_in_body(node, source, ancestors, &b)
+                }),
+                KotlinCode::holds_doc_comment_in_body(node, source, ancestors, &not_body),
             ));
         });
         assert_eq!(
@@ -1122,9 +1124,10 @@ mod csharp {
             let first = node.child(0).expect("a member has children");
             seen.push((
                 node.kind(),
-                accessors
-                    .is_some_and(|a| CsharpCode::holds_doc_comment_in_body(node, ancestors, &a)),
-                CsharpCode::holds_doc_comment_in_body(node, ancestors, &first),
+                accessors.is_some_and(|a| {
+                    CsharpCode::holds_doc_comment_in_body(node, source, ancestors, &a)
+                }),
+                CsharpCode::holds_doc_comment_in_body(node, source, ancestors, &first),
             ));
         });
         assert_eq!(
@@ -1140,7 +1143,7 @@ mod csharp {
 
     /// The cost pin for the order above: asking the body test of a
     /// property or indexer runs **no** accessor search, because the row
-    /// answers before `is_func` (whose `has_no_accessors` gate would
+    /// answers before the callable test (whose `has_no_accessors` gate would
     /// scan the accessor list) is reached. Swapping the branches makes
     /// the count one per member — a cost no verdict and no scaling probe
     /// reaches, which is why it is counted here.
@@ -1159,6 +1162,7 @@ mod csharp {
                 let first = node.child(0).expect("a member has children");
                 assert!(CsharpCode::holds_doc_comment_in_body(
                     node,
+                    source,
                     Ancestors::known(chain),
                     &first
                 ));
@@ -1283,8 +1287,8 @@ mod php {
             let last = node.children().last().expect("a body");
             seen.push((
                 node.kind(),
-                PhpCode::holds_doc_comment_in_body(node, ancestors, &params),
-                PhpCode::holds_doc_comment_in_body(node, ancestors, &last),
+                PhpCode::holds_doc_comment_in_body(node, source, ancestors, &params),
+                PhpCode::holds_doc_comment_in_body(node, source, ancestors, &last),
             ));
         });
         assert_eq!(

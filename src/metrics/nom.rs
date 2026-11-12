@@ -225,14 +225,11 @@ where
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
     ///
-    /// Uses the source-aware [`Checker::is_func_with_code`] rather than the
-    /// byte-less `is_func`. For every grammar that exposes a syntactic
-    /// function-definition node, `is_func_with_code` forwards to `is_func`,
-    /// so the count is unchanged. Elixir is the exception: its `def`/`defp`/
-    /// `defmacro`/`defmacrop` declarations are ordinary `Call` nodes that
-    /// only a source-text lookup can recognise, so its `is_func_with_code`
-    /// override now classifies them as functions instead of leaving
-    /// `functions_sum` permanently at 0 (#696).
+    /// Asks [`Checker::is_func_with_code`], the bytes and the chain in
+    /// hand. Elixir's `def`/`defp`/`defmacro`/`defmacrop` declarations are
+    /// ordinary `Call` nodes that only a source-text lookup can
+    /// recognise, so a callable test with no bytes left `functions_sum`
+    /// permanently at 0 (#696).
     ///
     /// `ancestors` is the chain the walker descended through; Elixir's
     /// `is_func_with_code` needs it to spot a `def` inside a `quote`
@@ -1387,8 +1384,8 @@ mod tests {
     fn csharp_expression_bodied_indexer_nom() {
         // An expression-bodied indexer (`this[int i] => _d[i];`) has NO
         // `accessor_declaration` child — it defines a single implicit
-        // getter. Removing the IndexerDeclaration entry from is_func /
-        // is_func_space outright would drop this to 0; the #464 fix gates
+        // getter. Removing the IndexerDeclaration entry from the callable
+        // and space tests outright would drop this to 0; the #464 fix gates
         // the entry on the absence of accessors so this form still counts
         // as 1, matching the npm `.max(1)` fallback.
         check_nom_and_npm::<CsharpParser>(
@@ -1618,7 +1615,7 @@ mod tests {
     }
 
     /// Regression for #1160: `compact_constructor_declaration` was absent
-    /// from `JavaCode::is_func`, so a record's compact constructor was
+    /// from Java's callables, so a record's compact constructor was
     /// invisible to every metric keyed on that predicate — `nom` included.
     ///
     /// The delegating `R(int a)` is the control: it is an ordinary
@@ -2359,9 +2356,9 @@ outer() {
     }
 
     // Elixir's `def`/`defp`/`defmacro`/`defmacrop` declarations surface
-    // as `Call` nodes whose target is an `Identifier`, so the byte-less
-    // `is_func` cannot see them. Since #696, `Nom::compute` consults the
-    // source-aware `is_func_with_code`, so the three named declarations
+    // as `Call` nodes whose target is an `Identifier`, so a callable test
+    // with no bytes cannot see them. Since #696, `Nom::compute` consults
+    // `is_func_with_code`, so the three named declarations
     // (`public_fn`, `private_fn`, `with_anon`) now count as FUNCTIONS and
     // the two `fn x -> … end` literals count as CLOSURES — the same split
     // every other language already produced. `functions_sum` was pinned at

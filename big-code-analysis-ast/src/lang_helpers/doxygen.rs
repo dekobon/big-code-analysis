@@ -611,7 +611,7 @@ pub(crate) fn doxygen_binds_forward<'a, T: Checker + DoxygenRow>(
         && ancestors
             .parent(comment)
             .is_some_and(|parent| doxygen_container::<T>(&parent))
-        && outside_function_bodies::<T>(comment, ancestors)
+        && outside_function_bodies::<T>(comment, code, ancestors)
 }
 
 #[cfg(test)]

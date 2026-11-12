@@ -351,12 +351,17 @@ impl SubtreeSkip {
 /// recognize comments, function spaces, calls, strings, branches, and so
 /// on by node kind.
 ///
-/// Every predicate defaults to `false` — "this node is never of that
+/// Most predicates default to `false` — "this node is never of that
 /// category." A language implements only the predicates its grammar
 /// actually expresses; categories it lacks fall through to the default,
 /// so adding a language no longer requires copy-pasting `-> false` stubs.
 /// The flip side is that the compiler cannot flag a forgotten override, so
 /// each language's per-metric tests are the safety net for completeness.
+/// The two the space tree is built from are the exception:
+/// [`is_func_space_with_code`](Self::is_func_space_with_code) and
+/// [`is_func_with_code`](Self::is_func_with_code) are required, so a
+/// language cannot answer them by forwarding to a spelling that drops
+/// the bytes or the chain (#1863).
 ///
 /// `#[doc(hidden)]` for the reason the crate root gives: this is
 /// plumbing, and the surface the README points a reader at is `LANG` /
@@ -428,15 +433,19 @@ pub trait Checker {
     /// and the C# specification wants one before a member's attributes,
     /// so a doc comment after an annotation or on a parameter documents
     /// nothing there. A language whose tool reads doc comments in the
-    /// signature narrows this to the body proper (#1597).
+    /// signature narrows this to the body proper (#1597). `code` is
+    /// the source, for the callable test: a callable told by its bytes
+    /// or its chain (a record's header, a bound arrow) is asked as the
+    /// walk asks it (#1863).
     #[inline]
     #[must_use]
     fn holds_doc_comment_in_body<'a>(
         ancestor: &Node<'a>,
+        code: &[u8],
         ancestors: Ancestors<'a, '_>,
         _below: &Node<'a>,
     ) -> bool {
-        Self::is_func(ancestor, ancestors) || Self::is_closure(ancestor, ancestors)
+        Self::is_func_with_code(ancestor, code, ancestors) || Self::is_closure(ancestor, ancestors)
     }
     /// Whether `comment`, held in a body by `ancestor` (one of its two
     /// nearest ancestors, with `below` the node between them), is that
@@ -521,38 +530,29 @@ pub trait Checker {
     fn is_doc_run_directive(_: &Node, _code: &[u8]) -> bool {
         false
     }
-    /// Whether `node` opens a space: a function, closure, or one of the
-    /// containers (class, struct, trait, impl, namespace, interface).
+    /// Whether `node` opens a space by its kind alone: a function,
+    /// closure, or one of the containers (class, struct, trait, impl,
+    /// namespace, interface).
+    ///
+    /// The byte-less spelling of
+    /// [`is_func_space_with_code`](Self::is_func_space_with_code), and
+    /// by default that predicate asked with no bytes and a known-empty
+    /// chain — the node read as if it were the root (#1863). It agrees
+    /// with the walk wherever no space-opening gate reads either, and
+    /// answers the gate's rootless, byte-less verdict where one does
+    /// (Ruby's lambda body, C#'s primary constructor, a Java or Groovy
+    /// record's header). The walk calls the `_with_code` one.
     #[inline]
     #[must_use]
-    fn is_func_space(_: &Node) -> bool {
-        false
-    }
-    /// Whether `node` is a *named* function definition.
-    ///
-    /// `ancestors` is the chain the caller descended through. The
-    /// JS-family grammars have no distinct production for a named
-    /// function: `const f = () => …` and `g(() => …)` share one
-    /// `arrow_function` node, and only what encloses it says which is
-    /// which. Those steps come off the chain, because `Node::parent`
-    /// costs `O(depth)` each however few of them a walk takes (#1088).
-    /// Every other grammar answers `is_func` from the node's own kind
-    /// and ignores the parameter.
-    ///
-    /// The suppression scan asks this through a chain that records no
-    /// siblings, so an impl must not ask `ancestors` for one: under a
-    /// wide parent that trips the walk assertion in a debug build
-    /// (#1601).
-    #[inline]
-    #[must_use]
-    fn is_func<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
-        false
+    fn is_func_space(node: &Node) -> bool {
+        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
     }
     /// Whether `node` is an anonymous function — the complement of
-    /// [`is_func`](Self::is_func) on the grammars that express both. Takes `ancestors`
-    /// for the same reason, plus one of its own: Ruby's `{ … }` block is
-    /// a closure only when its parent is not the `Lambda` that already
-    /// counted it.
+    /// [`is_func_with_code`](Self::is_func_with_code) on the grammars
+    /// that express both. `ancestors` is the chain the caller descended
+    /// through: the JS family tells a bound arrow from a positional one
+    /// by what encloses it, and Ruby's `{ … }` block is a closure only
+    /// when its parent is not the `Lambda` that already counted it.
     #[inline]
     #[must_use]
     fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
@@ -805,43 +805,46 @@ pub trait Checker {
         SubtreeSkip::RETAIN
     }
 
-    /// Source-aware variant of [`is_func_space`](Self::is_func_space). The default forwards
-    /// to the byte-less predicate so languages whose function-space
-    /// classification is encoded in distinct grammar productions (Java,
-    /// Rust, Python, …) need no override. Languages whose function
-    /// boundaries are macro-shaped — Elixir's `def` / `defp` /
-    /// `defmacro` / `defmacrop` / `defmodule` — override this to
-    /// disambiguate `Call` nodes by their target identifier text
-    /// (#275).
+    /// Whether `node` opens a space, as the walk asks it: with the
+    /// source bytes and the chain it descended through. Required: every
+    /// language answers from its role table's `opens_space` fold, and
+    /// the byte-less [`is_func_space`](Self::is_func_space) derives
+    /// from this, never the reverse — a default forwarding the other
+    /// way handed a text-gated row no bytes without a word (#1863).
     ///
-    /// `ancestors` is the chain the caller descended through, so a
-    /// language whose classification depends on an enclosing construct
-    /// (Elixir's `quote` template) can answer without paying
-    /// `Node::parent`'s `O(depth)` per step (#1084).
-    #[inline]
+    /// Elixir's `def` / `defmodule` are `Call`s told apart by their
+    /// target text (#275), and a `def` inside a `quote` template by the
+    /// chain, read here rather than through `Node::parent`'s `O(depth)`
+    /// per step (#1084).
     #[must_use]
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
-        _code: &[u8],
-        _ancestors: Ancestors<'a, '_>,
-    ) -> bool {
-        Self::is_func_space(node)
-    }
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool;
 
-    /// Source-aware variant of [`is_func`](Self::is_func). Same rationale as
-    /// [`is_func_space_with_code`](Self::is_func_space_with_code) (#275).
-    #[inline]
+    /// Whether `node` is a *named* function definition: the `callable`
+    /// owners of the language's `FuncOpener` row under their gates.
+    /// Required, and the only spelling (#1863): a callable can be told
+    /// by its bytes (Elixir's `def`, #275), by its chain (the JS
+    /// family's bound arrow, #1088; C#'s primary constructor, #1828) or
+    /// by both (a Java or Groovy record's header, #1842), so a
+    /// byte-less form answered three different questions across the
+    /// languages and was right for none of the walks.
+    ///
+    /// The suppression scan asks this through a chain that records no
+    /// siblings, so an impl must not ask `ancestors` for one: under a
+    /// wide parent that trips the walk assertion in a debug build
+    /// (#1601).
     #[must_use]
-    fn is_func_with_code<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        Self::is_func(node, ancestors)
-    }
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool;
 
     /// Combined predicate the walker uses to decide whether to promote
     /// `node` to a new function-space frame. Default forwards to
-    /// `is_func_with_code || is_func_space_with_code` so existing
-    /// languages need no override — each kept the freedom to expose
-    /// `is_func` and `is_func_space` as disjoint sets (Rust includes
-    /// closures in `is_func_space`, Java keeps lambdas out, …) and
+    /// `is_func_with_code || is_func_space_with_code` so most
+    /// languages need no override — each keeps the freedom to expose
+    /// the two as disjoint sets (Rust includes closures among its
+    /// spaces, Java keeps lambdas out, …) and
     /// this method preserves that flexibility while letting Elixir
     /// halve its per-`Call` source-text lookups: a single
     /// `elixir_call_keyword` call answers both halves at once
@@ -981,7 +984,7 @@ fn csharp_accessors<'a>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use
 /// expression-bodied form (`this[int i] => _d[i];` / `int W => _w;`), which
 /// has no accessor list and defines a single implicit getter.
 ///
-/// Shared by `CsharpCode::is_func` / `is_func_space` and
+/// Shared by `CsharpCode`'s callable and space tests and
 /// `CsharpCode::get_space_kind` so all three agree on when an indexer or
 /// property opens its own Function space versus deferring to its accessor
 /// children. This mirrors the npm reference (`csharp_count_member`): the
@@ -3434,7 +3437,7 @@ mod tests {
         );
     }
 
-    /// Asserts `is_func` / `is_closure` answer the same off a known
+    /// Asserts `is_func_with_code` / `is_closure` answer the same off a known
     /// chain as off a `Node::parent` climb, for every node of `code`.
     /// Returns the `(functions, closures)` the chain path counted, so a
     /// caller can additionally pin what the predicates actually decided.
@@ -3460,9 +3463,9 @@ mod tests {
             let known = Ancestors::known(chain);
             let climbing = Ancestors::unknown();
             assert_eq!(
-                L::is_func(node, known),
-                L::is_func(node, climbing),
-                "{label}: is_func disagrees on {} at row {}",
+                L::is_func_with_code(node, code, known),
+                L::is_func_with_code(node, code, climbing),
+                "{label}: is_func_with_code disagrees on {} at row {}",
                 node.kind(),
                 node.start_row()
             );
@@ -3473,7 +3476,7 @@ mod tests {
                 node.kind(),
                 node.start_row()
             );
-            funcs += usize::from(L::is_func(node, known));
+            funcs += usize::from(L::is_func_with_code(node, code, known));
             closures += usize::from(L::is_closure(node, known));
         });
         assert!(visited > 20, "{label}: fixture is too small to prove much");
@@ -3486,9 +3489,9 @@ mod tests {
         (funcs, closures)
     }
 
-    /// The JS-family `is_func` / `is_closure` must classify a node the
-    /// same whether they read the walker's ancestor chain or climb with
-    /// `Node::parent` (#1088).
+    /// The JS-family `is_func_with_code` / `is_closure` must classify a
+    /// node the same whether they read the walker's ancestor chain or
+    /// climb with `Node::parent` (#1088).
     ///
     /// These are the predicates with the longest ancestor lookup: an
     /// upward walk, its `is_else_if` filter, and a `has_sibling`

@@ -598,7 +598,7 @@ fn count_matches_named_kinds() {
     let (matching, total) = ast.count(&["function_item".to_owned()]);
     assert_eq!(matching, 2);
     assert!(total > matching, "total must include non-matching nodes");
-    // The `function` keyword filter resolves to the same `is_func`
+    // The `function` keyword filter resolves to the same callable
     // predicate, so it agrees with the exact-kind count here.
     let (by_keyword, _) = ast.count(&["function".to_owned()]);
     assert_eq!(by_keyword, 2);

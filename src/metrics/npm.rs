@@ -1435,7 +1435,7 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // `JavaCode::is_func` accepts both `MethodDeclaration`
+                // The callable test accepts both `MethodDeclaration`
                 // and `ConstructorDeclaration`, so the body contributes
                 // one method (`sum`) plus one explicit constructor
                 // (`Point()`), both annotated `public`; `Point()` is an
@@ -1450,7 +1450,7 @@ mod tests {
     }
 
     /// The same for #1160, which added `CompactConstructorDeclaration` to
-    /// `JavaCode::is_func`: a record's compact constructor joins the body
+    /// Java's callables: a record's compact constructor joins the body
     /// walker's method count on the same footing as the canonical
     /// spelling. The `public` modifier check reads `child(0)`, and the
     /// compact form carries its optional `modifiers` node in that same

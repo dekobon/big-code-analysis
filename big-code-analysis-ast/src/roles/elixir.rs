@@ -287,8 +287,9 @@ mod tests {
     // Until #1696 the rows restated `checker/elixir.rs` and
     // `getter/elixir.rs` and this compared the two; now the classifiers
     // read the rows, so the expected answer per node is pinned
-    // independently here — `(is_func, is_closure, promoted, SpaceKind,
-    // is_member)`, by the call's target text where the kind is `call`.
+    // independently here — `(is_func_with_code, is_closure, promoted,
+    // SpaceKind, is_member)`, by the call's target text where the kind
+    // is `call`.
     // The per-shape tests below do not cover membership: emptying
     // `Call` or dropping `Sigil` from `StringLit` failed none of them.
     #[cfg(feature = "elixir")]

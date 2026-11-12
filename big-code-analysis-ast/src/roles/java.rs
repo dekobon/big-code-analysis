@@ -260,7 +260,7 @@ role_table! {
     }
 
     // Mapping. Every function opener is a `Function` space. The four
-    // `callable` owners are what `is_func` answers — a method, a
+    // `callable` owners are what `is_func_with_code` answers — a method, a
     // constructor, a record's compact constructor (#1160) and a
     // record's header where it stands for the implicit canonical
     // constructor (#1842) — each a function someone names at a call
@@ -268,8 +268,8 @@ role_table! {
     // it opens a space (#1184) and is nobody's callee, so it carries no
     // `callable` and `nom` / `nargs` / `npm` never see it as a method.
     // The lambda is *not* here: the walk promotes on
-    // `promotes_to_func_space_with_code`, and Java's `is_func` and
-    // `is_func_space` both leave `lambda_expression` out, so no lambda
+    // `promotes_to_func_space_with_code`, and Java's callable and
+    // space tests both leave `lambda_expression` out, so no lambda
     // opens a space today — even though the byte-less `get_space_kind`
     // labelled one `Function` before #1696. The row records the walk's
     // answer, and the parity test below pins it against the walk's
@@ -660,11 +660,10 @@ mod tests {
             if kind != "formal_parameters" {
                 assert_eq!(
                     (
-                        JavaCode::is_func(node, ancestors),
                         JavaCode::is_func_space(node),
                         JavaCode::get_space_kind(node)
                     ),
-                    (got.0, promoted, got.3),
+                    (promoted, got.3),
                     "{kind}: the byte-less spellings are the kind table"
                 );
             }

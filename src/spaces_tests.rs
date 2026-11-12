@@ -72,8 +72,8 @@ fn cpp_function_definition_is_classified_as_function() {
         .expect("parse must produce a function_definition node");
 
     assert!(
-        CppCode::is_func(&fn_node, Ancestors::unknown()),
-        "is_func must return true for a function_definition"
+        CppCode::is_func_with_code(&fn_node, source.as_bytes(), Ancestors::unknown()),
+        "is_func_with_code must return true for a function_definition"
     );
     assert!(
         CppCode::is_func_space(&fn_node),
@@ -2865,7 +2865,7 @@ mod nameless_construct_spaces {
         // `nom.functions` deliberately stays 0. The issue calls an
         // accessor-only file reporting `nom.functions == 0` the worst of
         // the set, and this fix does *not* change that number: `Nom`
-        // keys on `is_func`, and these constructs are `is_func_space`
+        // keys on the callable test, and these constructs open a space
         // only, because a Kotlin accessor is not a callable anyone names
         // at a call site (`p.foo`, not `p.getFoo()`) and counting it as
         // a method would have `npm` bill the same property once as an
@@ -2875,11 +2875,11 @@ mod nameless_construct_spaces {
         // caused: each accessor now has its own metric scope, so its
         // complexity is no longer charged to the class and `bca check`
         // can flag it. WMC picks them up because it keys on the space
-        // kind rather than on `is_func`.
+        // kind rather than on the callable test.
         assert_eq!(
             root.metrics.nom.functions_sum(),
             0,
-            "accessors are is_func_space, not is_func"
+            "accessors open a space and are no callable"
         );
         assert_eq!(
             root.metrics.wmc.class_wmc_sum(),
