@@ -18,9 +18,9 @@
 /// count come out the same either way, and only the scan counter tells
 /// a memoised walk from the quadratic one. Rebuilding the chain in
 /// `metrics_inner` or `ops_inner` with no `FoldCache` lent takes that
-/// seam's row to `width`; the
-/// dump and count seams are pinned the same way beside their walks in
-/// `big-code-analysis-ast`, and listed here so the four cannot drift
+/// seam's row to `width`; the dump and count seams are pinned the same
+/// way beside their walks in `big-code-analysis-ast`, and listed here
+/// so the four cannot drift
 /// apart.
 #[cfg(feature = "tcl")]
 #[test]
@@ -911,6 +911,16 @@ mod member_walk_siblings {
         Just(u64),
     }
 
+    /// The chains the member walks derive with `Ancestors::of_children`
+    /// over a whole fixture.
+    #[derive(Clone, Copy)]
+    enum Chains {
+        /// This many, whatever the width.
+        Just(usize),
+        /// This many, and one more per unit.
+        JustAndEach(usize),
+    }
+
     /// One source: `head`, then `unit` repeated `WIDE_PARENT + 1` times,
     /// then `tail`.
     struct Fixture {
@@ -923,10 +933,9 @@ mod member_walk_siblings {
         /// the witness that each walk read the wide body's members.
         methods: Count,
         attributes: Count,
-        /// Whether a member walk reads the members through a chain
-        /// derived with `Ancestors::of_children`, where a sibling ask
-        /// seeks, or through the walk's own, where it reads the record.
-        derives_a_chain: bool,
+        /// The chains the two walks derive: a per-body constant, so a
+        /// walk that came to derive one per member moves it.
+        chains: Chains,
     }
 
     const JAVA: [&str; 3] = ["class C {\n", "int x;\nvoid m() {}\n", "}\n"];
@@ -935,11 +944,21 @@ mod member_walk_siblings {
     const TS: [&str; 3] = ["class C {\n", "public x = 1;\nm() {}\n", "}\n"];
 
     /// A row for every language whose `Npa` or `Npm` is not the no-op
-    /// impl, and two for Rust, whose attributes and methods sit in
-    /// different bodies. Python counts an attribute once however often
-    /// it is assigned (the class's `x`, the instance's `y`), and reads
-    /// its members through the walk's own chain, as Rust's `impl` walk
-    /// does. Elixir's one attribute is the `defstruct` field.
+    /// impl, and two for Rust and for Go, whose attributes and methods
+    /// sit in different bodies. Python counts an attribute once however
+    /// often it is assigned (the class's `x`, the instance's `y`).
+    /// Elixir's one attribute is the `defstruct` field.
+    ///
+    /// Most walks derive one chain per body, with `Ancestors::of_children`,
+    /// and read the members through it: two chains a fixture, one for
+    /// `npa` and one for `npm`. A sibling asked for through such a chain
+    /// seeks. Rust and Go derive two for a struct, the struct's and its
+    /// field list's, in `npa` alone; Elixir two in each walk, the
+    /// module's and its `do` block's. Three rows derive none. Rust's
+    /// `impl` methods and Go's receiver methods are counted as the walk
+    /// visits each, through the walk's own chain, where an ask reads the
+    /// record. Python's members are asked from the class, through the
+    /// class's chain, where an ask looks under the class's parent.
     const FIXTURES: &[Fixture] = &[
         Fixture {
             lang: LANG::Java,
@@ -947,7 +966,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Groovy,
@@ -955,7 +974,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Csharp,
@@ -963,7 +982,10 @@ mod member_walk_siblings {
             wide_body: "declaration_list",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            // FIXME(#1879): `npm` derives a chain for every node with a
+            // `parameter_list`, so one per method, before it knows the
+            // node is a type declaration. The constant is the two.
+            chains: Chains::JustAndEach(2),
         },
         Fixture {
             lang: LANG::Kotlin,
@@ -971,7 +993,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Cpp,
@@ -979,7 +1001,7 @@ mod member_walk_siblings {
             wide_body: "field_declaration_list",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Mozcpp,
@@ -987,7 +1009,7 @@ mod member_walk_siblings {
             wide_body: "field_declaration_list",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Objc,
@@ -999,7 +1021,7 @@ mod member_walk_siblings {
             wide_body: "class_interface",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Php,
@@ -1007,7 +1029,7 @@ mod member_walk_siblings {
             wide_body: "declaration_list",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Python,
@@ -1019,7 +1041,7 @@ mod member_walk_siblings {
             wide_body: "block",
             methods: Count::Each,
             attributes: Count::Just(2),
-            derives_a_chain: false,
+            chains: Chains::Just(0),
         },
         Fixture {
             lang: LANG::Ruby,
@@ -1027,7 +1049,7 @@ mod member_walk_siblings {
             wide_body: "body_statement",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Rust,
@@ -1035,7 +1057,7 @@ mod member_walk_siblings {
             wide_body: "field_declaration_list",
             methods: Count::Just(0),
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Rust,
@@ -1043,7 +1065,7 @@ mod member_walk_siblings {
             wide_body: "declaration_list",
             methods: Count::Each,
             attributes: Count::Just(0),
-            derives_a_chain: false,
+            chains: Chains::Just(0),
         },
         Fixture {
             lang: LANG::Go,
@@ -1051,7 +1073,15 @@ mod member_walk_siblings {
             wide_body: "field_declaration_list",
             methods: Count::Just(0),
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
+        },
+        Fixture {
+            lang: LANG::Go,
+            source: ["package p\ntype S int\n", "func (s S) M() {}\n", ""],
+            wide_body: "source_file",
+            methods: Count::Each,
+            attributes: Count::Just(0),
+            chains: Chains::Just(0),
         },
         Fixture {
             lang: LANG::Javascript,
@@ -1059,7 +1089,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Mozjs,
@@ -1067,7 +1097,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Typescript,
@@ -1075,7 +1105,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Tsx,
@@ -1083,7 +1113,7 @@ mod member_walk_siblings {
             wide_body: "class_body",
             methods: Count::Each,
             attributes: Count::Each,
-            derives_a_chain: true,
+            chains: Chains::Just(2),
         },
         Fixture {
             lang: LANG::Elixir,
@@ -1095,15 +1125,15 @@ mod member_walk_siblings {
             wide_body: "do_block",
             methods: Count::Each,
             attributes: Count::Just(1),
-            derives_a_chain: true,
+            chains: Chains::Just(4),
         },
     ];
 
     /// The languages whose `Npa` and `Npm` are the no-op impls
     /// (`implement_metric_trait!` in `metrics/npa.rs` and
-    /// `metrics/npm.rs`): no member walk runs for them. Nothing here
-    /// notices one of them gaining a member walk; whoever writes it
-    /// moves the language to `FIXTURES`.
+    /// `metrics/npm.rs`): no member walk runs for them. The test holds
+    /// the list to `HAS_MEMBERS`, read off the blocks the walk emits, so
+    /// one of them gaining a member walk fails until it has a fixture.
     const NO_MEMBER_WALK: &[LANG] = &[
         LANG::C,
         LANG::Preproc,
@@ -1114,6 +1144,24 @@ mod member_walk_siblings {
         LANG::Tcl,
         LANG::Irules,
     ];
+
+    /// Whether the walk emits an `npm` or `npa` block for `lang`'s file
+    /// root, which it does exactly where `Npm::HAS_MEMBERS` or
+    /// `Npa::HAS_MEMBERS` is set. Read off the serialized space: the
+    /// stats are always there as a struct, and only the key is gated.
+    fn emits_a_member_block(lang: LANG) -> bool {
+        let space = crate::test_support::parse_named(lang, "fixture", "\n")
+            .metrics(
+                crate::MetricsOptions::default()
+                    .with_only(&[crate::Metric::Npa, crate::Metric::Npm]),
+            )
+            .expect("the walk must yield a top-level space");
+        let value = serde_json::to_value(&space).expect("a space serializes");
+        let metrics = value["metrics"]
+            .as_object()
+            .expect("a space serializes a metrics object");
+        metrics.contains_key("npm") || metrics.contains_key("npa")
+    }
 
     /// The `npa` and `npm` walks ask for no sibling of a member, under a
     /// body wider than `WIDE_PARENT`, in any language that has them
@@ -1127,27 +1175,39 @@ mod member_walk_siblings {
     /// container. A row gate that asked for a sibling of each member
     /// would seek from the body's first child every time, quadratic in
     /// the members, and answer the same. `sibling_seeks` is what sees
-    /// it. The two rows that read through the walk's own chain would
-    /// read the record instead, so `sibling_cache_reads` is held at
-    /// zero as well.
+    /// it. A walk that counts each member as it is visited, as Rust's
+    /// `impl` row does, would read the record instead, so
+    /// `sibling_cache_reads` is held at zero as well. Both counts cover
+    /// the whole walk with only `npa` and `npm` selected, so a
+    /// space-opening gate that starts to ask moves them too.
     ///
     /// A probe in `Ancestors::lookup`, run over the whole suite and the
     /// repository corpora, found no walk asking for a sibling through a
-    /// derived chain, under a wide parent or a narrow one. The one
-    /// predicate that can is Java's package gate, asked of a parse
-    /// error's children, which
-    /// `a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache`
-    /// pins beside it. So the walk's record is not forwarded to a
-    /// derived chain: no caller would read it.
+    /// derived chain, under a wide parent or a narrow one. The predicate
+    /// it found that can is Java's package gate, asked of a parse
+    /// error's children;
+    /// `a_wide_error_s_children_ask_for_one_sibling_in_java` in
+    /// `lang_helpers/doc_comment.rs` counts its seek. So the walk's
+    /// record is not forwarded to a derived chain: no caller would read
+    /// it.
     #[test]
     fn the_member_walks_ask_for_no_sibling_under_a_wide_body() {
         for lang in LANG::into_enum_iter() {
+            let has_fixture = FIXTURES.iter().any(|row| row.lang == lang);
             assert_eq!(
-                FIXTURES.iter().any(|row| row.lang == lang),
+                has_fixture,
                 !NO_MEMBER_WALK.contains(&lang),
                 "{} needs a fixture, or a place among the languages with no member walk",
                 lang.name()
             );
+            if lang.is_enabled() {
+                assert_eq!(
+                    emits_a_member_block(lang),
+                    has_fixture,
+                    "{}: the walk runs `npa` or `npm` for exactly the languages with a fixture",
+                    lang.name()
+                );
+            }
         }
         let units = WIDE_PARENT + 1;
         let expected = |count: Count| match count {
@@ -1211,10 +1271,14 @@ mod member_walk_siblings {
                 (expected(fixture.methods), expected(fixture.attributes)),
                 "{label}: the methods and attributes the walks counted"
             );
+            let chains = match fixture.chains {
+                Chains::Just(fixed) => fixed,
+                Chains::JustAndEach(fixed) => fixed + units,
+            };
             assert_eq!(
-                child_chains_derived::observed() > derived,
-                fixture.derives_a_chain,
-                "{label}: whether a member walk derived a chain"
+                child_chains_derived::observed() - derived,
+                chains,
+                "{label}: the chains the member walks derived"
             );
             // expected: 0 and 0, no member row's gate asks for a sibling.
             assert_eq!(

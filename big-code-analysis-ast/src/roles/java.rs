@@ -30,6 +30,14 @@ crate::roles::byte_gate!(opens_with_javadoc_marker, java_doc);
 /// row's *kind table* (`lists_kind`), never `owns`: asking `owns` of a
 /// sibling package would re-enter this gate from inside its own scan,
 /// quadratic on repeated packages.
+///
+/// A parse error's children are judged through a chain that lends no
+/// sibling record (`error_holds_target`), so there this scan seeks from
+/// the error's first child. It stays at most one seek per call of that
+/// helper only while every other owner of the row is ungated: the kind
+/// that makes a package no target is then a target itself, and the
+/// helper's scan stops at it. A second gated owner would let a run of
+/// rejected packages seek once each (#1871).
 fn package_takes_the_file_doc<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .siblings_after(node)

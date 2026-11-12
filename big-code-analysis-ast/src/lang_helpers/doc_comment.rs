@@ -767,11 +767,12 @@ mod tests {
     /// `debug_assert!`, so it is meaningful under `make pre-commit`'s
     /// debug build and vacuous under `--release` (lesson #80).
     ///
-    /// The seek is counted too, in every build: this is the one sibling
-    /// a production predicate asks for through a derived chain (#1871).
-    /// A flat `ERROR` is sought from its first child, so the count is
-    /// what keeps the gate to the packages: asked of every child, it
-    /// would be quadratic in the error and answer the same.
+    /// The gate's seek is counted too, in every build: one, for the one
+    /// package (#1871). Here the package is the error's first named
+    /// child, so the scan stops at it and the count cannot tell a gate
+    /// asked of every child from one asked of the packages alone;
+    /// `a_wide_error_s_children_ask_for_one_sibling_in_java` judges
+    /// every child for that.
     #[cfg(feature = "java")]
     #[test]
     fn a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache() {
@@ -821,6 +822,132 @@ mod tests {
             1,
             "the package gate's one seek through the derived chain"
         );
+    }
+
+    // What judging every named child of the parse error in `source`
+    // comes to, each as a doc target through the chain
+    // `error_holds_target` derives for them: the named children, how
+    // many are targets, and the uncached sibling lookups made. That
+    // helper stops at the first target; this asks every child, so a
+    // target test that came to ask for a sibling of each is counted
+    // once per child, where each ask seeks from the error's first.
+    #[cfg(any(
+        feature = "c",
+        feature = "cpp",
+        feature = "java",
+        feature = "mozcpp",
+        feature = "objc"
+    ))]
+    fn judge_every_child_of_the_error<T: Checker + crate::traits::LanguageInfo>(
+        source: &str,
+    ) -> (usize, usize, usize) {
+        use crate::node::{FoldCache, SiblingCache, Tree, WIDE_PARENT, sibling_seeks};
+        let code = source.as_bytes();
+        let tree = Tree::new::<T>(code);
+        let root = tree.get_root();
+        let error = root
+            .children()
+            .find(Node::is_error)
+            .expect("recovery leaves an ERROR under the root");
+        assert!(
+            error.child_count() > WIDE_PARENT,
+            "the ERROR must be wide: a seek under a narrow one is a short scan"
+        );
+        // What the walk lends: the root recorded, the ERROR not yet.
+        let chain = [root];
+        let mut siblings = SiblingCache::default();
+        siblings.record(&root, 0, root.children());
+        let folds = FoldCache::default();
+        let walk = Ancestors::known(&chain)
+            .with_siblings(&siblings)
+            .with_folds(&folds);
+        let under = walk.of_children(&error);
+        let named: Vec<_> = error.children().filter(Node::is_named).collect();
+        let before = sibling_seeks::observed();
+        let targets = named
+            .iter()
+            .filter(|child| T::is_doc_target(child, code, under.get()))
+            .count();
+        (named.len(), targets, sibling_seeks::observed() - before)
+    }
+
+    // The Doxygen fixture: an unclosed anonymous `struct {` (`class {`
+    // in the C++ grammars) makes recovery gather every field after it
+    // into one flat `ERROR`, each a `field_declaration` Doxygen
+    // documents.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    fn doxygen_wide_error(opener: &str) -> String {
+        use crate::node::WIDE_PARENT;
+        format!(
+            "/** d */\n{opener} {{\n{}",
+            "int x;\n".repeat(WIDE_PARENT + 6)
+        )
+    }
+
+    // expected, for each Doxygen grammar below: `WIDE_PARENT + 6` named
+    // children, all of them targets, and no sibling asked for. No
+    // C-family `DocTarget` gate reads a sibling.
+    #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+    const DOXYGEN_JUDGED: (usize, usize, usize) = {
+        use crate::node::WIDE_PARENT;
+        (WIDE_PARENT + 6, WIDE_PARENT + 6, 0)
+    };
+
+    /// The children of a wide parse `ERROR` are judged as doc targets
+    /// through a derived chain, which lends no sibling record, so a
+    /// target test that asked for a sibling of each child would seek
+    /// from the error's first child every time. In the Doxygen grammars
+    /// none asks (#1871).
+    #[cfg(feature = "c")]
+    #[test]
+    fn a_wide_error_s_children_ask_for_no_sibling_in_c() {
+        let judged =
+            judge_every_child_of_the_error::<crate::langs::CCode>(&doxygen_wide_error("struct"));
+        assert_eq!(judged, DOXYGEN_JUDGED);
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn a_wide_error_s_children_ask_for_no_sibling_in_cpp() {
+        let judged =
+            judge_every_child_of_the_error::<crate::langs::CppCode>(&doxygen_wide_error("class"));
+        assert_eq!(judged, DOXYGEN_JUDGED);
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn a_wide_error_s_children_ask_for_no_sibling_in_mozcpp() {
+        let judged = judge_every_child_of_the_error::<crate::langs::MozcppCode>(
+            &doxygen_wide_error("class"),
+        );
+        assert_eq!(judged, DOXYGEN_JUDGED);
+    }
+
+    #[cfg(feature = "objc")]
+    #[test]
+    fn a_wide_error_s_children_ask_for_no_sibling_in_objc() {
+        let judged =
+            judge_every_child_of_the_error::<crate::langs::ObjcCode>(&doxygen_wide_error("struct"));
+        assert_eq!(judged, DOXYGEN_JUDGED);
+    }
+
+    /// Java's `DocTarget` row holds the one gate found to ask for a
+    /// sibling through this chain, the package's. With the package
+    /// after `WIDE_PARENT` local declarations, none of them a target,
+    /// every child is judged and the package's ask is the only one: a
+    /// gate asked of each child would count one per child here (#1871).
+    #[cfg(feature = "java")]
+    #[test]
+    fn a_wide_error_s_children_ask_for_one_sibling_in_java() {
+        use crate::node::WIDE_PARENT;
+        let source = format!(
+            "/** d */\nclass {{\n{}package a;\n@ \n",
+            "int x;\n".repeat(WIDE_PARENT)
+        );
+        let judged = judge_every_child_of_the_error::<crate::langs::JavaCode>(&source);
+        // expected: the `WIDE_PARENT` locals and the package; the package
+        // alone is a target; its gate's one seek for what follows it.
+        assert_eq!(judged, (WIDE_PARENT + 1, 1, 1));
     }
 
     /// A nest of Doxygen conditionals under a parse `ERROR`, asked the
