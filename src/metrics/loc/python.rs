@@ -607,17 +607,20 @@ fn python_code_before_string<'a>(
 // parenthesis's memoised answer reads — the parenthesis's inside, where
 // nothing before the string can be code, is never one of them.
 //
-// The levels above `node` are folded down the walk's chain rather than
-// climbed. A parenthesis whose own level holds only comments and `\`
-// splices before it defers to the level above, and so does that one:
-// asked from each of `n` nested parentheses, the climb read every level
-// above each, `Σ` of their extras, quadratic in `n` under CPython's
-// 200-level cap (#1863; `loc/python-deep-paren-extra-prefix` prices it).
+// The levels above `node` are read through the walk's memo of each
+// level's nearest answer rather than climbed afresh. A parenthesis whose
+// own level holds only comments and `\` splices before it defers to the
+// level above, and so does that one: asked from each of `n` nested
+// parentheses, the climb read every level above each, `Σ` of their
+// extras, quadratic in `n` under CPython's 200-level cap (#1863;
+// `loc/python-deep-paren-extra-prefix` prices it). The memo keeps the
+// climb's stop at the first level that answers, so a level above it is
+// never read (`loc/python-block-comments-paren-strings`).
 fn python_code_before_node<'a>(code: &[u8], node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     python_code_at_level(code, node, ancestors).unwrap_or_else(|| {
         ancestors.nearest_level_answer(
             node,
-            LevelLane::CodeBeforeOnLine,
+            LevelQuestion::CodeBeforeOnLine,
             code,
             python_code_at_level,
         )
@@ -636,9 +639,9 @@ fn python_code_at_level<'a>(
 }
 
 // Levels `python_code_before_node` reads for a token before their node.
-// The fold and the climb answer the same, so only this tells a walk that
-// reads each level once from one that reads every level above every
-// parenthesis (#1863).
+// Every way of reading them answers the same, so only this tells a walk
+// that reads each level once from one that reads every level above
+// every parenthesis, or a level above the one that answers (#1863).
 crate::observation::counter!(python_line_levels_read);
 
 // Whether the nearest of `siblings` (nearest first) that is neither a
@@ -666,8 +669,8 @@ fn python_code_among<'a>(
 ) -> Option<bool> {
     let mut tokens = siblings.skip_while(|sibling| {
         python_is_extra(sibling)
-            || matches!(sibling.kind_id().into(), Python::LPAREN | Python::RPAREN)
-                && parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain))
+            || (matches!(sibling.kind_id().into(), Python::LPAREN | Python::RPAREN)
+                && parens.is_some_and(|chain| python_is_bare_string_parenthesis(sibling, chain)))
     });
     tokens
         .next()

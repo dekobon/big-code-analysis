@@ -338,12 +338,13 @@ for historical reference.
   level that holds a token before its node. Where every level holds
   only comments and `\` rows, each of `n` nested parentheses read every
   level above it, quadratic in `n` up to the 200 levels Python's
-  tokenizer allows. The answer is now folded down the walk's ancestor
-  chain, so a parenthesis reads three levels: at 200 levels with 30
-  such rows each, a 37 KB file, the `loc` walk took 92 ms and takes
-  5.3 ms (one run each, on a host that was not idle). Metric values are
-  unchanged. New scaling probe `loc/python-deep-paren-extra-prefix`
-  prices it.
+  tokenizer allows. Each level's answer is now memoised for the walk,
+  so a parenthesis reads two levels: at 200 levels with 30 such rows
+  each, a 37 KB file, the `loc` walk took 100 ms and takes 4.7 ms (one
+  run each, on a host that was not idle). Metric values are unchanged.
+  New scaling probes `loc/python-deep-paren-extra-prefix` and
+  `loc/python-block-comments-paren-strings` price it, the second for
+  the levels above the nearest answer, which are never read.
 - **`cognitive` stays linear over functions in nested containers**
   (#1864). The walk asks every function definition whether another
   function encloses it, to charge a nested function its depth, and

@@ -19,7 +19,7 @@ pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingC
 pub(crate) use ancestors::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 #[doc(hidden)]
 pub use ancestors::{
-    GateLane, KindLane, LevelLane, NodeQuestion, WIDE_PARENT, child_chains_derived,
+    GateLane, KindLane, LevelQuestion, NodeQuestion, WIDE_PARENT, child_chains_derived,
     fold_slot_probes, fold_steps, sibling_cache_reads, sibling_seeks,
 };
 
@@ -2356,58 +2356,69 @@ mod tests {
     }
 
     /// `nearest_level_answer` answers what the climb answers through
-    /// all three of its paths — the walk's memoised fold, a known chain
-    /// with no cache, the chainless climb — for every node of the
-    /// fixture (#1863).
+    /// all three of its paths — the walk's memo, a known chain with no
+    /// cache, the chainless climb — for every node of the fixture
+    /// (#1863).
     ///
     /// The answer fn says "yes" at a function and "no" at a closure, so
     /// a node inside a closure inside a function reads the closure's
-    /// "no": the nearer answer replaces the outer one, where a fold
-    /// that only ever set its state would read "yes". A node under
-    /// neither reads `false`, and the answering node itself is not
-    /// asked: a function's own answer is its ancestors'. The second
-    /// cache is asked only at integer literals, so each ask meets the
-    /// slots the previous literal's chain left under other parents.
+    /// "no": the nearer answer wins. A node under neither reads `false`,
+    /// and the answering node itself is not asked: a function's own
+    /// answer is its ancestors'.
+    ///
+    /// The second cache is asked only at integer literals, and the
+    /// answer fn's calls are counted per ask, which is the memo's whole
+    /// effect: the answers cannot tell it from the climb. `2` meets the
+    /// answer `1` left on their shared `binary_expression`; `4` reads
+    /// its own `let` and meets the one `3` left on the block they
+    /// share, a level `3` passed without an answer. `3` sits in the
+    /// tuple after the closure: a memo that handed `1`'s "no" to a
+    /// level above the closure would answer "no" for it.
     #[cfg(feature = "rust")]
     #[test]
     fn nearest_level_answer_answers_the_climb_on_every_path() {
-        use crate::node::{FoldCache, LevelLane};
+        use crate::node::{FoldCache, LevelQuestion};
+        use std::cell::Cell;
+        thread_local! {
+            static LEVELS_ASKED: Cell<usize> = const { Cell::new(0) };
+        }
         fn level(_code: &[u8], node: &Node, _chain: Ancestors) -> Option<bool> {
+            LEVELS_ASKED.set(LEVELS_ASKED.get() + 1);
             match node.kind() {
                 "function_item" => Some(true),
                 "closure_expression" => Some(false),
                 _ => None,
             }
         }
-        let code = b"fn f() { let c = || { let d = (1 + 2); }; let e = 3; }\n\
-                     const K: u8 = 4;\n\
-                     mod m { fn g() { let h = || 5; } fn i() { 6; } }\n";
+        let code = b"fn f() { let c = (|| { let d = (1 + 2); }, 3); let e = 4; }\n\
+                     const K: u8 = 5;\n\
+                     mod m { fn g() { let h = || 6; } fn i() { 7; } }\n";
         let cache = FoldCache::default();
         let asked_at_literals = FoldCache::default();
-        let lane = LevelLane::CodeBeforeOnLine;
+        let question = LevelQuestion::CodeBeforeOnLine;
         let mut literals = Vec::new();
         let (mut yes, mut no) = (0_usize, 0_usize);
         for_each_node_with_chain::<crate::langs::RustCode>(code, |node, chain| {
             let expected = std::iter::successors(node.parent(), Node::parent)
                 .find_map(|ancestor| level(code, &ancestor, Ancestors::unknown()))
                 .unwrap_or(false);
-            let folded = Ancestors::known(chain)
+            let memoised = Ancestors::known(chain)
                 .with_folds(&cache)
-                .nearest_level_answer(node, lane, code, level);
-            let chained = Ancestors::known(chain).nearest_level_answer(node, lane, code, level);
-            let climbed = Ancestors::unknown().nearest_level_answer(node, lane, code, level);
+                .nearest_level_answer(node, question, code, level);
+            let chained = Ancestors::known(chain).nearest_level_answer(node, question, code, level);
+            let climbed = Ancestors::unknown().nearest_level_answer(node, question, code, level);
             let (kind, start) = (node.kind(), node.start_byte());
             assert_eq!(
-                (folded, chained, climbed),
+                (memoised, chained, climbed),
                 (expected, expected, expected),
-                "{kind} at byte {start}: (folded, chained, climbed) must all be the climb's answer"
+                "{kind} at byte {start}: (memoised, chained, climbed) must all be the climb's answer"
             );
             if kind == "integer_literal" {
-                literals.push(
-                    Ancestors::known(chain)
-                        .with_folds(&asked_at_literals)
-                        .nearest_level_answer(node, lane, code, level),
-                );
+                let before = LEVELS_ASKED.get();
+                let answer = Ancestors::known(chain)
+                    .with_folds(&asked_at_literals)
+                    .nearest_level_answer(node, question, code, level);
+                literals.push((answer, LEVELS_ASKED.get() - before));
             }
             if expected {
                 yes += 1;
@@ -2415,11 +2426,22 @@ mod tests {
                 no += 1;
             }
         });
+        let (answers, asked): (Vec<_>, Vec<_>) = literals.into_iter().unzip();
         assert_eq!(
-            literals,
-            [false, false, true, false, false, true],
-            "1 and 2 in f's closure, 3 in f, 4 under neither, 5 in g's closure, 6 in i"
+            answers,
+            [false, false, true, true, false, false, true],
+            "1 and 2 in f's closure, 3 and 4 in f, 5 under neither, 6 in g's closure, 7 in i"
         );
+        // expected: `1` climbs binary, parenthesis, `let`, block and the
+        // closure; `2` meets the memo on the binary; `3` climbs tuple,
+        // `let`, block and `f`; `4` its `let`, then the memo on the
+        // block; `5` the const and the file; `6` its closure; `7` the
+        // statement, the block and `i`. The unmemoised climb asks 5 for
+        // `2` and 3 for `4`. `make chain-audit` runs that climb beside
+        // every ask, so the count is asserted without it.
+        if cfg!(not(chain_audit)) {
+            assert_eq!(asked, [5, 0, 4, 1, 2, 1, 3]);
+        }
         assert!(yes > 0 && no > 0, "both answers must occur ({yes} / {no})");
     }
 }

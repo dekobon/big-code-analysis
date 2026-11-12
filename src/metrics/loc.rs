@@ -10385,44 +10385,65 @@ EOF
     }
 
     /// #1863: whether code precedes a parenthesis on its logical line is
-    /// folded down the walk's chain, so a docstring `depth` parentheses
-    /// deep, each opening with a bare `\` run, reads three levels per
-    /// parenthesis rather than every level above each.
+    /// read at the nearest level that answers, and each level is read
+    /// once per walk. Two shapes, because each of the two ways to get it
+    /// wrong is linear on one of them:
     ///
-    /// The rows cannot see it: the fold and the climb answer the same,
-    /// so every row but the last is a comment row either way, and only
-    /// the count of levels read tells the two apart. No level here has a
-    /// token before its node, so the question defers from each
-    /// parenthesis to the root, the shape the climb was quadratic on.
+    /// - `nested`: a docstring `n` parentheses deep, each opening with a
+    ///   bare `\` run. No level has a token before its node, so the
+    ///   question defers from every parenthesis to the root. A climb per
+    ///   parenthesis reads `j + 2` levels from the one `j` deep.
+    /// - `block`: `n` parenthesised strings in an `if` block behind `n`
+    ///   comments. Each statement's own level answers. A fold of the
+    ///   answer down the chain reads the block's level too, for every
+    ///   statement, and that level is a scan of the `n` comments.
+    ///
+    /// The rows cannot see either: every reading answers the same, so
+    /// the comment rows are the same rows, and only the count of levels
+    /// read tells the three apart.
     #[cfg(feature = "python")]
     #[test]
-    fn python_code_before_a_parenthesis_reads_three_levels_each() {
-        let depth = 40;
-        let source = format!(
+    fn python_code_before_a_parenthesis_reads_each_level_once() {
+        let n = 40;
+        let nested = format!(
             "{}\"\"\"doc\"\"\"\n{}\nx = 1\n",
-            "(\n\\\n# c\n".repeat(depth),
-            ")".repeat(depth)
+            "(\n\\\n# c\n".repeat(n),
+            ")".repeat(n)
         );
-        let before = python::python_line_levels_read::observed();
-        let loc = metrics_verbatim(
-            crate::LANG::Python,
-            source.as_bytes(),
-            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
-        )
-        .loc;
-        let read = python::python_line_levels_read::observed() - before;
+        let block = format!(
+            "if x:\n{}{}",
+            "    # c\n".repeat(n),
+            "    (\"s\"\n\\\n)\n".repeat(n)
+        );
+        let read = |source: &str| {
+            let before = python::python_line_levels_read::observed();
+            let loc = metrics_verbatim(
+                crate::LANG::Python,
+                source.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            )
+            .loc;
+            (
+                loc.cloc(),
+                python::python_line_levels_read::observed() - before,
+            )
+        };
+        let (nested_cloc, nested_read) = read(&nested);
+        let (block_cloc, block_read) = read(&block);
         // expected: per level the `(` row, the bare row and the comment
-        // row; then the string's row and the row of `)`.
-        assert_eq!(loc.cloc(), 3 * depth as u64 + 2);
-        // expected: each parenthesis is asked once, by its run, and reads
-        // its own level, the one ancestor state the fold has not stored
-        // yet, and its parent's level, which a fold never stores. The
-        // climb read `j + 2` levels from the parenthesis `j` deep,
-        // `depth * (depth + 5) / 2` in all: 900 here. `make chain-audit`
-        // checks every folded answer against that climb, which reads
-        // the levels this counts, so the count is asserted without it.
+        // row, then the string's row and the row of `)`; and a row per
+        // comment plus three per string.
+        assert_eq!((nested_cloc, block_cloc), (3 * n as u64 + 2, 4 * n as u64));
+        // expected: each parenthesis is asked once, by its run. `nested`:
+        // its own level and its parent's, where it meets the answer the
+        // parent's ask left on the levels above; the outermost reads its
+        // statement and the module instead. `block`: its own level and
+        // its statement's, which answers; the first statement has no
+        // statement before it and reads the block. The climb reads 900
+        // and 81, the fold 120 and 122. `make chain-audit` runs the
+        // climb beside every ask, so the count is asserted without it.
         if cfg!(not(chain_audit)) {
-            assert_eq!(read, 3 * depth);
+            assert_eq!((nested_read, block_read), (2 * n + 1, 2 * n + 1));
         }
     }
 

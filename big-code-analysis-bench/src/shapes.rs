@@ -455,6 +455,29 @@ pub fn python_bare_runs_before_string(width: usize) -> String {
     )
 }
 
+/// Python: an `if` whose block opens with `width` comment rows and then
+/// holds `width` parenthesised bare strings, each with a bare `\` row
+/// inside its parentheses.
+///
+/// Each string's parenthesis asks whether code precedes it on its
+/// logical line, and the nearest level that answers is its statement's:
+/// the statement before it ends on another row. The comments ahead of a
+/// block's first statement are children of the `if`, before the `block`,
+/// so the block's own level is a scan of `width` comments back to the
+/// `:`. Only the first statement needs it. A walk that reads the levels
+/// above the nearest answering one for every asker — a fold of the
+/// answer down the chain evaluates each ancestor, and keys the block's
+/// state by the statement under it — scans the comments once per
+/// statement, quadratic in `width` (#1863).
+#[must_use]
+pub fn python_block_comments_paren_strings(width: usize) -> String {
+    format!(
+        "if x:\n{}{}",
+        "    # c\n".repeat(width),
+        "    (\"s\"\n\\\n)\n".repeat(width)
+    )
+}
+
 /// How many `\` + `# c` pairs [`python_deep_paren_extra_prefix`] puts
 /// ahead of the next parenthesis at every level: 63 children with the
 /// two parentheses and the next level, the most a node holds before the
@@ -479,8 +502,8 @@ const PAREN_PREFIX_PAIRS: usize = 30;
 /// node, past that level's extras. None of these levels has one, so the
 /// question defers to the root from every parenthesis: read by
 /// climbing, `depth` parentheses read `depth² / 2` levels, under the
-/// 200 levels Python's tokenizer lets parentheses nest. Folded down the
-/// walk's chain, each reads three (#1863).
+/// 200 levels Python's tokenizer lets parentheses nest. Read through the
+/// walk's memo of each level's nearest answer, each reads two (#1863).
 #[must_use]
 pub fn python_deep_paren_extra_prefix(depth: usize) -> String {
     let level = format!("(\n{}", "\\\n# c\n".repeat(PAREN_PREFIX_PAIRS));
@@ -3916,14 +3939,39 @@ pub const PROBES: &[Probe] = &[
                     it on its logical line, which defers level by level to \
                     the root where the levels hold only comments and \
                     splices. Climbed from each parenthesis that is \
-                    `depth² / 2` levels under CPython's 200-level cap; the \
-                    answer is folded down the walk's chain on \
-                    `LevelLane::CodeBeforeOnLine`, three levels per \
-                    parenthesis. With the climb put back this reads 1.95, \
-                    92 ms at the top rung against 5.3 ms, and 1.00 \
+                    `depth² / 2` levels under CPython's 200-level cap; each \
+                    level's nearest answer is memoised on \
+                    `LevelQuestion::CodeBeforeOnLine`, two levels per \
+                    parenthesis. With the climb put back this reads 1.96, \
+                    100 ms at the top rung against 4.7 ms, and 0.93 \
                     without. The reading is the comment rows: each level's \
                     `(` row, bare rows and comments, the string's and the \
                     `)` row.",
+    },
+    Probe {
+        name: "loc/python-block-comments-paren-strings",
+        lang: LANG::Python,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.cloc(),
+        },
+        render: python_block_comments_paren_strings,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1863: `width` parenthesised bare strings, each holding \
+                    a bare `\\` row, in an `if` block that opens with \
+                    `width` comment rows. Each parenthesis asks whether code \
+                    precedes it on its logical line, and its own statement's \
+                    level answers. The block's level above it is a scan of \
+                    the `width` comments back to the `:`, which only the \
+                    first statement needs. Read for every statement, as a \
+                    fold of the answer down the chain reads it, the walk is \
+                    quadratic in `width`: 2.02 and 763 ms at the top rung \
+                    with that fold, 1.04 and 28 ms with the memoised climb. \
+                    The reading is the comment rows: the `width` comments \
+                    and three rows per string.",
     },
     Probe {
         name: "loc/go-nested-doc-fields",
@@ -5194,6 +5242,46 @@ mod tests {
                     .expect("metrics walk");
                 assert_eq!(reading, size as u64 + 1, "{name} at {size}");
             }
+        }
+    }
+
+    /// `loc/python-block-comments-paren-strings` (#1863) puts its
+    /// comments where the block's level must scan them: tree-sitter
+    /// hangs a comment ahead of a block's first statement on the
+    /// compound statement, before the `block`, so the `if` holds all
+    /// `size` of them and the block one statement per string. A grammar
+    /// that moved them into the block would leave the probe measuring
+    /// nothing. The reading is every row but the `if`.
+    #[test]
+    fn python_block_comments_probe_hangs_its_comments_on_the_if() {
+        let name = "loc/python-block-comments-paren-strings";
+        let probe = PROBES
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} is a probe"));
+        for size in [3, probe.sizes[0]] {
+            let ast = parse(probe, size);
+            let root = ast.as_tree_sitter().root_node();
+            assert!(!root.has_error(), "{name} at {size}");
+            let compound = root.child(0).expect("the `if`");
+            assert_eq!(compound.kind(), "if_statement");
+            let mut cursor = compound.walk();
+            let kinds: Vec<_> = compound.children(&mut cursor).map(|c| c.kind()).collect();
+            assert_eq!(
+                kinds.iter().filter(|kind| **kind == "comment").count(),
+                size,
+                "every comment is the `if`'s child"
+            );
+            assert_eq!(kinds.last(), Some(&"block"), "and sits before the block");
+            assert_eq!(count_kind(&ast, "parenthesized_expression"), size);
+            assert_eq!(count_kind(&ast, "line_continuation"), size);
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
+                .expect("metrics walk");
+            // expected: a row per comment, and the string's, the bare
+            // row and the `)` row per statement.
+            assert_eq!(reading, 4 * size as u64, "{name} at {size}");
         }
     }
 

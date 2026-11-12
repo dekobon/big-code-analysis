@@ -299,25 +299,25 @@ value = 43.0
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 690.0
+value = 704.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1470.0
+value = 1501.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "nom"
-value = 45.0
+value = 44.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"
 qualified = "Ancestors<'tree, 'chain>"
 metric = "wmc"
-value = 81.0
+value = 84.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/node/ancestors.rs"

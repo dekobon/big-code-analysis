@@ -269,14 +269,21 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     ///
     /// Under a walk that lent a [`FoldCache`], the state at each ancestor
     /// is stored per depth, keyed by the ancestor's id, so each one is
-    /// folded once per walk and a query costs amortised `O(1)`. A node
-    /// fixes its own ancestry, so a stored state whose id matches the
-    /// chain is exact; a slot left by a node the walk has moved past holds
-    /// another id and is refolded. `step` must answer the same for every
-    /// call on one `lane` within a walk. It may fold on another lane,
-    /// memoised; a fold on its own lane is answered unmemoised. The
-    /// state at `node` (`skip == 0`) depends on `node`, so it is folded
-    /// fresh. Without a known chain the ancestry is climbed with
+    /// folded once per walk and a query costs amortised `O(1)` steps. A
+    /// state is the fold over the ancestors *above* its key, so `step`
+    /// runs for an ancestor once per child of it the walk asks from, and
+    /// for every ancestor on the chain whatever it answers. A step that
+    /// scans is therefore rescanned per child; a question the nearest
+    /// ancestor settles belongs on
+    /// [`nearest_level_answer`](Self::nearest_level_answer) (#1863).
+    ///
+    /// A node fixes its own ancestry, so a stored state whose id matches
+    /// the chain is exact; a slot left by a node the walk has moved past
+    /// holds another id and is refolded. `step` must answer the same for
+    /// every call on one `lane` within a walk. It may fold on another
+    /// lane, memoised; a fold on its own lane is answered unmemoised.
+    /// The state at `node` (`skip == 0`) depends on `node`, so it is
+    /// folded fresh. Without a known chain the ancestry is climbed with
     /// [`Node::parent`] first, which is `O(depth²)` per query; only tests
     /// and chainless callers reach that path, never the metrics walk.
     pub(crate) fn fold_down(
@@ -430,24 +437,31 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// parentheses around a Python docstring, each asking whether code
     /// precedes it on its logical line — climbs the nest from every
     /// level and is quadratic in its depth (#1863). Under a walk that
-    /// lent a [`FoldCache`] the answer is folded down the chain on
-    /// `lane` instead, each ancestor's own answer once per walk: a
-    /// `Some` replaces what the ancestors above it said, a `None` keeps
-    /// it. Elsewhere the climb is what runs, since an unmemoised fold
-    /// would start at the root for every ask.
+    /// lent a [`FoldCache`] the climb is memoised per level on
+    /// `question`: it stops at the first level that answers or already
+    /// holds an answer, and hands what it found to every level it
+    /// passed. So `answer` runs at most once per level per walk, and
+    /// never on a level above the nearest one that answers.
     ///
-    /// A lane memoises whatever its first asker folded, so each
-    /// [`LevelLane`] belongs to one `answer` per walk, and `answer` is a
-    /// plain `fn` of the source, the ancestor and the ancestor's own
-    /// chain: a closure that captured the asking node would hand every
-    /// later node the first one's answer. `make chain-audit` checks
-    /// every folded answer against the climb.
+    /// Not [`fold_down`](Self::fold_down), which this was first written
+    /// on: a fold evaluates every ancestor, the ones above the nearest
+    /// answer included, and stores an ancestor's state under the child
+    /// on the path, so a level whose answer is a long scan was scanned
+    /// again for each child asked from. `n` statements in a block behind
+    /// `k` comments cost `n × k` where the plain climb costs `n + k`.
+    ///
+    /// The memo hands every later asker the first one's answer, so each
+    /// [`LevelQuestion`] belongs to one `answer` per walk, and `answer`
+    /// is a plain `fn` of the source, the ancestor and the ancestor's
+    /// own chain: a closure that captured the asking node would answer
+    /// for it at every level. `make chain-audit` checks every memoised
+    /// answer against the climb.
     #[doc(hidden)]
     #[must_use]
     pub fn nearest_level_answer(
         self,
         node: &Node<'tree>,
-        lane: LevelLane,
+        question: LevelQuestion,
         code: &[u8],
         answer: fn(&[u8], &Node<'tree>, Ancestors<'tree, 'chain>) -> Option<bool>,
     ) -> bool {
@@ -456,23 +470,39 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
                 .find_map(|(level, chain)| answer(code, &level, chain))
                 .unwrap_or(false)
         };
-        if !self.memoises_folds() {
+        let Some(memo) = self.node_memo(question.memo_question()) else {
             return climb();
+        };
+        // The levels passed without an answer are counted, not listed:
+        // they are the first `deferred` of the same iteration.
+        let mut deferred = 0;
+        let mut found = false;
+        for (level, chain) in self.iter(node) {
+            if let Some(known) = memo.get(&level) {
+                found = known;
+                break;
+            }
+            if let Some(own) = answer(code, &level, chain) {
+                memo.set(&level, own);
+                found = own;
+                break;
+            }
+            deferred += 1;
         }
-        let folded = self.fold_down(node, 0, lane.fold_lane(), 0, |held, ancestor, outer, _| {
-            answer(code, ancestor, outer).map_or(held, u8::from)
-        }) == 1;
-        // Opt-in only: the climb is the `O(depth)` per ask the fold
+        for (level, _) in self.iter(node).take(deferred) {
+            memo.set(&level, found);
+        }
+        // Opt-in only: the climb is the `O(depth)` per ask the memo
         // exists to remove.
         #[cfg(chain_audit)]
         assert_eq!(
-            folded,
+            found,
             climb(),
-            "the {lane:?} fold disagrees with the climb on a {} node: a lane \
-             holds one answer fn per walk",
+            "the {question:?} memo disagrees with the climb on a {} node: a \
+             question holds one answer fn per walk",
             node.kind()
         );
-        folded
+        found
     }
 
     /// The walk's memo for `question`, when it lent a [`FoldCache`].
@@ -1087,28 +1117,6 @@ impl KindLane {
     }
 }
 
-/// The "nearest ancestor that answers" questions the metric crate asks
-/// through [`Ancestors::nearest_level_answer`], one per lane of the
-/// walk's [`FoldCache`]. Its own enum for the reason [`KindLane`] is:
-/// this entry point stores an answer, not a "seen one" flag, so a lane
-/// passed to the wrong one would hand each question the other's memo.
-#[doc(hidden)]
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LevelLane {
-    /// Python: whether code precedes a node on its logical line, read
-    /// at the nearest level above it that has a token before its node.
-    CodeBeforeOnLine,
-}
-
-impl LevelLane {
-    const fn fold_lane(self) -> FoldLane {
-        match self {
-            Self::CodeBeforeOnLine => FoldLane::CodeBeforeOnLine,
-        }
-    }
-}
-
 /// Which memoised fold a [`FoldCache`] slot holds. A language may run
 /// more than one fold over the same walk, and two folds' states must not
 /// share a slot.
@@ -1142,19 +1150,17 @@ pub(crate) enum FoldLane {
     LambdaDepth,
     /// [`KindLane::InsideFunction`].
     InsideFunction,
-    /// [`LevelLane::CodeBeforeOnLine`].
-    CodeBeforeOnLine,
 }
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 12;
+    const COUNT: usize = 11;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the
 // first walk that folds on it; this makes a variant added without the
 // bump a build error instead.
-const _: () = assert!(FoldLane::CodeBeforeOnLine as usize + 1 == FoldLane::COUNT);
+const _: () = assert!(FoldLane::InsideFunction as usize + 1 == FoldLane::COUNT);
 
 /// Which memoised per-node question a [`FoldCache`] [`NodeMemo`] holds.
 /// Two questions asked of the same node must not share a slot, so each
@@ -1201,14 +1207,16 @@ pub(crate) enum MemoQuestion {
     KeywordsLeadTheirList,
     /// [`NodeQuestion::BareStringParenthesisLine`].
     BareStringParenthesisLine,
+    /// [`LevelQuestion::CodeBeforeOnLine`].
+    CodeBeforeOnLine,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 9;
+    const COUNT: usize = 10;
 }
 
-const _: () = assert!(MemoQuestion::BareStringParenthesisLine as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::CodeBeforeOnLine as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-node questions the metric crate memoises through
 /// [`Ancestors::memoised_answer`], one per [`MemoQuestion`] memo of the
@@ -1232,6 +1240,29 @@ impl NodeQuestion {
     const fn memo_question(self) -> MemoQuestion {
         match self {
             Self::BareStringParenthesisLine => MemoQuestion::BareStringParenthesisLine,
+        }
+    }
+}
+
+/// The "nearest ancestor that answers" questions the metric crate asks
+/// through [`Ancestors::nearest_level_answer`], one per [`MemoQuestion`]
+/// memo of the walk's [`FoldCache`]. Its own enum, apart from
+/// [`NodeQuestion`]: that entry point stores a node's own answer and
+/// this one the nearest answer at or above it, so a question passed to
+/// the wrong one would hand each the other's memo.
+#[doc(hidden)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LevelQuestion {
+    /// Python: whether code precedes a node on its logical line, read
+    /// at the nearest level above it that has a token before its node.
+    CodeBeforeOnLine,
+}
+
+impl LevelQuestion {
+    const fn memo_question(self) -> MemoQuestion {
+        match self {
+            Self::CodeBeforeOnLine => MemoQuestion::CodeBeforeOnLine,
         }
     }
 }
