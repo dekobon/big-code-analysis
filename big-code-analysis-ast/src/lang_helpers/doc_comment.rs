@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn a_wide_error_s_package_is_judged_without_the_walk_s_sibling_cache() {
         use crate::langs::JavaCode;
-        use crate::node::{FoldCache, SiblingCache, Tree, WIDE_PARENT};
+        use crate::node::{FoldCache, SiblingCache, Tree, WIDE_PARENT, sibling_seeks};
         // `class {` opens a body the stray `@`s never close, so recovery
         // gathers the package and every `@` into one flat `ERROR`.
         let source = format!(
@@ -808,7 +808,7 @@ mod tests {
         let walk = Ancestors::known(&chain)
             .with_siblings(&siblings)
             .with_folds(&folds);
-        let before = crate::node::sibling_seeks::observed();
+        let before = sibling_seeks::observed();
         assert!(
             error_holds_target::<JavaCode>(&error, source.as_bytes(), walk),
             "a package with no declaration after it is javadoc's target"
@@ -817,7 +817,7 @@ mod tests {
         // sibling; the error holds one, and it is a target, so the scan
         // of the error's children stops there.
         assert_eq!(
-            crate::node::sibling_seeks::observed() - before,
+            sibling_seeks::observed() - before,
             1,
             "the package gate's one seek through the derived chain"
         );

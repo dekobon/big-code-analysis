@@ -743,11 +743,11 @@ fn the_member_walks_derive_a_chain_per_body_not_per_node() {
 /// "not a name" (#1871).
 ///
 /// The operand keys cannot see it: the answer was discarded for every
-/// other kind. Both counters are read because a lookup seeks under a
-/// parent of at most `WIDE_PARENT` children and reads the walk's record
-/// under a wider one; the last row's string is the wide parent. Only
-/// Halstead is selected, and no fixture spells a modifier keyword,
-/// whose row gate asks for a sibling of its own.
+/// other kind. Each row gives the seeks and the record reads apart: a
+/// lookup seeks under a parent of at most `WIDE_PARENT` children and
+/// reads the walk's record under a wider one, which the last row's
+/// string is. Only Halstead is selected, and no fixture spells a
+/// modifier keyword, whose row gate asks for a sibling of its own.
 #[cfg(feature = "kotlin")]
 #[test]
 fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
@@ -763,7 +763,7 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
             ast.ops().expect("the walk must yield a top-level space");
         }),
     ];
-    let lookups = || sibling_seeks::observed() + sibling_cache_reads::observed();
+    let lookups = || (sibling_seeks::observed(), sibling_cache_reads::observed());
 
     let wide = format!(
         "fun h(a: Int): String {{\n    return \"{}\"\n}}\n",
@@ -771,34 +771,36 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
     );
     // Each row: the source, its identifier and number leaves (operands
     // that are no `string_content`), its `string_content` tokens, and
-    // the sibling lookups one walk makes.
+    // the sibling lookups one walk makes, as (seeks, record reads).
     let rows = [
         (
             "no string",
             "fun f(a: Int, b: Int): Int {\n    val c = a + b + 1\n    return c * a\n}\n",
             12,
             0,
-            // expected: 0, the fixture holds no `string_content`.
-            0,
+            // expected: none, the fixture holds no `string_content`.
+            (0, 0),
         ),
         (
             "a short template",
             "fun g(a: Int, b: Int): String {\n    return \"$a and $b\"\n}\n",
             6,
             4,
-            // expected: 6. `get_op_type_with_code` asks once of each of
-            // the four tokens (`$`, `a and `, `$`, `b`), and
-            // `get_operand_id` once more of the two it found to be names.
-            6,
+            // expected: 6 seeks, the string being narrow.
+            // `get_op_type_with_code` asks once of each of the four
+            // tokens (`$`, `a and `, `$`, `b`), and `get_operand_id` once
+            // more of the two it found to be names.
+            (6, 0),
         ),
         (
             "a template wider than `WIDE_PARENT`",
             wide.as_str(),
             4,
             2 * WIDE_PARENT,
-            // expected: as above, a `$` and a name per repeat: two asks
-            // by `get_op_type_with_code` and one by `get_operand_id`.
-            3 * WIDE_PARENT,
+            // expected: as above per repeat, a `$` and a name: two asks
+            // by `get_op_type_with_code` and one by `get_operand_id`, all
+            // answered from the record of the string's children.
+            (0, 3 * WIDE_PARENT),
         ),
     ];
     for (shape, source, plain_operands, string_contents, expected) in rows {
@@ -820,13 +822,14 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
             "{shape}: `string_content` tokens"
         );
         for (seam, run) in seams {
-            let before = lookups();
+            let (seeks, reads) = lookups();
             run(&ast);
+            let (sought, read) = lookups();
             assert_eq!(
-                lookups() - before,
+                (sought - seeks, read - reads),
                 expected,
                 "{shape}: {seam} asked for the previous sibling of a node that is no \
-                 `string_content`, or stopped asking it of one"
+                 `string_content`, or stopped asking it of one (seeks, record reads)"
             );
         }
     }
@@ -854,10 +857,11 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
     feature = "typescript",
 ))]
 mod member_walk_siblings {
-    use crate::LANG;
     use crate::node::{
-        Ancestors, WIDE_PARENT, child_chains_derived, sibling_cache_reads, sibling_seeks,
+        Ancestors, FoldCache, SiblingCache, WIDE_PARENT, child_chains_derived, sibling_cache_reads,
+        sibling_seeks,
     };
+    use crate::{LANG, Node};
 
     /// What the member walks count over a whole fixture.
     #[derive(Clone, Copy)]
@@ -878,7 +882,8 @@ mod member_walk_siblings {
         wide_body: &'static str,
         /// The methods `npm` counts and the attributes `npa` counts:
         /// the witness that each walk read the wide body's members.
-        members: [Count; 2],
+        methods: Count,
+        attributes: Count,
         /// Whether a member walk reads the members through a chain
         /// derived with `Ancestors::of_children`, where a sibling ask
         /// seeks, or through the walk's own, where it reads the record.
@@ -901,42 +906,48 @@ mod member_walk_siblings {
             lang: LANG::Java,
             source: JAVA,
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Groovy,
             source: ["class C {\n", "int x\nvoid m() {}\n", "}\n"],
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Csharp,
             source: ["class C {\n", "public int x;\nvoid M() {}\n", "}\n"],
             wide_body: "declaration_list",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Kotlin,
             source: ["class C {\n", "val x = 1\nfun m() {}\n", "}\n"],
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Cpp,
             source: CPP,
             wide_body: "field_declaration_list",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Mozcpp,
             source: CPP,
             wide_body: "field_declaration_list",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
@@ -947,14 +958,16 @@ mod member_walk_siblings {
                 "@end\n",
             ],
             wide_body: "class_interface",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Php,
             source: ["<?php\nclass C {\n", "public $x;\nfunction m() {}\n", "}\n"],
             wide_body: "declaration_list",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
@@ -965,63 +978,72 @@ mod member_walk_siblings {
                 "",
             ],
             wide_body: "block",
-            members: [Count::Each, Count::Just(2)],
+            methods: Count::Each,
+            attributes: Count::Just(2),
             derives_a_chain: false,
         },
         Fixture {
             lang: LANG::Ruby,
             source: ["class C\n", "  attr_reader :x\n  def m\n  end\n", "end\n"],
             wide_body: "body_statement",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Rust,
             source: ["struct S {\n", "pub x: i32,\n", "}\n"],
             wide_body: "field_declaration_list",
-            members: [Count::Just(0), Count::Each],
+            methods: Count::Just(0),
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Rust,
             source: ["struct S;\nimpl S {\n", "pub fn m(&self) {}\n", "}\n"],
             wide_body: "declaration_list",
-            members: [Count::Each, Count::Just(0)],
+            methods: Count::Each,
+            attributes: Count::Just(0),
             derives_a_chain: false,
         },
         Fixture {
             lang: LANG::Go,
             source: ["package p\ntype S struct {\n", "X int\n", "}\n"],
             wide_body: "field_declaration_list",
-            members: [Count::Just(0), Count::Each],
+            methods: Count::Just(0),
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Javascript,
             source: JS,
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Mozjs,
             source: JS,
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Typescript,
             source: TS,
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
             lang: LANG::Tsx,
             source: TS,
             wide_body: "class_body",
-            members: [Count::Each, Count::Each],
+            methods: Count::Each,
+            attributes: Count::Each,
             derives_a_chain: true,
         },
         Fixture {
@@ -1032,7 +1054,8 @@ mod member_walk_siblings {
                 "end\n",
             ],
             wide_body: "do_block",
-            members: [Count::Each, Count::Just(1)],
+            methods: Count::Each,
+            attributes: Count::Just(1),
             derives_a_chain: true,
         },
     ];
@@ -1055,7 +1078,9 @@ mod member_walk_siblings {
 
     /// The `npa` and `npm` walks ask for no sibling of a member, under a
     /// body wider than `WIDE_PARENT`, in any language that has them
-    /// (#1871).
+    /// (#1871). The members are the two plainest each language has, a
+    /// field and a method: a gate on another member kind, such as a
+    /// record header or an accessor, is not asked here.
     ///
     /// Most of them read a body's members through a chain derived with
     /// `Ancestors::of_children`, which carries no sibling record: the
@@ -1078,9 +1103,8 @@ mod member_walk_siblings {
     #[test]
     fn the_member_walks_ask_for_no_sibling_under_a_wide_body() {
         for lang in LANG::into_enum_iter() {
-            let rows = FIXTURES.iter().filter(|row| row.lang == lang).count();
             assert_eq!(
-                rows > 0,
+                FIXTURES.iter().any(|row| row.lang == lang),
                 !NO_MEMBER_WALK.contains(&lang),
                 "{} needs a fixture, or a place among the languages with no member walk",
                 lang.name()
@@ -1104,24 +1128,35 @@ mod member_walk_siblings {
                 !root.preorder().any(|node| node.is_error()),
                 "{label}: the fixture must parse"
             );
-            assert!(
-                root.preorder()
-                    .any(|node| node.kind() == wide_body && node.child_count() > WIDE_PARENT),
-                "{label}: the fixture holds no such body"
-            );
-            // A positive control: both counters count, so the zeros
-            // below are walks that asked for nothing.
-            let first = root.child(0).expect("the fixture has a first node");
-            let chain = [root];
-            let before = sibling_seeks::observed();
-            let _ = Ancestors::known(&chain).siblings_after(&first).next();
+            let body = root
+                .preorder()
+                .find(|node| node.kind() == wide_body && node.child_count() > WIDE_PARENT)
+                .unwrap_or_else(|| panic!("{label}: the fixture holds no such body"));
+            // A positive control for each counter, so the zeros below
+            // are walks that asked for nothing: a seek through a chain
+            // that lends no record, and a read through a walk's chain
+            // that recorded the body.
+            let mut chain: Vec<Node> = std::iter::successors(Some(body), Node::parent).collect();
+            chain.reverse();
+            let member = body.child(0).expect("a wide body has a first child");
+            let (seeks, reads) = (sibling_seeks::observed(), sibling_cache_reads::observed());
+            let _ = Ancestors::known(&chain).siblings_after(&member).next();
+            let mut recorded = SiblingCache::default();
+            recorded.record(&body, chain.len() - 1, body.children());
+            let folds = FoldCache::default();
+            let _ = Ancestors::for_walk(&chain, &member, &folds, &recorded)
+                .siblings_after(&member)
+                .next();
             assert_eq!(
-                sibling_seeks::observed() - before,
-                1,
-                "{label}: the control"
+                (
+                    sibling_seeks::observed() - seeks,
+                    sibling_cache_reads::observed() - reads
+                ),
+                (1, 1),
+                "{label}: the controls (seeks, record reads)"
             );
 
-            let before = (
+            let (seeks, reads, derived) = (
                 sibling_seeks::observed(),
                 sibling_cache_reads::observed(),
                 child_chains_derived::observed(),
@@ -1132,22 +1167,21 @@ mod member_walk_siblings {
                         .with_only(&[crate::Metric::Npa, crate::Metric::Npm]),
                 )
                 .expect("the walk must yield a top-level space");
-            let [methods, attributes] = fixture.members.map(expected);
             assert_eq!(
                 (space.metrics.npm.total_nm(), space.metrics.npa.total_na()),
-                (methods, attributes),
+                (expected(fixture.methods), expected(fixture.attributes)),
                 "{label}: the methods and attributes the walks counted"
             );
             assert_eq!(
-                child_chains_derived::observed() > before.2,
+                child_chains_derived::observed() > derived,
                 fixture.derives_a_chain,
                 "{label}: whether a member walk derived a chain"
             );
             // expected: 0 and 0, no member row's gate asks for a sibling.
             assert_eq!(
                 (
-                    sibling_seeks::observed() - before.0,
-                    sibling_cache_reads::observed() - before.1
+                    sibling_seeks::observed() - seeks,
+                    sibling_cache_reads::observed() - reads
                 ),
                 (0, 0),
                 "{label}: a member walk asked for a sibling (seeks, record reads); under a \
