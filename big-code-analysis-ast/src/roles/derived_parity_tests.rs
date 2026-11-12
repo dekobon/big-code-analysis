@@ -123,23 +123,40 @@ struct Source {
 /// makes `utils/check-test-lang-gates.py` derive a gate on these three
 /// languages for every test that loads a source, all of which run
 /// under any one language.
-const BYTE_GATE_FIXTURES: &[(&str, &str, &[u8])] = &[
-    (
-        "Java",
-        "gate/java-records",
-        b"record A(int a) { A(long a) { this((int) a); } }\nrecord B(int b) { B(int b) { this.b = b; } }\n",
-    ),
-    (
-        "Groovy",
-        "gate/groovy-records",
-        b"record A(int a) { A(long a) { this(1) } }\nrecord B(int b) { B(int b) { this.b = b } }\n",
-    ),
-    (
-        "Bash",
-        "gate/bash-tests",
-        b"if [ \"$a\" -eq 1 -a \"$b\" -eq 2 ]; then :; fi\n[ -n \"$a\" -o -n \"$b\" ]\n",
-    ),
+const BYTE_GATE_FIXTURES: &[ByteGateFixture] = &[
+    ByteGateFixture {
+        table: "Java",
+        name: "gate/java-records",
+        source: b"record A(int a) { A(long a) { this((int) a); } }\nrecord B(int b) { B(int b) { this.b = b; } }\n",
+        moves: &[("FuncOpener", "formal_parameters")],
+    },
+    ByteGateFixture {
+        table: "Groovy",
+        name: "gate/groovy-records",
+        source: b"record A(int a) { A(long a) { this(1) } }\nrecord B(int b) { B(int b) { this.b = b } }\n",
+        moves: &[("FuncOpener", "record_components")],
+    },
+    ByteGateFixture {
+        table: "Bash",
+        name: "gate/bash-tests",
+        source: b"if [ \"$a\" -eq 1 -a \"$b\" -eq 2 ]; then :; fi\n[ -n \"$a\" -o -n \"$b\" ]\n",
+        moves: &[
+            ("Comparison", "binary_expression"),
+            ("ShortCircuit", "binary_expression"),
+        ],
+    },
 ];
+
+/// One [`BYTE_GATE_FIXTURES`] row.
+struct ByteGateFixture {
+    /// The `LanguageTable::name` the source is asked under.
+    table: &'static str,
+    name: &'static str,
+    source: &'static [u8],
+    /// The `(role, owner kind)` gates this source was written to move:
+    /// each answers differently with its bytes and with none.
+    moves: &'static [(&'static str, &'static str)],
+}
 
 /// Every source `lang` is asked on: its control-flow files (routed by
 /// `test_support::control_flow_sources`), its documentation fixtures,
@@ -178,32 +195,40 @@ fn sources_for(lang: LANG) -> Vec<Source> {
     out.extend(
         BYTE_GATE_FIXTURES
             .iter()
-            .filter(|(name, _, _)| Some(*name) == table)
-            .map(|(_, fixture, bytes)| Source {
-                name: (*fixture).to_owned(),
-                bytes: bytes.to_vec(),
+            .filter(|fixture| Some(fixture.table) == table)
+            .map(|fixture| Source {
+                name: fixture.name.to_owned(),
+                bytes: fixture.source.to_vec(),
             }),
     );
     out
 }
 
-/// Each fixture names a table and still moves a gate that table marks
-/// `text_gated_by`: some node of a marked owner kind answers `owns`
-/// differently under the fixture's bytes and under none. That is the
-/// fixture's whole use — it is the candidate that would move the gate
-/// were it re-declared `gated_by` — and nothing else would notice it
-/// gone. The backstop skips a marked owner, so a fixture keyed by a
-/// name no table carries, or one a grammar bump or a gate edit left
-/// answering alike both ways, leaves the backstop passing with that
-/// gate unguarded.
+/// Each fixture names a table and still moves every gate it was written
+/// for: some node of the owner kind answers that row's `owns`
+/// differently under the fixture's bytes and under none, and the row
+/// marks the kind `text_gated_by`. That is the fixture's whole use — it
+/// is the candidate that would move the gate were it re-declared
+/// `gated_by` — and nothing else would notice it gone. The backstop
+/// skips a marked owner, so a fixture keyed by a name no table carries,
+/// or one a grammar bump or a gate edit left answering alike both ways,
+/// leaves the backstop passing with that gate unguarded. Named gates,
+/// not "some marked owner": another text gate of the table moving on
+/// the same source would hide the one the fixture is for.
 #[test]
-fn byte_gate_fixtures_each_move_a_marked_gate() {
+fn byte_gate_fixtures_each_move_their_gates() {
     let tables = crate::roles::tables();
-    for (name, fixture, code) in BYTE_GATE_FIXTURES {
+    for fixture in BYTE_GATE_FIXTURES {
+        let ByteGateFixture {
+            table: name,
+            name: label,
+            source,
+            moves,
+        } = *fixture;
         let table = tables
             .iter()
-            .find(|t| t.name == *name)
-            .unwrap_or_else(|| panic!("`{fixture}` names `{name}`, which is no table"));
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("`{label}` names `{name}`, which is no table"));
         if !table.lang.is_enabled() {
             continue;
         }
@@ -212,23 +237,28 @@ fn byte_gate_fixtures_each_move_a_marked_gate() {
             .filter_map(RowView::declared)
             .copied()
             .collect();
-        let mut moved = false;
+        let mut moved = BTreeSet::new();
         with_code_tag!(table.lang, |C| {
-            for_each_node_with_sibling_cache::<C>(code, |node, ancestors| {
+            for_each_node_with_sibling_cache::<C>(source, |node, ancestors| {
                 let ancestors = ancestors.without_folds();
                 let kind = node.kind_id();
-                moved |= rows.iter().any(|row| {
-                    row.text_gated_owners.contains(&kind)
-                        && (row.owns_kind)(kind, node, code, ancestors)
+                for row in &rows {
+                    if row.text_gated_owners.contains(&kind)
+                        && (row.owns_kind)(kind, node, source, ancestors)
                             != (row.owns_kind)(kind, node, &[], ancestors)
-                });
+                    {
+                        moved.insert((row.role, node.kind()));
+                    }
+                }
             });
         });
-        assert!(
-            moved,
-            "`{fixture}` moves no `text_gated_by` owner of {name}: the gate it was written \
-             for answers alike with and without its bytes"
-        );
+        for gate in moves {
+            assert!(
+                moved.contains(gate),
+                "`{label}` no longer moves {name}'s {gate:?}: that gate answers alike with \
+                 and without the fixture's bytes; moved: {moved:?}"
+            );
+        }
     }
 }
 
