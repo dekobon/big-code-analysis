@@ -1427,7 +1427,6 @@ impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(feature = "perl", debug_assertions))]
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use super::*;
@@ -2160,7 +2159,6 @@ mod tests {
     }
 
     // Asserts that `ask` panics with the walk assertion of `lookup`.
-    #[cfg(all(feature = "perl", debug_assertions))]
     fn assert_trips_the_walk_assertion(label: &str, ask: impl FnOnce() -> usize) {
         let message = match catch_unwind(AssertUnwindSafe(ask)) {
             Ok(count) => panic!("{label}: no assertion, {count} siblings"),
@@ -2172,6 +2170,25 @@ mod tests {
             message.contains("must record every wide node on its chain"),
             "{label}: {message}"
         );
+    }
+
+    /// The check above can fail, in both of its ways: it rejects an ask
+    /// that returns, and an ask that panics with another message. The
+    /// two rejection tests below rest on it, and would pass for a check
+    /// that accepted either. The control asks parse nothing, so this
+    /// runs in every build.
+    #[test]
+    fn the_walk_assertion_check_rejects_a_quiet_ask_and_another_panic() {
+        let rejection = |ask: fn() -> usize| {
+            *catch_unwind(|| assert_trips_the_walk_assertion("control", ask))
+                .expect_err("the check must reject this ask")
+                .downcast::<String>()
+                .expect("a formatted panic message")
+        };
+        assert_eq!(rejection(|| 0), "control: no assertion, 0 siblings");
+        // A `String` payload, as a formatted assertion's is.
+        let another = rejection(|| std::panic::panic_any(String::from("another panic")));
+        assert_eq!(another, "control: another panic");
     }
 
     /// A walk that records no siblings cannot ask for one under a wide
