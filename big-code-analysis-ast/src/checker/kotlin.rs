@@ -81,7 +81,7 @@ impl Checker for KotlinCode {
         }
         (Self::is_func_with_code(ancestor, code, ancestors)
             || Self::is_closure(ancestor, ancestors)
-            || doc_body_residual_kind!(kotlin, ancestor, ancestors))
+            || doc_body_residual_kind!(kotlin, ancestor, code, ancestors))
             && matches!(below.kind_id().into(), Kotlin::FunctionBody | Kotlin::Block)
     }
 

@@ -10,6 +10,8 @@ impl Getter for PreprocCode {
     keyword_roles!(preproc);
 
     // No row of `roles/preproc.rs` opens a space.
+    impl_byte_less_space_kind!(preproc);
+
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
         code: &[u8],

@@ -544,11 +544,13 @@ Create the file, add `mod <lang>;` to `checker.rs`, and write
   for `is_closure` (#1696). The two `_with_code` predicates are
   required: the trait gives them no default (#1863). Copy the Lua or
   Go shape, including `impl_byte_less_func_space!`, which emits the
-  byte-less `is_func_space` with its build-time pin.
+  byte-less `is_func_space` with its build-time pin. That one is
+  required too, so the build fails without the macro.
 - `is_call`, `is_call_with_code`, `is_string`,
   `is_string_with_code` — one `impl_row_predicates!(<lang>, call, …)`
   and one `impl_row_predicates!(<lang>, string_lit, …)` line each
-  (#1698).
+  (#1698). The two `_with_code` predicates are required (#1863), so
+  both lines are needed even where a row is `absent`.
 - `is_non_arg` — punctuation kinds inside argument lists
   (`LPAREN`, `COMMA`, `RPAREN`, etc.). Not a role; written by kind.
 - `is_else_if` — `#[inline]`. **Do not blind-copy the Go
@@ -601,9 +603,9 @@ Create the file, add `mod <lang>;` to `getter.rs`, and write
   over every `opens K` annotation on the `FuncOpener` and `Container`
   rows (#1696). `impl_byte_less_space_kind!(<lang>);` emits the
   byte-less `get_space_kind` with its build-time pin, as the Lua and
-  Go impls do; `is_func_space` and `get_space_kind` must read the same
-  predicate or the space tree disagrees with itself
-  (`grammar-dispatch.md` §7).
+  Go impls do; it is required too. `is_func_space` and
+  `get_space_kind` must read the same predicate or the space tree
+  disagrees with itself (`grammar-dispatch.md` §7).
 - `keyword_roles!(<lang>);` — emits `get_keyword_role`, which is
   **required** by the trait (no default), from the `Modifier`,
   `DeclKeyword` and `Primitive` rows. Pass `primitive: Operand` if the

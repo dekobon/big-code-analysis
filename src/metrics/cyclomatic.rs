@@ -464,11 +464,15 @@ mod tests {
     mod constrained_probe {
         use super::*;
 
-        // A `Checker` that opens no space and names no function: the two
-        // predicates the trait requires, answered `false`.
+        // A `Checker` that opens no space and names no function, call
+        // or string: the predicates the trait requires, answered `false`.
         macro_rules! probe_checker {
             ($name:ident) => {
                 impl Checker for $name {
+                    fn is_func_space(_: &Node) -> bool {
+                        false
+                    }
+
                     fn is_func_space_with_code<'a>(
                         _: &Node<'a>,
                         _: &[u8],
@@ -478,6 +482,18 @@ mod tests {
                     }
 
                     fn is_func_with_code<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+                        false
+                    }
+
+                    fn is_call_with_code<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
+                        false
+                    }
+
+                    fn is_string_with_code<'a>(
+                        _: &Node<'a>,
+                        _: &[u8],
+                        _: Ancestors<'a, '_>,
+                    ) -> bool {
                         false
                     }
                 }

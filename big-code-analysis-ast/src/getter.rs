@@ -78,8 +78,9 @@ macro_rules! get_operator {
 // (#1793). The `opener_gated` form asserts the `Container` row alone,
 // and that the opener row is gated at all, for a language whose opener
 // row reads the chain or the bytes by design and labels the gated
-// owner `Unknown` here, as the Checker half answers `false`. Ruby, C#
-// and Elixir keep hand-written spellings for the reasons given there.
+// owner by its rootless verdict here, as the Checker half answers it.
+// C# and Elixir keep hand-written spellings for the reasons given
+// there.
 macro_rules! impl_byte_less_space_kind {
     ($roles:ident) => {
         fn get_space_kind(node: &Node) -> SpaceKind {
@@ -390,13 +391,13 @@ pub trait Getter {
     /// The kind of space `node` opens by its kind alone, or
     /// [`SpaceKind::Unknown`] when it opens none: the byte-less spelling
     /// of [`get_space_kind_with_code`](Self::get_space_kind_with_code),
-    /// and by default that classifier asked with no bytes and a
-    /// known-empty chain, as `Checker::is_func_space` is of its own
-    /// (#1863). The walk calls the `_with_code` one.
+    /// that classifier asked with no bytes and a known-empty chain. The
+    /// walk calls the `_with_code` one. Required, as
+    /// `Checker::is_func_space` is and for its reason (#1863): a
+    /// language emits it through `impl_byte_less_space_kind!`, which
+    /// carries the build-time pin, or writes it by hand.
     #[must_use]
-    fn get_space_kind(node: &Node) -> SpaceKind {
-        Self::get_space_kind_with_code(node, &[], Ancestors::known(&[]))
-    }
+    fn get_space_kind(node: &Node) -> SpaceKind;
 
     /// The kind of space `node` opens, as the walk asks it: with the
     /// source bytes and the chain it descended through. Required: every
@@ -2058,6 +2059,10 @@ mod keyword_role_tests {
     macro_rules! conflicting_getter {
         ($name:ident, $row:ident, $arm:ident) => {
             impl Getter for $name {
+                fn get_space_kind(_node: &Node) -> crate::SpaceKind {
+                    crate::SpaceKind::Unknown
+                }
+
                 fn get_space_kind_with_code<'a>(
                     _node: &Node<'a>,
                     _code: &[u8],

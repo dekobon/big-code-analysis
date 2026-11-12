@@ -10,6 +10,8 @@ impl Getter for CcommentCode {
     keyword_roles!(ccomment);
 
     // No row of `roles/ccomment.rs` opens a space.
+    impl_byte_less_space_kind!(ccomment);
+
     fn get_space_kind_with_code<'a>(
         node: &Node<'a>,
         code: &[u8],

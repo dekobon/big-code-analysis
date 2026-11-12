@@ -406,38 +406,42 @@
 //!
 //! - **Reach for the `_with_code` spelling** — that is what the walk
 //!   calls (`promotes_to_func_space_with_code`,
-//!   `get_space_kind_with_code`). The three the space tree is built
-//!   from — `Checker::is_func_with_code`,
-//!   `Checker::is_func_space_with_code` and
-//!   `Getter::get_space_kind_with_code` — are required of every
-//!   language, and a byte-less spelling derives from one, never the
-//!   reverse (#1863): a trait default forwarding with-code to byte-less
-//!   handed a text-gated row no bytes without a word. The callable test
-//!   has no byte-less spelling at all: a callable can be told by its
-//!   bytes, by its chain, or by one gate reading both (a Java or Groovy
-//!   record's header, #1842), so a byte-less `is_func` answered three
-//!   different questions across the languages. The legacy `Checker`
-//!   spellings that remain come in three shapes, and only one of them
-//!   is the ungated kind set. `is_call`, `is_string` and `is_comment`
-//!   take neither bytes nor a chain and read `lists_kind`.
-//!   `is_func_space` and `get_space_kind` take neither either, and
-//!   forward to the `_with_code` form with `&[]` and a *known-empty*
-//!   chain, `Ancestors::known(&[])` — never `Ancestors::unknown()`,
-//!   which climbs through `Node::parent` and answers the gated result,
-//!   so the spelling would silently stop being the kind set (lesson
-//!   114); a gate that reads only the node's own children (Java's
-//!   anonymous-class body) still applies there. That forward is the
-//!   trait default, and a language's own spelling of it adds only the
-//!   build-time pin below. `is_closure` and `is_else_if` take the
-//!   caller's chain and hand it through with `&[]` bytes, so a chain
-//!   gate (Ruby's `block` under a stabby lambda) answers exactly and
-//!   only a byte gate is dropped. The chain-less pair disagrees with
-//!   the walk wherever a gate reads what it drops — Elixir's text-gated
-//!   `call` openers, Ruby's `block`, C#'s `parameter_list` under a type
-//!   declaration (#1828), the record header — and the derived parity
-//!   suite pins each such disagreement by name (`KNOWN_DISAGREEMENTS`).
-//!   Every other language's pair asserts `!TEXT_GATED && !CHAIN_GATED`
-//!   on its `FuncOpener` and `Container` rows at build time (#1793).
+//!   `get_space_kind_with_code`). The predicates a walk asks with the
+//!   bytes and the chain in hand — `Checker::is_func_with_code`,
+//!   `is_func_space_with_code`, `is_call_with_code`,
+//!   `is_string_with_code` and `Getter::get_space_kind_with_code` — are
+//!   required of every language, with no default (#1863): a trait
+//!   default forwarding with-code to byte-less handed a gated row no
+//!   bytes without a word. The callable test has no byte-less spelling
+//!   at all: a callable can be told by its bytes, by its chain, or by
+//!   one gate reading both (a Java or Groovy record's header, #1842),
+//!   so a byte-less `is_func` answered three different questions across
+//!   the languages. The legacy `Checker` spellings that remain come in
+//!   three shapes, and only one of them is the ungated kind set.
+//!   `is_call`, `is_string` and `is_comment` take neither bytes nor a
+//!   chain and read `lists_kind`. `is_func_space` and `get_space_kind`
+//!   take neither either, and forward to the `_with_code` form with
+//!   `&[]` and a *known-empty* chain, `Ancestors::known(&[])` — never
+//!   `Ancestors::unknown()`, which climbs through `Node::parent` and
+//!   answers the gated result, so the spelling would silently stop
+//!   being the kind set (lesson 114); a gate that reads only the node's
+//!   own children (Java's anonymous-class body) still applies there.
+//!   Both are required too, so that no language takes that forward
+//!   without its pin. `impl_byte_less_func_space!` and
+//!   `impl_byte_less_space_kind!` emit it and assert
+//!   `!TEXT_GATED && !CHAIN_GATED` on the `FuncOpener` and `Container`
+//!   rows at build time (#1793), or on the `Container` row alone where
+//!   the opener is gated by design (the `opener_gated` form: Ruby,
+//!   Java, Groovy); C# writes it by hand with an assertion of its own,
+//!   and Elixir as its kind table. `is_closure` and `is_else_if` take
+//!   the caller's chain and hand it through with `&[]` bytes, so a
+//!   chain gate (Ruby's `block` under a stabby lambda) answers exactly
+//!   and only a byte gate is dropped. The chain-less pair disagrees
+//!   with the walk wherever a gate reads what it drops — Elixir's
+//!   text-gated `call` openers, Ruby's `block`, C#'s `parameter_list`
+//!   under a type declaration (#1828), the record header — and the
+//!   derived parity suite pins each such disagreement by name
+//!   (`KNOWN_DISAGREEMENTS`).
 //! - **Ask several rows of one node through the `_kind` projections**,
 //!   reading `kind_id()` once.
 //! - **A consumer's policy over a row is the consumer's.** Which
@@ -460,8 +464,8 @@
 //!   declaration to the child a row gates: `record_header`
 //!   (`roles/java.rs`, `roles/groovy.rs`) projects a record's component
 //!   list, read by the `FuncOpener` gate and by the getter's naming,
-//!   `nargs` and `npm`, where each had spelled the field name or the
-//!   kind pair itself (#1863). C#'s primary constructor has no such
+//!   Java's `nargs` and `npm`, where each had spelled the field name or
+//!   the kind pair itself (#1863). C#'s primary constructor has no such
 //!   projection: its list sits in no field, the grammar admits more
 //!   than one under a type declaration, and the row's `under` list is
 //!   the whole relation.

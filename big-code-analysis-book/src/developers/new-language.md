@@ -118,8 +118,9 @@ workspace defines:
   which forward to the language's role table (below).
 - **`Getter`** in a new per-language file under
   [/big-code-analysis-ast/src/getter/](https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-ast/src/getter)
-  (`getter/<lang>.rs`, registered in `getter.rs`): `get_space_kind`
-  plus the Halstead operator/operand classification table.
+  (`getter/<lang>.rs`, registered in `getter.rs`):
+  `get_space_kind_with_code`, its byte-less `get_space_kind`, and the
+  Halstead operator/operand classification table.
 - **`Alterator`** in
   [/big-code-analysis-ast/src/alterator.rs](https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-ast/src/alterator.rs):
   an `alterate` body that flattens the kinds the language's `StringLit`

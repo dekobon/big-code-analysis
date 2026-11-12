@@ -53,7 +53,7 @@ impl Checker for JavaCode {
         ancestor.kind_id() != Java::FormalParameters as u16
             && (Self::is_func_with_code(ancestor, code, ancestors)
                 || Self::is_closure(ancestor, ancestors)
-                || doc_body_residual_kind!(java, ancestor, ancestors))
+                || doc_body_residual_kind!(java, ancestor, code, ancestors))
     }
 
     // The space tree is declared in `roles/java.rs` (#1696): the

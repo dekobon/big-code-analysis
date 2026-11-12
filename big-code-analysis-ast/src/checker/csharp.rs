@@ -59,7 +59,7 @@ impl Checker for CsharpCode {
         ancestors: Ancestors<'a, '_>,
         below: &Node<'a>,
     ) -> bool {
-        if doc_body_residual_kind!(csharp, ancestor, ancestors) {
+        if doc_body_residual_kind!(csharp, ancestor, code, ancestors) {
             return below.kind_id() != Csharp::AccessorList;
         }
         Self::is_func_with_code(ancestor, code, ancestors) || Self::is_closure(ancestor, ancestors)

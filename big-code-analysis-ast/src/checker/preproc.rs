@@ -9,6 +9,8 @@ impl Checker for PreprocCode {
 
     // The `FuncOpener` and `Container` rows of `roles/preproc.rs` are
     // absent: the pass opens no space and names no function.
+    impl_byte_less_func_space!(preproc);
+
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,
         code: &[u8],
@@ -21,5 +23,7 @@ impl Checker for PreprocCode {
         crate::roles::preproc::func_opener::is_callable(node, code, ancestors)
     }
 
+    // The `Call` row is absent: the pass names no call.
+    impl_row_predicates!(preproc, call, is_call, is_call_with_code);
     impl_row_predicates!(preproc, string_lit, is_string, is_string_with_code);
 }

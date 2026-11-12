@@ -76,8 +76,12 @@ for historical reference.
   `Getter::get_space_kind_with_code` defaulted to their byte-less
   spellings, so a language that wrote only the byte-less one handed a
   text-gated role row no bytes, silently. The three are now required
-  methods, and `is_func_space` and `get_space_kind` default to the
-  with-code form asked with no bytes and a known-empty chain.
+  methods, as are `Checker::is_call_with_code` and
+  `is_string_with_code`, whose defaults forwarded the same way. The
+  byte-less `is_func_space` and `get_space_kind` are required too:
+  every language's spelling asks the with-code form with no bytes and
+  a known-empty chain, through a macro that pins at build time that
+  the rows read neither, or by hand beside the reason.
   `Checker::is_func` answered three different questions across the
   languages and is gone; its readers ask `is_func_with_code`.
   `Checker::holds_doc_comment_in_body` gains a `code` parameter for the
@@ -92,8 +96,8 @@ for historical reference.
     `short_circuit_operator`. The keyword changes no answer.
   - `roles::java::record_header` and `roles::groovy::record_header`
     name a record's component list once; the header gate, the space's
-    name, `nargs` and `npm` read them where each spelled the field or
-    the kind pair itself.
+    name, Java's `nargs` and `npm` read them where each spelled the
+    field or the kind pair itself.
   - The record-header gate reads the header's component types once per
     evaluation rather than once per constructor it compares. New
     scaling probes `nargs/java-record-alternative-ctors` and

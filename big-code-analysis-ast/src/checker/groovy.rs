@@ -51,7 +51,7 @@ impl Checker for GroovyCode {
         ancestor.kind_id() != Groovy::RecordComponents as u16
             && (Self::is_func_with_code(ancestor, code, ancestors)
                 || Self::is_closure(ancestor, ancestors)
-                || doc_body_residual_kind!(groovy, ancestor, ancestors))
+                || doc_body_residual_kind!(groovy, ancestor, code, ancestors))
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,

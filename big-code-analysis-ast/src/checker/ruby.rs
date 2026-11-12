@@ -117,13 +117,13 @@ impl Checker for RubyCode {
     // `Ancestors::unknown()`, which climbs through `Node::parent` and
     // would answer the gated result here — a change in this spelling's
     // answer no output could see. The walk calls the `_with_code` one.
-    // No `!CHAIN_GATED` assertion, unlike every other language's forward
-    // (#1793): the row *is* chain-gated by design, and
+    // The `opener_gated` form: no `!CHAIN_GATED` assertion on the opener
+    // row, unlike most languages' forward (#1793), since the row *is*
+    // chain-gated by design and
     // `ruby_byte_less_spellings_stay_the_kind_table`
-    // (`roles/space_tree_tests.rs`) pins the disagreement by value.
-    fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
-    }
+    // (`roles/space_tree_tests.rs`) pins the disagreement by value; the
+    // `Container` row is pinned at build time (#1863).
+    impl_byte_less_func_space!(ruby, opener_gated);
 
     fn is_func_space_with_code<'a>(
         node: &Node<'a>,

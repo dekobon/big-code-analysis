@@ -124,14 +124,17 @@ macro_rules! impl_byte_gated_row_predicate {
 // chain or the bytes by design, so that only the `Container` row is
 // asserted — and that the opener *is* gated, so the form cannot be
 // taken by a language whose rows the plain form would check: the
-// gated opener answers `false` under the known-empty chain, a
-// disagreement the language pins at runtime by value (a Java or
-// Groovy record's header, #1842). Ruby's opener is chain-gated by
-// design and keeps a hand-written forward pinned at runtime instead
-// (`ruby_byte_less_spellings_stay_the_kind_table`), as C#'s is since
-// #1828 (`csharp_byte_less_spellings_omit_the_primary_constructor`);
-// Elixir hand-writes the byte-less one. Per-language rationale — which
-// rows, what the gated one reads — sits above the invocation.
+// gated opener answers its rootless verdict under the known-empty
+// chain, a disagreement the language pins at runtime by value —
+// `false` for a Java or Groovy record's header (#1842), `true` for a
+// Ruby lambda's body block (`ruby_byte_less_spellings_stay_the_kind_table`).
+// C#'s opener is chain-gated too and keeps a hand-written forward with
+// a stricter pin since #1828
+// (`csharp_byte_less_spellings_omit_the_primary_constructor`); Elixir
+// hand-writes the byte-less one as its kind table. The trait gives the
+// spelling no default, so no language takes the forward without one of
+// these (#1863). Per-language rationale — which rows, what the gated
+// one reads — sits above the invocation.
 macro_rules! impl_byte_less_func_space {
     ($roles:ident) => {
         fn is_func_space(node: &Node) -> bool {
@@ -176,19 +179,15 @@ macro_rules! impl_doc_run_directive_from_row {
 
 // The `DocBodyResidual` row of a language, read inside its hand-written
 // `holds_doc_comment_in_body` for the kinds it names beyond the
-// callables and closures (#1699): asked with `ancestors`, the chain the
-// trait hands in (the ancestor's own), and no bytes — exact while no
-// such row reads bytes, which the build asserts. An expression rather
-// than an emitted method, so the per-language branch order and the
-// body-child test stay visible in `checker/<lang>.rs`.
+// callables and closures (#1699): asked with the bytes and `ancestors`,
+// the chain the trait hands in (the ancestor's own), as the callable
+// test beside it is (#1863). An expression rather than an emitted
+// method, so the per-language branch order and the body-child test stay
+// visible in `checker/<lang>.rs`.
 macro_rules! doc_body_residual_kind {
-    ($roles:ident, $ancestor:expr, $ancestors:expr) => {{
-        const _: () = assert!(
-            !$crate::roles::$roles::doc_body_residual::TEXT_GATED,
-            "the `DocBodyResidual` row reads bytes; the body test cannot forward with `&[]`"
-        );
-        $crate::roles::$roles::doc_body_residual::owns($ancestor, &[], $ancestors)
-    }};
+    ($roles:ident, $ancestor:expr, $code:expr, $ancestors:expr) => {
+        $crate::roles::$roles::doc_body_residual::owns($ancestor, $code, $ancestors)
+    };
 }
 
 // Emits a `Checker::is_doc_target` that reads the language's `DocTarget`
@@ -357,11 +356,15 @@ impl SubtreeSkip {
 /// so adding a language no longer requires copy-pasting `-> false` stubs.
 /// The flip side is that the compiler cannot flag a forgotten override, so
 /// each language's per-metric tests are the safety net for completeness.
-/// The two the space tree is built from are the exception:
-/// [`is_func_space_with_code`](Self::is_func_space_with_code) and
-/// [`is_func_with_code`](Self::is_func_with_code) are required, so a
-/// language cannot answer them by forwarding to a spelling that drops
-/// the bytes or the chain (#1863).
+/// The predicates a walk asks with the bytes and the chain in hand are
+/// the exception: [`is_func_space_with_code`](Self::is_func_space_with_code),
+/// [`is_func_with_code`](Self::is_func_with_code),
+/// [`is_call_with_code`](Self::is_call_with_code) and
+/// [`is_string_with_code`](Self::is_string_with_code) are required, so
+/// a language cannot answer one by inheriting a forward to a spelling
+/// that drops the bytes or the chain; and so is the byte-less
+/// [`is_func_space`](Self::is_func_space), whose forward the other way
+/// carries a build-time pin a default could not (#1863).
 ///
 /// `#[doc(hidden)]` for the reason the crate root gives: this is
 /// plumbing, and the surface the README points a reader at is `LANG` /
@@ -434,9 +437,9 @@ pub trait Checker {
     /// so a doc comment after an annotation or on a parameter documents
     /// nothing there. A language whose tool reads doc comments in the
     /// signature narrows this to the body proper (#1597). `code` is
-    /// the source, for the callable test: a callable told by its bytes
-    /// or its chain (a record's header, a bound arrow) is asked as the
-    /// walk asks it (#1863).
+    /// the source, for the callable test and the residual row: a
+    /// callable told by its chain or its bytes (C#'s primary
+    /// constructor, a bound arrow) is asked as the walk asks it (#1863).
     #[inline]
     #[must_use]
     fn holds_doc_comment_in_body<'a>(
@@ -535,18 +538,22 @@ pub trait Checker {
     /// namespace, interface).
     ///
     /// The byte-less spelling of
-    /// [`is_func_space_with_code`](Self::is_func_space_with_code), and
-    /// by default that predicate asked with no bytes and a known-empty
-    /// chain — the node read as if it were the root (#1863). It agrees
-    /// with the walk wherever no space-opening gate reads either, and
-    /// answers the gate's rootless, byte-less verdict where one does
-    /// (Ruby's lambda body, C#'s primary constructor, a Java or Groovy
-    /// record's header). The walk calls the `_with_code` one.
-    #[inline]
+    /// [`is_func_space_with_code`](Self::is_func_space_with_code): that
+    /// predicate asked with no bytes and a known-empty chain, the node
+    /// read as if it were the root. It agrees with the walk wherever no
+    /// space-opening gate reads either, and answers the gate's
+    /// rootless, byte-less verdict where one does (Elixir's `def` and
+    /// `defmodule` calls, Ruby's lambda body, C#'s primary constructor,
+    /// a Java or Groovy record's header). The walk calls the
+    /// `_with_code` one.
+    ///
+    /// Required, with no default (#1863): a language emits it through
+    /// `impl_byte_less_func_space!`, which pins at build time that the
+    /// rows it forwards to read neither, or writes it by hand beside
+    /// the reason it cannot. A provided forward would hand a new
+    /// language the spelling without the pin.
     #[must_use]
-    fn is_func_space(node: &Node) -> bool {
-        Self::is_func_space_with_code(node, &[], Ancestors::known(&[]))
-    }
+    fn is_func_space(node: &Node) -> bool;
     /// Whether `node` is an anonymous function — the complement of
     /// [`is_func_with_code`](Self::is_func_with_code) on the grammars
     /// that express both. `ancestors` is the chain the caller descended
@@ -612,21 +619,20 @@ pub trait Checker {
     }
     /// [`is_call`](Self::is_call), given the source bytes and the
     /// chain the caller descended through, which the `call` filter
-    /// hands it. The default forwards to [`is_call`](Self::is_call).
+    /// hands it: the language's `Call` row under its gates. Required
+    /// (#1863): a default forwarding to the byte-less [`is_call`](Self::is_call)
+    /// answered a gated row from its kind table without a word.
     ///
-    /// Perl overrides it: the grammar nests a call's name inside the
+    /// Perl's row is gated: the grammar nests a call's name inside the
     /// call as a bareword call of its own, and parses an auto-quoted
     /// hash key as one, so only the position says which words are
     /// calls (#1580). As with [`is_string_with_code`](Self::is_string_with_code),
     /// a call site reaching for the byte-less spelling reads as correct
-    /// against every language without an override;
+    /// against every language with an ungated row;
     /// `perl_bareword_is_a_call_only_to_the_byteless_spelling` pins that
     /// the two really do disagree.
-    #[inline]
     #[must_use]
-    fn is_call_with_code<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-        Self::is_call(node)
-    }
+    fn is_call_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool;
     /// Whether `node`, met among a parameter list's children, is
     /// punctuation or a keyword rather than a parameter (`nargs` skips it).
     #[inline]
@@ -687,20 +693,21 @@ pub trait Checker {
         false
     }
     /// Source-aware variant of [`is_string`](Self::is_string), and the
-    /// spelling every walk calls.
+    /// spelling every walk calls: the language's `StringLit` row under
+    /// its gates. Required (#1863): a default forwarding to the
+    /// byte-less predicate answered a gated row from its kind table
+    /// without a word.
     ///
-    /// The default forwards to the byte-less predicate, so a language
-    /// whose string literals are a closed set of kinds needs no
-    /// override. The Tcl family is the case that does: `braced_word` is
-    /// both the literal of `lappend x {a b}` and the *script* of a
-    /// `proc` body or an iRules `when` handler, and only the enclosing
-    /// command's leading word tells the two apart (#1318, #1381). So
+    /// The Tcl family's row is gated: `braced_word` is both the literal
+    /// of `lappend x {a b}` and the *script* of a `proc` body or an
+    /// iRules `when` handler, and only the enclosing command's leading
+    /// word tells the two apart (#1318, #1381). Read by kind,
     /// `bca find --type string` reported every script body in the file
     /// as a string literal.
     ///
     /// **A call site reaching for the byte-less spelling reads as
-    /// correct against every language without an override, and is wrong
-    /// only on the one that has one** —
+    /// correct against every language with an ungated row, and is wrong
+    /// only on the one whose row is gated** —
     /// `docs/development/grammar_dispatch.md` §7. There is one call site,
     /// the `"string"` arm of [`ParserTrait::filters`], and it takes this
     /// spelling; `tcl_script_body_is_a_string_only_to_the_byteless_spelling`
@@ -708,15 +715,8 @@ pub trait Checker {
     /// picks the wrong one is not silently right.
     ///
     /// [`ParserTrait::filters`]: crate::traits::ParserTrait::filters
-    #[inline]
     #[must_use]
-    fn is_string_with_code<'a>(
-        node: &Node<'a>,
-        _code: &[u8],
-        _ancestors: Ancestors<'a, '_>,
-    ) -> bool {
-        Self::is_string(node)
-    }
+    fn is_string_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool;
     /// Whether `node` is the `if` that continues an `else if` chain,
     /// rather than a freshly nested branch.
     ///
