@@ -97,8 +97,10 @@ fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
 
 /// Whether `ctor`, a `constructor_declaration` in `record`'s body,
 /// declares the record's canonical constructor: named after the record,
-/// with as many formal parameters as the record `header` has
-/// components, each spelling the same type as its component (Java's
+/// with as many formal parameters as the record's header has
+/// `components` — their types, read once per header by
+/// [`opens_record_header`] — each spelling the same type as its
+/// component (Java's
 /// rule, JLS 8.10.4.1 and 8.8, which Groovy records follow). Parameter
 /// names and annotations do not take part. The same spelling, not the
 /// same type — the tokens, so a comment inside the type is nothing —
@@ -122,7 +124,7 @@ fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
 fn is_record_canonical_constructor(
     ctor: &Node<'_>,
     record: &Node<'_>,
-    header: &Node<'_>,
+    components: &[Option<Vec<u8>>],
     code: &[u8],
 ) -> bool {
     let (Some(ctor_name), Some(record_name), Some(params)) = (
@@ -135,15 +137,14 @@ fn is_record_canonical_constructor(
     if node_bytes(&ctor_name, code) != node_bytes(&record_name, code) {
         return false;
     }
-    let declared = params
+    let mut declared = params
         .children()
         .filter(|p| p.kind_id() == Groovy::FormalParameter as u16)
         .map(|p| groovy_parameter_type(&p, code));
-    let components = header
-        .children()
-        .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
-        .map(|p| groovy_parameter_type(&p, code));
-    declared.eq(components)
+    components
+        .iter()
+        .all(|component| declared.next().as_ref() == Some(component))
+        && declared.next().is_none()
 }
 
 /// A record's header: the component list in the `components` field of
@@ -182,9 +183,17 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(body) = record.child_by_field_name("body") else {
         return true;
     };
+    let mut components = None;
     !body.children().any(|member| {
-        member.kind_id() == Groovy::ConstructorDeclaration as u16
-            && is_record_canonical_constructor(&member, &record, node, code)
+        member.kind_id() == Groovy::ConstructorDeclaration as u16 && {
+            let components = components.get_or_insert_with(|| {
+                node.children()
+                    .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
+                    .map(|p| groovy_parameter_type(&p, code))
+                    .collect::<Vec<_>>()
+            });
+            is_record_canonical_constructor(&member, &record, components, code)
+        }
     })
 }
 

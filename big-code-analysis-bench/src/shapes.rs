@@ -1013,6 +1013,37 @@ pub fn nested_classes_with_method(depth: usize) -> String {
     )
 }
 
+/// How many alternative constructors [`record_alternative_ctors`]
+/// renders beyond its `width`: the header's list is ten components and
+/// their commas, 21 children, so the body needs more than that at the
+/// smallest size `shapes_widen_without_deepening` parses (16) to be the
+/// node that widens.
+const RECORD_BASE_CTORS: usize = 4;
+
+/// Java and Groovy, which read it alike: one record of ten components
+/// whose body holds `width` alternative constructors, each spelling the
+/// first nine component types and a tenth that differs.
+///
+/// The record's header stands for the implicit canonical constructor
+/// only where the body writes none, and a written one is told from an
+/// alternative by its parameter types against the components' (#1842).
+/// So the header's gate scans the body, and for each constructor named
+/// after the record spells its types until one differs — here the
+/// last, the most a constructor can cost. Every consumer that asks the
+/// gate pays one such scan; a consumer asking it once per *member*
+/// would pay `width` of them. The constructors are identical, which no
+/// compiler accepts and both grammars parse, so the bytes per unit of
+/// `width` are constant.
+#[must_use]
+pub fn record_alternative_ctors(width: usize) -> String {
+    const COMPONENTS: &str = "int a, int b, int c, int d, int e, int f, int g, int h, int i";
+    let ctor = format!("R({COMPONENTS}, long j) {{ }}\n");
+    format!(
+        "record R({COMPONENTS}, int j) {{\n{}}}\n",
+        ctor.repeat(width + RECORD_BASE_CTORS)
+    )
+}
+
 /// Lua: a module block, then `width` units of a tagless `---` block
 /// directly under a call — no item follows it, so the first-block test
 /// scans back — and a documented function, whose block is the reading.
@@ -3409,6 +3440,48 @@ pub const PROBES: &[Probe] = &[
                     not depend on the scan.",
     },
     Probe {
+        name: "nargs/java-record-alternative-ctors",
+        lang: LANG::Java,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nargs],
+            reading: |m| m.nargs.function_args_sum(),
+        },
+        render: record_alternative_ctors,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1863: a record's header gate scans the body for a \
+                    canonical constructor, spelling each same-named \
+                    constructor's parameter types until one differs from \
+                    the component's. One scan is linear in the body, and \
+                    each consumer of the gate pays one per record: 1.01. \
+                    With the gate asked once per constructor instead, one \
+                    walk of 2 000 constructors took 47 s against 32 ms and \
+                    the gate abandons the probe over its per-walk budget. \
+                    The reading is ten arguments per constructor and ten \
+                    for the header.",
+    },
+    Probe {
+        name: "nargs/groovy-record-alternative-ctors",
+        lang: LANG::Groovy,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Nargs],
+            reading: |m| m.nargs.function_args_sum(),
+        },
+        render: record_alternative_ctors,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1863: the same gate on the same source as \
+                    `nargs/java-record-alternative-ctors`, under the \
+                    Groovy grammar, whose header is a `record_components` \
+                    list and whose gate is a twin in `roles/groovy.rs`: \
+                    1.01, and 49 s against 26 ms at 2 000 constructors \
+                    with the gate asked once per constructor.",
+    },
+    Probe {
         name: "loc/rust-attributed-docs",
         lang: LANG::Rust,
         axis: Axis::Width,
@@ -4581,7 +4654,7 @@ pub const PROBES: &[Probe] = &[
 mod tests {
     use big_code_analysis::{Ast, AstCfg, AstNode, Source};
 
-    use super::{Axis, PROBES, Probe, Workload, exported_nodes};
+    use super::{Axis, PROBES, Probe, RECORD_BASE_CTORS, Workload, exported_nodes};
 
     /// How deep an export nests, counted on an explicit stack like
     /// [`exported_nodes`].
@@ -5056,6 +5129,42 @@ mod tests {
                     .walk(&ast, probe.workload.options())
                     .expect("metrics walk");
                 assert_eq!(reading, size as u64 + 1, "{name} at {size}");
+            }
+        }
+    }
+
+    /// The two `record-alternative-ctors` probes (#1863) read every
+    /// list: ten arguments for each of the `size` constructors and the
+    /// base ones, and ten for the header, which stays open because
+    /// every constructor is an alternative. A constructor read as
+    /// canonical closes the header and drops its ten; a header gate
+    /// that stopped scanning leaves the reading unchanged, which is why
+    /// the node count is pinned beside it: the scan is priced by the
+    /// constructors the body really holds.
+    #[test]
+    fn record_alternative_ctor_probes_read_every_list() {
+        for name in [
+            "nargs/java-record-alternative-ctors",
+            "nargs/groovy-record-alternative-ctors",
+        ] {
+            let probe = PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"));
+            for size in [3, probe.sizes[0]] {
+                let ast = parse(probe, size);
+                let constructors = size + RECORD_BASE_CTORS;
+                assert_eq!(
+                    count_kind(&ast, "constructor_declaration"),
+                    constructors,
+                    "{name}: one constructor per unit of width, and the base"
+                );
+                let reading = probe
+                    .workload
+                    .walk(&ast, probe.workload.options())
+                    .expect("metrics walk");
+                // expected: 10 per constructor, plus the header's 10.
+                assert_eq!(reading, 10 * (constructors as u64 + 1), "{name} at {size}");
             }
         }
     }

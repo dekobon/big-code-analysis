@@ -177,6 +177,8 @@ Read it as follows.
 | `loc/rust-inner-doc-run` | Rust | width | the inner-doc test of each `//!` opening a function body, with no prefix scan | linear |
 | `loc/java-dangling-docs` | Java | width | `bound_doc_run`'s once-per-stretch decision over dangling [Javadoc](https://docs.oracle.com/en/java/javase/21/javadoc/javadoc.html) (#1613) | linear |
 | `loc/java-package-docs` | Java | width | the package Javadoc's look-ahead for a type, stopped at the next package (#1613) | linear |
+| `nargs/java-record-alternative-ctors` | Java | width | the record-header gate's scan of the body for a canonical constructor, told by its parameter types: one scan per consumer of the gate, never one per constructor (#1863) | linear |
+| `nargs/groovy-record-alternative-ctors` | Groovy | width | the same gate on the same source under the Groovy grammar (#1863) | linear |
 | `loc/rust-attributed-docs` | Rust | width | the same decision through the attributes between `///` comments (#1613) | linear |
 | `loc/csharp-dangling-docs` | C# | width | [Roslyn](https://github.com/dotnet/roslyn)'s reverse trivia scan over doc comments split by plain ones (#1613) | linear |
 | `loc/php-file-docblock` | PHP | width | [phpDocumentor](https://www.phpdoc.org/)'s file-DocBlock test, a forward scan from the first DocBlock only (#1613) | linear |
@@ -871,6 +873,38 @@ read about `depth²` slots while storing each state once, which the
 first count cannot see. Under `--cfg chain_audit` every folded answer
 is also checked against the scan, which is what would catch a second
 kind list asked on the same lane.
+
+`nargs/java-record-alternative-ctors` and
+`nargs/groovy-record-alternative-ctors` guard the record-header gate
+[#1842][record-header] added. A record's header opens a function space
+only where the body writes no canonical constructor, and a written one
+is told from an alternative by its parameter types, so the gate scans
+the body and spells the types of every constructor named after the
+record until one differs. The walk promotion, the space's kind,
+`nargs`, `nom`, `npm` and cognitive each ask the gate, so a record
+costs a handful of scans, each linear in its body. No probe rendered a
+record before [#1863][roles-followups].
+
+Both probes render one record of ten components whose body holds
+`width` alternative constructors, each spelling nine component types
+and a tenth that differs, which is the most a constructor can cost.
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| the gate asked once per constructor | `nargs/java-record-alternative-ctors` | 1.01 | abandoned | 32 ms → 47 s |
+| (same patch) | `nargs/groovy-record-alternative-ctors` | 1.01 | abandoned | 26 ms → 49 s |
+
+One run each, on a host that was not idle. The regressed walk runs past
+`MAX_CELL_WALK` at the top rung, so the gate reports an abandoned walk
+in place of an exponent. `loc/java-package-docs`,
+`loc/rust-attributed-docs` and `cognitive/wide-if-siblings` read 0.84,
+1.00 and 0.86 in the same run. The same change reads the header's
+component types once per scan rather than once per constructor, which
+took the top rung from 44 ms to 29 ms for Java and from 35 ms to 21 ms
+for Groovy on a warm tree; the exponent does not move.
+
+[record-header]: https://github.com/dekobon/big-code-analysis/issues/1842
+[roles-followups]: https://github.com/dekobon/big-code-analysis/issues/1863
 
 ### Child scans, and where the allocation actually was {#child-scans}
 

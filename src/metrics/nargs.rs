@@ -4421,7 +4421,10 @@ class A(val x: Int)",
     /// still reads as canonical. C-style trailing dimensions are part
     /// of the spelling: `int a[]` is `int` plus `[]`, the same type
     /// `int[] a` spells (`D`, canonical, JLS 8.4.1), and `int a[][]`
-    /// one dimension more (`Z`, an alternative). `Nullable` is declared
+    /// one dimension more (`Z`, an alternative). Arity is part of the
+    /// rule wherever the lists part ways: a constructor whose parameters
+    /// run past the components (`P`) or stop short of them (`S`) is an
+    /// alternative however far the types agree. `Nullable` is declared
     /// at the end so `N` is the valid Java javac accepts (`@Deprecated`
     /// is not a type-use annotation); its row is the annotation type's.
     #[cfg(feature = "java")]
@@ -4443,6 +4446,8 @@ class A(val x: Int)",
              record G(java.util.List</* c */ String> l) { G(java.util.List<String> l) { this.l = l; } }
              record H(int[] a) { H(int a[/* c */]) { this.a = a; } }
              record V(int... xs) { V(final /* c */ int... xs) { this.xs = xs; } }
+             record P(int a) { P(int a, int b) { this(a); } }
+             record S(int a, int b) { S(int a) { this(a, 0); } }
              @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE_USE) @interface Nullable { }",
             "types.java",
             |space| {
@@ -4469,6 +4474,8 @@ class A(val x: Int)",
                         ("G", 1),
                         ("H", 1),
                         ("V", 1),
+                        ("P", 2),
+                        ("S", 2),
                         ("Nullable", 0),
                     ]
                 );
@@ -4487,7 +4494,9 @@ class A(val x: Int)",
     /// (`Q`) is an alternative, the spelling limit `roles/groovy.rs`
     /// documents. A comment is no token: inside the generic arguments
     /// (`G`), inside a qualified name (`K`) or inside an array type's
-    /// brackets (`H`) the constructor still reads as canonical.
+    /// brackets (`H`) the constructor still reads as canonical. A
+    /// constructor whose parameters run past the components (`P`) or
+    /// stop short of them (`S`) is an alternative.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_canonical_constructor_is_told_by_its_types() {
@@ -4499,7 +4508,9 @@ class A(val x: Int)",
              record Q(java.util.List<String> l) { Q(List<String> l) { this.l = l } }
              record G(List</* c */ String> l) { G(List<String> l) { this.l = l } }
              record K(java.util.List<String> l) { K(java.util./* c */List<String> l) { this.l = l } }
-             record H(int[] a) { H(int[/* c */] a) { this.a = a } }",
+             record H(int[] a) { H(int[/* c */] a) { this.a = a } }
+             record P(int a) { P(int a, int b) { this(a) } }
+             record S(int a, int b) { S(int a) { this(a, 0) } }",
             "types.groovy",
             |space| {
                 let functions_per_record: Vec<(&str, usize)> = space
@@ -4518,6 +4529,8 @@ class A(val x: Int)",
                         ("G", 1),
                         ("K", 1),
                         ("H", 1),
+                        ("P", 2),
+                        ("S", 2),
                     ]
                 );
             },

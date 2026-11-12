@@ -105,10 +105,11 @@ fn java_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<ParameterType> {
 /// the check is for a body that holds a constructor named otherwise,
 /// which tree-sitter-java accepts for the invalid `record R(int a) {
 /// Q(int a) { } }` as tree-sitter-groovy does), and its formal
-/// parameters and the record `header`'s
-/// components have the same arity and, pairwise, the same declared type
-/// and the same variable-arity-ness. Parameter names and annotations
-/// may differ and do not take part.
+/// parameters and the record header's `components` — their types, read
+/// once per header by [`opens_record_header`] rather than once per
+/// constructor — have the same arity and, pairwise, the same declared
+/// type and the same variable-arity-ness. Parameter names and
+/// annotations may differ and do not take part.
 ///
 /// "Same type" is read as the same spelling — the type's tokens, with
 /// comments and whitespace removed, so `List</* c */ String>` and
@@ -125,7 +126,7 @@ fn java_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<ParameterType> {
 fn is_record_canonical_constructor(
     ctor: &Node<'_>,
     record: &Node<'_>,
-    header: &Node<'_>,
+    components: &[ParameterType],
     code: &[u8],
 ) -> bool {
     let (Some(ctor_name), Some(record_name), Some(params)) = (
@@ -138,13 +139,13 @@ fn is_record_canonical_constructor(
     if node_bytes(&ctor_name, code) != node_bytes(&record_name, code) {
         return false;
     }
-    let declared = params
+    let mut declared = params
         .children()
         .filter_map(|p| java_parameter_type(&p, code));
-    let components = header
-        .children()
-        .filter_map(|p| java_parameter_type(&p, code));
-    declared.eq(components)
+    components
+        .iter()
+        .all(|component| declared.next().as_ref() == Some(component))
+        && declared.next().is_none()
 }
 
 /// Whether a `formal_parameters` list is a record's header — the
@@ -171,10 +172,16 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     let Some(body) = record.child_by_field_name("body") else {
         return true;
     };
+    let mut components = None;
     !body.children().any(|member| match member.kind_id().into() {
         Java::CompactConstructorDeclaration => true,
         Java::ConstructorDeclaration => {
-            is_record_canonical_constructor(&member, &record, node, code)
+            let components = components.get_or_insert_with(|| {
+                node.children()
+                    .filter_map(|p| java_parameter_type(&p, code))
+                    .collect::<Vec<_>>()
+            });
+            is_record_canonical_constructor(&member, &record, components, code)
         }
         _ => false,
     })
