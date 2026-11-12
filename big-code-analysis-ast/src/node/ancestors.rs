@@ -2029,9 +2029,8 @@ mod tests {
     /// test that names the body — every gate under it would read a parent
     /// the node does not have. A debug build trips the same containment
     /// check `descend` and `for_walk_chain_only` make, naming the kind;
-    /// under
-    /// `--cfg chain_audit` the exact parent check fires first, with its
-    /// own message. Only the derivation can raise either;
+    /// under `--cfg chain_audit` the exact parent check fires first,
+    /// with its own message. Only the derivation can raise either;
     /// `Ancestors::known` checks nothing.
     #[cfg(all(feature = "rust", debug_assertions))]
     #[test]

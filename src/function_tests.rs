@@ -192,9 +192,8 @@ fn dump_span_ansi_layout_error_branch() {
 /// also the only lib-level exercise of that chain — `act_on_node`
 /// constructs it through `Ancestors::for_walk`, which checks it, so a
 /// bookkeeping slip trips its assertion here rather than only in the
-/// web crate's
-/// endpoint tests (fully under `make chain-audit`; in a plain debug
-/// build, for the slips the `O(1)` guard sees — see #1122).
+/// web crate's endpoint tests (fully under `make chain-audit`; in a
+/// plain debug build, for the slips the `O(1)` guard sees — see #1122).
 #[cfg(feature = "javascript")]
 #[test]
 fn js_function_spans_name_expressions_from_their_binding() {

@@ -244,7 +244,8 @@ for historical reference.
   for a walk that lends no cache at all, is renamed
   `for_walk_chain_only` and is now crate-private (#1871): comment
   removal is its one caller, and a walk outside the crate uses one of
-  the other two. Both lend an empty record, so in a debug build a sibling
+  the other two. The two constructors for a walk that records no
+  siblings lend an empty record, so in a debug build a sibling
   asked under a parent wider than `WIDE_PARENT` panics through
   `siblings_before` and `siblings_after` as well as `previous_sibling`.
   Release builds answer as before. On a chain that is not a walk's own
