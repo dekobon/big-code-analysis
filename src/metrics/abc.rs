@@ -13942,6 +13942,120 @@ end
         );
     }
 
+    // ----- C -----
+    //
+    // `CCode::compute` borrows its condition-slot helpers from the C++
+    // impl, and the C-family parity tests pin those. Its assignment,
+    // call and `else` arms are its own, and a `.c` file reaches no other
+    // impl. Each fixture below is one only the arm under test can score.
+
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_initialised_declarations_count_as_assignments() {
+        // expected: `int a = 1` and `int b = a` are `init_declarator`s
+        // (1 each); `int c;` declares without assigning (0) → A = 2.
+        check_metrics::<CParser>(
+            "void f(void) { int a = 1; int b = a; int c; }",
+            "foo.c",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_assignment_and_update_expressions_count_as_assignments() {
+        // expected: `b = 2`, `b += 3`, `b++` and `--b` (1 each); the
+        // parameter declares nothing → A = 4.
+        check_metrics::<CParser>(
+            "void f(int b) { b = 2; b += 3; b++; --b; }",
+            "foo.c",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_calls_are_branches() {
+        // expected: `g(1)`, the outer `g(…)` and the `g(2)` it is
+        // passed → B = 3. The prototype `int g(int);` is a declarator,
+        // not a call.
+        check_metrics::<CParser>(
+            "int g(int); void f(void) { g(1); g(g(2)); }",
+            "foo.c",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_else_counts_one_condition() {
+        // expected: the unary condition `a` in the `if` head (1,
+        // Fitzpatrick Rule 9) and the `else` (1) → C = 2.
+        check_metrics::<CParser>(
+            "int f(int a) { if (a) { return 1; } else { return 2; } }",
+            "foo.c",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+        // expected: the same head with no `else` → C = 1, so the second
+        // condition above is the keyword's.
+        check_metrics::<CParser>(
+            "int f(int a) { if (a) { return 1; } return 2; }",
+            "foo.c",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 1),
+        );
+    }
+
+    // `Display` writes every headline value under its own label. The
+    // three counts differ and their magnitude is whole, so a value under
+    // the wrong label shows.
+    #[cfg(feature = "c")]
+    #[test]
+    fn stats_display_labels_every_field() {
+        check_metrics::<CParser>(
+            "int g(int);\n\
+             int f(int a, int b) {\n\
+                 int x = 1;\n\
+                 x = g(a);\n\
+                 if (a > b) {\n\
+                     return g(g(b));\n\
+                 } else if (a < b) {\n\
+                     return a == b;\n\
+                 } else {\n\
+                     return a != x;\n\
+                 }\n\
+             }\n",
+            "foo.c",
+            |metric| {
+                // expected: A = 2 (`int x = 1`, `x = g(a)`); B = 3
+                // (`g(a)`, `g(…)`, `g(b)`); C = 6 (`>`, `else`, `<`,
+                // `else`, `==`, `!=`); magnitude √(4 + 9 + 36) = 7.
+                // Averages are over the two spaces, the file and `f`:
+                // 1, 1.5, 3. The file scores nothing of its own, so each
+                // minimum is 0 and each maximum is `f`'s count.
+                assert_eq!(
+                    metric.abc.to_string(),
+                    "assignments: 2, branches: 3, conditions: 6, magnitude: 7, \
+                     assignments_average: 1, branches_average: 1.5, conditions_average: 3, \
+                     assignments_min: 0, assignments_max: 2, \
+                     branches_min: 0, branches_max: 3, \
+                     conditions_min: 0, conditions_max: 6"
+                );
+            },
+        );
+    }
+
     // ----- JS / TS / Tsx / Mozjs Phase-2B condition slots -----
 
     #[cfg(feature = "javascript")]
