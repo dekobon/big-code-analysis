@@ -472,7 +472,8 @@ const PAREN_PREFIX_PAIRS: usize = 30;
 ///
 /// [`python_bare_runs_before_string`] grows the prefix of one
 /// parenthesis and [`python_paren_bare_strings`] the nesting with no
-/// prefix; this grows both. A run asks whether its parenthesis is on
+/// prefix; this grows the nesting and keeps a prefix at every level.
+/// A run asks whether its parenthesis is on
 /// the string's line with no code before it, and that question looks at
 /// each level above the parenthesis for a token before the level's
 /// node, past that level's extras. None of these levels has one, so the

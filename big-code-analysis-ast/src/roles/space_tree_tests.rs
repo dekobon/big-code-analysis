@@ -1407,6 +1407,73 @@ fn groovy_record_header_is_the_records_own_list() {
     );
 }
 
+/// How many times the header gate of each record of `source` spelled
+/// its component types, one entry per record in source order, with the
+/// gate's answer.
+#[cfg(any(feature = "java", feature = "groovy"))]
+fn header_type_reads<L: LanguageInfo>(
+    source: &'static [u8],
+    record_header: for<'a> fn(&Node<'a>) -> Option<Node<'a>>,
+    opener_owns: crate::roles::RowPred,
+    observed: fn() -> usize,
+) -> Vec<(bool, usize)> {
+    let mut reads = Vec::new();
+    for_each_node_with_chain::<L>(source, |node, chain| {
+        let ancestors = Ancestors::known(chain);
+        let is_header = ancestors
+            .parent(node)
+            .and_then(|owner| record_header(&owner))
+            .is_some_and(|header| header.id() == node.id());
+        if is_header {
+            let before = observed();
+            let owned = opener_owns(node, source, ancestors);
+            reads.push((owned, observed() - before));
+        }
+    });
+    reads
+}
+
+/// The header gate spells the record's component types once per
+/// evaluation, on the first constructor it meets, and not at all where
+/// the body holds none (#1863). Nothing in the answer can see it: three
+/// alternative constructors, each agreeing with the components up to
+/// the last parameter, leave the header open whether its types are
+/// spelled once or three times, so the count is what pins the hoist.
+#[cfg(feature = "java")]
+#[test]
+fn java_header_types_are_read_once_per_gate_evaluation() {
+    use crate::roles::java::{func_opener, record_header, record_header_types_read};
+    let source = b"record R(int a, int b) { R(int a, long b) { this(a, 0); } R(int a, short b) { this(a, 0); } R(int a, byte b) { this(a, 0); } }\nrecord Q(int q) { int m() { return q; } }\n";
+    assert_eq!(
+        header_type_reads::<crate::JavaCode>(
+            source,
+            record_header,
+            func_opener::owns,
+            record_header_types_read::observed,
+        ),
+        // expected: `R` open after three comparisons on one read; `Q`
+        // open with no constructor to compare, so nothing read.
+        [(true, 1), (true, 0)]
+    );
+}
+
+/// Groovy's twin of `java_header_types_are_read_once_per_gate_evaluation`.
+#[cfg(feature = "groovy")]
+#[test]
+fn groovy_header_types_are_read_once_per_gate_evaluation() {
+    use crate::roles::groovy::{func_opener, record_header, record_header_types_read};
+    let source = b"record R(int a, int b) { R(int a, long b) { this(a, 0) } R(int a, short b) { this(a, 0) } R(int a, byte b) { this(a, 0) } }\nrecord Q(int q) { int m() { return q } }\n";
+    assert_eq!(
+        header_type_reads::<crate::GroovyCode>(
+            source,
+            record_header,
+            func_opener::owns,
+            record_header_types_read::observed,
+        ),
+        [(true, 1), (true, 0)]
+    );
+}
+
 /// A Java record's header opens the implicit canonical constructor's
 /// space, named after the record, where the body writes none (#1842) —
 /// which the byte-less spellings cannot see, as C#'s primary constructor

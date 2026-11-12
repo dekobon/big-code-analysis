@@ -187,6 +187,7 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     !body.children().any(|member| {
         member.kind_id() == Groovy::ConstructorDeclaration as u16 && {
             let components = components.get_or_insert_with(|| {
+                record_header_types_read::record();
                 node.children()
                     .filter(|p| p.kind_id() == Groovy::RecordComponent as u16)
                     .map(|p| groovy_parameter_type(&p, code))
@@ -196,6 +197,14 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
         }
     })
 }
+
+// Times `opens_record_header` spelled a header's component types: once
+// per evaluation that meets a constructor, as Java's twin counts
+// (`roles/java.rs`, #1863).
+crate::observation::counter!(
+    record_header_types_read,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// Java's eight primitive type keywords and `void`, which Groovy
 /// reserves as Java does.

@@ -177,6 +177,7 @@ fn opens_record_header<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
         Java::CompactConstructorDeclaration => true,
         Java::ConstructorDeclaration => {
             let components = components.get_or_insert_with(|| {
+                record_header_types_read::record();
                 node.children()
                     .filter_map(|p| java_parameter_type(&p, code))
                     .collect::<Vec<_>>()
@@ -204,6 +205,15 @@ pub fn record_header<'a>(record: &Node<'a>) -> Option<Node<'a>> {
         .then(|| record.child_by_field_name("parameters"))
         .flatten()
 }
+
+// Times `opens_record_header` spelled a header's component types. Once
+// per evaluation that meets a constructor, however many it compares:
+// re-spelled per constructor the gate answers the same, a third slower
+// on a record of alternatives (#1863).
+crate::observation::counter!(
+    record_header_types_read,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// The container a `switch` nests its arms in: the `switch_block`, the
 /// `Switch` owner's child — a structural fact about the construct the
