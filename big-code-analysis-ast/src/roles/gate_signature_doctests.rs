@@ -1,11 +1,12 @@
 //! The gate signatures `role_table!` holds a row to (#1874). A gate is
 //! handed the node, then the source bytes only where its keyword is
-//! `text_gated_by`, then the chain unless it is marked `no_chain`; the
-//! other gate forms — a payer's `gated_by`, `callable_when`,
-//! `pays_itself_when` and `opens_by` — have no text spelling and are
-//! never handed the bytes. So a gate that reads the bytes under a
-//! keyword that does not declare them is a call with one argument too
-//! few, not a claim a test must catch.
+//! `text_gated_by`, then the chain unless it is marked `no_chain`. The
+//! forms with no text spelling — `callable_when`, `pays_itself_when`
+//! and `opens_by` — are never handed the bytes, nor is a payer's
+//! `gated_by`, whose text spelling is `text_gated_by` as an owner's
+//! is. So a gate that reads the bytes under a keyword that does not
+//! declare them is a call with one argument too few, not a claim a test
+//! must catch.
 //!
 //! Each `compile_fail` doctest below is one row of the control, copied
 //! verbatim — one owner of it, where the row has two — with its fn's

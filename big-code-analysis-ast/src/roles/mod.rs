@@ -1687,11 +1687,12 @@ macro_rules! role_table {
                 is_payer && pays_at_leaf_kind(kind, node, code, ancestors)
             }
 
-            /// Whether any owner is `text_gated_by` — the row reads the
-            /// bytes it is handed. A consumer that asks the row with none,
-            /// as the byte-less `Checker` spellings do while handing the
-            /// walk's chain through, pins that this stays `false` and
-            /// fails the day it does not, instead of missing the owner.
+            /// Whether any owner is `text_gated_by`. Owners only: a
+            /// payer's `text_gated_by` is read by [`pays_at_leaf`] alone,
+            /// which no byte-less forward asks. A consumer asking the row
+            /// with no bytes, as the byte-less `Checker` spellings do,
+            /// pins that this stays `false`, so it fails the day it does
+            /// not instead of missing the owner.
             pub const TEXT_GATED: bool = false $( || $crate::role_table!(
                 @scan text_gated_kind [] [] $owner [] [] [] [] $($($owner_attr)*)?
             ) )*;

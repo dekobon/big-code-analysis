@@ -3323,16 +3323,20 @@ mod tests {
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
     }
 
-    // `Groovy::Identifier2` is the grammar's external token
-    // `_gstring_dollar_path` — the `$a.b` path of a dollar interpolation —
-    // whose public symbol is `identifier`, so the parser reports it as
-    // the unsuffixed `Identifier` and never as the alias (#1475). That is why
-    // the operand arm lists `Identifier` but not `Identifier2`; if a
-    // grammar bump starts emitting the alias, the dotted path drops out of N2
-    // with no error.
+    // The `$a.b` path of a dollar interpolation is the grammar's external
+    // token `_gstring_dollar_path` (`Groovy::Identifier3` at 0.6.0), whose
+    // public symbol is `identifier`, so the parser reports it as the
+    // unsuffixed `Identifier` and never under an alias's id (#1475). That
+    // is why the operand arm lists `Identifier` alone; if a grammar bump
+    // starts emitting an alias, the dotted path drops out of N2 with no
+    // error. The check reads every node spelled `identifier` rather than
+    // one alias's id, which a grammar bump may renumber: at 0.6.0
+    // `Identifier2` is the `_` placeholder, and a check on it passed
+    // whatever the dollar path reported.
     //
     // expected: operands `greet`, `name` (param), `$name.b` (the whole
-    // path, one node) → n2 = 3, N2 = 3.
+    // path, one node) → n2 = 3, N2 = 3; the same three are the tree's
+    // `identifier` nodes.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_gstring_dollar_path_is_the_public_identifier() {
@@ -3342,10 +3346,25 @@ mod tests {
             ast_has_kind_id(&parser, Groovy::GstringDollarInterpolation as u16),
             "the fixture no longer spells a dollar interpolation",
         );
+        let identifiers: Vec<(&str, u16)> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind() == "identifier")
+            .map(|node| {
+                let text = node.utf8_text(src.as_bytes()).expect("UTF-8 fixture");
+                (text, node.kind_id())
+            })
+            .collect();
+        assert_eq!(identifiers.len(), 3, "identifier nodes: {identifiers:?}");
+        let aliased: Vec<&(&str, u16)> = identifiers
+            .iter()
+            .filter(|(_, id)| *id != Groovy::Identifier as u16)
+            .collect();
         assert!(
-            !ast_has_kind_id(&parser, Groovy::Identifier2 as u16),
-            "the hidden `_gstring_dollar_path` token is now emitted as \
-             `Identifier2`; add it to the Groovy operand arm",
+            aliased.is_empty(),
+            "an `identifier` node is now emitted under an alias's id rather \
+             than `Groovy::Identifier`; add the alias to the Groovy operand \
+             arm: {aliased:?}",
         );
         check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
             assert_eq!(metric.halstead.unique_operands(), 3);
@@ -7165,7 +7184,10 @@ end",
     /// parameter's and a `final var q = 5` local's were the same
     /// `type_identifier` (the last inside an `ERROR`) up to
     /// dekobon-tree-sitter-groovy 0.5.0 and are the keyword leaf since
-    /// 0.6.0; their rows read the same either way. Before the fix every
+    /// 0.6.0; their rows read the same either way. A script-level
+    /// `static var x` still recovers into an `ERROR` holding the word as
+    /// a `type_identifier`, the one row reaching `spells_var`'s `ERROR`
+    /// arm. Before the fix every
     /// row read one fewer operator and one more operand per `var`, and
     /// the "mixed" rows read two distinct `var` operators, because the
     /// keyword leaf was keyed by kind and the `type_identifier` would
@@ -7207,6 +7229,8 @@ end",
             ("array", "class C { var[] arr }\n", [3, 3]),
             // `C`, `variant`, `v`: a type whose name begins with the word
             ("prefix", "class C { variant v }\n", [3, 3]),
+            // `x`: no `var` operand
+            ("script static var", "static var x\n", [1, 1]),
         ];
         // The type-position rows again, as operator rows: no `var`
         // operator in any of them.
@@ -7274,7 +7298,30 @@ end",
             // `def`, `()`, `{}`, `var`, `=`: `var var = 6` declares a
             // local named `var`, one keyword and one name
             ("var named var", "def f() { var var = 6 }\n", [5, 5]),
+            // `static`, `var`: the script-level modified declaration, which
+            // the grammar recovers into an `ERROR` holding the word
+            ("script static var", "static var x\n", [2, 2]),
         ];
+        // The premise of the "script static var" rows, the last spelling
+        // `spells_var` reads under an `ERROR` parent since 0.6.0: the word
+        // is a `type_identifier` directly under one.
+        let parser = GroovyParser::new(
+            b"static var x\n".to_vec(),
+            &PathBuf::from("foo.groovy"),
+            None,
+        );
+        let under_error = parser
+            .root()
+            .preorder()
+            .filter(|node| {
+                node.kind_id() == Groovy::TypeIdentifier as u16
+                    && node.parent().is_some_and(|parent| parent.is_error())
+            })
+            .count();
+        assert_eq!(
+            under_error, 1,
+            "`static var x` no longer recovers into an `ERROR` holding a `var` type_identifier"
+        );
         assert_operator_rows::<GroovyParser>("foo.groovy", OPERATOR_ROWS);
         assert_operand_rows::<GroovyParser>("foo.groovy", OPERAND_ROWS);
         assert_operator_rows::<GroovyParser>("foo.groovy", TYPE_POSITION_ROWS);

@@ -225,11 +225,14 @@ role_table! {
     CaseArm { owns [StabClause(text_gated_by is_decision_clause)] }
     // A guard is the `when` operator joining a clause or function head
     // to its condition; the token pays, gated to that position by its
-    // ancestor chain, since a typespec's `when a: integer` spells the
-    // same token on type syntax (#1454). The `binary_operator` applying
-    // `when` owns it: whether that operator is a guard's is the token's
-    // question, so the owner is wider than the payer and no consumer
-    // reads it at the wrapper — ABC and cyclomatic both count the token.
+    // ancestor chain and by the bytes of the call keyword above a head
+    // or a `with` pattern (`def`, `defguard`, `with`), since a typespec's
+    // `when a: integer` spells the same token on type syntax (#1454).
+    // The `binary_operator` applying `when` owns it: whether that
+    // operator is a guard's is the token's question, so the owner is
+    // wider than the payer and no consumer reads it at the wrapper — ABC
+    // and cyclomatic both count the token. Only the payer reads the
+    // bytes, so the row's `TEXT_GATED` stays `false`.
     Guard {
         owns [
             BinaryOperator(gated_by is_when_operator no_chain),

@@ -94,8 +94,10 @@ impl Checker for GroovyCode {
     }
 
     // `var` is keyed by text as well (#1706): the `DeclKeyword` row owns
-    // it as the keyword leaf of a local and as the `type_identifier` of
-    // a field or a modified local, two kinds that spell one keyword, and
+    // it as the keyword leaf of a local, modified or not, and of every
+    // parameter-like declaration, and as the `type_identifier` of a
+    // field or of the `ERROR` a script-level `static var x` recovers
+    // into — two kinds that spell one keyword, and
     // Halstead's `u_operators` sums the kind-keyed and the text-keyed
     // maps — so left kind-keyed the two spellings would count as two
     // distinct operators. The byte test is what keeps the row's other

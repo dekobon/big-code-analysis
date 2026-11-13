@@ -2173,7 +2173,7 @@ narrows its own access:
 | Language | Not public in an interface |
 | --- | --- |
 | Java | a `private` method ([JLS 9.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.4)) |
-| Kotlin | a `private` function |
+| Kotlin | a `private` or `internal` function |
 | Groovy | a `private` or `protected` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type |
 | C# | a member marked `private`, `protected` or `internal`, alone or paired; the static constructor; an explicit implementation of another interface's member (`void IA.M() { }`) |
 

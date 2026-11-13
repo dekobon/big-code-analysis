@@ -198,6 +198,22 @@ fn sources_for(lang: LANG) -> Vec<Source> {
     out
 }
 
+/// Every [`BYTE_GATE_FIXTURES`] row is keyed by the name of a table.
+/// `sources_for` hands a fixture only to the table whose name it
+/// carries, so a misspelled or renamed key drops the fixture from every
+/// derived test without failing one. `tables()` lists every language
+/// whatever the features, so this holds on a partial build too.
+#[test]
+fn byte_gate_fixtures_are_keyed_by_a_table() {
+    let names: BTreeSet<&str> = crate::roles::tables().iter().map(|t| t.name).collect();
+    let stray: Vec<String> = BYTE_GATE_FIXTURES
+        .iter()
+        .filter(|fixture| !names.contains(fixture.table))
+        .map(|fixture| format!("`{}` is keyed by `{}`", fixture.name, fixture.table))
+        .collect();
+    assert_eq!(stray.len(), 0, "fixtures keyed by no table: {stray:#?}");
+}
+
 // ---------------------------------------------------------------------------
 // The census
 // ---------------------------------------------------------------------------

@@ -341,7 +341,7 @@ value = 910.0
 path = "big-code-analysis-ast/src/roles/mod.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 2340.0
+value = 2341.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/tools.rs"
@@ -1259,13 +1259,13 @@ value = 67953.64906173921
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 565.0
+value = 569.0
 
 [[entry]]
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1236.0
+value = 1245.0
 
 [[entry]]
 path = "src/metrics/npm/go.rs"

@@ -134,7 +134,8 @@ impl Npm for CsharpCode {
                     stats.class_nm += csharp_count_member(&member, code, members);
                     // A public member exposes all its accessors as public
                     // methods *except* those that narrow visibility with
-                    // their own `private` / `protected` modifier.
+                    // their own `private` / `protected` / `internal`
+                    // modifier.
                     if super::npa::csharp_is_explicit_public(&member) {
                         stats.class_npm +=
                             csharp_member_public_method_count(&member, code, members);

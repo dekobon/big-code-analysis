@@ -499,8 +499,9 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // the same node spells two opposite things, and only its `declarator`
 // field tells them apart. A name (`realMethod()`) or an
 // `operator_name` (`operator->()`) is a member function; a
-// `parenthesized_declarator` may be either, so it is handed to
-// `cpp_parenthesized_declares_function` (#1300).
+// `parenthesized_declarator` may be either, so its children are asked
+// as `DeclaratorQuestion::Parenthesized`, which reads each with
+// `cpp_parenthesized_child_verdict` (#1300).
 //
 // Neither `function_definition` nor `operator_cast` can be reached
 // from `Npa`'s `field_declaration` call site: per both grammars'
@@ -758,7 +759,11 @@ fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = N
 // `qualified_identifier`'s `type_identifier`; it marks a recovery when
 // the grammar invented it (zero-width, tested by width rather than
 // `is_missing()` — see `docs/development/grammar_dispatch.md`) or left
-// an `ERROR` beside it.
+// the pointer's `*` beside it as an `ERROR` opening with that token.
+// Since #1885 this runs on every unparenthesised `function_declarator`,
+// so an `ERROR` over any other token — the `~` of `R(S::~S);`, the `&`
+// of `FOO(N::&x);` — is a class-scope macro call's argument, and the
+// call stays the method it reads as.
 //
 // An invented slot leaves the name to the declarator beside it
 // (`S::*const pc` puts `pc` in a `pointer_declarator`). When that
@@ -773,15 +778,19 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
     else {
         return false;
     };
-    let mut error_seen = false;
+    let mut star_seen = false;
     let mut invented_slot = None;
     for child in cpp_innermost_qualified(&qualified).children() {
-        error_seen |= child.is_error();
+        star_seen |= child.is_error()
+            && child
+                .children()
+                .next()
+                .is_some_and(|first| first.kind() == "*");
         // role-bypass: allow(DeclKeyword, Primitive) — the name slot of a C++
         // qualified name, which Groovy's rows claim by the same spelling
         if child.kind() == "type_identifier" {
             let invented = child.start_byte() == child.end_byte();
-            if error_seen || invented {
+            if star_seen || invented {
                 invented_slot = Some(invented);
             }
         }
@@ -1096,7 +1105,7 @@ fn cpp_declarator_names(child: &Node) -> usize {
         | "init_declarator"
         | "reference_declarator" => cpp_count_field_identifiers(child),
         // The member-pointer data member `(S::*fp)` that
-        // `cpp_parenthesized_declares_function` declines (#1718).
+        // `cpp_parenthesized_child_verdict` declines (#1718).
         // One member pointer declares one name, so it counts one
         // without a walk: the scope `S` is never a member, and the
         // name's kind does not matter (the templated parse makes it

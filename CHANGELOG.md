@@ -52,16 +52,21 @@ for historical reference.
   (#1896). Release 0.6.0 closes twelve upstream parse issues (see its
   [changelog](https://github.com/dekobon/tree-sitter-groovy/blob/v0.6.0/CHANGELOG.md)).
   Metrics move on Groovy that uses the constructs below:
-  - **A bare word before a call, a method with modifiers after a
-    comment, and a `final` local are no longer method declarations.**
-    `nom`, `nargs`, `wmc` and `cyclomatic` fall, and the calls inside
-    now count as `abc.branches`.
+  - **A bare word before a call and a `final` local are no longer
+    method declarations.** `nom`, `nargs`, `wmc` and `cyclomatic` fall,
+    and the calls inside now count as `abc.branches`.
+  - **A script-level method after a comment is a method**, not a call
+    passing a closure (`foo()`, then `/* note */`, then
+    `String call() { 'x' }`): `nom.functions` and `cyclomatic` rise,
+    `nom.closures` and `abc.branches` fall, and its parameters count
+    in `nargs.function_args`.
   - **A `final` local's initializer is not an `abc` assignment**, as in
     Java.
   - **A Gradle-style `foo a: 1, b: 2` call is one statement**: `loc.lloc`
     falls and `abc.branches` counts the call.
   - **Fields misread from a method after a comment are gone**, so `npa`
-    falls.
+    falls. The method, read as a constructor before, keeps its
+    modifiers, so a `public` one now counts in `npm`.
   - **`!in` is a Halstead operator**, as in Kotlin, and a parameter's
     `def` or `final` is an operator instead of a type operand.
   - **`synchronized (x) { … }` reads as Java's**: no closure and no
@@ -369,18 +374,19 @@ for historical reference.
   rises by one, as do the public counts where the member is public,
   with the `total`, `coa` and `cda` values that follow. A macro call
   whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`)
-  is still a method. `T (S::*pd) = 0;` and `T (S::*arr)[2];` are still
+  or a scope followed by a `~` or `&` (`R(S::~S);`, `FOO(N::&x);`) is
+  still a method. `T (S::*pd) = 0;` and `T (S::*arr)[2];` are still
   misread; #1829 tracks them.
 
 - **`npm` and `npa` read the visibility of interface members** (#1880).
   Every interface member used to count as public, whatever it
   declared. These now count as not public: a Java `private` interface
-  method; a Kotlin `private` interface function or property; a Groovy
-  `private` or `protected` member of an interface, trait or annotation
-  type, member records included; and a C# interface member marked
-  `private`, `protected` or `internal` (alone or paired). A C#
-  interface's static constructor and its explicit implementations of
-  another interface's members are not public either. C# `internal` now
+  method; a Kotlin `private` or `internal` interface function or
+  property; a Groovy `private` or `protected` member of an interface,
+  trait or annotation type, member records included; and a C# interface
+  member marked `private`, `protected` or `internal` (alone or paired).
+  A C# interface's static constructor and its explicit implementations
+  of another interface's members are not public either. C# `internal` now
   also narrows a class accessor (`public int X { get; internal set; }`
   has one public method) and an interface field. Values only fall. In
   `npm`, `interface_npm_sum`, `interface_coa`, `total` and `coa` drop

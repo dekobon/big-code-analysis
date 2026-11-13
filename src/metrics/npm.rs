@@ -6639,20 +6639,28 @@ class C {
     // argument is a bare member-pointer type leaves that slot empty with
     // only an abstract declarator beside it, and stays the method it
     // reads as. A test of the empty slot alone would decline `pc` as
-    // well, and no test at all makes all three macros data. Valid C++20
-    // as written: each macro expands to a method returning a member
-    // pointer.
+    // well, and no test at all makes the three `DECL_METHOD` calls data.
+    // `R(D::~D)` and `FOO(N::&x)` leave an `ERROR` beside a written name,
+    // as `pd` in `T (S::*pd);` does, but over a `~` and a `&` rather than
+    // the member pointer's `*`; a test blind to the `ERROR`'s token reads
+    // each as data (na 4 / nm 3 here). Valid C++20 as written: the first
+    // two macros expand to a method returning a member pointer, the last
+    // two to a method that ignores its argument.
     //
-    // expected: na 2 (`pc`, `x`), nm 3 (one per macro call).
+    // expected: na 2 (`pc`, `x`), nm 5 (one per macro call).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NAMELESS_MEMBER_POINTERS: &str = "\
          #define DECL_METHOD(scope_pointer) int scope_pointer get()\n\
          #define DECL_METHOD2(name, scope_pointer) int scope_pointer name()\n\
+         #define R(ignored) void r()\n\
+         #define FOO(ignored) void foo()\n\
          struct T {};\n\
          struct W { T (W::*const pc) = nullptr; int x; };\n\
          struct A { DECL_METHOD(A::*); };\n\
          struct B { DECL_METHOD(B::*const); };\n\
-         struct C { DECL_METHOD2(get, C::*); };\n";
+         struct C { DECL_METHOD2(get, C::*); };\n\
+         struct D { R(D::~D); };\n\
+         struct E { FOO(N::&x); };\n";
 
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
@@ -6685,7 +6693,7 @@ class C {
         });
         check_metrics_with_npa::<P>(NAMELESS_MEMBER_POINTERS, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 2);
-            assert_eq!(metric.npm.class_nm_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 5);
         });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
