@@ -48,17 +48,18 @@ impl Npa for CsharpCode {
                     }
                 }
             }
-            // C# 8+ interfaces can declare fields with explicit modifiers
-            // (rare); members declared without an explicit modifier default
-            // to public, mirroring Java's interface convention.
+            // C# 8+ interfaces can declare static fields with explicit
+            // modifiers (rare); members declared without an explicit
+            // modifier default to public, mirroring Java's interface
+            // convention.
             InterfaceDeclaration => {
                 for declaration in node.children().filter(|c| member::owns(c, code, members)) {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.interface_na += attributes;
                     // The modifier applies to every declarator of the field,
                     // so the public/private split is per-declaration: count
-                    // all declarators as public unless the field is explicitly
-                    // private/protected.
+                    // all declarators as public unless the field narrows its
+                    // access (`private`, `protected` or `internal`).
                     if csharp_interface_member_is_public(&declaration) {
                         stats.interface_npa += attributes;
                     }

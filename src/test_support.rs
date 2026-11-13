@@ -314,6 +314,22 @@ pub(crate) fn assert_fixture_spells<P: ParserTrait>(
     }
 }
 
+/// Asserts `src` parses as `path` with no syntax error anywhere in its
+/// tree ([`Node::has_error`](crate::node::Node::has_error)).
+///
+/// The premise of a fixture whose expected values were derived for the
+/// language's own reading of the source: a recovery can read the same
+/// counts through a different tree, and the metric assertions after it
+/// would then pin the recovery.
+#[track_caller]
+pub(crate) fn assert_parses_cleanly<P: ParserTrait>(src: &str, path: &str) {
+    let parser = P::new(src.as_bytes().to_vec(), std::path::Path::new(path), None);
+    assert!(
+        !parser.root().has_error(),
+        "the fixture parses with an `ERROR`"
+    );
+}
+
 /// The C# binding of [`assert_fixture_spells`]. Every caller passes a
 /// `foo.cs` fixture, so the parser and path are fixed here rather than
 /// repeated at each one.

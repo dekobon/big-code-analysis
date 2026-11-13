@@ -43,7 +43,9 @@ impl Npa for GroovyCode {
                         .count();
                     if is_interface_like {
                         stats.interface_na += attributes;
-                        stats.interface_npa += attributes;
+                        if groovy_interface_member_is_public(&declaration) {
+                            stats.interface_npa += attributes;
+                        }
                     } else {
                         stats.class_na += attributes;
                         if groovy_has_explicit_public(&declaration) {

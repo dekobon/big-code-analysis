@@ -11,10 +11,10 @@ use super::*;
 // Groovy uses the dekobon grammar, which models all class-like bodies
 // as `class_body` and flattens modifiers as direct children of the
 // declaration. That rules out the Java macro, so an explicit impl is
-// required. The `groovy_body_is_interface_like` and
-// `groovy_has_explicit_public` helpers live in `metrics::npa` (Groovy
-// section) so both impls share the same parent-kind and modifier
-// heuristic.
+// required. The `groovy_body_is_interface_like`,
+// `groovy_has_explicit_public` and `groovy_interface_member_is_public`
+// helpers live in `metrics::npa` (Groovy section) so both impls share
+// the same parent-kind and modifier heuristic.
 impl Npm for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -23,7 +23,8 @@ impl Npm for GroovyCode {
         stats: &mut Stats,
     ) {
         use crate::metrics::npa::{
-            groovy_body_is_interface_like, groovy_has_explicit_public, groovy_record_is_public,
+            groovy_body_is_interface_like, groovy_has_explicit_public,
+            groovy_interface_member_is_public, groovy_record_is_public,
         };
         use Groovy::*;
 
@@ -52,7 +53,8 @@ impl Npm for GroovyCode {
                 for method in direct_child_funcs::<Self>(node, code, under.get()) {
                     if is_interface_like {
                         stats.interface_nm += 1;
-                        stats.interface_npm += 1;
+                        stats.interface_npm +=
+                            usize::from(groovy_interface_member_is_public(&method));
                     } else {
                         stats.class_nm += 1;
                         if groovy_has_explicit_public(&method) {

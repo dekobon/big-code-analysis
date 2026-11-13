@@ -174,7 +174,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn interface_coa(&self) -> f64 {
-        // Java interface methods are implicitly public, so when every counted
+        // Most interfaces declare no non-public method, so when every counted
         // method is public (`npm == nm != 0`) the ratio is exactly 1.0 and the
         // division is skipped. The empty case falls through to
         // `accessibility_ratio`, which is guarded to return a finite 0.0 (not
@@ -341,10 +341,12 @@ where
 // `EnumBody` (after the enum constants) and may contain method
 // declarations. Both share the same Java public-method detection rule.
 //
-// `InterfaceBody`: all methods in an interface are implicitly public
-// (https://docs.oracle.com/javase/tutorial/java/IandI/interfaceDef.html).
+// `InterfaceBody`: an interface's methods are public unless declared
+// `private`, which Java allows since 9 (JLS 9.4,
+// https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.4);
+// no other access modifier compiles there.
 // `AnnotationTypeBody`: annotation type elements are abstract public
-// methods at the bytecode level and obey the same rule.
+// methods at the bytecode level and take no access modifier but `public`.
 macro_rules! impl_npm_java_like {
     ($code:ty, $lang:ident, $roles:ident) => {
         impl Npm for $code {
@@ -356,16 +358,23 @@ macro_rules! impl_npm_java_like {
             ) {
                 use $lang::*;
 
-                // Whether a declaration spells `public` in its `modifiers`
-                // child, the first child when present, so it is read by
-                // index: a search for it builds a cursor per declaration.
-                // Source:
+                // Whether a declaration spells the `keyword` modifier in its
+                // `modifiers` child, the first child when present, so it is
+                // read by index: a search for it builds a cursor per
+                // declaration. Source:
                 // https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
-                fn has_public_modifier(declaration: &Node) -> bool {
+                fn has_modifier(declaration: &Node, keyword: u16) -> bool {
                     declaration
                         .child(0)
                         .filter(|first| first.kind_id() == Modifiers)
-                        .is_some_and(|modifiers| modifiers.first_child(|id| id == Public).is_some())
+                        .is_some_and(|modifiers| {
+                            modifiers.children().any(|m| m.kind_id() == keyword)
+                        })
+                }
+                // The one rule for every member an interface body holds,
+                // methods and member records alike.
+                fn interface_member_is_public(declaration: &Node) -> bool {
+                    !has_modifier(declaration, Private as u16)
                 }
 
                 // The members' chain is built inside the body arms, never
@@ -380,7 +389,10 @@ macro_rules! impl_npm_java_like {
                     // of an interface or annotation interface, whose
                     // member types are implicitly public (JLS 9.5) —
                     // `javap` shows `public I$R(int)` for `interface I {
-                    // record R(int a) {} }`. The pinned grammar recovers
+                    // record R(int a) {} }`. A member record reads the
+                    // interface body's rule, as Groovy's does, so the
+                    // `private` one javac rejects there is not public. The
+                    // pinned grammar recovers
                     // a record in an `annotation_type_body` through an
                     // `ERROR`, so that alternative is reached only after
                     // a grammar bump (`java_interface_member_record_
@@ -399,9 +411,12 @@ macro_rules! impl_npm_java_like {
                             let interface_member = ancestors.parent(node).is_some_and(|body| {
                                 matches!(body.kind_id().into(), InterfaceBody | AnnotationTypeBody)
                             });
-                            if interface_member || has_public_modifier(node) {
-                                stats.class_npm += 1;
-                            }
+                            let public = if interface_member {
+                                interface_member_is_public(node)
+                            } else {
+                                has_modifier(node, Public as u16)
+                            };
+                            stats.class_npm += usize::from(public);
                         }
                     }
                     ClassBody | EnumBodyDeclarations => {
@@ -409,16 +424,17 @@ macro_rules! impl_npm_java_like {
                         let members = under.get();
                         for method in direct_child_funcs::<Self>(node, code, members) {
                             stats.class_nm += 1;
-                            if has_public_modifier(&method) {
+                            if has_modifier(&method, Public as u16) {
                                 stats.class_npm += 1;
                             }
                         }
                     }
                     InterfaceBody => {
                         let under = ancestors.of_children(node);
-                        stats.interface_nm +=
-                            direct_child_funcs::<Self>(node, code, under.get()).count();
-                        stats.interface_npm = stats.interface_nm;
+                        for method in direct_child_funcs::<Self>(node, code, under.get()) {
+                            stats.interface_nm += 1;
+                            stats.interface_npm += usize::from(interface_member_is_public(&method));
+                        }
                     }
                     AnnotationTypeBody => {
                         stats.interface_nm += node
@@ -642,8 +658,8 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::test_support::{
-        assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
-        check_metrics_only_shim, child_space,
+        assert_child_space_kind, assert_parses_cleanly, ast_has_kind_id,
+        check_func_space_only_shim, check_metrics_only_shim, child_space,
     };
     #[cfg(feature = "groovy")]
     use crate::test_support::{assert_clean_groovy_annotation_type, assert_fixture_spells};
@@ -2049,15 +2065,17 @@ mod tests {
     /// record space opened. The rule is this metric's reading of a
     /// Groovy member (`groovy_record_is_public`), not groovyc's, which
     /// makes every such constructor public: a header counts as public
-    /// on the record's own `public`, or in an interface, a trait or an
-    /// annotation type, where every member counts as public whatever it
-    /// spells (`V`). `private` and `protected` are not `public` (`E`,
-    /// `F`), and the body asked is the record's own: a record in a class
-    /// nested in an interface is in a class (`M`). Unlike Java's grammar
-    /// this one parses the annotation-type case, so `An` has its row.
+    /// on the record's own `public` in a class, and in an interface, a
+    /// trait or an annotation type unless the record is `private` or
+    /// `protected`, the rule every member there reads (`V`, #1880).
+    /// `private` and `protected` are not `public` in a class either
+    /// (`E`, `F`), and the body asked is the record's own: a record in a
+    /// class nested in an interface is in a class (`M`). Unlike Java's
+    /// grammar this one parses the annotation-type case, so `An` has its
+    /// row.
     ///
-    /// expected: one method each, the header; public for `R`, `P`, `V`,
-    /// `O`, `G`, `Q` and `S`, not for `M`, `D`, `E` and `F`.
+    /// expected: one method each, the header; public for `R`, `P`, `O`,
+    /// `G`, `Q` and `S`, not for `V`, `M`, `D`, `E` and `F`.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interface_member_record_constructor_is_public() {
@@ -2110,7 +2128,7 @@ mod tests {
             let interface = child_space(&space, "I");
             assert_eq!(
                 rows(interface),
-                [("R", 1, 1), ("P", 1, 1), ("V", 1, 1), ("N", 0, 0)]
+                [("R", 1, 1), ("P", 1, 1), ("V", 1, 0), ("N", 0, 0)]
             );
             assert_eq!(
                 rows(child_space(interface, "N")),
@@ -2122,6 +2140,198 @@ mod tests {
             );
             assert_eq!(rows(child_space(&space, "An")), [("Q", 1, 1)]);
             assert_eq!(rows(child_space(&space, "T")), [("S", 1, 1)]);
+        });
+    }
+
+    /// An interface method is public unless it is `private`, which Java
+    /// allows since 9 (JLS 9.4, #1880). `javap` on this fixture reads
+    /// `a`, `b` and `c` as public and `d` and `e` as private, and `In`'s
+    /// private `d` as `In`'s own, so `N`'s own counts hold its body alone
+    /// while its sums add `In`'s.
+    ///
+    /// expected: `I` 3 of 5 public (coa 3 / 5); `In` 1 of 2; `N` 1 of 2
+    /// own, 2 of 4 summed.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_private_interface_methods_are_not_public() {
+        let source = "interface I {
+                 void a();
+                 default void b() {}
+                 static void c() {}
+                 private void d() {}
+                 private static void e() {}
+             }
+             interface N {
+                 void a();
+                 private void b() {}
+                 interface In { void c(); private void d() {} }
+             }";
+        assert_parses_cleanly::<JavaParser>(source, "members.java");
+        check_func_space::<JavaParser, _>(source, "members.java", |space| {
+            let i = &child_space(&space, "I").metrics.npm;
+            assert_eq!((i.interface_nm(), i.interface_npm()), (5, 3));
+            assert_eq!(i.interface_coa(), 0.6);
+            let n = child_space(&space, "N");
+            let inner = &child_space(n, "In").metrics.npm;
+            assert_eq!((inner.interface_nm(), inner.interface_npm()), (2, 1));
+            let n = &n.metrics.npm;
+            assert_eq!((n.interface_nm(), n.interface_npm()), (2, 1));
+            assert_eq!((n.interface_nm_sum(), n.interface_npm_sum()), (4, 2));
+        });
+    }
+
+    /// A Kotlin interface function is public by default and may be
+    /// `private` when it has a body (the compiler's
+    /// `diagnostics/tests/modifiers/privateInInterface.kt`), so the
+    /// interface bucket reads `kotlin_is_public` as the class bucket
+    /// does (#1880).
+    ///
+    /// expected: 3 methods; `p` and `q` public.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_private_interface_function_is_not_public() {
+        let source = "interface I {
+                 fun p()
+                 fun q() {}
+                 private fun r() {}
+             }";
+        assert_parses_cleanly::<KotlinParser>(source, "members.kt");
+        check_func_space::<KotlinParser, _>(source, "members.kt", |space| {
+            let npm = &child_space(&space, "I").metrics.npm;
+            assert_eq!((npm.interface_nm(), npm.interface_npm()), (3, 2));
+        });
+    }
+
+    /// A C# 8 interface member is public unless it narrows its access
+    /// (#1880), and `internal` narrows it: assembly-wide is not public.
+    /// Every method but `A`, `B` and the static `H` spells `private`,
+    /// `protected` or `internal`, alone or as one of the two pairs.
+    ///
+    /// expected: 9 methods; `A`, `B` and `H` public.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_narrowed_interface_methods_are_not_public() {
+        let source = "interface I {
+                 void A();
+                 public void B();
+                 private void C() { }
+                 protected void D() { }
+                 internal void E() { }
+                 protected internal void F() { }
+                 private protected void G() { }
+                 static void H() { }
+                 private static void J() { }
+             }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let npm = &child_space(&space, "I").metrics.npm;
+            assert_eq!((npm.interface_nm(), npm.interface_npm()), (9, 3));
+        });
+    }
+
+    /// An interface property reads the member rule first and then the
+    /// accessor rule a class's public property reads
+    /// (`csharp_member_public_method_count`, #1880): `P` exposes both
+    /// accessors, the private `Q` none, and `R` keeps its getter and
+    /// loses its `private set`.
+    ///
+    /// expected: 2 + 1 + 2 = 5 methods; 2 + 0 + 1 = 3 public.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_interface_property_accessors_read_both_rules() {
+        let source = "interface I {
+                 int P { get; set; }
+                 private int Q { get => 1; }
+                 int R { get => 0; private set { } }
+             }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let npm = &child_space(&space, "I").metrics.npm;
+            assert_eq!((npm.interface_nm(), npm.interface_npm()), (5, 3));
+        });
+    }
+
+    /// Two unmodified interface members are methods and not public
+    /// (#1880): `S`'s static constructor, which only the runtime calls,
+    /// and `IB`'s explicit implementation of `IA.M`, reachable only
+    /// through `IA`. `IA`'s own `M` is the public control.
+    ///
+    /// expected: `S` 2 methods, 1 public; `IA` 1, 1; `IB` 2, 1.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_interface_static_constructor_and_explicit_implementation_are_not_public() {
+        let source = "interface S { static S() { } void M(); }
+             interface IA { void M(); }
+             interface IB : IA { void IA.M() { } void N(); }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let rows: Vec<_> = space
+                .spaces
+                .iter()
+                .map(|s| {
+                    (
+                        s.name.as_deref().unwrap_or_default(),
+                        s.metrics.npm.interface_nm(),
+                        s.metrics.npm.interface_npm(),
+                    )
+                })
+                .collect();
+            assert_eq!(rows, [("S", 2, 1), ("IA", 1, 1), ("IB", 2, 1)]);
+        });
+    }
+
+    /// `internal` narrows a class property's accessor as `private` and
+    /// `protected` do (`csharp_narrowed_accessor_visibility`, #1880):
+    /// `X`'s setter is assembly-wide, and `Y` is its unmodified twin.
+    ///
+    /// expected: 4 methods; 3 public.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_internal_accessor_is_not_public() {
+        let source = "class A {
+                 public int X { get; internal set; }
+                 public int Y { get; set; }
+             }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let npm = &child_space(&space, "A").metrics.npm;
+            assert_eq!((npm.class_nm(), npm.class_npm()), (4, 3));
+        });
+    }
+
+    /// A Groovy interface or trait member is public unless it is
+    /// `private` or `protected` (`groovy_interface_member_is_public`,
+    /// #1880). groovyc keeps the trait's private `n` off the trait's
+    /// interface, which `javap` shows declaring `m` alone; the private
+    /// interface method `r` needs Groovy 5 (GROOVY-10060).
+    ///
+    /// expected: `I` 3 methods, 2 public; `T` 2 methods, 1 public.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_private_interface_and_trait_methods_are_not_public() {
+        let source = "interface I {
+                 void p()
+                 void q()
+                 private void r() {}
+             }
+             trait T {
+                 void m() {}
+                 private void n() {}
+             }";
+        assert_parses_cleanly::<GroovyParser>(source, "members.groovy");
+        check_func_space::<GroovyParser, _>(source, "members.groovy", |space| {
+            let rows: Vec<_> = space
+                .spaces
+                .iter()
+                .map(|s| {
+                    (
+                        s.name.as_deref().unwrap_or_default(),
+                        s.metrics.npm.interface_nm(),
+                        s.metrics.npm.interface_npm(),
+                    )
+                })
+                .collect();
+            assert_eq!(rows, [("I", 3, 2), ("T", 2, 1)]);
         });
     }
 

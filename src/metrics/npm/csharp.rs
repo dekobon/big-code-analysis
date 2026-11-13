@@ -36,7 +36,7 @@ fn csharp_count_member<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<
 
 // Counts the public methods contributed by a *public* property / indexer
 // member. A C# accessor inherits the member's visibility unless it
-// narrows it with its own `private` / `protected` modifier
+// narrows it with its own `private` / `protected` / `internal` modifier
 // (`public int X { get; private set; }` exposes one public getter, not
 // two). So of the member's `csharp_count_member` total, only the
 // accessors *without* an explicit narrowing modifier count toward npm.
@@ -60,9 +60,33 @@ fn csharp_member_public_method_count<'a>(
         // role-bypass: allow(FuncOpener) — which accessors narrow the
         // member's visibility, not whether an accessor is a callable
         .filter(|c| matches!(c.kind_id().into(), AccessorDeclaration))
-        .filter(super::npa::csharp_node_has_private_or_protected_modifier)
+        .filter(super::npa::csharp_has_non_public_access_modifier)
         .count();
     total.saturating_sub(narrowed)
+}
+
+// Counts the public methods an interface member contributes. A C# 8+
+// interface member is public unless it narrows its access, and two
+// unmodified members are not public either: the static constructor,
+// which only the runtime calls (an interface has no other constructor),
+// and an explicit implementation of a base interface's member
+// (`void IA.M() { }`), reachable only through that interface.
+fn csharp_interface_member_public_method_count<'a>(
+    member: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> usize {
+    use Csharp::*;
+    // role-bypass: allow(FuncOpener) — which callable is hidden from the
+    // public surface, not whether the member is one
+    let hidden = member.kind_id() == ConstructorDeclaration
+        || member
+            .first_child(|id| id == ExplicitInterfaceSpecifier)
+            .is_some();
+    if hidden || !super::npa::csharp_interface_member_is_public(member) {
+        return 0;
+    }
+    csharp_member_public_method_count(member, code, ancestors)
 }
 
 impl Npm for CsharpCode {
@@ -117,13 +141,12 @@ impl Npm for CsharpCode {
                     }
                 }
             }
-            // Interface members default to public (matching Java's rule);
-            // skip the visibility scan entirely.
             InterfaceDeclaration => {
                 for member in node.children() {
                     stats.interface_nm += csharp_count_member(&member, code, members);
+                    stats.interface_npm +=
+                        csharp_interface_member_public_method_count(&member, code, members);
                 }
-                stats.interface_npm = stats.interface_nm;
             }
             _ => {}
         }

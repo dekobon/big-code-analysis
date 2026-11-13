@@ -653,8 +653,8 @@ mod tests {
     #[cfg(feature = "groovy")]
     use crate::test_support::assert_clean_groovy_annotation_type;
     use crate::test_support::{
-        assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
-        check_metrics_only_shim, child_space,
+        assert_child_space_kind, assert_parses_cleanly, ast_has_kind_id,
+        check_func_space_only_shim, check_metrics_only_shim, child_space,
     };
 
     use super::*;
@@ -1140,6 +1140,28 @@ mod tests {
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
+    }
+
+    /// A trait's fields read the interface-like rule, public unless
+    /// `private` or `protected` (`groovy_interface_member_is_public`,
+    /// #1880): the unmodified `f1` and the explicit `f3` are public, the
+    /// private `f2` is not. groovyc compiles the fixture, giving `f1` a
+    /// public getter and setter and `f2` and `f3` their written access.
+    ///
+    /// expected: 3 attributes; `f1` and `f3` public.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_private_trait_field_is_not_public() {
+        let source = "trait T {
+                 int f1 = 1
+                 private int f2 = 2
+                 public int f3 = 3
+             }";
+        assert_parses_cleanly::<GroovyParser>(source, "members.groovy");
+        check_func_space::<GroovyParser, _>(source, "members.groovy", |space| {
+            let npa = &child_space(&space, "T").metrics.npa;
+            assert_eq!((npa.interface_na(), npa.interface_npa()), (3, 2));
+        });
     }
 
     #[cfg(feature = "groovy")]
@@ -2089,6 +2111,26 @@ mod tests {
         );
     }
 
+    /// `internal` narrows an interface field as `private` does (#1880):
+    /// assembly-wide is not public. `A` and `B` are the public controls.
+    ///
+    /// expected: 4 attributes; `A` and `B` public.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_internal_interface_field_is_not_public() {
+        let source = "interface I {
+                 static int A = 1;
+                 public const int B = 2;
+                 private static int C = 3;
+                 internal static int D = 4;
+             }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let npa = &child_space(&space, "I").metrics.npa;
+            assert_eq!((npa.interface_na(), npa.interface_npa()), (4, 2));
+        });
+    }
+
     #[cfg(feature = "php")]
     #[test]
     fn php_one_public_attribute() {
@@ -2575,6 +2617,27 @@ mod tests {
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
+    }
+
+    /// A Kotlin interface property is public by default and may be
+    /// `private` when it has an accessor body (the compiler's
+    /// `diagnostics/tests/modifiers/privateInInterface.kt`, where a
+    /// bodiless one is `PRIVATE_PROPERTY_IN_INTERFACE`), so the interface
+    /// bucket reads `kotlin_is_public` as the class bucket does (#1880).
+    ///
+    /// expected: 2 attributes; `a` public.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_private_interface_property_is_not_public() {
+        let source = "interface I {
+                 val a: Int
+                 private val x: Int get() = 1
+             }";
+        assert_parses_cleanly::<KotlinParser>(source, "members.kt");
+        check_func_space::<KotlinParser, _>(source, "members.kt", |space| {
+            let npa = &child_space(&space, "I").metrics.npa;
+            assert_eq!((npa.interface_na(), npa.interface_npa()), (2, 1));
+        });
     }
 
     #[cfg(feature = "kotlin")]

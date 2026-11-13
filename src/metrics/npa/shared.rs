@@ -17,11 +17,12 @@ use super::*;
 use crate::node::Children;
 
 // Distinguishes interface-like containers (interface, trait, annotation
-// type) — whose members are implicitly public — from class-like
-// containers (class, enum, record) that need an explicit `public`
-// modifier. The dekobon grammar models all of these bodies as
-// `class_body`, so the discriminant lives on the parent. Shared with
-// `impl Npm for GroovyCode` (`metrics::npm`).
+// type) — whose members are public unless they say otherwise
+// (`groovy_interface_member_is_public`) — from class-like containers
+// (class, enum, record) that need an explicit `public` modifier. The
+// dekobon grammar models all of these bodies as `class_body`, so the
+// discriminant lives on the parent. Shared with `impl Npm for
+// GroovyCode` (`metrics::npm`).
 pub(crate) fn groovy_body_is_interface_like<'a>(
     body: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
@@ -45,21 +46,41 @@ pub(crate) fn groovy_has_explicit_public(declaration: &Node) -> bool {
     declaration.first_child(|id| id == Groovy::Public).is_some()
 }
 
+// The one rule for every member of an interface-like body, read off the
+// same flattened modifiers: public unless declared `private` or
+// `protected`. groovyc accepts a `private` method or field in a trait and
+// keeps it off the trait's interface; a private interface method needs
+// Groovy 5 (GROOVY-10060). `protected` compiles in neither, and reads as
+// not public rather than as an exception to the rule.
+pub(crate) fn groovy_interface_member_is_public(declaration: &Node) -> bool {
+    declaration
+        .first_child(|id| {
+            // role-bypass: allow(Modifier) — which modifier, not whether the token is one
+            matches!(id.into(), Groovy::Private | Groovy::Protected)
+        })
+        .is_none()
+}
+
 // Whether a record's header, its implicit canonical constructor, counts
 // as a public method (#1842). This is the metric's reading of a Groovy
 // member, not groovyc's: the compiler makes that constructor public
 // whatever the record spells, as it does every unmodified member, and
 // `npm` bills `public` only where the source says so — on the record's
-// own `public`, or inside an interface, trait or annotation type, whose
-// members all count as public here. A `private` or `protected` record
-// in a class is therefore not public, and one in an interface is.
-// Java's arm asks the same two questions of its grammar (`npm.rs`).
+// own `public` in a class, and inside an interface, trait or annotation
+// type by the rule every member there reads. A `private` record is
+// therefore not public in either, and an unmodified one is public only
+// in the second. Java's arm asks the same questions of its grammar
+// (`npm.rs`).
 pub(crate) fn groovy_record_is_public<'a>(record: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    groovy_has_explicit_public(record)
-        || ancestors
-            .iter(record)
-            .next()
-            .is_some_and(|(body, above)| groovy_body_is_interface_like(&body, above))
+    let interface_member = ancestors
+        .iter(record)
+        .next()
+        .is_some_and(|(body, above)| groovy_body_is_interface_like(&body, above));
+    if interface_member {
+        groovy_interface_member_is_public(record)
+    } else {
+        groovy_has_explicit_public(record)
+    }
 }
 
 // C# uses individual `Modifier` nodes (not wrapped under a single
@@ -85,28 +106,32 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
     })
 }
 
-// A C# member or accessor node carries an explicit visibility-narrowing
-// modifier (`private` / `protected`). The single source of truth for the
-// C# narrowing rule, shared by the npa interface-member gate below and the
-// npm accessor gate (`csharp_member_public_method_count`).
-pub(crate) fn csharp_node_has_private_or_protected_modifier(node: &Node) -> bool {
+// A C# member or accessor node carries an access modifier that narrows
+// it below public: `private`, `protected` or `internal`, alone or in the
+// `protected internal` and `private protected` pairs. `internal` is
+// assembly-wide, not part of the public surface. The single source of
+// truth for the C# narrowing rule, shared by the interface-member gate
+// below and the npm accessor gate (`csharp_member_public_method_count`).
+pub(crate) fn csharp_has_non_public_access_modifier(node: &Node) -> bool {
     node.children().any(|child| {
         // role-bypass: allow(Modifier) — which modifier, not whether the node is one
         matches!(child.kind_id().into(), Csharp::Modifier)
             && child
-                .first_child(|id| id == Csharp::Private || id == Csharp::Protected)
+                .first_child(|id| {
+                    id == Csharp::Private || id == Csharp::Protected || id == Csharp::Internal
+                })
                 .is_some()
     })
 }
 
-// C# 8+ interface members default to public, so a field is a public
-// attribute UNLESS it carries an explicit `private` or `protected`
-// modifier. This is the inverse of `csharp_is_explicit_public` (the
-// class rule, which requires an explicit `public`): missing modifier
-// means public here, matching `ts_member_is_public!`'s default-public
-// gate for TypeScript class members.
+// C# 8+ interface members default to public, so a member is public
+// UNLESS it carries a narrowing access modifier. This is the inverse of
+// `csharp_is_explicit_public` (the class rule, which requires an explicit
+// `public`): missing modifier means public here, matching
+// `ts_member_is_public!`'s default-public gate for TypeScript class
+// members.
 pub(crate) fn csharp_interface_member_is_public(declaration: &Node) -> bool {
-    !csharp_node_has_private_or_protected_modifier(declaration)
+    !csharp_has_non_public_access_modifier(declaration)
 }
 
 // PHP's strict-explicit visibility rule (mirroring Java's pattern): a

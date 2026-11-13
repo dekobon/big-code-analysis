@@ -47,11 +47,10 @@ impl Npm for KotlinCode {
 
         // Each `ClassBody` contributes its direct `FunctionDeclaration`
         // and `SecondaryConstructor` children to whichever func_space is
-        // currently on the stack. Companion objects (not a func_space)
-        // fold into the enclosing class — companion functions read as
-        // static methods on the parent. Nested classes and interfaces
-        // open their own func_space, so their members do not bleed into
-        // the outer space.
+        // currently on the stack. A companion object, a nested class and
+        // a nested interface each open their own class-like space, so
+        // their members are counted there and reach the outer space only
+        // through its sums.
         //
         // Kotlin properties can declare custom `getter` / `setter`
         // blocks, but these are still property accessors, not separate
@@ -85,17 +84,20 @@ impl Npm for KotlinCode {
         // tree-sitter-kotlin elides the `class_member_declaration` and
         // `declaration` rule layers, so function declarations and
         // secondary constructors appear as direct children of
-        // `class_body`. The callable test recognises both kinds.
+        // `class_body`. The callable test recognises both kinds. One
+        // visibility rule serves both buckets: an interface function is
+        // public by default as a class's is, and may be `private` when it
+        // has a body (the compiler's
+        // `compiler/testData/diagnostics/tests/modifiers/privateInInterface.kt`).
         let under = ancestors.of_children(node);
         for func in direct_child_funcs::<Self>(node, code, under.get()) {
+            let public = usize::from(super::npa::kotlin_is_public(&func));
             if is_interface {
                 stats.interface_nm += 1;
-                stats.interface_npm += 1;
+                stats.interface_npm += public;
             } else {
                 stats.class_nm += 1;
-                if super::npa::kotlin_is_public(&func) {
-                    stats.class_npm += 1;
-                }
+                stats.class_npm += public;
             }
         }
     }

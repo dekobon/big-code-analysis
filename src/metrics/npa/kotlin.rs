@@ -82,12 +82,11 @@ impl Npa for KotlinCode {
             }
             // Every `ClassBody` we visit attributes its direct
             // `property_declaration` children to whichever func_space is
-            // currently on the state stack. Companion objects are not
-            // func_spaces, so companion `val`/`var` declarations land on
-            // the enclosing class — matching Kotlin's "static members"
-            // semantics. Nested class / interface bodies start a new
-            // func_space (handled by `spaces.rs`), so they do NOT leak
-            // attributes into their outer space.
+            // currently on the state stack. A companion object, a nested
+            // class and a nested interface each open their own class-like
+            // space (handled by `spaces.rs`), so their attributes are
+            // counted there and reach the outer space only through its
+            // sums.
             ClassBody => kotlin_count_body_properties(node, code, ancestors, stats),
             _ => {}
         }
@@ -99,7 +98,10 @@ impl Npa for KotlinCode {
 // `declaration` rule layers when those rules are pure forwarding
 // choices, so property declarations appear as direct children of
 // `class_body`. Each member is asked under its own chain, the body's
-// plus the body.
+// plus the body. One visibility rule serves both buckets: an interface
+// property is public by default and may be `private` when it has an
+// accessor body (the compiler's
+// `compiler/testData/diagnostics/tests/modifiers/privateInInterface.kt`).
 fn kotlin_count_body_properties<'a>(
     body: &Node<'a>,
     code: &[u8],
@@ -112,15 +114,13 @@ fn kotlin_count_body_properties<'a>(
     let members = under.get();
     for prop in body.children().filter(|c| member::owns(c, code, members)) {
         let attrs = kotlin_count_property_attrs(&prop);
+        let public = if kotlin_is_public(&prop) { attrs } else { 0 };
         if is_interface {
             stats.interface_na += attrs;
-            // Interface members are always public.
-            stats.interface_npa += attrs;
+            stats.interface_npa += public;
         } else {
             stats.class_na += attrs;
-            if kotlin_is_public(&prop) {
-                stats.class_npa += attrs;
-            }
+            stats.class_npa += public;
         }
     }
 }

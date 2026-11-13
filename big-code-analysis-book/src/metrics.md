@@ -1786,8 +1786,9 @@ a bare one's is package-private, per
 [JLS 8.10.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-8.html#jls-8.10.4).
 Groovy follows the reading NPM gives every Groovy member, not the
 compiler's, which makes each such constructor public: the header is
-public on the record's own `public`, or in an interface, a trait or
-an annotation type, and not otherwise);
+public on the record's own `public` in a class, and in an interface, a
+trait or an annotation type unless the record is `private` or
+`protected`, as every member there is ([NPM](#npm-interface-members)));
 a component-less `record E() {}` opens a zero-parameter space with no
 code in it, whose `mi.*` read the `0.0` placeholder as `class G()`'s
 do. The suppression marker binds inside the parentheses, as for a
@@ -2160,6 +2161,27 @@ NPM is also one of the inputs into [Mark Hitz and Behzad
 Montazeri's *Class Interface Size*
 metric](https://link.springer.com/chapter/10.1007/978-94-011-5006-1_19),
 and into Chidamber and Kemerer's *Response For a Class* (RFC).
+
+### Interface members {#npm-interface-members}
+
+An interface member is public by default, so NPM counts it unless it
+narrows its own access:
+
+| Language | Not public in an interface |
+| --- | --- |
+| Java | a `private` method ([JLS 9.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.4)) |
+| Kotlin | a `private` function |
+| Groovy | a `private` or `protected` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type |
+| C# | a member marked `private`, `protected` or `internal`, alone or paired; the static constructor; an explicit implementation of another interface's member (`void IA.M() { }`) |
+
+C# allows these modifiers on an interface member since
+[C# 8](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/proposals/csharp-8.0/default-interface-methods).
+An [`internal`](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/internal)
+member is reachable only from its own assembly, so it is not public
+here, and the same rule reads an accessor:
+`public int X { get; internal set; }` has one public method. NPA reads
+the same rules for Kotlin interface properties, Groovy interface and
+trait fields, and C# interface fields.
 
 ### How to read it
 
