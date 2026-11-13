@@ -392,31 +392,20 @@ for historical reference.
   unchanged. New scaling probes `cognitive/java-nested-classes`,
   `cognitive/groovy-nested-classes` and a `nom` control price it.
 - **`abc` stays linear over defaults in nested destructuring patterns
-  in JavaScript, TypeScript, TSX and Mozjs** (#1868). The walk asks
-  every `=` whether it initialises a `const` binding, and a pattern
-  default's `=` (`[a = 1]`, `{a = 1}`) is answered by the first
-  ancestor that is no pattern layer. Patterns nest without bound with a
-  default at every level, so climbing from each default cost `Σ depth`,
-  quadratic in the nest, under a declaration, a parameter list or a
-  destructuring assignment alike: 16,000 nested `[a = 1, …]` took
-  1.63 s under `abc` against 0.14 s for `loc`, and take 0.13 s. Each
-  pattern level's answer is now kept for the walk and read once; the
-  `=` of an ordinary declarator or assignment is still answered by its
-  parent alone. Metric values are unchanged. New scaling probe
-  `abc/js-nested-default-patterns` and its control
-  `abc/js-nested-patterns` price it.
+  in JavaScript, TypeScript, TSX and Mozjs** (#1868). A default at
+  every level of `n` nested patterns (`[a = 1, [a = 1, …]]`, under a
+  declaration, a parameter list or a destructuring assignment) cost
+  `Σ depth`, quadratic in the nest: 16,000 levels took 1.63 s under
+  `abc` against 0.14 s for `loc`, and take 0.13 s. Metric values are
+  unchanged. New scaling probe `abc/js-nested-default-patterns` and its
+  control `abc/js-nested-patterns` price it.
 - **Perl `abc` stays linear over a list that opens with comments and
-  holds many patterns** (#1868). The walk asks of every `/re/` and
-  `m{re}` whether it is bound by `=~` or is `split`'s delimiter, and
-  reads the pattern's neighbours in its list to decide. Both reads
-  started at the list's first child, and the comments between the `(`
-  and the first operand are stepped over one by one, so a list of `n`
-  comments and then `n` patterns cost `n²` steps: 16,000 of each took
-  6.5 s under `abc` against 0.05 s for `loc`, and take 0.04 s. A plain
-  list and `split`'s argument list were affected alike. The neighbours
-  are now read from the children the walk already recorded for the
-  list. Metric values are unchanged. New scaling probe
-  `abc/perl-commented-pattern-list` prices it.
+  holds many patterns** (#1868). A plain list or `split`'s argument
+  list of `n` comments and then `n` patterns (`/re/`, `m{re}`) cost
+  `n²` steps: 16,000 of each took 6.5 s under `abc` against 0.05 s for
+  `loc`, and take 0.04 s. Metric values are unchanged. New scaling
+  probes `abc/perl-commented-pattern-list` and
+  `abc/perl-commented-split-list` price it.
 - **Elixir's quoted atom and quoted keyword are string literals to
   `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
   and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited

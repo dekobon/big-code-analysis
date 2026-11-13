@@ -3366,9 +3366,12 @@ has none above a declaration, so the climb reached the root from every
 one: 12.8s for 32,000 levels in a release build, against 0.25s for a
 function nest as deep. The fix folds the answers down the chain through
 the walk's `FoldCache`, and it folded only the climbs it found:
-cognitive's enclosing-function scan (#1864) and a Python `npa` climb
-(#1867) kept the shape. Price such a climb where the stop is absent, and
-sweep for the same loop elsewhere ([Adding a probe](benchmarking.md#adding-a-probe)).
+cognitive's enclosing-function scan (#1864), a Python `npa` climb
+(#1867) and the JS family's `const`-binding climb through destructuring
+patterns (#1868) kept the shape, the last spelled as an iterator bound
+to a name that no search for the first two matched. Price such a climb
+where the stop is absent, and sweep for the same loop elsewhere
+([Adding a probe](benchmarking.md#adding-a-probe)).
 
 ---
 
@@ -4174,15 +4177,18 @@ wide node's children when the walk pushes them, lend the record through
 the ancestor chain, and gate the shape with a `bench-scaling` probe whose
 body really flattens: plain repetition folds into nested
 `binary_expression`s and keeps its repeat structure, so a probe needs a
-stray `{` or `$d` per unit before it measures the flat case.
+stray `{` or `$d` per unit before it measures the flat case, or a run
+of comments ahead of the repetition, which is flat in code that parses.
 
-The cost is invisible on the inputs anyone tests. Valid code and an
-unclosed list both keep the repetition's hidden levels, so a seek that
-is documented O(log n) is O(log n) there, and a timing probe written
-from the same shapes fits linear. Only an `ERROR` holding its children
-as one flat array exposes the scan — and real files produce one: a
-Perl debugger script whose tail fails to parse has 30,798 direct
-children under its root.
+The cost is invisible on the inputs anyone tests. A list's elements
+keep the repetition's hidden levels in valid code and in an unclosed
+list alike, so a seek that is documented O(log n) is O(log n) there,
+and a timing probe written from the same shapes fits linear. Only a
+flat run of children exposes the scan. An `ERROR` holding its children
+as one flat array is one, and real files produce it: a Perl debugger
+script whose tail fails to parse has 30,798 direct children under its
+root. Whatever sits ahead of a repetition is another, in valid code
+(#1868).
 
 **Perl ABC and Halstead were quadratic under a flat `ERROR`** (#1584,
 found while writing #1575's probes). `children_after` /
@@ -4211,6 +4217,17 @@ that does not end mid-parse yet gets a flat root beside a Rust file that
 does and gets a nested, balanced one; a root `ERROR` whose skipped run
 stayed balanced beneath it beside a nested `ERROR` holding its popped
 tokens flat (cf. lesson 84).
+
+**Comments ahead of a list's first element are a flat run in code that
+parses** (#1868). A comment between a list's `(` and its first operand
+is the list's own child, outside the operands' `repeat()`, so a seek or
+a scan from the list's first child steps over each one. Perl ABC's
+pattern-role check read two siblings of every pattern that way, and a
+list of 16,000 comments and then 16,000 patterns took 6.5 s against
+0.05 s for `loc`. `abc/perl-pattern-list`, the probe written for that
+check, holds no comment and read linear throughout. Both reads now go
+through the walk's record. Four more scans of the same shape, each from
+a parent's first child and once per child, are measured in #1888.
 
 ---
 
