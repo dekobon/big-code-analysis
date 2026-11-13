@@ -13980,6 +13980,122 @@ end
         }
     }
 
+    // A default's `=` is answered by the first ancestor that is no
+    // pattern layer, and each pattern level keeps that answer for the
+    // walk (#1868). One file holds both answers, so a memo that handed
+    // one binding's answer to another moves the count: a `const` nest
+    // and a `let` nest of the same shape, a parameter nest, a `let`
+    // pattern inside a `const` initializer's arrow whose deeper default
+    // is asked before its shallower one, a destructuring assignment, and
+    // the two patterns whose `const`-like owner is no declarator, a
+    // `for`-`of` head and a `catch` parameter. The values are `main`'s
+    // for the same input.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_pattern_defaults_count_by_their_binding() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+        const SRC: &str = "const [a = 1, [b = 2, {c = 3, d: [e = 4]}]] = v;\n\
+                           let [f = 1, [g = 2, {h = 3, i: [j = 4]}]] = w;\n\
+                           function p([k = 1, [l = 2, {m = 3}]]) {}\n\
+                           const q = ([n = 1]) => { let [[o = 1], r = 2] = n; };\n\
+                           [s = 1, [t = 2]] = u;\n\
+                           for (const [x = 1] of xs) {}\n\
+                           try {} catch ({y = 1}) {}\n";
+        for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            let space = crate::test_support::space_verbatim(
+                lang,
+                SRC.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            );
+            let own = |name: &str| child_space(&space, name).metrics.abc.assignments();
+            // expected: the `const` nest pays nothing; the `let` nest its
+            // four defaults and its declarator; the assignment its two
+            // defaults and its own `=`; the `for`-`of` head and the
+            // `catch` parameter a default each — 0 + 5 + 3 + 1 + 1 at
+            // the top level. `p` pays its three parameter defaults. `q`
+            // pays the parameter default, the two `let` defaults and the
+            // `let` declarator, and not its own `const` declarator.
+            assert_eq!(
+                (
+                    space.metrics.abc.assignments(),
+                    own("p"),
+                    own("q"),
+                    space.metrics.abc.assignments_sum()
+                ),
+                (10, 3, 4, 17),
+                "{lang:?}: (top level, p, q, sum)"
+            );
+        }
+    }
+
+    // The `const`-binding question reads each pattern level once per
+    // walk (#1868). The counts cannot be read off the metric: every way
+    // of reading the levels answers the same.
+    //
+    // - `arrays`: `n` nested array patterns under a `const`, a default
+    //   in each and a second in the innermost.
+    // - `objects`: `n` nested object patterns under a `let`, each
+    //   holding a default and a `pair_pattern` around the next, the
+    //   innermost pair holding a default instead. Two pattern layers per
+    //   level, and the other answer.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_const_binding_reads_each_pattern_level_once() {
+        use super::js_family::const_binding_levels_read;
+
+        let n = 40;
+        let arrays = format!(
+            "const {}b = 2{} = v;\n",
+            "[a = 1, ".repeat(n),
+            "]".repeat(n)
+        );
+        let objects = format!(
+            "let {}c = 3{} = v;\n",
+            "{a = 1, b: ".repeat(n),
+            "}".repeat(n)
+        );
+        let read = |lang: LANG, source: &str| {
+            let before = const_binding_levels_read::observed();
+            let assignments = metrics_verbatim(
+                lang,
+                source.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc
+            .assignments_sum();
+            (assignments, const_binding_levels_read::observed() - before)
+        };
+        // `make chain-audit` runs the climb beside every memoised ask,
+        // so there each count is the two together.
+        let audited = usize::from(cfg!(chain_audit));
+        // expected, arrays: every `=` reads its parent, `n + 2` reads.
+        // Each of the `n + 1` defaults then asks the levels above its
+        // own pattern: the outermost reads its array and the
+        // declarator, each deeper `a = 1` its own array before meeting
+        // the answer on the array above, and `b = 2` meets it on its
+        // own array at once — `n + 1` more, 83 in all. The climb reads
+        // `k + 1` levels from the default `k` arrays deep and `n + 1`
+        // from `b = 2`, (n² + 5n + 2) / 2 = 901: 943 with the parent
+        // reads when it replaces the memo, 984 when it runs beside it.
+        let arrays_read = 2 * n + 3 + audited * ((n * n + 5 * n + 2) / 2);
+        // expected, objects: `n + 2` parent reads again. The outermost
+        // default reads its object and the declarator; each deeper
+        // `a = 1` its own object and the pair around it; `c = 3` its
+        // pair — `2n + 1` more, 123 in all. The climb reads `2k` levels
+        // from the default `k` objects deep and `2n + 1` from `c = 3`,
+        // n² + 3n + 1 = 1721: 1763 when it replaces the memo. Every
+        // `=` counts under `let`.
+        let objects_read = 3 * n + 3 + audited * (n * n + 3 * n + 1);
+        let object_assignments = u64::try_from(n + 2).expect("a small count");
+        for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            assert_eq!(
+                (read(lang, &arrays), read(lang, &objects)),
+                ((0, arrays_read), (object_assignments, objects_read)),
+                "{lang:?}: (assignments, levels read) on the array nest, then the object nest"
+            );
+        }
+    }
+
     #[cfg(feature = "javascript")]
     #[test]
     fn javascript_instanceof_counts_condition() {

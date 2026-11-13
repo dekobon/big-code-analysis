@@ -180,6 +180,8 @@ Read it as follows.
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
+| `abc/js-nested-default-patterns` | JavaScript | depth | the same check asked by a default's `=` at every level of a pattern nest, where the first ancestor that is no pattern answers; each pattern level's answer is memoised on `LevelQuestion::InConstBinding` (#1868) | linear |
+| `abc/js-nested-patterns` | JavaScript | depth | shape control for the row above: the nest with its defaults removed | linear |
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `loc/go-comment-run` | Go | width | `leading_doc_run`'s walk back over a lead comment run (#1597) | linear |
 | `loc/rust-nested-doc-mods` | Rust | depth | the in-body doc test, memoised per ancestor by `Ancestors::fold_down` (#1597) | linear |
@@ -301,7 +303,8 @@ The control probes are what make the other readings mean something.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
-  `loc/nested-fn` and `dump/wide-distinct-fns` are **shape** controls:
+  `abc/js-nested-patterns`, `loc/nested-fn` and `dump/wide-distinct-fns`
+  are **shape** controls:
   each is the same nesting (or, for the last, the same width) as the
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
@@ -1015,6 +1018,47 @@ walk lends a cache. The one exception was filed before this change:
 `python_is_bound_self_attribute` ([#1867][python-npa]).
 
 [python-npa]: https://github.com/dekobon/big-code-analysis/issues/1867
+
+`abc/js-nested-default-patterns` guards [#1868][climb-audit]. JS-family
+ABC asks every `=` whether it initialises a `const` binding, which is
+no assignment. The `=` of a declarator is answered by its parent. A
+destructuring default's `=` (`[a = 1]`, `{a = 1}`) is answered by the
+first ancestor that is no pattern layer, and patterns nest without
+bound with a default at every level, so a climb from each of `depth`
+defaults read `Σ depth` levels: under a declaration, a parameter list
+and a destructuring assignment alike, in all four grammars. No earlier
+probe rendered a pattern nest; `abc/wide-let-declarators` grows the
+declarator list.
+
+Each pattern level's answer is now memoised on
+`LevelQuestion::InConstBinding` through
+`Ancestors::nearest_level_answer`. The `=`'s own parent is read
+directly, outside the memo, so the `=` of a declarator or an assignment
+costs what it did.
+
+The probe renders `let [a = 1, [a = 1, … b = 2]] = v;`, one default per
+level, and `abc/js-nested-patterns` the same nest with the defaults
+removed, both on 4 000 / 8 000 / 16 000.
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| a climb per default | `abc/js-nested-default-patterns` | 1.18 | 2.66 | 9.3 ms → 2.1 s |
+| (same patch) | `abc/js-nested-patterns` | 0.84 | 0.78 | 6.0 ms → 5.8 ms |
+
+One run each, on a host that was not idle. No other probe left its
+bound with the climb put back. The regressed exponent is above 2 for
+the reason the #1864 probes' was: the chain a deep default climbs
+outgrows cache.
+
+The per-change guard is
+`js_family_const_binding_reads_each_pattern_level_once` in
+`src/metrics/abc.rs`. It pins the exact number of levels read over a
+40-level array nest and a 40-level object nest, in each of the four
+grammars: 83 and 123 memoised, 943 and 1 763 climbed. Under
+`--cfg chain_audit` every memoised answer is also checked against the
+climb.
+
+[climb-audit]: https://github.com/dekobon/big-code-analysis/issues/1868
 
 ### Child scans, and where the allocation actually was {#child-scans}
 

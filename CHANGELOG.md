@@ -391,6 +391,20 @@ for historical reference.
   ancestor chain, each ancestor once per walk. Metric values are
   unchanged. New scaling probes `cognitive/java-nested-classes`,
   `cognitive/groovy-nested-classes` and a `nom` control price it.
+- **`abc` stays linear over defaults in nested destructuring patterns
+  in JavaScript, TypeScript, TSX and Mozjs** (#1868). The walk asks
+  every `=` whether it initialises a `const` binding, and a pattern
+  default's `=` (`[a = 1]`, `{a = 1}`) is answered by the first
+  ancestor that is no pattern layer. Patterns nest without bound with a
+  default at every level, so climbing from each default cost `Σ depth`,
+  quadratic in the nest, under a declaration, a parameter list or a
+  destructuring assignment alike: 16,000 nested `[a = 1, …]` took
+  1.63 s under `abc` against 0.14 s for `loc`, and take 0.13 s. Each
+  pattern level's answer is now kept for the walk and read once; the
+  `=` of an ordinary declarator or assignment is still answered by its
+  parent alone. Metric values are unchanged. New scaling probe
+  `abc/js-nested-default-patterns` and its control
+  `abc/js-nested-patterns` price it.
 - **Elixir's quoted atom and quoted keyword are string literals to
   `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
   and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited

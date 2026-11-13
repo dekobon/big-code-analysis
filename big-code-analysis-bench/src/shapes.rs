@@ -918,6 +918,30 @@ pub fn js_arrow_per_array_depth(depth: usize) -> String {
     )
 }
 
+/// JavaScript: `let [a = 1, [a = 1, [ … b = 2 ] ] ] = v;`.
+///
+/// One default per level, each in an array pattern nested in the last.
+/// ABC asks of every `=` whether it initialises a `const` binding, and a
+/// default's `=` is answered by the first ancestor that is no pattern
+/// layer: the declarator, one level below the root, from every level
+/// (#1868). `let`, so each default counts and the reading grows.
+#[must_use]
+pub fn js_nested_default_patterns(depth: usize) -> String {
+    format!(
+        "let {}b = 2{} = v;\n",
+        "[a = 1, ".repeat(depth),
+        "]".repeat(depth)
+    )
+}
+
+/// JavaScript: `let [a, [a, [ … b ] ] ] = v;` — the nest of
+/// [`js_nested_default_patterns`] with its defaults removed, so the one
+/// `=` left is the declarator's and nothing climbs.
+#[must_use]
+pub fn js_nested_patterns(depth: usize) -> String {
+    format!("let {}b{} = v;\n", "[a, ".repeat(depth), "]".repeat(depth))
+}
+
 /// Python: `x = [a and b, [a and b, [ … 0 ] ] ]`.
 ///
 /// One boolean operator per level, each an element of a list nested in
@@ -2023,6 +2047,13 @@ const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// rather than an exponent. Without the scan they read 0.60–0.91. They
 /// were not measured on [`LINEAR_DEPTHS`].
 const ENCLOSING_FUNCTION_DEPTHS: [usize; 3] = CONDITIONAL_PER_DEPTH_DEPTHS;
+
+/// Depths for `abc/js-nested-default-patterns` and its control, the
+/// ladder of [`CONDITIONAL_PER_DEPTH_DEPTHS`]. With the climb per
+/// default reinstated the probe read 2.66 here, 2.1 s at the top rung,
+/// inside `MAX_CELL_WALK`; without it, 1.18 and 9.3 ms. The control
+/// read 0.78 and 0.84. They were not measured on [`LINEAR_DEPTHS`].
+const PATTERN_DEFAULT_DEPTHS: [usize; 3] = CONDITIONAL_PER_DEPTH_DEPTHS;
 
 /// Depths for the three `ruby-nested-classes` probes, one rung above
 /// [`CONDITIONAL_PER_DEPTH_DEPTHS`]. The copy they price is the walk's
@@ -4297,6 +4328,51 @@ pub const PROBES: &[Probe] = &[
                     counting them is visible in the value column too.",
     },
     Probe {
+        name: "abc/js-nested-default-patterns",
+        lang: LANG::Javascript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
+        render: js_nested_default_patterns,
+        sizes: PATTERN_DEFAULT_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: ABC asks every `=` whether it initialises a \
+                    `const` binding, and a destructuring default's `=` is \
+                    answered by the first ancestor that is no pattern \
+                    layer. Patterns nest without bound with a default at \
+                    every level, so a climb from each default read \
+                    `depth² / 2` levels. Each pattern level's answer is \
+                    memoised on `LevelQuestion::InConstBinding` and read \
+                    once. With the climb put back this reads 2.66, 2.1 s \
+                    at the top rung against 9.3 ms, and 1.18 without. \
+                    The reading is the assignment count: one per default \
+                    under `let`, and the declarator's.",
+    },
+    Probe {
+        name: "abc/js-nested-patterns",
+        lang: LANG::Javascript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
+        render: js_nested_patterns,
+        sizes: PATTERN_DEFAULT_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `abc/js-nested-default-patterns`: \
+                    the same pattern nest with no default, so the one \
+                    `=` is the declarator's and its parent answers. It \
+                    read 0.78 with the climb per default put back and \
+                    0.84 without, which attributes the other row's 2.66 \
+                    to the defaults and not to the nest. The reading is \
+                    that one assignment at every size; the signal is the \
+                    timing.",
+    },
+    Probe {
         name: "halstead/perl-dash-keys",
         lang: LANG::Perl,
         axis: Axis::Width,
@@ -5115,6 +5191,7 @@ mod tests {
             "loc/ts-nested-fn",
             "nom/js-arrow-per-array-depth",
             "cognitive/python-and-per-list-depth",
+            "abc/js-nested-default-patterns",
         ] {
             let probe = PROBES
                 .iter()

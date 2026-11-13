@@ -172,47 +172,69 @@ fn js_family_walk_for(node: &Node, scores: ScoresItself, conditions: &mut f64) {
 // other side, promoting a live `let` slot to `Const`.
 //
 // Every hop reads the ancestor chain the walk already descended through,
-// so the climb is O(pattern nesting) and `Node::parent`'s O(depth) is
-// never paid (#1096, #1122). The keyword is read through the `kind`
-// field rather than by scanning the declaration's children: that scan
-// ran once per declarator and walked every sibling declarator, so a
-// `let` list of N declarators cost O(N²) — 6 s for 5 000 of them on a
-// debug build, against 0.04 s for the same list under `var`.
+// so `Node::parent`'s O(depth) is never paid (#1096, #1122). The keyword
+// is read through the `kind` field rather than by scanning the
+// declaration's children: that scan ran once per declarator and walked
+// every sibling declarator, so a `let` list of N declarators cost O(N²)
+// — 6 s for 5 000 of them on a debug build, against 0.04 s for the same
+// list under `var`.
+//
+// The climb is one level for the `=` of a declarator or an assignment,
+// which its parent answers. A default's `=` is answered by the first
+// ancestor that is no pattern layer, and patterns nest without bound
+// with a default at every level, so climbing from each cost `Σ depth`:
+// 1.6 s for 16 000 nested `[a = 1, …]` in a release build against
+// 0.14 s for `loc` (#1868). Those levels are read through
+// `Ancestors::nearest_level_answer`, which keeps each pattern's answer
+// for the walk; the direct read of the parent stays outside it, so an
+// ordinary `=` touches no memo.
 macro_rules! impl_js_family_const_binding {
     ($Lang:ident, $name:ident) => {
-        fn $name<'a>(eq_node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-            use $Lang::*;
+        fn $name<'a>(eq_node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+            fn binds_const<'a>(
+                _code: &[u8],
+                level: &Node<'a>,
+                above: Ancestors<'a, '_>,
+            ) -> Option<bool> {
+                use $Lang::*;
 
-            let mut climb = ancestors.iter(eq_node).map(|(ancestor, _)| ancestor);
-            let mut owner = climb.next();
-            while let Some(node) = owner
-                && matches!(
-                    node.kind_id().into(),
+                const_binding_levels_read::record();
+                match level.kind_id().into() {
                     ObjectPattern
-                        | ArrayPattern
-                        | PairPattern
-                        | ObjectAssignmentPattern
-                        | AssignmentPattern
-                        | RestPattern
-                )
-            {
-                owner = climb.next();
+                    | ArrayPattern
+                    | PairPattern
+                    | ObjectAssignmentPattern
+                    | AssignmentPattern
+                    | RestPattern => None,
+                    // role-bypass: allow(DocTarget, DeclKeyword) — whether the binding's
+                    // declaration is a `const`, for the ABC assignment count: not whether the
+                    // declaration takes a doc comment, nor whether the token is a keyword
+                    VariableDeclarator => Some(above.parent(level).is_some_and(|declaration| {
+                        declaration.kind_id() == LexicalDeclaration
+                            && declaration
+                                .child_by_field_name("kind")
+                                .is_some_and(|keyword| keyword.kind_id() == Const)
+                    })),
+                    _ => Some(false),
+                }
             }
-            if !owner.is_some_and(|node| node.kind_id() == VariableDeclarator) {
+
+            let Some((owner, above)) = ancestors.iter(eq_node).next() else {
                 return false;
-            }
-            // role-bypass: allow(DocTarget, DeclKeyword) — whether the binding's
-            // declaration is a `const`, for the ABC assignment count: not whether the
-            // declaration takes a doc comment, nor whether the token is a keyword
-            climb.next().is_some_and(|declaration| {
-                declaration.kind_id() == LexicalDeclaration
-                    && declaration
-                        .child_by_field_name("kind")
-                        .is_some_and(|keyword| keyword.kind_id() == Const)
+            };
+            binds_const(code, &owner, above).unwrap_or_else(|| {
+                above.nearest_level_answer(&owner, LevelQuestion::InConstBinding, code, binds_const)
             })
         }
     };
 }
+
+// Levels the `const`-binding question reads: the `=`'s parent, and each
+// ancestor a pattern default's climb asks. Every way of reading them
+// answers the same, so only this tells a walk that reads each pattern
+// level once from one that climbs to the declarator from every default
+// (#1868).
+crate::observation::counter!(const_binding_levels_read);
 
 impl_js_family_const_binding!(Typescript, typescript_eq_initializes_const_binding);
 impl_js_family_const_binding!(Tsx, tsx_eq_initializes_const_binding);
@@ -266,7 +288,7 @@ macro_rules! js_family_abc_compute {
                 }
                 // Plain `=` outside `const` declarations is an assignment
                 // (issue #1277).
-                EQ if !$const_binding(node, ancestors) => {
+                EQ if !$const_binding(node, code, ancestors) => {
                     stats.assignments += 1.;
                 }
                 // Function invocation — the `Call` row, under which member
