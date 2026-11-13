@@ -6127,6 +6127,55 @@ mod tests {
         assert_eq!(m.abc.conditions_sum(), 3);
     }
 
+    /// The bare `?` arm pays for the one spelling no production owns: a
+    /// `?` error recovery strands under an `ERROR`. The grammar spells
+    /// the token in four productions (`nullable_type`,
+    /// `type_parameter_constraint`, `conditional_expression`,
+    /// `conditional_access_expression`), all on the arm's deny list, so
+    /// no valid C# reaches the arm: only a recovery tree shows that it
+    /// pays, and how much. The compiler rejects `int z = a ? ;`.
+    ///
+    /// This pins what the arm has always done, not a language contract
+    /// (grammar-dispatch §6). The recovered shape is asserted first: a
+    /// grammar bump that recovers differently fails there, as fixture
+    /// drift, and should delete this test rather than relax it.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_stranded_question_mark_under_recovery_scores_a_condition() {
+        let src = "class C {\n    void F(int a, int b) {\n        bool x = a == b;\n        bool y = a != b;\n        int z = a ? ;\n    }\n}\n";
+        let parser = CsharpParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.cs"),
+            None,
+        );
+        let question_marks: Vec<_> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Csharp::QMARK as u16)
+            .collect();
+        assert_eq!(question_marks.len(), 1, "the fixture spells one `?`");
+        assert!(
+            question_marks[0]
+                .parent()
+                .is_some_and(|parent| parent.is_error()),
+            "the `?` must be stranded directly under an `ERROR`"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Csharp::ConditionalExpression as u16),
+            "recovery must not have built a ternary around it"
+        );
+        let m = metrics_verbatim(
+            LANG::Csharp,
+            src.as_bytes(),
+            MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+        );
+        // expected: the `==` and the `!=`, which the walk reaches first,
+        // then the stranded `?`: 2 + 1 = 3. The three `=` are
+        // assignments.
+        assert_eq!(m.abc.conditions_sum(), 3);
+        assert_eq!(m.abc.assignments_sum(), 3);
+    }
+
     // A guarded discard is where the two rules meet. `_ when g =>` is
     // already exempt from the `default:` exclusion —
     // `csharp_switch_expression_arm_is_bare_discard` looks for a
