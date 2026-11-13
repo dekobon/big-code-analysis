@@ -2012,6 +2012,23 @@ count one, as the classic spelling does (see
 constructor with no written parameter list — a class with no
 constructor at all — counts nothing.
 
+An annotation type's elements count in Groovy and not in Java. Both
+compilers make an element an abstract method, but the two grammars
+parse it differently. Java's gives the element a node kind of its own,
+which opens no function space. Groovy's parses it as a bodiless method,
+as it does an interface's abstract method. So
+`@interface Top { int v(); String name(); }` reports `nom.functions` 2,
+an interface WMC of 2 and a cyclomatic sum of 4 in Groovy, and 0, 0
+and 2 in Java. The Groovy values match what a plain `interface` with
+the same two methods reports in either language. In both languages
+NPM counts the two elements as public methods. The Groovy grammar
+also fails to parse two valid spellings: a modifier before
+`@interface`
+([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92))
+and an element's `default` value. Each leaves an error node in the
+tree, and the annotation type reports the NOM, NPA, NPM and WMC it
+would report without it.
+
 ### How to read it
 
 NOM is the input to several other metrics: WMC sums *cyclomatic*

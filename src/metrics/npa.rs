@@ -650,6 +650,8 @@ implement_metric_trait!(
 mod tests {
     use std::path::PathBuf;
 
+    #[cfg(feature = "groovy")]
+    use crate::test_support::assert_clean_groovy_annotation_type;
     use crate::test_support::{
         assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
         check_metrics_only_shim, child_space,
@@ -1396,25 +1398,28 @@ mod tests {
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_annotation_type_counts_constants_as_implicit_public() {
-        // The dekobon Groovy grammar parses `@interface` like Java
-        // (modifier required, statements terminated with `;`). Mirror of
-        // `java_annotation_type_counts_constants_as_implicit_public`
-        // — the body-walker count is identical whether or not
-        // Groovy's `AnnotationTypeDeclaration` is wired into
-        // `is_func_space`, so the structural `check_func_space`
-        // assertion is what catches a revert.
-        check_func_space::<GroovyParser, _>(
-            "public @interface Marker {
-                int VERSION = 1;
-                String NAME = \"x\";
-            }",
-            "foo.groovy",
-            |func_space| {
-                assert_eq!(func_space.metrics.npa.interface_na_sum(), 2);
-                assert_eq!(func_space.metrics.npa.interface_npa_sum(), 2);
-                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
-            },
-        );
+        // Mirror of `java_annotation_type_counts_constants_as_implicit_public`.
+        // A constant is a `field_declaration` in the shared `class_body`,
+        // public because the body is an annotation type's. The pinned
+        // grammar takes no modifier before `@interface`
+        // (tree-sitter-groovy#92): `public @interface` recovers as an
+        // `interface_declaration`, whose fields read the same 2/2, so
+        // the premise holds the fixture to a clean annotation type
+        // (#1865). With no `Marker` space the body walker counts the
+        // same two at the file level, so the counts are read on
+        // `Marker`'s own space, whose `Interface` kind catches a revert
+        // of its `Container` row.
+        let source = "@interface Marker {
+                int VERSION = 1
+                String NAME = \"x\"
+            }";
+        assert_clean_groovy_annotation_type(source);
+        check_func_space::<GroovyParser, _>(source, "foo.groovy", |space| {
+            let marker = child_space(&space, "Marker");
+            assert_eq!(marker.kind, SpaceKind::Interface);
+            let npa = &marker.metrics.npa;
+            assert_eq!((npa.interface_na(), npa.interface_npa()), (2, 2));
+        });
     }
 
     #[cfg(feature = "java")]

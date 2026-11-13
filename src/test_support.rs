@@ -336,6 +336,47 @@ pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]
     assert_fixture_spells::<crate::PerlParser>(src, "foo.pl", kinds);
 }
 
+/// The premise of a Groovy annotation-type fixture: `src` parses with no
+/// `ERROR` to one `annotation_type_declaration` and no
+/// `interface_declaration`.
+///
+/// The pinned grammar parses neither a modifier before `@interface` nor
+/// an element's `default` value, and its recovery from each reads the
+/// counts a clean parse does: `public @interface` becomes an
+/// `interface_declaration`, which opens the same `Interface` space, and a
+/// `default` value lands in an `ERROR` beside its element. A metric
+/// assertion alone passes on either spelling, which is how the earlier
+/// fixtures passed through recovery (#1865).
+#[cfg(feature = "groovy")]
+#[track_caller]
+pub(crate) fn assert_clean_groovy_annotation_type(src: &str) {
+    let parser = crate::GroovyParser::new(
+        src.as_bytes().to_vec(),
+        std::path::Path::new("foo.groovy"),
+        None,
+    );
+    assert!(
+        !parser.root().has_error(),
+        "the annotation-type fixture parses with an `ERROR`"
+    );
+    assert_fixture_spells::<crate::GroovyParser>(
+        src,
+        "foo.groovy",
+        &[
+            (
+                crate::Groovy::AnnotationTypeDeclaration as u16,
+                1,
+                "annotation types",
+            ),
+            (
+                crate::Groovy::InterfaceDeclaration as u16,
+                0,
+                "interfaces (the `public @interface` recovery)",
+            ),
+        ],
+    );
+}
+
 // The parse-only helpers live beside the parse layer and are shared with
 // its own tests through the `test-support` feature.
 //

@@ -472,6 +472,8 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
+    #[cfg(feature = "groovy")]
+    use crate::test_support::assert_clean_groovy_annotation_type;
     use crate::test_support::{
         assert_child_space_kind, check_func_space_only_shim, check_metrics_only_shim, child_space,
     };
@@ -890,28 +892,36 @@ mod tests {
         );
     }
 
-    // Mirror of `java_annotation_type_opens_interface_space_with_zero_wmc`
-    // — verifies #280 wired `Groovy::AnnotationTypeDeclaration` into
-    // `is_func_space` (the structural check) while keeping
-    // `interface_wmc_sum` at 0 because elements are not method
-    // declarations. The structural assertion is what distinguishes a
-    // working fix from a vacuous one (see the Java sibling for the
-    // rationale).
+    // The twin of `java_annotation_type_opens_interface_space_with_zero_wmc`,
+    // and where the two languages part. The pinned Groovy grammar has no
+    // element kind: each element is a bodiless `method_declaration`, so
+    // it opens a function space and weighs into `Marker`'s WMC, as an
+    // abstract method in a plain `interface` does in either language.
+    // Java's elements open none, so its WMC and `nom` read 0. The
+    // values are the grammar's, kept and documented (the book's NOM
+    // section) rather than gated to Java's (#1865). The premise rules
+    // out the recovery a `public` or a `default` value would cause
+    // (`groovy_annotation_type_gaps_do_not_parse`, `npm.rs`), which
+    // reads the same numbers.
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not support annotation type elements with `default` values"]
-    fn groovy_annotation_type_opens_interface_space_with_zero_wmc() {
-        check_func_space::<GroovyParser, _>(
-            "public @interface Marker {
-                String value() default \"\";
-                int priority() default 0;
-            }",
-            "foo.groovy",
-            |func_space| {
-                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0);
-                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
-            },
-        );
+    fn groovy_annotation_type_elements_are_weighted_methods() {
+        let source = "@interface Marker {
+                String value()
+                int priority()
+            }";
+        assert_clean_groovy_annotation_type(source);
+        check_func_space::<GroovyParser, _>(source, "foo.groovy", |space| {
+            let marker = child_space(&space, "Marker");
+            assert_eq!(marker.kind, SpaceKind::Interface);
+            // expected: `value` and `priority` weigh 1 each.
+            assert_eq!(marker.metrics.wmc.interface_wmc(), 2);
+            // expected: Java's 0 (its twin), one per element here.
+            assert_eq!(space.metrics.nom.functions_sum(), 2);
+            // expected: 1 each for the unit, `Marker` and the two
+            // elements; Java's twin reads 2, the unit and `Marker`.
+            assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 4);
+        });
     }
 
     // Constructors are considered as methods
@@ -1521,7 +1531,9 @@ mod tests {
     // dropped from `is_func_space` (the FuncSpace tree would simply
     // omit the annotation type space, and `0 == 0` would still hold);
     // the structural check on `space.kind` is what catches that
-    // regression.
+    // regression. Groovy's grammar parses elements as methods and reads
+    // 2, 2 and 4 for the three counts below
+    // (`groovy_annotation_type_elements_are_weighted_methods`).
     #[cfg(feature = "java")]
     #[test]
     fn java_annotation_type_opens_interface_space_with_zero_wmc() {
@@ -1536,6 +1548,10 @@ mod tests {
                 // Without `AnnotationTypeDeclaration` in `is_func_space`,
                 // the file-level Unit would have zero child spaces here.
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
+                // expected: no element opens a function space.
+                assert_eq!(func_space.metrics.nom.functions_sum(), 0);
+                // expected: 1 each for the unit and `Marker`.
+                assert_eq!(func_space.metrics.cyclomatic.cyclomatic_sum(), 2);
             },
         );
     }

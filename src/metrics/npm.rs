@@ -641,12 +641,12 @@ implement_metric_trait!(
 mod tests {
     use std::path::PathBuf;
 
-    #[cfg(feature = "groovy")]
-    use crate::test_support::assert_fixture_spells;
     use crate::test_support::{
         assert_child_space_kind, ast_has_kind_id, check_func_space_only_shim,
         check_metrics_only_shim, child_space,
     };
+    #[cfg(feature = "groovy")]
+    use crate::test_support::{assert_clean_groovy_annotation_type, assert_fixture_spells};
 
     use super::*;
 
@@ -768,32 +768,101 @@ mod tests {
         );
     }
 
+    /// Groovy's twin of `java_annotation_type_counts_elements`. The
+    /// pinned grammar has no element kind: an annotation type's body is
+    /// the shared `class_body`, and each element is a bodiless
+    /// `method_declaration`, as an interface's abstract method is. `npm`
+    /// reads Java's two public interface methods by that other route,
+    /// which also makes each element a function for `nom` and `wmc`
+    /// where Java's is not (`groovy_annotation_type_elements_are_weighted_methods`,
+    /// `wmc.rs`). The fixture spells no `default` value and no modifier
+    /// before `@interface`, neither of which the grammar parses
+    /// (`groovy_annotation_type_gaps_do_not_parse`), and the premise
+    /// holds it to a clean annotation type. With no `Marker` space the
+    /// body walker counts the same two at the file level, so the counts
+    /// are read on `Marker`'s own space, whose `Interface` kind catches
+    /// a revert of its `Container` row (#280).
     #[cfg(feature = "groovy")]
     #[test]
-    #[ignore = "dekobon Groovy grammar v1 does not support annotation type elements with `default` values; the trailing `default \"\"`/`default 0` make the body fail to parse"]
     fn groovy_annotation_type_counts_elements() {
-        // The Groovy tree-sitter grammar parses `@interface` only when
-        // preceded by a modifier and when each element ends in `;` (it
-        // inherits the Java parser's strictness). This source shape
-        // produces a clean `annotation_type_declaration` →
-        // `annotation_type_body` → `annotation_type_element_declaration`
-        // tree. Mirror of `java_annotation_type_counts_elements` — the
-        // body-walker count is identical whether or not Groovy's
-        // `AnnotationTypeDeclaration` is wired into `is_func_space`,
-        // so the structural `check_func_space` assertion is what
-        // catches a revert.
-        check_func_space::<GroovyParser, _>(
-            "public @interface Marker {
-                String value() default \"\";
-                int priority() default 0;
-            }",
-            "foo.groovy",
-            |func_space| {
-                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2);
-                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2);
-                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
-            },
-        );
+        let source = "@interface Marker {
+                String value()
+                int priority()
+            }";
+        assert_clean_groovy_annotation_type(source);
+        check_func_space::<GroovyParser, _>(source, "foo.groovy", |space| {
+            let marker = child_space(&space, "Marker");
+            assert_eq!(marker.kind, SpaceKind::Interface);
+            let npm = &marker.metrics.npm;
+            assert_eq!((npm.interface_nm(), npm.interface_npm()), (2, 2));
+        });
+    }
+
+    /// Two valid spellings of an annotation type that the pinned grammar
+    /// does not parse; groovyc compiles both. `annotation_type_declaration`
+    /// takes annotations and no modifier
+    /// ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92)),
+    /// so `public @interface`, at the top level or as a class member, is
+    /// an `interface_declaration` with its `@` in an `ERROR`. Nor does an
+    /// element take a `default` value: the value lands in an `ERROR`
+    /// after its element. Each recovery keeps both elements and opens the
+    /// `Interface` space a clean parse does, so `npm` reads the 2/2 of
+    /// `groovy_annotation_type_counts_elements`. Recorded so a grammar
+    /// bump that parses a form, or recovers it differently, moves this
+    /// test and the book's NOM note together.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_annotation_type_gaps_do_not_parse() {
+        // Each source with the names of the spaces from the root down
+        // to its annotation type.
+        let gaps: [(&str, &[&str]); 3] = [
+            (
+                "public @interface Marker {
+                    String value()
+                    int priority()
+                }",
+                &["Marker"],
+            ),
+            (
+                "class Outer {
+                    public @interface Marker {
+                        String value()
+                        int priority()
+                    }
+                }",
+                &["Outer", "Marker"],
+            ),
+            (
+                "@interface Marker {
+                    String value() default \"\"
+                    int priority() default 0
+                }",
+                &["Marker"],
+            ),
+        ];
+        for (source, path) in gaps {
+            let parser = GroovyParser::new(
+                source.as_bytes().to_vec(),
+                std::path::Path::new("foo.groovy"),
+                None,
+            );
+            assert!(
+                parser.root().has_error(),
+                "the grammar parses {source:?} now: revisit this test and the book's NOM note"
+            );
+            check_func_space::<GroovyParser, _>(source, "foo.groovy", |space| {
+                let marker = path
+                    .iter()
+                    .fold(&space, |owner, name| child_space(owner, name));
+                assert_eq!(marker.kind, SpaceKind::Interface, "{source}");
+                let npm = &marker.metrics.npm;
+                assert_eq!(
+                    (npm.interface_nm(), npm.interface_npm()),
+                    (2, 2),
+                    "{source}"
+                );
+            });
+        }
     }
 
     #[cfg(feature = "groovy")]

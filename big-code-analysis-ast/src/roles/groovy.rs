@@ -534,6 +534,12 @@ role_table! {
     // though the byte-less `get_space_kind` labelled it `Function` if
     // asked — the "pair that fails quietly" of grammar-dispatch §7; the
     // row records the walk's answer, as Java's does for its lambda.
+    // An annotation type's element is a bodiless `method_declaration`
+    // here (the grammar has no element kind), so it opens a function
+    // space that `nom` and the interface's `wmc` count, where Java's
+    // `annotation_type_element_declaration` opens none; the difference
+    // is the grammar's, kept and documented in the book's NOM section
+    // (#1865).
     FuncOpener {
         owns [
             MethodDeclaration(callable opens Function),
