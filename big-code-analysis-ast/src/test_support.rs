@@ -100,6 +100,55 @@ fn labelled_prints_the_true_slots_by_name() {
     assert_eq!(format!("{:?}", Labelled([false; 3], &NAMES)), "{}");
 }
 
+/// Which of the kinds `skipped` accepts can hold which others as a
+/// direct child, per a grammar's `node-types.json`, a supertype read as
+/// its subtypes. A climb that skips those kinds reads one ancestor more
+/// than the longest run this allows, in a tree that parsed; an `ERROR`
+/// can sit between any two kinds, so the bound holds for a climb that
+/// stops at one.
+#[cfg(all(test, any(feature = "kotlin", feature = "python")))]
+pub(crate) fn nesting_among(
+    node_types: &str,
+    skipped: fn(&str) -> bool,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let node_types: serde_json::Value =
+        serde_json::from_str(node_types).expect("the grammar crate ships valid node-types.json");
+    let types: Vec<&serde_json::Value> = node_types.as_array().into_iter().flatten().collect();
+    let names = |listed: &serde_json::Value| -> Vec<String> {
+        let listed = listed.as_array().into_iter().flatten();
+        listed
+            .filter_map(|entry| entry["type"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let subtypes: std::collections::BTreeMap<&str, Vec<String>> = types
+        .iter()
+        .filter(|node| node["subtypes"].is_array())
+        .filter_map(|node| Some((node["type"].as_str()?, names(&node["subtypes"]))))
+        .collect();
+    let mut nesting = std::collections::BTreeMap::new();
+    for node in &types {
+        let Some(parent) = node["type"].as_str().filter(|kind| skipped(kind)) else {
+            continue;
+        };
+        let mut pending = names(&node["children"]["types"]);
+        for (_, field) in node["fields"].as_object().into_iter().flatten() {
+            pending.extend(names(&field["types"]));
+        }
+        let mut held = std::collections::BTreeSet::new();
+        while let Some(kind) = pending.pop() {
+            match subtypes.get(kind.as_str()) {
+                Some(concrete) => pending.extend(concrete.iter().cloned()),
+                None if skipped(&kind) => drop(held.insert(kind)),
+                None => {}
+            }
+        }
+        if !held.is_empty() {
+            nesting.insert(parent.to_owned(), held);
+        }
+    }
+    nesting
+}
+
 /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
 /// exactly as `big_code_analysis::spaces::compute::metrics_inner` does,
 /// and hands each node to `check` together with that chain.

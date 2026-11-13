@@ -449,47 +449,68 @@ fn perl_count_chain_operands(
 // value inside it: `$x =~ ((/re/))` binds and `split((/,/), $s)`
 // delimits as their bare twins do. A call's own argument list is an
 // `Array` too, but it is the call's, not a wrapper around the pattern,
-// so the climb stops below one. Whether the pattern is a list's last
-// operand is read forward from the pattern, which stops at the next
+// so the climb stops below one.
+//
+// Whether the pattern is a list's last operand, and whether it is the
+// first, are read from the pattern outward, which stops at the nearest
 // operand: read off the list's last operand instead, every pattern of a
-// wide `(/a/, /b/, …)` scanned the whole list.
-fn perl_pattern_is_bound_or_delimiter(pattern: &Node, code: &[u8], ancestors: Ancestors) -> bool {
+// wide `(/a/, /b/, …)` scanned the whole list. Both reads go through
+// `Ancestors::siblings_after` / `siblings_before`: the walk's record of
+// the list's children where the list is wide, a seek over at most
+// `WIDE_PARENT` children otherwise. The grammar stores a list's operands
+// as a `repeat()`, but the comments between the `(` and the first
+// operand are the list's own children, outside it, so a seek or a scan
+// from a wide list's start steps over each of them: asked once per
+// pattern, a list of `n` comments and then `n` patterns cost `n²` steps,
+// 6.5 s for 16 000 of each in a release build against 0.05 s for `loc`
+// (#1868). The climb itself is linear over a walk: only a list's last
+// operand climbs on, so one pattern climbs through each `Array`. The two
+// scans left start at a held node's first child and are asked of it a
+// bounded number of times: `perl_last_operand` of a binding by its two
+// operands, `perl_call_is_split` of a call by its first argument.
+fn perl_pattern_is_bound_or_delimiter<'a>(
+    pattern: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     use Perl as P;
 
-    let mut up = ancestors.iter(pattern).map(|(ancestor, _)| ancestor);
-    let mut slot = *pattern;
+    let mut up = ancestors.iter(pattern);
+    let (mut slot, mut slot_ancestors) = (*pattern, ancestors);
     let mut owner = up.next();
     let mut above = up.next();
-    while let Some(paren) = owner
+    while let Some((paren, paren_ancestors)) = owner
         && paren.kind_id() == P::Array as u16
-        && !paren
-            .children_after(&slot)
+        && !above.is_some_and(|(call, _)| perl_is_call_argument_parent(call))
+        && !slot_ancestors
+            .siblings_after(&slot)
             .any(|next| perl_is_operand(&next))
-        && !above.is_some_and(perl_is_call_argument_parent)
     {
-        slot = paren;
+        (slot, slot_ancestors) = (paren, paren_ancestors);
         owner = above;
         above = up.next();
     }
     // role-bypass: allow(Comparison) — whether a pattern is a binding's *right* operand, a
     // traversal step the row's owner cannot answer
-    owner.is_some_and(|owner| match owner.kind_id().into() {
+    owner.is_some_and(|(owner, _)| match owner.kind_id().into() {
         P::BinaryExpression => {
             owner
                 .child_by_field_name("operator")
                 .is_some_and(|op| matches!(op.kind_id().into(), P::EQTILDE | P::BANGTILDE))
                 && perl_last_operand(&owner).is_some_and(|rhs| rhs.id() == slot.id())
         }
-        // The first operand, not the first named child: a comment is
-        // named, so `split( # sep⏎ /,/, $s)` read it as the first
-        // argument (#1455).
-        P::Arguments | P::Array => {
-            owner
-                .children()
-                .find(perl_is_operand)
-                .is_some_and(|first| first.id() == slot.id())
-                && above.is_some_and(|call| perl_call_is_split(&call, code))
-        }
+        // No operand before it, rather than the first named child: a
+        // comment is named, so `split( # sep⏎ /,/, $s)` read it as the
+        // first argument (#1455). The kind test comes first so that only
+        // a call's argument list reads its siblings, and the callee's
+        // name last so that it is read for a first argument alone.
+        P::Arguments | P::Array => above.is_some_and(|(call, _)| {
+            perl_is_call_argument_parent(call)
+                && !slot_ancestors
+                    .siblings_before(&slot)
+                    .any(|prev| perl_is_operand(&prev))
+                && perl_call_is_split(&call, code)
+        }),
         _ => false,
     })
 }

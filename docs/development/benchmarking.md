@@ -180,6 +180,8 @@ Read it as follows.
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
 | `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 | `abc/wide-let-declarators` | JavaScript | width | ABC's structural `const` check per `let` declarator (#1277) | linear |
+| `abc/js-nested-default-patterns` | JavaScript | depth | the same check asked by a default's `=` at every level of a pattern nest, where the first ancestor that is no pattern answers; each pattern level's answer is memoised on `LevelQuestion::InConstBinding` (#1868) | linear |
+| `abc/js-nested-patterns` | JavaScript | depth | shape control for the row above: the nest with its defaults removed | linear |
 | `loc/wide-cfg-test-mod` | Rust | width | the `exclude_tests` prune arm's row bookkeeping (#1417) | linear |
 | `loc/go-comment-run` | Go | width | `leading_doc_run`'s walk back over a lead comment run (#1597) | linear |
 | `loc/rust-nested-doc-mods` | Rust | depth | the in-body doc test, memoised per ancestor by `Ancestors::fold_down` (#1597) | linear |
@@ -225,6 +227,9 @@ Read it as follows.
 | `halstead/kotlin-short-interpolations` | Kotlin | width | the `$name` test's previous-token lookup in one string (#1584) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
+| `abc/perl-commented-pattern-list` | Perl | width | the same check's read of the sibling after each pattern, in a list that opens with `width` comments, which sit outside the operands' `repeat()`: read through the walk's `SiblingCache`, where a seek from the list's start crossed the comments once per pattern (#1868) | linear |
+| `abc/perl-commented-split-list` | Perl | width | the same list as `split`'s arguments, where the check reads the operands before each pattern instead, to tell the delimiter (#1868) | linear |
+| `abc/perl-negated-bareword` | Perl | depth | the key-position climb from one bareword under `depth` negations, each step on the walk's chain (#1868) | linear |
 | `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
 | `cognitive/elixir-keyword-sections` | Elixir | width | the per-list `do:` memo behind the keyword-section gate (#1602) | linear |
 | `cognitive/elixir-rejected-keyword-list` | Elixir | width | the section lookup's two position memos — trailing argument (#1602) and leading pairs (#1697) — each scanned past `width` comments | linear |
@@ -301,7 +306,8 @@ The control probes are what make the other readings mean something.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
-  `loc/nested-fn` and `dump/wide-distinct-fns` are **shape** controls:
+  `abc/js-nested-patterns`, `loc/nested-fn` and `dump/wide-distinct-fns`
+  are **shape** controls:
   each is the same nesting (or, for the last, the same width) as the
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
@@ -352,19 +358,52 @@ searches find the spellings of #1864 and #1867 and the adapter and
 helper spellings around them. `Ancestors::iter` is the only `iter` in
 these crates that takes an argument, which is what the first two key
 on; the third finds a `successors` climb over `Node::parent`, and the
-last lists the callers of the climbing helpers. They do not follow an
-iterator bound to a name or passed on as an `AncestorIter`: read those
-sites by hand.
+fourth lists the callers of the climbing helpers. None of the four
+follows an iterator bound to a name and stepped in a `while let`, or
+passed on to a helper: three of the seven climbs
+[#1868][climb-audit] audited are spelled that way and match none of
+them. The last two list every call of `Ancestors::iter` and every
+helper that takes the iterator; read each site they print.
 
 ```bash
 rg -U '\.iter\([^)]+\)\)?\s*(\.(map|skip|by_ref|take|filter)\([^\n]*\)\s*)*\.(any|all|find|find_map|position|take_while|skip_while|map_while|last|count|fold|try_fold)\(' src big-code-analysis-ast/src
 rg 'for .* in .*\.iter\([^)]+\)' src big-code-analysis-ast/src
 rg 'successors\(.*parent' src big-code-analysis-ast/src
 rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind|nearest_level_answer' src big-code-analysis-ast/src
+rg '\.iter\([^)]+\)' src big-code-analysis-ast/src
+rg 'AncestorIter|Iterator<Item = \(?Node' src big-code-analysis-ast/src
 ```
 
 For each match, name what stops the loop, then render a shape where
-that stop is absent or far and time it against a control.
+that stop is absent or far and time it against a control. Three
+questions sort a climb before any timing:
+
+- **Does it continue by the ancestor's kind?** Then read the grammar's
+  `node-types.json`
+  ([static node types](https://tree-sitter.github.io/tree-sitter/using-parsers/6-static-node-types.html))
+  for how deep those kinds can hold each other. Kotlin's modifier
+  wrappers nest two deep at most, `type_modifiers` under `user_type`,
+  and Python's `decorated_definition` sits in a `block` and neither
+  holds itself, so those climbs read three ancestors. JS destructuring
+  patterns hold each other without bound, and that climb was quadratic.
+  The file describes input that parses. An `ERROR` can sit between any
+  two kinds, so the bound holds for a climb that stops at one, as both
+  of these do. Pin a bound read this way with a test over the grammar
+  crate's `NODE_TYPES` (`test_support::nesting_among`), so that a
+  grammar bump cannot lengthen the climb unnoticed.
+- **Does it continue only from a last child or a last operand?** Then
+  count the askers that can share one path. Each ancestor has one last
+  leaf, so climbs asked by leaves, or by nodes that cannot hold another
+  asker, pass each ancestor once and take a linear number of steps over
+  a walk. The same climb asked by every node of a chain of only
+  children would not.
+- **What does one step read?** A sibling lookup that starts at the
+  parent's first child is a second loop inside the first, and it is
+  where the Perl climb #1868 audited was quadratic while its steps were
+  linear.
+
+[The climbs #1868 audited](#climb-audit-1868) are listed with what
+bounds each.
 
 ### Why each probe exists
 
@@ -1008,13 +1047,190 @@ Before putting a question on `fold_down`, check what its step costs:
 the step runs for every ancestor on an asker's chain, once per child
 the walk asks from. A step that scans is a fold's quadratic.
 
-The climb sweep above was re-run for this change and each match
-re-read, not re-timed. Every other match stops within a fixed distance
-of all but one asker per subtree, is capped, or already folds where a
-walk lends a cache. The one exception was filed before this change:
-`python_is_bound_self_attribute` ([#1867][python-npa]).
+The four searches the climb sweep had at the time were re-run for this
+change and each match re-read, not re-timed. Every other match stops
+within a fixed distance of all but one asker per subtree, is capped, or
+already folds where a walk lends a cache. The one exception was filed
+before this change: `python_is_bound_self_attribute`
+([#1867][python-npa]). #1868 then read the sites those searches do not
+reach, and what each step of a climb reads, and found the two costs
+described next.
 
 [python-npa]: https://github.com/dekobon/big-code-analysis/issues/1867
+
+`abc/js-nested-default-patterns` guards [#1868][climb-audit]. JS-family
+ABC asks every `=` whether it initialises a `const` binding, which is
+no assignment. The `=` of a declarator is answered by its parent. A
+destructuring default's `=` (`[a = 1]`, `{a = 1}`) is answered by the
+first ancestor that is no pattern layer, and patterns nest without
+bound with a default at every level, so a climb from each of `depth`
+defaults read `Σ depth` levels: under a declaration, a parameter list
+and a destructuring assignment alike, in all four grammars. No earlier
+probe rendered a pattern nest; `abc/wide-let-declarators` grows the
+declarator list.
+
+Each pattern level's answer is now memoised on
+`LevelQuestion::InConstBinding` through
+`Ancestors::nearest_level_answer`. The three levels nearest the `=` are
+read directly, outside the memo, which is a hash map. That answers the
+`=` of a declarator, an assignment or a parameter, and a default
+written straight into one array or object pattern (`[a = 1]`,
+`{a = 1}`). A default behind one more layer asks the memo
+(`{a: b = 1}`, a pattern in a pattern). Read through the memo,
+`{a = 1}` cost two lookups and two inserts, 4 to 9% of a whole run over
+a file of nothing but `const {a = 1} = v;`.
+
+The probe renders `let [a = 1, [a = 1, … b = 2]] = v;`, one default per
+level, and `abc/js-nested-patterns` the same nest with the defaults
+removed, both on 4 000 / 8 000 / 16 000.
+
+| Walk put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| a climb per default | `abc/js-nested-default-patterns` | 1.18 | 2.66 | 9.3 ms → 2.1 s |
+| (same patch) | `abc/js-nested-patterns` | 0.84 | 0.78 | 6.0 ms → 5.8 ms |
+
+One run each, on a host that was not idle, before the three nearest
+levels were read directly. No other probe left its bound with the climb
+put back. The regressed exponent is above 2 for the reason the #1864
+probes' was: the chain a deep default climbs outgrows cache.
+[The runs on the final code](#climb-audit-reruns) are below.
+
+The per-change guard is
+`js_family_const_binding_reads_each_pattern_level_once` in
+`src/metrics/abc.rs`. It pins the exact number of levels read in each
+of the four grammars over three 40-level nests: an array nest the walk
+meets shallowest first, the same nest met deepest first, and an object
+nest. They read 163, 160 and 203 levels memoised and 943, 901 and
+1 763 climbed. Under `--cfg chain_audit` every memoised answer is also
+checked against the climb.
+
+`abc/perl-commented-pattern-list` and `abc/perl-commented-split-list`
+guard the second cost #1868 found, which was not in a climb's steps but
+in what each step read. Perl ABC asks of every pattern whether it is
+bound by `=~` or is `split`'s delimiter, on the outermost `( … )`
+holding it as its value. That climb takes a linear number of steps over
+a walk, since only a list's last operand climbs on and so one pattern
+climbs through each list. To decide it, the check reads the sibling
+after the pattern and, in a call's argument list, whether an operand
+precedes it.
+
+Both reads started at the list's first child: the first by
+`Node::children_after`, a seek by byte, and the second by
+`children().find(..)`. The grammar stores a list's operands under a
+`repeat()`, which the seek crosses in `O(log n)`, and
+`abc/perl-pattern-list` reads linear for that reason. A comment between
+the `(` and the first operand is not under that repeat. It is a direct
+child of the list, so a seek or a scan steps over each one, and a list
+of `n` comments and then `n` patterns cost `n²` steps. An `ERROR` built
+by skipping tokens was the flat child array this guide knew
+([#1584][flat-error]); a run of extras ahead of a `repeat()` is
+another, in input that parses.
+
+Both reads now go through `Ancestors::siblings_after` and
+`siblings_before`, which find a pattern by binary search in the
+children the walk recorded for a wide list. A plain list makes the
+first read and never the second, since only a call's list can hold a
+delimiter; `split`'s own list makes the second and never the first. So
+each shape prices one read: the two probes render the same `width`
+comments and `width` patterns, as a plain list and as `split`'s
+arguments.
+
+| Read put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| the sibling after, by `Node::children_after` | `abc/perl-commented-pattern-list` | 1.07 | 2.08 | 8.9 ms → 0.9 s |
+| the operands before, by `children().find(..)` | `abc/perl-commented-pattern-list` | 1.07 | 2.02 | 8.9 ms → 2.2 s |
+| the operands before, by `Node::children_before` | `abc/perl-commented-pattern-list` | 1.07 | 2.02 | 8.9 ms → 2.5 s |
+
+One run each, on a host that was not idle, while a plain list still
+made both reads, so that one probe showed all three. In each run no
+other probe left its bound, and `abc/perl-pattern-list` read 0.99 to
+1.07. [The runs on the final code](#climb-audit-reruns), where the
+second and third rows belong to the `split` probe, are below.
+
+The third row is a read `main` never had. `Node::children_before`
+fetches each earlier sibling by index, and an index costs its position
+in a flat run, so the one pattern that follows the comments pays
+`n² / 2` by itself.
+
+The per-change guard is
+`the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record`
+in `src/observation_tests.rs`. It holds `sibling_seeks` at zero and
+`sibling_cache_reads` at one per pattern over each list of 40 comments
+and 40 patterns, and each of the three reads above takes its list's
+count to zero.
+
+Other scans from a parent's first child that run once per child are
+listed in [#1888][prefix-scans], measured and not yet fixed.
+
+#### The climbs #1868 audited {#climb-audit-1868}
+
+The comment on each function holds the argument for its bound. This
+table says only which kind of bound it is and what would notice it
+break.
+
+| Climb | Bound | Guard |
+|---|---|---|
+| JS family's `const`-binding check | none: patterns nest without limit, so each level's answer is memoised | `abc/js-nested-default-patterns` and its count test |
+| Perl's `perl_pattern_is_bound_or_delimiter` | linear over a walk: one pattern climbs through each list | the two `abc/perl-commented-*-list` probes price its sibling reads |
+| Perl's `is_key_position` | linear over a walk: it can reach the root, and one key's askers climb through each ancestor | `abc/perl-negated-bareword` |
+| Kotlin's `next_token_is_inserted` | linear over a walk, by the same argument from a modifier keyword | none; see below |
+| Kotlin's `modifier_was_written_as_one` | three ancestors at most, by the pinned grammar | `the_kinds_between_a_modifier_and_its_host_nest_two_deep_at_most` |
+| Python's `is_class_init` | three ancestors at most, by the pinned grammar | `the_kinds_between_a_method_and_its_class_nest_two_deep_at_most` |
+| Python's `python_code_before_node` | replaced before the audit | the `LevelQuestion::CodeBeforeOnLine` memo and its two probes, above |
+
+`abc/perl-negated-bareword` renders `my $x = !!…!name;`. Whether the
+bareword is an auto-quoted key is read off the token after it, and it
+is the last child at every level, so the one climb reads `depth`
+levels. Handing that climb no chain, so that each step finds its parent
+from the root, takes the probe from 1.38 to 2.09 in the
+[runs on the final code](#climb-audit-reruns). It is the shape that
+shows a step of that climb that stopped being `O(1)`, or askers that
+grow in number with the depth of the negation. One more asker on the
+path would stay linear and pass.
+
+No deep shape could be rendered for `next_token_is_inserted`.
+kotlin-ng reads an unclosed nest as one flat `ERROR`, so a modifier
+keyword never sits at the bottom of a long run of last children in a
+tree it produces, and the verdict rests on the function's comment.
+`halstead/kotlin-noinline-params` prices its sibling read on the width
+axis.
+
+The two grammar bounds hold for tree-sitter-kotlin-ng 1.1.0 and
+tree-sitter-python 0.25.0. Their tests read the grammar crate's
+`NODE_TYPES` and fail on a bump that lets the skipped kinds nest
+deeper.
+
+The timings behind the linear verdicts, and the classification of
+every `Ancestors::iter` call read for the audit, are in the record the
+audit comment on [#1868][climb-audit] links.
+
+#### The probes re-run on the final code {#climb-audit-reruns}
+
+The review of this change moved which list makes which Perl read, put
+the direct reads in front of the JS memo and added two probes. So each
+regression was put back once more, on the code as it stands:
+
+| Put back | Probe | Clean | Regressed |
+|---|---|---|---|
+| a climb per default | `abc/js-nested-default-patterns` | 1.16 | 2.65 |
+| (same patch) | `abc/js-nested-patterns` | 1.03 | 1.22 |
+| the sibling after, by `Node::children_after` | `abc/perl-commented-pattern-list` | 0.66 | 2.50 |
+| the operands before, by `children().find(..)` | `abc/perl-commented-split-list` | 1.07 | 2.43 |
+| the operands before, by `Node::children_before` | `abc/perl-commented-split-list` | 1.07 | abandoned: one walk at the top rung passed the 20 s budget |
+| a bareword's key test handed no chain | `abc/perl-negated-bareword` | 1.38 | 2.09 |
+
+Each Perl regression left the other list's probe in bound: the plain
+list read 0.78 and 1.09 under the two `split` regressions, and the
+`split` list 1.21 under the first.
+
+These runs shared the host with unrelated work, at a load average of 60
+to 100 on 14 cores. That is why no time is given, why the clean
+exponents wander, and why unrelated probes left their bounds in every
+run, the clean one included. The rows show what each regression does to
+its own probe and nothing about the rest of the gate.
+
+[climb-audit]: https://github.com/dekobon/big-code-analysis/issues/1868
+[prefix-scans]: https://github.com/dekobon/big-code-analysis/issues/1888
 
 ### Child scans, and where the allocation actually was {#child-scans}
 

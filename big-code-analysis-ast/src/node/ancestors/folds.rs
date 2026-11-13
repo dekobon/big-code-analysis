@@ -537,14 +537,16 @@ pub(crate) enum MemoQuestion {
     BareStringParenthesisLine,
     /// [`LevelQuestion::CodeBeforeOnLine`].
     CodeBeforeOnLine,
+    /// [`LevelQuestion::InConstBinding`].
+    InConstBinding,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 10;
+    const COUNT: usize = 11;
 }
 
-const _: () = assert!(MemoQuestion::CodeBeforeOnLine as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::InConstBinding as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-node questions the metric crate memoises through
 /// [`Ancestors::memoised_answer`], one per [`MemoQuestion`] memo of the
@@ -585,12 +587,19 @@ pub enum LevelQuestion {
     /// Python: whether code precedes a node on its logical line, read
     /// at the nearest level above it that has a token before its node.
     CodeBeforeOnLine,
+    /// JS family: whether a destructuring pattern belongs to a `const`
+    /// binding, read at the nearest ancestor that is no pattern layer.
+    /// A default's `=` at each of `n` nested patterns climbed to the
+    /// declarator from every level (#1868). One question serves the
+    /// four grammars because a walk parses one language.
+    InConstBinding,
 }
 
 impl LevelQuestion {
     const fn memo_question(self) -> MemoQuestion {
         match self {
             Self::CodeBeforeOnLine => MemoQuestion::CodeBeforeOnLine,
+            Self::InConstBinding => MemoQuestion::InConstBinding,
         }
     }
 }

@@ -525,6 +525,12 @@ fn owner_attributes<'code>(
 /// reads attribute docstrings in: named so, with the class the first
 /// ancestor past its decorators and the class body's block. `up`
 /// continues from `function`'s parent.
+///
+/// The search reads three ancestors at most (#1868): a
+/// `decorated_definition` holds its decorators and one definition, never
+/// a block or another `decorated_definition`, and no block's parent is
+/// a block; `the_kinds_between_a_method_and_its_class_nest_two_deep_at_most`
+/// reads that off the pinned grammar.
 fn is_class_init(function: &Node, up: AncestorIter<'_, '_>, code: &[u8]) -> bool {
     function
         .child_by_field_name("name")
@@ -953,5 +959,29 @@ mod tests {
             let found = answers.iter().filter(|[memoised, ..]| *memoised).count();
             assert_eq!(found, documenting, "{source:.40}");
         }
+    }
+
+    /// `is_class_init` finds a method's class within three ancestors
+    /// because the kinds it skips do not nest: the one pair the grammar
+    /// allows is a `decorated_definition` in a `block` (#1868). A
+    /// grammar bump that puts a block directly in a block, or a
+    /// decorated definition in another, makes that climb as long as the
+    /// nest and must change this with it.
+    // test-lang-gates: hand-written(python) — reads the grammar crate's
+    //     `NODE_TYPES`, which exists only under the `python` feature
+    #[cfg(feature = "python")]
+    #[test]
+    fn the_kinds_between_a_method_and_its_class_nest_two_deep_at_most() {
+        let nesting = crate::test_support::nesting_among(tree_sitter_python::NODE_TYPES, |kind| {
+            matches!(kind, "decorated_definition" | "block")
+        });
+        assert_eq!(
+            nesting,
+            [(
+                "block".to_owned(),
+                ["decorated_definition".to_owned()].into()
+            )]
+            .into()
+        );
     }
 }

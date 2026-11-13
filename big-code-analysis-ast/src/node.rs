@@ -600,9 +600,12 @@ impl<'a> Node<'a> {
     /// child of a wide list is quadratic in the list (#1545). This seeks
     /// `child` by byte instead, which is `O(log n)` in a list the grammar
     /// stores as a `repeat()` and still `O(index)` in a flat one, an
-    /// `ERROR` above all; see [`Cursor::goto_first_child_for_byte`]. A
-    /// walk that asks of every child of a node that may be flat goes
-    /// through [`Ancestors::siblings_after`] (#1584).
+    /// `ERROR` above all; see [`Cursor::goto_first_child_for_byte`]. The
+    /// children ahead of a `repeat()` are flat as well: a run of
+    /// comments between a list's `(` and its first element is stepped
+    /// over one by one (#1868). A walk that asks of every child of a
+    /// node that may be flat goes through
+    /// [`Ancestors::siblings_after`] (#1584).
     pub fn children_after(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
         let mut cursor = self.cursor();
         let mut more =
@@ -621,9 +624,11 @@ impl<'a> Node<'a> {
     /// and each sibling from [`Node::child`], both `O(log n)` in the
     /// child count where the list is a `repeat()`, stored as a balanced
     /// tree of hidden nodes, and both `O(index)` where it is flat, as an
-    /// `ERROR` built by skipping tokens is. A walk that asks of every
-    /// child of such a node goes through [`Ancestors::siblings_before`]
-    /// (#1584).
+    /// `ERROR` built by skipping tokens is, and as a run of extras ahead
+    /// of a `repeat()` is. Reading back over a flat run of `n` siblings
+    /// therefore costs `n² / 2`, from one call (#1868). A walk that asks
+    /// of every child of such a node goes through
+    /// [`Ancestors::siblings_before`] (#1584).
     pub fn children_before(&self, child: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
         let node = *self;
         let index = self.seat_on_child(child, &mut self.cursor()).unwrap_or(0);
@@ -833,7 +838,10 @@ impl<'a> Cursor<'a> {
     /// Only for such a list. The seek steps through the children in
     /// order and can skip only a *hidden* subtree, so over a flat child
     /// array — an `ERROR` that recovery built by skipping tokens has no
-    /// hidden levels — it is the same `O(index)` scan (#1584).
+    /// hidden levels — it is the same `O(index)` scan (#1584). So it is
+    /// over whatever precedes a `repeat()` in a node that parsed: the
+    /// comments between a list's opening token and its first element
+    /// are the list's own children, not the repeat's (#1868).
     #[inline]
     pub fn goto_first_child_for_byte(&mut self, byte: usize) -> Option<usize> {
         self.0.goto_first_child_for_byte(byte)

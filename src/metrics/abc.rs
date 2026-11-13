@@ -13980,6 +13980,151 @@ end
         }
     }
 
+    // A default's `=` is answered by the first ancestor that is no
+    // pattern layer, and each pattern level keeps that answer for the
+    // walk (#1868). One file holds both answers, so a memo that handed
+    // one binding's answer to another moves the count: a `const` nest
+    // and a `let` nest of the same shape, a parameter nest, a `let`
+    // pattern inside a `const` initializer's arrow whose deeper default
+    // is asked before its shallower one, a destructuring assignment, and
+    // the two patterns whose `const`-like owner is no declarator, a
+    // `for`-`of` head and a `catch` parameter. The values are `main`'s
+    // for the same input.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_pattern_defaults_count_by_their_binding() {
+        #[cfg(any(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+        const SRC: &str = "const [a = 1, [b = 2, {c = 3, d: [e = 4]}]] = v;\n\
+                           let [f = 1, [g = 2, {h = 3, i: [j = 4]}]] = w;\n\
+                           function p([k = 1, [l = 2, {m = 3}]]) {}\n\
+                           const q = ([n = 1]) => { let [[o = 1], r = 2] = n; };\n\
+                           [s = 1, [t = 2]] = u;\n\
+                           for (const [x = 1] of xs) {}\n\
+                           try {} catch ({y = 1}) {}\n";
+        for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            let space = crate::test_support::space_verbatim(
+                lang,
+                SRC.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            );
+            let own = |name: &str| child_space(&space, name).metrics.abc.assignments();
+            // expected: the `const` nest pays nothing; the `let` nest its
+            // four defaults and its declarator; the assignment its two
+            // defaults and its own `=`; the `for`-`of` head and the
+            // `catch` parameter a default each — 0 + 5 + 3 + 1 + 1 at
+            // the top level. `p` pays its three parameter defaults. `q`
+            // pays the parameter default, the two `let` defaults and the
+            // `let` declarator, and not its own `const` declarator.
+            assert_eq!(
+                (
+                    space.metrics.abc.assignments(),
+                    own("p"),
+                    own("q"),
+                    space.metrics.abc.assignments_sum()
+                ),
+                (10, 3, 4, 17),
+                "{lang:?}: (top level, p, q, sum)"
+            );
+        }
+    }
+
+    // The `const`-binding question reads each pattern level once per
+    // walk (#1868). The counts cannot be read off the metric: every way
+    // of reading the levels answers the same.
+    //
+    // - `arrays`: `n` nested array patterns under a `const`, a default
+    //   in each ahead of the next array, and a second in the innermost.
+    //   The walk meets the shallowest default first.
+    // - `deep_first`: the same nest with each default after the array it
+    //   holds, so the walk meets the deepest default first and the one
+    //   climb that reads every level is the first.
+    // - `objects`: `n` nested object patterns under a `let`, each
+    //   holding a default and a `pair_pattern` around the next, the
+    //   innermost pair holding a default instead. Two pattern layers per
+    //   level, and the other answer.
+    //
+    // Each `=` reads the three levels nearest it directly, or fewer when
+    // one answers, and a default deeper than that then asks the memo
+    // about the levels above the third.
+    #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
+    #[test]
+    fn js_family_const_binding_reads_each_pattern_level_once() {
+        use super::js_family::const_binding_levels_read;
+
+        let n = 40;
+        let arrays = format!(
+            "const {}b = 2{} = v;\n",
+            "[a = 1, ".repeat(n),
+            "]".repeat(n)
+        );
+        let deep_first = format!("const {}b{} = v;\n", "[".repeat(n), ", a = 1]".repeat(n));
+        let objects = format!(
+            "let {}c = 3{} = v;\n",
+            "{a = 1, b: ".repeat(n),
+            "}".repeat(n)
+        );
+        let read = |lang: LANG, source: &str| {
+            let before = const_binding_levels_read::observed();
+            let assignments = metrics_verbatim(
+                lang,
+                source.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc
+            .assignments_sum();
+            (assignments, const_binding_levels_read::observed() - before)
+        };
+        // `make chain-audit` runs the climb beside every ask of the
+        // memo, so there each count is the two together.
+        let audited = usize::from(cfg!(chain_audit));
+        // expected, arrays: the outermost default reads its own node, its
+        // array and the declarator, which answers: 3. Each deeper
+        // `a = 1` reads three pattern levels and then one through the
+        // memo, the declarator from the second array and otherwise the
+        // array two above its own, before it meets an answer: 4 each.
+        // `b = 2` meets one at once, 3, and the declarator's `=` reads
+        // its parent: 4n + 3, 163. The climb reads `k + 2` levels from
+        // the default `k` arrays deep, 943 in all when it replaces the
+        // memo. Beside it, it reads `k - 1` for each default past the
+        // first and `n - 1` for `b = 2`: (n - 1)(n + 2) / 2, 819.
+        let arrays_read = 4 * n + 3 + audited * ((n - 1) * (n + 2) / 2);
+        // expected, deep first: the innermost default reads three levels
+        // directly and the other `n - 2` arrays and the declarator
+        // through the memo, `n + 2`. Every other default reads three
+        // and meets an answer, the declarator's `=` one: 4n, 160. The
+        // climb beside the memo reads `k - 1` levels for each default
+        // past the outermost: n(n - 1) / 2, 780.
+        let deep_first_read = 4 * n + audited * (n * (n - 1) / 2);
+        // expected, objects: the outermost default reads its own node,
+        // its object and the declarator: 3. Each deeper `a = 1` reads
+        // its own node, its object and the pair around that directly,
+        // then the object and the pair above through the memo: 5 each.
+        // `c = 3` reads its own node, its pair and the innermost object,
+        // then one pair through the memo: 4. With the declarator's `=`,
+        // 5n + 3, 203; 1763 when the climb replaces the memo. Beside it,
+        // the climb reads `2k - 2` levels for each `a = 1` past the
+        // first and `2n - 1` for `c = 3`: n² + n - 1, 1639. Every `=`
+        // counts under `let`.
+        let objects_read = 5 * n + 3 + audited * (n * n + n - 1);
+        let object_assignments = u64::try_from(n + 2).expect("a small count");
+        for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
+            assert_eq!(
+                (
+                    read(lang, &arrays),
+                    read(lang, &deep_first),
+                    read(lang, &objects)
+                ),
+                (
+                    (0, arrays_read),
+                    (0, deep_first_read),
+                    (object_assignments, objects_read)
+                ),
+                "{lang:?}: (assignments, levels read) on the array nest, the deep-first \
+                 nest and the object nest"
+            );
+        }
+    }
+
     #[cfg(feature = "javascript")]
     #[test]
     fn javascript_instanceof_counts_condition() {
@@ -15584,6 +15729,13 @@ end
     // `/foo/ =~ $x` the pattern is the *left* operand, so it first
     // matches `$_` and that result is bound (Deparse: `/foo/ =~ /$x/`) —
     // the match and the `=~` both pay, as in the explicit `rev_twin`.
+    //
+    // Once the climb has stepped to a `( … )`, that parenthesis is what
+    // is read among its own siblings (#1868): `bind_nested_list` is
+    // followed by `$y` there and `split_second_paren` preceded by `1`,
+    // so neither is the value of the list nor `split`'s first argument.
+    // Reading the siblings inside the parenthesis instead finds none on
+    // either side, and binds the one and makes a delimiter of the other.
     #[cfg(feature = "perl")]
     #[test]
     fn perl_pattern_role_reads_through_parentheses() {
@@ -15592,9 +15744,11 @@ end
              sub bind_paren { my ($x) = @_; return $x =~ (/foo/); }\n\
              sub bind_parens_m { my ($x) = @_; return $x =~ (((m{foo}))); }\n\
              sub bind_list { my ($x, $y) = @_; return $x =~ (/foo/, $y); }\n\
+             sub bind_nested_list { my ($x, $y) = @_; return $x =~ ((/foo/), $y); }\n\
              sub bind_list_twin { my ($x, $y) = @_; /foo/; return $x =~ $y; }\n\
              sub split_twin { my ($x) = @_; my @p = split(/foo/, $x); return @p; }\n\
              sub split_paren { my ($x) = @_; my @p = split((/foo/), $x); return @p; }\n\
+             sub split_second_paren { my ($x) = @_; my @p = split(1, (/foo/), $x); return @p; }\n\
              sub split_sole { my @p = split(/foo/); return @p; }\n\
              sub subst_twin { my ($x) = @_; $x =~ s/a/b/; return $x; }\n\
              sub subst_paren { my ($x) = @_; $x =~ (s/a/b/); return $x; }\n\
@@ -15611,9 +15765,13 @@ end
                         // A comma operator: `/foo/` matches `$_` and `$y`
                         // is what binds, so the match pays as in the twin.
                         ("bind_list", 2, 1),
+                        ("bind_nested_list", 2, 1),
                         ("bind_list_twin", 2, 1),
                         ("split_twin", 0, 1),
                         ("split_paren", 0, 1),
+                        // `1` is the delimiter; the match is `split`'s
+                        // second argument and pays.
+                        ("split_second_paren", 1, 1),
                         // The pattern is the whole argument list, which is
                         // the call's own and no wrapper to climb through.
                         ("split_sole", 0, 1),
@@ -15621,6 +15779,41 @@ end
                         ("subst_paren", 0, 1),
                         ("rev", 2, 1),
                         ("rev_twin", 2, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // A pattern's place in its list is read from the pattern outward
+    // (#1868), so comments ahead of the first operand change nothing:
+    // each `*_commented` row scores as its `*_twin`. `split`'s first
+    // pattern is still its delimiter and its second an ordinary match,
+    // bare or in parentheses of its own, and every pattern of a plain
+    // list is a match. These lists are narrow, so the neighbours are
+    // sought; `the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record`
+    // reads a wide one off the walk's record.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_pattern_role_reads_past_leading_comments() {
+        check_func_space::<PerlParser, _>(
+            "sub split_twin { my ($s) = @_; my @p = split(/,/, /x/, $s); return @p; }\n\
+             sub split_commented { my ($s) = @_; my @p = split(\n# a\n# b\n/,/, /x/, $s); return @p; }\n\
+             sub paren_twin { my ($s) = @_; my @p = split((/,/), /x/, $s); return @p; }\n\
+             sub paren_commented { my ($s) = @_; my @p = split(\n# a\n(\n# b\n/,/), /x/, $s); return @p; }\n\
+             sub list_twin { my @r = (/a/, /b/, 1); return @r; }\n\
+             sub list_commented { my @r = (\n# a\n# b\n/a/, /b/, 1); return @r; }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("split_twin", 1, 1),
+                        ("split_commented", 1, 1),
+                        ("paren_twin", 1, 1),
+                        ("paren_commented", 1, 1),
+                        ("list_twin", 2, 1),
+                        ("list_commented", 2, 1),
                     ],
                 );
             },

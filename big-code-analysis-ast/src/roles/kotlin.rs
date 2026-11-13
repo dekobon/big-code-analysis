@@ -29,6 +29,13 @@ use crate::{Ancestors, Kotlin, Node, Search};
 /// Kinds are compared by name: `*_modifier` covers every wrapper, and
 /// `user_type` is where recovery can hang `type_modifiers`. The inserted
 /// name is found by width, not `is_missing()` (grammar-dispatch).
+///
+/// The search for the host reads three ancestors at most (#1868). The
+/// grammar puts none of the skipped kinds under a `*_modifier` wrapper
+/// or under `type_modifiers`, and only `type_modifiers` under a
+/// `user_type`, so the longest run of them is those two;
+/// `the_kinds_between_a_modifier_and_its_host_nest_two_deep_at_most`
+/// reads that off the pinned grammar.
 fn modifier_was_written_as_one<'a>(
     node: &Node<'a>,
     _code: &[u8],
@@ -37,11 +44,15 @@ fn modifier_was_written_as_one<'a>(
     let host = ancestors
         .iter(node)
         .map(|(ancestor, _)| ancestor)
-        .find(|ancestor| {
-            let kind = ancestor.kind();
-            !(kind.ends_with("_modifier") || kind == "type_modifiers" || kind == "user_type")
-        });
+        .find(|ancestor| !wraps_a_modifier(ancestor.kind()));
     host.is_some_and(|host| !host.is_error()) && !next_token_is_inserted(node, ancestors)
+}
+
+/// Whether `kind` can sit between a modifier keyword and its host: a
+/// `*_modifier` wrapper, or `type_modifiers` and the `user_type`
+/// recovery can hang it on.
+fn wraps_a_modifier(kind: &str) -> bool {
+    kind.ends_with("_modifier") || kind == "type_modifiers" || kind == "user_type"
 }
 
 /// Whether the first token after `node`, comments aside, is zero-width:
@@ -54,6 +65,12 @@ fn modifier_was_written_as_one<'a>(
 /// Every parameter's modifier asks, and the climb reaches
 /// `function_value_parameters`, so the sibling is found without a scan
 /// from the list's start: that made a long parameter list quadratic.
+///
+/// Both loops are linear over a walk (#1868). The climb starts at a
+/// modifier keyword, which is a leaf, and passes a level only from its
+/// last child, so one modifier climbs through each ancestor. The descent
+/// starts at a node that follows another and steps through first
+/// children only, so no two descents share a node.
 fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     std::iter::once((*node, ancestors))
         .chain(ancestors.iter(node))
@@ -378,5 +395,24 @@ mod tests {
         );
         assert_eq!(paid, owned);
         assert_eq!(eager_logical::PAYERS, &[] as &[u16]);
+    }
+
+    /// `modifier_was_written_as_one` finds a modifier's host within
+    /// three ancestors because the kinds it skips do not nest: the one
+    /// pair the grammar allows is `type_modifiers` under `user_type`
+    /// (#1868). A grammar bump that lets a wrapper hold a wrapper, or a
+    /// `user_type` a `user_type`, makes that climb as long as the nest
+    /// and must change this with it.
+    // test-lang-gates: hand-written(kotlin) — reads the grammar crate's
+    //     `NODE_TYPES`, which exists only under the `kotlin` feature
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn the_kinds_between_a_modifier_and_its_host_nest_two_deep_at_most() {
+        let nesting =
+            crate::test_support::nesting_among(tree_sitter_kotlin_ng::NODE_TYPES, wraps_a_modifier);
+        assert_eq!(
+            nesting,
+            [("user_type".to_owned(), ["type_modifiers".to_owned()].into())].into()
+        );
     }
 }

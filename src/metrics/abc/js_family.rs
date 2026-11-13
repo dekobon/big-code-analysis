@@ -172,47 +172,93 @@ fn js_family_walk_for(node: &Node, scores: ScoresItself, conditions: &mut f64) {
 // other side, promoting a live `let` slot to `Const`.
 //
 // Every hop reads the ancestor chain the walk already descended through,
-// so the climb is O(pattern nesting) and `Node::parent`'s O(depth) is
-// never paid (#1096, #1122). The keyword is read through the `kind`
-// field rather than by scanning the declaration's children: that scan
-// ran once per declarator and walked every sibling declarator, so a
-// `let` list of N declarators cost O(N²) — 6 s for 5 000 of them on a
-// debug build, against 0.04 s for the same list under `var`.
+// so `Node::parent`'s O(depth) is never paid (#1096, #1122). The keyword
+// is read through the `kind` field rather than by scanning the
+// declaration's children: that scan ran once per declarator and walked
+// every sibling declarator, so a `let` list of N declarators cost O(N²)
+// — 6 s for 5 000 of them on a debug build, against 0.04 s for the same
+// list under `var`.
+//
+// The climb is one level for the `=` of a declarator or an assignment,
+// which its parent answers. A default's `=` is answered by the first
+// ancestor that is no pattern layer, and patterns nest without bound
+// with a default at every level, so climbing from each cost `Σ depth`:
+// 1.6 s for 16 000 nested `[a = 1, …]` in a release build against
+// 0.14 s for `loc` (#1868). Those levels are read through
+// `Ancestors::nearest_level_answer`, which keeps each pattern's answer
+// for the walk.
+//
+// The first `CONST_BINDING_DIRECT_LEVELS` levels are read outside that
+// memo, which is a hash map. The first answers the `=` of a declarator,
+// an assignment or a TypeScript parameter; the second a JavaScript
+// default parameter's, whose `=` sits in an `assignment_pattern`; the
+// third a default written straight into one array or object pattern
+// (`[a = 1]`, `{a = 1}`). None of those touches the memo. A default
+// behind one more layer does (`{a: b = 1}`, a pattern in a pattern).
+// Read through the memo, `{a = 1}` cost two lookups and two inserts,
+// which measured 4 to 9% of a whole run over a file of nothing but
+// `const {a = 1} = v;`.
 macro_rules! impl_js_family_const_binding {
     ($Lang:ident, $name:ident) => {
-        fn $name<'a>(eq_node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-            use $Lang::*;
+        fn $name<'a>(eq_node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+            fn const_binding_at_level<'a>(
+                _code: &[u8],
+                level: &Node<'a>,
+                above: Ancestors<'a, '_>,
+            ) -> Option<bool> {
+                use $Lang::*;
 
-            let mut climb = ancestors.iter(eq_node).map(|(ancestor, _)| ancestor);
-            let mut owner = climb.next();
-            while let Some(node) = owner
-                && matches!(
-                    node.kind_id().into(),
+                const_binding_levels_read::record();
+                match level.kind_id().into() {
                     ObjectPattern
-                        | ArrayPattern
-                        | PairPattern
-                        | ObjectAssignmentPattern
-                        | AssignmentPattern
-                        | RestPattern
+                    | ArrayPattern
+                    | PairPattern
+                    | ObjectAssignmentPattern
+                    | AssignmentPattern
+                    | RestPattern => None,
+                    // role-bypass: allow(DocTarget, DeclKeyword) — whether the binding's
+                    // declaration is a `const`, for the ABC assignment count: not whether the
+                    // declaration takes a doc comment, nor whether the token is a keyword
+                    VariableDeclarator => Some(above.parent(level).is_some_and(|declaration| {
+                        declaration.kind_id() == LexicalDeclaration
+                            && declaration
+                                .child_by_field_name("kind")
+                                .is_some_and(|keyword| keyword.kind_id() == Const)
+                    })),
+                    _ => Some(false),
+                }
+            }
+
+            let mut highest_read = None;
+            for (level, above) in ancestors.iter(eq_node).take(CONST_BINDING_DIRECT_LEVELS) {
+                if let Some(answer) = const_binding_at_level(code, &level, above) {
+                    return answer;
+                }
+                highest_read = Some((level, above));
+            }
+            highest_read.is_some_and(|(level, above)| {
+                above.nearest_level_answer(
+                    &level,
+                    LevelQuestion::InConstBinding,
+                    code,
+                    const_binding_at_level,
                 )
-            {
-                owner = climb.next();
-            }
-            if !owner.is_some_and(|node| node.kind_id() == VariableDeclarator) {
-                return false;
-            }
-            // role-bypass: allow(DocTarget, DeclKeyword) — whether the binding's
-            // declaration is a `const`, for the ABC assignment count: not whether the
-            // declaration takes a doc comment, nor whether the token is a keyword
-            climb.next().is_some_and(|declaration| {
-                declaration.kind_id() == LexicalDeclaration
-                    && declaration
-                        .child_by_field_name("kind")
-                        .is_some_and(|keyword| keyword.kind_id() == Const)
             })
         }
     };
 }
+
+// How many ancestors of an `=` the `const`-binding question reads before
+// it asks the walk's memo: a default one pattern deep has its own
+// pattern node, the pattern holding it and that pattern's owner.
+const CONST_BINDING_DIRECT_LEVELS: usize = 3;
+
+// Levels the `const`-binding question reads: those nearest the `=`, and
+// each ancestor a deeper default's climb asks. Every way of reading them
+// answers the same, so only this tells a walk that reads each pattern
+// level once from one that climbs to the declarator from every default
+// (#1868).
+crate::observation::counter!(const_binding_levels_read);
 
 impl_js_family_const_binding!(Typescript, typescript_eq_initializes_const_binding);
 impl_js_family_const_binding!(Tsx, tsx_eq_initializes_const_binding);
@@ -266,7 +312,7 @@ macro_rules! js_family_abc_compute {
                 }
                 // Plain `=` outside `const` declarations is an assignment
                 // (issue #1277).
-                EQ if !$const_binding(node, ancestors) => {
+                EQ if !$const_binding(node, code, ancestors) => {
                     stats.assignments += 1.;
                 }
                 // Function invocation — the `Call` row, under which member

@@ -918,6 +918,30 @@ pub fn js_arrow_per_array_depth(depth: usize) -> String {
     )
 }
 
+/// JavaScript: `let [a = 1, [a = 1, [ … b = 2 ] ] ] = v;`.
+///
+/// One default per level, each in an array pattern nested in the last.
+/// ABC asks of every `=` whether it initialises a `const` binding, and a
+/// default's `=` is answered by the first ancestor that is no pattern
+/// layer: the declarator, two levels below the root, from every level
+/// (#1868). `let`, so each default counts and the reading grows.
+#[must_use]
+pub fn js_nested_default_patterns(depth: usize) -> String {
+    format!(
+        "let {}b = 2{} = v;\n",
+        "[a = 1, ".repeat(depth),
+        "]".repeat(depth)
+    )
+}
+
+/// JavaScript: `let [a, [a, [ … b ] ] ] = v;` — the nest of
+/// [`js_nested_default_patterns`] with its defaults removed, so the one
+/// `=` left is the declarator's and nothing climbs.
+#[must_use]
+pub fn js_nested_patterns(depth: usize) -> String {
+    format!("let {}b{} = v;\n", "[a, ".repeat(depth), "]".repeat(depth))
+}
+
 /// Python: `x = [a and b, [a and b, [ … 0 ] ] ]`.
 ///
 /// One boolean operator per level, each an element of a list nested in
@@ -1368,6 +1392,54 @@ pub fn perl_nested_signed_keys(depth: usize) -> String {
 #[must_use]
 pub fn perl_pattern_list(width: usize) -> String {
     format!("my @r = ({});\n", vec!["/a/"; width].join(", "))
+}
+
+/// Perl: `my @r = (` + `width` comment rows + `/a/, /a/, …, 1);` — the
+/// list of [`perl_pattern_list`] behind as many comments as it holds
+/// matches.
+///
+/// The grammar stores a list's operands as a `repeat()`, which a seek by
+/// byte crosses in `O(log n)`, but the comments between the `(` and the
+/// first operand are the list's own children, outside that repeat: a
+/// seek or a scan from the list's start steps over each. The
+/// pattern-role check reads the sibling after every pattern of a plain
+/// list, so reading it from the list's start costs the comment run once
+/// per pattern (#1868). It asks whether an operand precedes a pattern
+/// only in a call's list, which [`perl_commented_split_list`] renders.
+#[must_use]
+pub fn perl_commented_pattern_list(width: usize) -> String {
+    format!(
+        "my @r = (\n{}{}1);\n",
+        "# c\n".repeat(width),
+        "/a/, ".repeat(width)
+    )
+}
+
+/// Perl: `my @r = split(` + `width` comment rows + `/a/, /a/, …, 1);` —
+/// the list of [`perl_commented_pattern_list`] as `split`'s arguments.
+///
+/// A plain list is asked only for the sibling after each pattern. A
+/// call's argument list is asked instead whether an operand precedes
+/// each pattern, which is what makes the first one `split`'s delimiter,
+/// so the two shapes price one read each (#1868).
+#[must_use]
+pub fn perl_commented_split_list(width: usize) -> String {
+    format!(
+        "my @r = split(\n{}{}1);\n",
+        "# c\n".repeat(width),
+        "/a/, ".repeat(width)
+    )
+}
+
+/// Perl: `my $x = !!…!name;` — one bareword under `depth` negations.
+///
+/// Whether a bareword is an auto-quoted key is read off the token after
+/// it, found by climbing while the node is its parent's last child. Here
+/// that is every level, so the one bareword climbs to the statement
+/// (#1868).
+#[must_use]
+pub fn perl_negated_bareword(depth: usize) -> String {
+    format!("my $x = {}name;\n", "!".repeat(depth))
 }
 
 /// Kotlin: `val s = "$a $a …"` — one string holding `width` short
@@ -1976,6 +2048,15 @@ const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// a `--gate` run the space-merge probes pay.
 const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 
+/// Sibling counts for the two `perl-commented-*-list` probes, the ladder
+/// of [`SPACE_MERGE_WIDTHS`]. With its sibling read put back on a pass
+/// from the list's first child the plain list read 2.08 here, 0.9 s at
+/// the top rung against 8.9 ms, and 1.07 without. The `split` list was
+/// measured only on a host under heavy load, where times mean little:
+/// 2.43 against 1.07. They were not measured on
+/// [`LINEAR_WIDTHS`], the ladder of `abc/perl-pattern-list`.
+const COMMENTED_LIST_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
+
 /// Depths for `nom/deep-attribute-run`, whose shape grows *two* axes
 /// with one parameter.
 ///
@@ -2023,6 +2104,13 @@ const CONDITIONAL_PER_DEPTH_DEPTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// rather than an exponent. Without the scan they read 0.60–0.91. They
 /// were not measured on [`LINEAR_DEPTHS`].
 const ENCLOSING_FUNCTION_DEPTHS: [usize; 3] = CONDITIONAL_PER_DEPTH_DEPTHS;
+
+/// Depths for `abc/js-nested-default-patterns` and its control, the
+/// ladder of [`CONDITIONAL_PER_DEPTH_DEPTHS`]. With the climb per
+/// default reinstated the probe read 2.66 here, 2.1 s at the top rung,
+/// inside `MAX_CELL_WALK`; without it, 1.18 and 9.3 ms. The control
+/// read 0.78 and 0.84. They were not measured on [`LINEAR_DEPTHS`].
+const PATTERN_DEFAULT_DEPTHS: [usize; 3] = CONDITIONAL_PER_DEPTH_DEPTHS;
 
 /// Depths for the three `ruby-nested-classes` probes, one rung above
 /// [`CONDITIONAL_PER_DEPTH_DEPTHS`]. The copy they price is the walk's
@@ -4297,6 +4385,51 @@ pub const PROBES: &[Probe] = &[
                     counting them is visible in the value column too.",
     },
     Probe {
+        name: "abc/js-nested-default-patterns",
+        lang: LANG::Javascript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
+        render: js_nested_default_patterns,
+        sizes: PATTERN_DEFAULT_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: ABC asks every `=` whether it initialises a \
+                    `const` binding, and a destructuring default's `=` is \
+                    answered by the first ancestor that is no pattern \
+                    layer. Patterns nest without bound with a default at \
+                    every level, so a climb from each default read \
+                    `depth² / 2` levels. Each pattern level's answer is \
+                    memoised on `LevelQuestion::InConstBinding` and read \
+                    once. With the climb put back this reads 2.66, 2.1 s \
+                    at the top rung against 9.3 ms, and 1.18 without. \
+                    The reading is the assignment count: one per default \
+                    under `let`, and the declarator's.",
+    },
+    Probe {
+        name: "abc/js-nested-patterns",
+        lang: LANG::Javascript,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
+        render: js_nested_patterns,
+        sizes: PATTERN_DEFAULT_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `abc/js-nested-default-patterns`: \
+                    the same pattern nest with no default, so the one \
+                    `=` is the declarator's and its parent answers. It \
+                    read 0.78 with the climb per default put back and \
+                    0.84 without, which attributes the other row's 2.66 \
+                    to the defaults and not to the nest. The reading is \
+                    that one assignment at every size; the signal is the \
+                    timing.",
+    },
+    Probe {
         name: "halstead/perl-dash-keys",
         lang: LANG::Perl,
         axis: Axis::Width,
@@ -4387,6 +4520,88 @@ pub const PROBES: &[Probe] = &[
                     0.015 s and 0.032 s once it looks forward from the \
                     pattern. The reading is one condition per bare \
                     match, so it grows with the width.",
+    },
+    Probe {
+        name: "abc/perl-commented-pattern-list",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_commented_pattern_list,
+        sizes: COMMENTED_LIST_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: the pattern-role check reads the sibling after \
+                    each pattern, to tell a list's last operand. A list's \
+                    leading comments are its own children, outside the \
+                    operands' `repeat()`, so a read that starts at the \
+                    list's first child crosses all of them, once per \
+                    pattern: `width²` steps for `width` comments and \
+                    `width` patterns, which `abc/perl-pattern-list` cannot \
+                    show with no comment in it. The read goes through the \
+                    walk's `SiblingCache`. This read 1.07 and 8.9 ms at \
+                    the top rung while a plain list still made both reads, \
+                    and 2.08 and 0.9 s with this one back on \
+                    `Node::children_after`. A plain list is no longer \
+                    asked for the operands before a pattern; \
+                    `abc/perl-commented-split-list` prices that read. The \
+                    reading is one condition per bare match.",
+    },
+    Probe {
+        name: "abc/perl-commented-split-list",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_commented_split_list,
+        sizes: COMMENTED_LIST_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: the list of `abc/perl-commented-pattern-list` \
+                    as `split`'s arguments. A call's list is asked whether \
+                    an operand precedes each pattern, which is what makes \
+                    the first one the delimiter, and not for the sibling \
+                    after it. Read from the list's first child, that is \
+                    `width²` steps over the comments again. On a host \
+                    under heavy load this read 1.07, and 2.43 \
+                    with the read back on `children().find(..)`; with it \
+                    on `Node::children_before`, which reads each earlier \
+                    sibling by index, one walk at the top rung ran past \
+                    the 20 s budget. The same two reads on the plain \
+                    list, while that list still made them, read 2.02 \
+                    each on a quieter host, 2.2 s and 2.5 s at the top \
+                    rung against 8.9 ms. The reading is one condition per \
+                    pattern but the delimiter.",
+    },
+    Probe {
+        name: "abc/perl-negated-bareword",
+        lang: LANG::Perl,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.branches_sum(),
+        },
+        render: perl_negated_bareword,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: whether a bareword is an auto-quoted key is \
+                    read off the token after it, found by climbing while \
+                    the node is its parent's last child. Under `depth` \
+                    negations that is every level, so the one bareword's \
+                    climb reads `depth` ancestors: linear over the walk \
+                    while each step is `O(1)` and one asker climbs the \
+                    path. Perturbation: hand the climb no chain \
+                    (`is_key_position(word, Ancestors::unknown())` in \
+                    `perl_bareword_is_key`), so each step finds its parent \
+                    from the root; this shape then read 2.09 against \
+                    1.38, on a host under heavy load. The reading \
+                    is the one bareword call at every depth; the signal \
+                    is the timing.",
     },
     Probe {
         name: "abc/perl-or-chain",
@@ -5092,8 +5307,9 @@ mod tests {
         }
     }
 
-    /// The #1695 probes that read a count *growing* with the shape — one
-    /// decision per `switch` arm or guard, one operator per guard —
+    /// The probes that read a count *growing* with the shape — one
+    /// decision per `switch` arm or guard, one operator per guard, one
+    /// assignment per default, one condition per match —
     /// so a shape that lost the construct it times is caught here,
     /// where [`probe_workload_is_exercised`] would not see it: a
     /// cyclomatic reading floors at one per space, and a Halstead one
@@ -5115,6 +5331,9 @@ mod tests {
             "loc/ts-nested-fn",
             "nom/js-arrow-per-array-depth",
             "cognitive/python-and-per-list-depth",
+            "abc/js-nested-default-patterns",
+            "abc/perl-commented-pattern-list",
+            "abc/perl-commented-split-list",
         ] {
             let probe = PROBES
                 .iter()

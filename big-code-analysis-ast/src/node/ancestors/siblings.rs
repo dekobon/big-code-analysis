@@ -84,7 +84,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     ///
     /// The seek [`Node::children_after`] runs is `O(index)` over a flat
     /// child array, so a walk that asks of every child of a wide
-    /// `ERROR` is quadratic in it (#1584). A walk that lends a
+    /// `ERROR` is quadratic in it (#1584), and so is one that asks of
+    /// every element of a list behind a long run of comments, which sit
+    /// outside the list's `repeat()` (#1868). A walk that lends a
     /// [`SiblingCache`] has already collected a wide parent's children,
     /// and the lookup is a binary search among them.
     pub fn siblings_after(
@@ -111,6 +113,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// deliberate: the mismatch is a caller error the walk constructors
     /// report (#1122), and "no siblings" is the conservative answer for
     /// the `exclude_tests` prune that reads these (nothing is pruned).
+    /// It is not conservative for every reader: Perl ABC's pattern-role
+    /// check would take a pattern with no sibling for a list's first and
+    /// last operand, so its tests pin the chain it passes (#1868).
     pub fn siblings_before(
         self,
         node: &Node<'tree>,
@@ -187,8 +192,9 @@ pub(super) fn position_by_start(children: &[Node], node: &Node) -> Option<usize>
 
 /// The children of each wide node on a walk's chain, recorded as the
 /// walk pushes them, so that [`Ancestors::siblings_after`] and
-/// [`Ancestors::siblings_before`] find a sibling in a flat `ERROR`
-/// without a scan from its start (#1584).
+/// [`Ancestors::siblings_before`] find a sibling in a flat `ERROR`, or
+/// past a run of extras ahead of a list's elements, without a scan from
+/// its start (#1584, #1868).
 ///
 /// One slot per depth, keyed by the node's id. A walk descends into a
 /// node only after pushing its children, so every wide node on the

@@ -391,6 +391,21 @@ for historical reference.
   ancestor chain, each ancestor once per walk. Metric values are
   unchanged. New scaling probes `cognitive/java-nested-classes`,
   `cognitive/groovy-nested-classes` and a `nom` control price it.
+- **`abc` stays linear over defaults in nested destructuring patterns
+  in JavaScript, TypeScript, TSX and Mozjs** (#1868). A default at
+  every level of `n` nested patterns (`[a = 1, [a = 1, …]]`, under a
+  declaration, a parameter list or a destructuring assignment) cost
+  `Σ depth`, quadratic in the nest: 16,000 levels took 1.63 s under
+  `abc` against 0.14 s for `loc`, and take 0.13 s. Metric values are
+  unchanged. New scaling probe `abc/js-nested-default-patterns` and its
+  control `abc/js-nested-patterns` price it.
+- **Perl `abc` stays linear over a list that opens with comments and
+  holds many patterns** (#1868). A plain list or `split`'s argument
+  list of `n` comments and then `n` patterns (`/re/`, `m{re}`) cost
+  `n²` steps: 16,000 of each took 6.5 s under `abc` against 0.05 s for
+  `loc`, and take 0.04 s. Metric values are unchanged. New scaling
+  probes `abc/perl-commented-pattern-list` and
+  `abc/perl-commented-split-list` price it.
 - **Elixir's quoted atom and quoted keyword are string literals to
   `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
   and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited
