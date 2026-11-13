@@ -1827,6 +1827,48 @@ mod tests {
         );
     }
 
+    /// A Groovy callable or closure holds a doc comment anywhere inside
+    /// it, as Java's does: the whole node counts, not only a braced
+    /// body. The in-body rows of the tables below sit in a method's
+    /// `block`, which the `DocBodyResidual` row holds whatever the
+    /// callable and the closure answer. Here no `block` encloses the
+    /// comment: a closure's statements are its direct children, and a
+    /// parameter's default value sits in the signature. The comment is
+    /// above a method of an anonymous class, a documentation target, so
+    /// only the enclosing closure or method keeps it out of `dloc`. The
+    /// last row is the same class with neither around it.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_closures_and_signatures_hold_their_doc_comments() {
+        // expected: each source holds one comment row, so `cloc` 1. A
+        // doc comment inside a closure or a callable is a working note,
+        // `dloc` 0; directly above a method outside both it binds to
+        // the method, `dloc` 1.
+        assert_doc_rows(
+            LANG::Groovy,
+            &[
+                (
+                    "in a closure",
+                    b"class C {\n    def c = {\n        new Object() {\n            /** Doc. */\n            void m() { }\n        }\n    }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "in a parameter's default value",
+                    b"class C {\n    def f(a = new Object() {\n        /** Doc. */\n        void m() { }\n    }) { }\n}\n",
+                    0,
+                    1,
+                ),
+                (
+                    "in a field initializer, outside both",
+                    b"class C {\n    def c = new Object() {\n        /** Doc. */\n        void m() { }\n    }\n}\n",
+                    1,
+                    1,
+                ),
+            ],
+        );
+    }
+
     /// Roslyn's `GetDocumentationCommentTriviaFromSyntaxNode` reads a
     /// member's leading trivia back past plain comments and directives to
     /// the nearest doc comment, then keeps every doc comment before it
@@ -2100,6 +2142,48 @@ mod tests {
                     b"<?php\nfunction z() {}\ndefine('X', 1) /** t */;\n",
                     0,
                     1,
+                ),
+            ],
+        );
+    }
+
+    /// `createFileDocBlock` decides at the file's first element, not at
+    /// the first node after the DocBlock: it reads past a `declare` and
+    /// past a plain comment, counting the DocBlocks on the way (#1613).
+    /// The rows above put a non-element or a second DocBlock after the
+    /// preamble, where stopping at the preamble answers the same.
+    #[cfg(feature = "php")]
+    #[test]
+    fn php_file_docblock_is_decided_at_the_first_element_past_the_preamble() {
+        assert_doc_rows(
+            LANG::Php,
+            &[
+                // expected: the first element is the class and one
+                // DocBlock precedes it, not two, so the file has none.
+                // PHP-Parser hands the DocBlock to the `declare`, which
+                // is no element, so it documents nothing.
+                (
+                    "one DocBlock, a declare, the first class",
+                    b"<?php\n/** d */\ndeclare(strict_types=1);\nclass C {}\n",
+                    0,
+                    1,
+                ),
+                // expected: the same preamble before a statement, which
+                // is no element, so the DocBlock is the file's.
+                (
+                    "one DocBlock, a declare, a statement",
+                    b"<?php\n/** d */\ndeclare(strict_types=1);\n$x = 1;\n",
+                    1,
+                    1,
+                ),
+                // expected: three DocBlocks precede the function, not
+                // two, so the file has none and only `c`, the last
+                // before the function, documents. Four comment rows.
+                (
+                    "three DocBlocks and a plain comment, the first function",
+                    b"<?php\n/** a */\n// p\n/** b */\n/** c */\nfunction f() {}\n",
+                    1,
+                    4,
                 ),
             ],
         );
@@ -3732,6 +3816,37 @@ mod tests {
                 "blank row before the item",
                 b"--- M.\nlocal M = {}\n--- F.\n\nfunction f() end\n",
                 1,
+                2,
+            ),
+        ];
+        assert_doc_rows(LANG::Lua, cases);
+    }
+
+    /// A block's text is what is left of its lines once LDoc has
+    /// stripped the comment dashes (`trim_comment`) and the whitespace
+    /// (`^%s*$` discards the block): a `---` row holding only a space is
+    /// an empty block, and a row with no space after its dashes holds
+    /// text like any other. Both sit above a function, an item, so the
+    /// text alone decides.
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_ldoc_block_text_is_neither_dashes_nor_whitespace() {
+        // expected: the module block is one `dloc` and one `cloc` row
+        // in each source, and the second comment row is `cloc` in both.
+        // The space-only block is discarded, `dloc` 1; `---F.` documents
+        // `f`, `dloc` 2.
+        let cases: &[(&str, &[u8], u64, u64)] = &[
+            // (name, source, dloc, cloc)
+            (
+                "a space and nothing else",
+                b"--- M.\nlocal M = {}\n--- \nfunction f() end\n",
+                1,
+                2,
+            ),
+            (
+                "text with no whitespace",
+                b"--- M.\nlocal M = {}\n---F.\nfunction f() end\n",
+                2,
                 2,
             ),
         ];
