@@ -135,40 +135,29 @@ fn python_collect_class_level_attrs<'a>(
 // (`obj.x = …`) at class level is not a simple name binding and is
 // ignored (the self/cls instance-attribute pass handles those).
 // Walks an assignment / destructuring `target`, invoking `collect` on
-// every leaf binding element with the chain from `chain`'s contents
-// down through the unpacking wrappers (`PYTHON_TARGET_PATTERN_KINDS`),
-// so `(a, (b, c)) = …` and `self.a, (self.b, self.c) = …` yield every
-// bound element, not just the top-level ones. Non-pattern nodes —
-// including punctuation children (commas, brackets) — are handed to
-// `collect`, which filters by kind, exactly as the previous flat loop
-// did. `chain` is left as it was found.
+// every leaf binding element below the unpacking wrappers
+// (`PYTHON_TARGET_PATTERN_KINDS`), so `(a, (b, c)) = …` and `self.a,
+// (self.b, self.c) = …` yield every bound element, not just the
+// top-level ones. Non-pattern nodes — including punctuation children
+// (commas, brackets) — are handed to `collect`, which filters by kind,
+// exactly as the previous flat loop did.
 //
 // Walked with an explicit stack, as `binds` in `lang_helpers/python.rs`
 // is (#1597): a target nested thousands of brackets deep parses, and a
 // recursive walk overflowed the consumer thread's stack at ~8,000
-// levels. Each pending element records the chain depth it sits under,
-// so popping it truncates the chain back to its wrapper; elements are
-// pushed reversed so they are collected in document order.
-fn python_walk_target_elements<'a>(
-    target: &Node<'a>,
-    chain: &mut Vec<Node<'a>>,
-    collect: &mut impl FnMut(&Node<'a>, &[Node<'a>]),
-) {
-    let base = chain.len();
-    let mut pending = vec![(*target, base)];
-    while let Some((node, depth)) = pending.pop() {
-        chain.truncate(depth);
+// levels. Elements are pushed reversed so they are collected in
+// document order.
+fn python_walk_target_elements<'a>(target: &Node<'a>, collect: &mut impl FnMut(&Node<'a>)) {
+    let mut pending = vec![*target];
+    while let Some(node) = pending.pop() {
         if PYTHON_TARGET_PATTERN_KINDS.contains(&node.kind_id()) {
-            chain.push(node);
-            let under = chain.len();
             let first = pending.len();
-            pending.extend(node.children().map(|element| (element, under)));
+            pending.extend(node.children());
             pending[first..].reverse();
         } else {
-            collect(&node, chain);
+            collect(&node);
         }
     }
-    chain.truncate(base);
 }
 
 fn python_collect_bound_names_from_target<'a>(
@@ -183,7 +172,7 @@ fn python_collect_bound_names_from_target<'a>(
     // nested inside an unpacking pattern. An attribute target (`obj.x = …`)
     // at class level is not a simple name binding and is ignored (the
     // self/cls instance-attribute pass handles those).
-    python_walk_target_elements(&target, &mut Vec::new(), &mut |element, _| {
+    python_walk_target_elements(&target, &mut |element| {
         if element.kind_id() == Python::Identifier
             && let Some(name) = code.get(element.start_byte()..element.end_byte())
         {
@@ -233,9 +222,6 @@ fn python_collect_self_attrs_in_subtree<'a>(
     let mut cursor = root.cursor();
     let mut stack: Vec<Node<'a>> = Vec::with_capacity(32);
     stack.extend(root.children_with(&mut cursor));
-    // One chain buffer for every assignment the walk meets, rather than
-    // one allocation per assignment.
-    let mut chain: Vec<Node<'a>> = Vec::with_capacity(4);
     while let Some(node) = stack.pop() {
         // Boundary: do not descend into nested classes, functions, or
         // lambdas. Their attributes belong to their inner scope.
@@ -249,7 +235,7 @@ fn python_collect_self_attrs_in_subtree<'a>(
         }
 
         if node.kind_id() == Assignment {
-            python_collect_self_attrs_from_target(&node, code, &mut chain, seen);
+            python_collect_self_attrs_from_target(&node, code, seen);
         }
 
         stack.extend(node.children_with(&mut cursor));
@@ -266,7 +252,6 @@ fn python_collect_self_attrs_in_subtree<'a>(
 fn python_collect_self_attrs_from_target<'a>(
     assignment: &Node<'a>,
     code: &'a [u8],
-    chain: &mut Vec<Node<'a>>,
     seen: &mut std::collections::HashSet<&'a [u8]>,
 ) {
     use crate::roles::python::member;
@@ -275,14 +260,19 @@ fn python_collect_self_attrs_from_target<'a>(
     };
     // Collect only the `Member` row's elements — a bound `self` / `cls`
     // attribute; unpacking may mix them with foreign targets (`self.a,
-    // x = …`), which the row declines. The element's chain is rebuilt
-    // from the assignment down through the pattern wrappers, which is
-    // what the row's gate climbs; the row reads the receiver and this
-    // reads the name, one child scan between them.
-    chain.clear();
-    chain.push(*assignment);
-    python_walk_target_elements(&target, chain, &mut |element, chain| {
-        if member::owns(element, code, Ancestors::known(chain))
+    // x = …`), which the receiver test declines. The row's gate asks
+    // two things: that the attribute sits on the assignment's target
+    // side under nothing but pattern wrappers, and that its receiver is
+    // `self` / `cls`. This walk starts at the target and descends only
+    // through those wrappers, so the first holds for every element it
+    // hands over, and the kind table plus `python_self_attribute_name`
+    // (which reads the receiver) is the gate's whole answer here.
+    // Asking `member::owns` instead climbed from each element back up
+    // its wrappers, so a target `n` levels deep cost `n²` (#1867).
+    // `instance_pass_collects_what_the_member_row_owns` below holds the
+    // two answers equal.
+    python_walk_target_elements(&target, &mut |element| {
+        if member::lists_kind(element.kind_id())
             && let Some(name) = python_self_attribute_name(element, code)
         {
             seen.insert(name);
@@ -310,4 +300,170 @@ pub(crate) fn python_unwrap_function<'a>(
                 .find(|c| func_opener::is_callable(c, code, ancestors))
         })
         .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+    use big_code_analysis_ast::test_support::for_each_node_with_chain;
+
+    use super::*;
+    use crate::roles::python::member;
+
+    #[cfg(feature = "python")]
+    fn text(bytes: &[u8]) -> String {
+        std::str::from_utf8(bytes)
+            .expect("fixture is UTF-8")
+            .to_owned()
+    }
+
+    #[cfg(feature = "python")]
+    fn class_name(class: &Node, code: &[u8]) -> String {
+        let name = class
+            .children()
+            .find(|c| c.kind_id() == Python::Identifier)
+            .expect("a class is named");
+        text(&code[name.start_byte()..name.end_byte()])
+    }
+
+    /// The class a node under `chain` is attributed to by the instance
+    /// pass: the nearest `def`, `class`, `decorated_definition` or
+    /// `lambda` above it is a `def` directly in a class body, decorated
+    /// or not — the scope `python_collect_unique_self_attrs` walks.
+    #[cfg(feature = "python")]
+    fn method_class<'a>(chain: &[Node<'a>]) -> Option<Node<'a>> {
+        use Python::{ClassDefinition, DecoratedDefinition, FunctionDefinition, Lambda};
+        let scope = chain.iter().rposition(|n| {
+            matches!(
+                n.kind_id().into(),
+                FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
+            )
+        })?;
+        if chain[scope].kind_id() != FunctionDefinition {
+            return None;
+        }
+        let mut above = chain[..scope].iter().rev();
+        let mut body = above.next()?;
+        if body.kind_id() == DecoratedDefinition {
+            body = above.next()?;
+        }
+        let class = above.next()?;
+        (python_is_block(body) && class.kind_id() == ClassDefinition).then_some(*class)
+    }
+
+    /// The instance pass reads the `Member` row's kind table and the
+    /// receiver instead of asking the row, because its target walk only
+    /// reaches what the row's positional half accepts (#1867). This
+    /// holds that reading to the row: per class, the names the pass
+    /// collects are the attributes `member::owns` accepts under each
+    /// node's real chain, kept where the pass's scope rule
+    /// ([`method_class`]) puts them. The fixture spells every target
+    /// shape the two could part on: flat, annotated with and without a
+    /// value, tuple and list patterns, nesting, a parenthesised single
+    /// target, a starred element, a chained `=`, `cls`, foreign receivers,
+    /// `self.o.p`, `a[self.q]`, `self[idx]` (a subscript the receiver
+    /// test alone would read as `idx`), `self().r`, augmented, `for`
+    /// and `with` targets, reads, a lambda, nested `def`s, a nested
+    /// class and a module-level function.
+    ///
+    /// expected: `C`'s methods bind the 23 names below; `Inner`'s method
+    /// binds `ic`; the row also owns `nd`, `dn` (nested `def`s), `cb`
+    /// (`Inner`'s body) and `mf` (a module-level function), which no
+    /// class's pass walks.
+    #[cfg(feature = "python")]
+    #[test]
+    fn instance_pass_collects_what_the_member_row_owns() {
+        let source = b"class C:\n\
+            \x20   cv = 1\n\
+            \x20   def __init__(self, t, xs, ctx, db, other, idx):\n\
+            \x20       self.x = 1\n\
+            \x20       self.y: int = 2\n\
+            \x20       self.ann: int\n\
+            \x20       self.a, self.b = t\n\
+            \x20       self.c, (self.d, [self.e, loc]) = t\n\
+            \x20       (self.f, self.g) = t\n\
+            \x20       [self.h, self.i] = t\n\
+            \x20       self.j, *self.k = t\n\
+            \x20       self.l = self.m = 1\n\
+            \x20       (self.d0, (self.d1, (self.d2, self.d3))) = t\n\
+            \x20       (self.pe) = 1\n\
+            \x20       other.s, self.u = 1, 2\n\
+            \x20       db.v = 1\n\
+            \x20       self.o.p = 1\n\
+            \x20       a[self.q] = 1\n\
+            \x20       self[idx] = 1\n\
+            \x20       self().r = 1\n\
+            \x20       self.aug += 1\n\
+            \x20       print(self.read)\n\
+            \x20       w = self.read2\n\
+            \x20       for self.fv in xs:\n\
+            \x20           pass\n\
+            \x20       with ctx as self.wv:\n\
+            \x20           pass\n\
+            \x20       f = lambda s=self.lam: s\n\
+            \x20       def inner():\n\
+            \x20           self.nd = 1\n\
+            \x20       @dec\n\
+            \x20       def inner2():\n\
+            \x20           self.dn = 1\n\
+            \x20       class Inner:\n\
+            \x20           self.cb = 1\n\
+            \x20           def m(self):\n\
+            \x20               self.ic = 1\n\
+            \x20   @classmethod\n\
+            \x20   def make(cls):\n\
+            \x20       cls.n = 1\n\
+            \x20       self.sm = 1\n\
+            def free(self):\n\
+            \x20   self.mf = 1\n";
+        let mut collected: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut owned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut out_of_scope = BTreeSet::new();
+        for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if node.kind_id() == Python::ClassDefinition {
+                let body = python_class_body(node).expect("a class has a body");
+                let mut seen = HashSet::new();
+                python_collect_unique_self_attrs(&body, source, ancestors, &mut seen);
+                let name = class_name(node, source);
+                owned.entry(name.clone()).or_default();
+                collected.insert(name, seen.into_iter().map(text).collect());
+            }
+            if member::owns(node, source, ancestors) {
+                let name = python_self_attribute_name(node, source)
+                    .map(text)
+                    .expect("an owned attribute has a name");
+                match method_class(chain) {
+                    Some(class) => {
+                        owned
+                            .entry(class_name(&class, source))
+                            .or_default()
+                            .insert(name);
+                    }
+                    None => {
+                        out_of_scope.insert(name);
+                    }
+                }
+            }
+        });
+        assert_eq!(collected, owned, "per class, the pass reads the row");
+        let names = |list: &[&str]| -> BTreeSet<String> {
+            list.iter().map(|&name| name.to_owned()).collect()
+        };
+        assert_eq!(
+            owned,
+            BTreeMap::from([
+                (
+                    "C".to_owned(),
+                    names(&[
+                        "x", "y", "ann", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "l",
+                        "m", "d0", "d1", "d2", "d3", "pe", "u", "n", "sm",
+                    ]),
+                ),
+                ("Inner".to_owned(), names(&["ic"])),
+            ])
+        );
+        assert_eq!(out_of_scope, names(&["nd", "dn", "cb", "mf"]));
+    }
 }

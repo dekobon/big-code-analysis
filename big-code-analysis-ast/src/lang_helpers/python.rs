@@ -788,6 +788,14 @@ fn python_self_receiver<'a>(attr: &Node<'a>, code: &[u8]) -> Option<Node<'a>> {
 /// operand. The target is the assignment's first child; a destructuring
 /// target wraps its elements in [`PYTHON_TARGET_PATTERN_KINDS`], climbed
 /// here until the assignment is met. `ancestors` is the node's chain.
+///
+/// The climb is `O(depth)` in the pattern wrappers above the node, so
+/// asking it of every element of a nested target is quadratic in the
+/// nesting. No production walk asks it: the attribute count walks down
+/// from the assignment's target through those wrappers only, so the
+/// climb would answer yes for every element it reaches, and it reads
+/// the row's kind table and [`python_self_attribute_name`] instead
+/// (#1867). The row tests and the derived suite ask it with real chains.
 #[must_use]
 pub(crate) fn python_is_bound_self_attribute<'a>(
     node: &Node<'a>,

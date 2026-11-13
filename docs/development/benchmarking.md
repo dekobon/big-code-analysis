@@ -271,6 +271,8 @@ Read it as follows.
 | `cognitive/java-nested-classes` | Java | depth | `increment_function_depth` where no function encloses the asker: the answer folded down the walk's chain on `KindLane::InsideFunction` rather than scanned to the root per method (#1864) | linear |
 | `nom/java-nested-classes` | Java | depth | metric control for the row above | linear |
 | `cognitive/groovy-nested-classes` | Groovy | depth | the same question on the same source under the Groovy grammar (#1864) | linear |
+| `npa/python-nested-self-targets` | Python | depth | each `self.` attribute of a nested assignment target, read by the `Member` row's kind table and the receiver on the walk down the target, where the row's gate climbed the wrappers back to the assignment per attribute (#1867) | linear |
+| `npa/python-nested-foreign-targets` | Python | depth | shape control for the row above: the same nest with a foreign receiver at every level | linear |
 | `npa/cpp-wide-class-members` | C++ | width | a shape control for the C++ member walks: `cpp_declares_function` is asked of every field and static data member template by both consumers and must read only the member's own declarator chain — a walk that re-sought siblings or read a `template_declaration`'s neighbours would show here (#1299) | linear |
 | `nom/elixir-unquoted-def` | Elixir | depth | the `def`-under-no-`quote` question `nom/nested-quote`'s short-circuit cannot help, folded down the walker's chain once per ancestor (#1691) | linear |
 | `halstead/csharp-qualified-generics` | C# | depth | each generic qualifier classified without climbing the remaining qualified-name ancestry | linear |
@@ -306,8 +308,9 @@ The control probes are what make the other readings mean something.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and`, `cyclomatic/cpp-plus-chain`,
-  `abc/js-nested-patterns`, `loc/nested-fn` and `dump/wide-distinct-fns`
-  are **shape** controls:
+  `abc/js-nested-patterns`, `loc/nested-fn`,
+  `npa/python-nested-foreign-targets` and `dump/wide-distinct-fns` are
+  **shape** controls:
   each is the same nesting (or, for the last, the same width) as the
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
@@ -1052,9 +1055,12 @@ change and each match re-read, not re-timed. Every other match stops
 within a fixed distance of all but one asker per subtree, is capped, or
 already folds where a walk lends a cache. The one exception was filed
 before this change: `python_is_bound_self_attribute`
-([#1867][python-npa]). #1868 then read the sites those searches do not
-reach, and what each step of a climb reads, and found the two costs
-described next.
+([#1867][python-npa]). No production walk asks it now: the attribute
+count's walk down a target reaches only what its climb accepts, so it
+reads the row's kind table and the receiver instead, priced by
+`npa/python-nested-self-targets`. #1868 then read the sites those
+searches do not reach, and what each step of a climb reads, and found
+the two costs described next.
 
 [python-npa]: https://github.com/dekobon/big-code-analysis/issues/1867
 

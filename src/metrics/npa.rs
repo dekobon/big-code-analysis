@@ -4711,9 +4711,9 @@ mod tests {
 
     /// A `self.` attribute under a non-pattern node on the target side —
     /// the receiver of `self.x.y = …`, the index of `a[self.i] = …` —
-    /// is a read, not a binding. The walk never hands the inner node to
-    /// the `Member` row (it stops at the outer attribute / subscript,
-    /// which the row declines by receiver or kind), so this pins the
+    /// is a read, not a binding. The walk never reads the inner node (it
+    /// stops at the outer attribute / subscript, which the receiver test
+    /// or the `Member` row's kind table declines), so this pins the
     /// consumer's traversal; the row's own wrapper-kind check is pinned
     /// with each node's real chain by
     /// `member_declines_a_self_attribute_under_a_non_pattern_node` in
@@ -4763,6 +4763,28 @@ mod tests {
             .expect("spawn bounded-stack thread")
             .join()
             .expect("the target walk must not overflow a 512 KiB stack");
+    }
+
+    /// A nested target binding a distinct attribute at every level
+    /// counts each one (#1867). The name differs per level so `seen`
+    /// cannot absorb a level: one name repeated would read 1 whatever
+    /// the walk missed. expected: `self.a0` … `self.a299` beside each of
+    /// the 300 nested tuples and `self.a300` innermost → 301, all public.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_nested_unpacking_counts_a_distinct_attribute_per_level() {
+        use std::fmt::Write as _;
+        let depth = 300;
+        let mut source = String::from("class C:\n    def f(self, v):\n        ");
+        for i in 0..depth {
+            write!(source, "(self.a{i}, ").expect("a String takes any write");
+        }
+        writeln!(source, "self.a{depth}{} = v", ")".repeat(depth))
+            .expect("a String takes any write");
+        check_metrics::<PythonParser>(&source, "foo.py", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 301);
+            assert_eq!(metric.npa.class_npa_sum(), 301);
+        });
     }
 
     /// #412 (c): a multi-target class-level assignment binds one

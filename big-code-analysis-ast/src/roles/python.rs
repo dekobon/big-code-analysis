@@ -105,6 +105,9 @@ role_table! {
     // row recognises the binding; which class it belongs to, the
     // nested-scope boundary, a class-level `x = 1`'s plain name and the
     // dedup across both are the consumer's reading (`npa/python.rs`).
+    // That consumer reads the kind table and the receiver, not the gate:
+    // its walk down a target reaches only what the gate's climb accepts,
+    // and the climb per element is quadratic in a nested target (#1867).
     Member { owns [Attribute(text_gated_by is_bound_self_attribute)] }
     // `return`, `raise`, and the yield *expression* (`Yield`, kind text
     // "yield" — Python has no yield-statement node): a generator's

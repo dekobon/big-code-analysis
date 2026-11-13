@@ -958,6 +958,36 @@ pub fn python_and_per_list_depth(depth: usize) -> String {
     )
 }
 
+/// Python: `(self.a00000, (self.a00001, ( … self.aNNNNN))) = v` in a
+/// method, one `self` attribute per level of a nested assignment target.
+/// Whether each is bound was a climb through every wrapper above it to
+/// the assignment, `depth` steps from the innermost (#1867). The names
+/// are distinct, so the attribute count's dedup absorbs none of them,
+/// and fixed-width, so the bytes stay affine in `depth`.
+#[must_use]
+pub fn python_nested_self_targets(depth: usize) -> String {
+    python_nested_targets(depth, "self", &format!("self.a{depth:05}"))
+}
+
+/// [`python_nested_self_targets`] with a foreign `db.` receiver at
+/// every level and one `self.z` innermost: the same target nest, whose
+/// elements a receiver test declines before any climb, so only the
+/// innermost attribute ever needed one.
+#[must_use]
+pub fn python_nested_foreign_targets(depth: usize) -> String {
+    python_nested_targets(depth, "db", "self.z")
+}
+
+fn python_nested_targets(depth: usize, receiver: &str, innermost: &str) -> String {
+    let mut source = String::from("class C:\n    def f(self, v):\n        ");
+    for i in 0..depth {
+        // `fmt::Write for String` never fails; see `wide_distinct_fns`.
+        let _ = write!(source, "({receiver}.a{i:05}, ");
+    }
+    let _ = writeln!(source, "{innermost}{} = v", ")".repeat(depth));
+    source
+}
+
 /// Python: an attribute docstring followed by additional docstrings.
 #[must_use]
 pub fn python_additional_docstrings(width: usize) -> String {
@@ -4304,6 +4334,56 @@ pub const PROBES: &[Probe] = &[
                     `if` per level.",
     },
     Probe {
+        name: "npa/python-nested-self-targets",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa],
+            reading: |m| m.npa.class_na_sum(),
+        },
+        render: python_nested_self_targets,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1867: each `self.` attribute of a nested assignment \
+                    target was asked whether it is bound by climbing the \
+                    pattern wrappers above it to the assignment, `k` \
+                    steps at depth `k`, so a target `n` deep cost `n²`. \
+                    The attribute count walks down from the target \
+                    through those wrappers only, where the climb can only \
+                    say yes, so it reads the `Member` row's kind table \
+                    and the receiver instead: 1.95 with the row asked per \
+                    element, 0.51–0.64 without. Without the climb the \
+                    gate reads the first rung high, which puts the fit \
+                    under 1; the same walk timed in a loop on one tree \
+                    reads 2.3, 4.8 and 9.4 ms at the three rungs. The \
+                    names are distinct, so the reading is one attribute \
+                    per level and the innermost: one name repeated would \
+                    let a fix that asked the dedup set first read linear \
+                    here and stay quadratic on distinct names.",
+    },
+    Probe {
+        name: "npa/python-nested-foreign-targets",
+        lang: LANG::Python,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Npa],
+            reading: |m| m.npa.class_na_sum(),
+        },
+        render: python_nested_foreign_targets,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1867: shape control for \
+                    `npa/python-nested-self-targets`: the same target \
+                    nest with a foreign `db.` receiver at every level and \
+                    one `self.z` innermost, so the receiver test declines \
+                    every element but one before any climb. It reads \
+                    0.96–1.01 with and without the row asked per element, \
+                    so what the probe reads above it is the climb. The \
+                    reading is the one attribute, constant by design.",
+    },
+    Probe {
         name: "loc/lua-tagless-blocks",
         lang: LANG::Lua,
         axis: Axis::Width,
@@ -5336,6 +5416,7 @@ mod tests {
             "abc/js-nested-default-patterns",
             "abc/perl-commented-pattern-list",
             "abc/perl-commented-split-list",
+            "npa/python-nested-self-targets",
         ] {
             let probe = PROBES
                 .iter()
