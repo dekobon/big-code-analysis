@@ -48,6 +48,57 @@ for historical reference.
 
 ### Changed
 
+- **Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.6.0`**
+  (#1896). Release 0.6.0 closes twelve upstream parse issues (see its
+  [changelog](https://github.com/dekobon/tree-sitter-groovy/blob/v0.6.0/CHANGELOG.md)).
+  Metrics move on Groovy that uses the constructs below:
+  - **A bare word before a call, a method with modifiers after a
+    comment, and a `final` local are no longer method declarations.**
+    `nom`, `nargs`, `wmc` and `cyclomatic` fall, and the calls inside
+    now count as `abc.branches`.
+  - **A `final` local's initializer is not an `abc` assignment**, as in
+    Java.
+  - **A Gradle-style `foo a: 1, b: 2` call is one statement**: `loc.lloc`
+    falls and `abc.branches` counts the call.
+  - **Fields misread from a method after a comment are gone**, so `npa`
+    falls.
+  - **`!in` is a Halstead operator**, as in Kotlin, and a parameter's
+    `def` or `final` is an operator instead of a type operand.
+  - **`synchronized (x) { … }` reads as Java's**: no closure and no
+    extra nesting.
+
+  Measured over 216 local Gradle and Groovy files against the 0.5.0
+  pin (files moved / net change): `abc.branches` 78 / +452,
+  `abc.assignments` 29 / −211, `abc.conditions` 4 / +12, `cyclomatic`
+  30 / −155, `cognitive` 4 / +2, `loc.lloc` 88 / −163, `loc.cloc`
+  1 / −4, `loc.dloc` 2 / +6, `nom.functions` 30 / −163, `nom.closures`
+  9 / +15, `nargs.function_args` 28 / −145, `nargs.closure_args` 6 / +10,
+  `wmc` 27 / −85, `npm.class_npm` 6 / +18, `npa.class_attributes`
+  16 / −32 and `npa.class_npa` 4 / −4. Halstead operators and operands
+  and `tokens` move in at most 26 files; `sloc`, `ploc`, `blank` and
+  `nexits` do not move. Still open upstream and still pinned here:
+  modifiers on `@interface`
+  ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92)),
+  the compact constructor (#72) and a field named `trait` after a
+  modifier (#73).
+
+- **`big-code-analysis-ast`: a role-row gate is handed the source bytes
+  only when its keyword declares them** (#1874). `role_table!` passed
+  every gate the bytes, so `TEXT_GATED` was the author's word: a gate
+  that read the bytes under a plain `gated_by` built, and a byte-less
+  forward answered it from an empty slice. A `gated_by` gate now takes
+  the node and the chain, a `text_gated_by` gate the bytes between
+  them, and `no_chain` drops the chain from either. `callable_when`,
+  `pays_itself_when` and `opens_by` fns take no bytes, and a payer's
+  `text_gated_by` is no longer read as `gated_by`. A gate that reads
+  the bytes under the wrong keyword no longer builds, and `TEXT_GATED`
+  comes from the same declaration as the gate's arguments. Elixir's
+  guard `when` payer, which reads the keyword of its clause's call, is
+  re-declared `text_gated_by`. The derived suite's byte backstop,
+  `unmarked_owners_answer_alike_without_the_bytes`, and the
+  test-support `TEXT_GATED_OWNERS` list it read are removed. The crate
+  is outside `STABILITY.md`; metric values are unchanged.
+
 - **The HTML report's column headers are native sort buttons.** Each
   header's label is now a `<button>` inside the `<th>` — the WAI-ARIA
   sortable-table shape — so it is announced as a control, sorts on
@@ -99,13 +150,11 @@ for historical reference.
   `Checker::holds_doc_comment_in_body` gains a `code` parameter for the
   same test. The crate is outside `STABILITY.md`, and no item this
   crate re-exports changes. Metric values are unchanged. With it:
-  - The derived role suite gains a byte-axis backstop,
-    `unmarked_owners_answer_alike_without_the_bytes`: every owner a row
-    does not mark `text_gated_by` must answer alike with the source
-    bytes and without. It found three gates that read bytes under a
-    plain `gated_by`, now re-declared: the Tcl family's
-    `is_braced_literal` and Bash's `comparison_operator` and
-    `short_circuit_operator`. The keyword changes no answer.
+  - Three gates that read source bytes under a plain `gated_by` are
+    re-declared `text_gated_by`: the Tcl family's `is_braced_literal`
+    and Bash's `comparison_operator` and `short_circuit_operator`. A
+    behavioural check found them; since #1874 such a gate no longer
+    builds. The keyword changes no answer.
   - `roles::java::record_header` and `roles::groovy::record_header`
     name a record's component list once; the header gate, the space's
     name, Java's `nargs` and `npm` read them where each spelled the
@@ -179,8 +228,9 @@ for historical reference.
     does.** `public record P(int a) { }` parsed, with no error, as a
     method named `P`; it is a record now, and its header counts as a
     public method. So does the header of a record declared in an
-    interface, a trait or an annotation type, where every member counts
-    as public. A record with neither stays non-public, the reading
+    interface, a trait or an annotation type, where a member counts as
+    public unless it is `private` or `protected` (#1880). A record with
+    neither stays non-public, the reading
     `npm` gives every unmodified Groovy member.
   - **Nested types are class members.** A `class`, `interface`, `trait`,
     `enum` or `@interface` inside a class body broke the rest of the
@@ -308,6 +358,46 @@ for historical reference.
   file that holds one. `/**/`, `/***/`, `/****/` and `////` stay plain
   comments, and `cloc` is unchanged.
 
+- **C++ `npa` and `npm` read a parenthesised pointer to data member as
+  an attribute** (#1885). tree-sitter-cpp 0.23.4 and the Mozcpp fork
+  read `T (S::*pd);` at class scope as the declaration of a function
+  named after the member's type, so `npm` counted a method and `npa`
+  missed the attribute. A user type does it alone (`T`, `N::Q`,
+  `V<int>`), and so do two specifiers before a primitive
+  (`static inline int (U::*pe) = nullptr;`). Each such member now moves
+  from `npm` to `npa`: `class_methods` falls and `class_attributes`
+  rises by one, as do the public counts where the member is public,
+  with the `total`, `coa` and `cda` values that follow. A macro call
+  whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`)
+  is still a method. `T (S::*pd) = 0;` and `T (S::*arr)[2];` are still
+  misread; #1829 tracks them.
+
+- **`npm` and `npa` read the visibility of interface members** (#1880).
+  Every interface member used to count as public, whatever it
+  declared. These now count as not public: a Java `private` interface
+  method; a Kotlin `private` interface function or property; a Groovy
+  `private` or `protected` member of an interface, trait or annotation
+  type, member records included; and a C# interface member marked
+  `private`, `protected` or `internal` (alone or paired). A C#
+  interface's static constructor and its explicit implementations of
+  another interface's members are not public either. C# `internal` now
+  also narrows a class accessor (`public int X { get; internal set; }`
+  has one public method) and an interface field. Values only fall. In
+  `npm`, `interface_npm_sum`, `interface_coa`, `total` and `coa` drop
+  for Java, Kotlin, Groovy and C#. In `npa`, `interface_npa_sum`,
+  `interface_cda`, `total` and `cda` drop for Kotlin, Groovy and C#.
+  C# `class_npm_sum`, `class_coa`, `total` and `coa` drop for a class
+  with an `internal` accessor. Groovy `class_npm_sum` drops for a
+  `private record` declared in an interface, trait or annotation type.
+
+- **Python `npa` is linear in a nested destructuring target** (#1867).
+  A target that binds `self` or `cls` attributes at every level,
+  `(self.a, (self.b, …)) = v`, took time quadratic in its depth: each
+  attribute climbed back through the enclosing tuple and list patterns
+  to the assignment. The walk down the target already proves what the
+  climb checked, so it is no longer asked. At 16,000 levels a release
+  build goes from 0.92 s to 0.11 s. Values are unchanged.
+
 - **`cognitive::Stats` and `nexits::Stats` print a well-formed
   `Display` line** (#1736). The cognitive line printed the space's own
   score under `sum`, where the JSON `sum` field and every sibling
@@ -344,8 +434,8 @@ for historical reference.
   each — public exactly when the Java record is, by its own `public`
   or as a member of an interface or annotation interface, whose member
   types are implicitly public (JLS 9.5); in Groovy by the record's own
-  `public`, or in an interface, a trait or an annotation type — and
-  the space tree, `bca ops` /
+  `public`, or in an interface, a trait or an annotation type unless
+  it is `private` or `protected` (#1880) — and the space tree, `bca ops` /
   `bca metrics` / `functions` / `to_sarif` all show the row; `npa` and
   the record's own ABC do not move. A record and an alternative
   constructor written on one line carry two `R::R` rows at one
