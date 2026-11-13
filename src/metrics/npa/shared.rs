@@ -569,7 +569,11 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
             // ordinary method — is a function, and so is a comma list
             // with a method among its declarators, whose data
             // declarators are the attribute consumer's through
-            // `cpp_recovered_declaration_data_members`.
+            // `cpp_recovered_declaration_data_members`. The recovery
+            // always leaves an `ERROR` or a MISSING name slot below the
+            // declarator, which `has_error` reads off the subtree's
+            // cached error cost, so a clean one is answered unwalked.
+            None if !child.has_error() => Verdict::Known(true),
             None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
                 pointers: Box::new(cpp_recovered_member_pointers(child)),
                 seen: false,
@@ -867,7 +871,9 @@ pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usiz
     declaration
         .children()
         .filter(|child| {
-            child.kind() == "function_declarator" && cpp_parenthesized_name(child).is_none()
+            child.kind() == "function_declarator"
+                && child.has_error()
+                && cpp_parenthesized_name(child).is_none()
         })
         .flat_map(|declarator| cpp_recovered_member_pointers(&declarator))
         .filter(|pointer| !cpp_answer(DeclaratorQuestion::RecoveredPointer(pointer.children())))

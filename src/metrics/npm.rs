@@ -6441,7 +6441,12 @@ class C {
     // whose qualified type holds an `ERROR` (#1885's `T (S::*pd);`) — on
     // a fixture of its reader, for both grammars. By `kind()` name, as
     // the readers match, so a re-aliasing that moves any onto a suffixed
-    // id is not a false alarm.
+    // id is not a false alarm. The last pins the premise of the
+    // `has_error` gate in `cpp_child_verdict`: every recovered
+    // `function_declarator` holds a parse error, the invented slot of
+    // `T (W::*const pc)` a MISSING one. A grammar that invented it with
+    // no MISSING flag, as some do (lesson 95), would leave it no error,
+    // and the gate would read the data member as a method.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn member_pointer_recovery_shapes<P: ParserTrait>() {
         let parse =
@@ -6480,6 +6485,24 @@ class C {
             "the pinned grammar no longer recovers `T (S::*pd);` into a parameter list; \
              `cpp_recovered_member_pointers` no longer reads it"
         );
+        for source in [
+            FP_DATA_MEMBER,
+            USER_TYPE_MEMBER_POINTER,
+            SPECIFIED_MEMBER_POINTER,
+            CONST_MEMBER_POINTER,
+        ] {
+            let tree = parse(source);
+            let declarators: Vec<_> = tree
+                .root()
+                .preorder()
+                .filter(|node| node.kind() == "function_declarator")
+                .collect();
+            assert!(
+                !declarators.is_empty() && declarators.iter().all(Node::has_error),
+                "a recovered `function_declarator` holds no parse error in {source:?}; \
+                 the `has_error` gate in `cpp_child_verdict` reads it as a method"
+            );
+        }
     }
 
     #[cfg(feature = "cpp")]

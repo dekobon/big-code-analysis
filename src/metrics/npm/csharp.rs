@@ -38,21 +38,17 @@ fn csharp_count_member<'a>(member: &Node<'a>, code: &[u8], ancestors: Ancestors<
 // member. A C# accessor inherits the member's visibility unless it
 // narrows it with its own `private` / `protected` / `internal` modifier
 // (`public int X { get; private set; }` exposes one public getter, not
-// two). So of the member's `csharp_count_member` total, only the
-// accessors *without* an explicit narrowing modifier count toward npm.
+// two). So of the member's `total` — its `csharp_count_member`, which
+// the caller has already read — only the accessors *without* an
+// explicit narrowing modifier count toward npm.
 //
 // The `.max(1)` total covers the accessor-less expression-bodied form
 // (`public int Z => 0;`) and the single-accessor auto-property
 // (`public int W { get; }`): both define one implicit/sole getter that
 // inherits the member's public visibility, so the public count equals
 // the total and no narrowing can apply.
-fn csharp_member_public_method_count<'a>(
-    member: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> usize {
+fn csharp_member_public_method_count(member: &Node, total: usize) -> usize {
     use Csharp::*;
-    let total = csharp_count_member(member, code, ancestors);
     let narrowed = member
         .children()
         .filter(|c| matches!(c.kind_id().into(), AccessorList))
@@ -70,13 +66,15 @@ fn csharp_member_public_method_count<'a>(
 // unmodified members are not public either: the static constructor,
 // which only the runtime calls (an interface has no other constructor),
 // and an explicit implementation of a base interface's member
-// (`void IA.M() { }`), reachable only through that interface.
-fn csharp_interface_member_public_method_count<'a>(
-    member: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> usize {
+// (`void IA.M() { }`), reachable only through that interface. `total`
+// is the member's `csharp_count_member`; a child worth no method — a
+// field, a comment, a brace — has no public one, so its modifiers are
+// not read.
+fn csharp_interface_member_public_method_count(member: &Node, total: usize) -> usize {
     use Csharp::*;
+    if total == 0 {
+        return 0;
+    }
     // role-bypass: allow(FuncOpener) — which callable is hidden from the
     // public surface, not whether the member is one
     let hidden = member.kind_id() == ConstructorDeclaration
@@ -86,7 +84,7 @@ fn csharp_interface_member_public_method_count<'a>(
     if hidden || !super::npa::csharp_interface_member_is_public(member) {
         return 0;
     }
-    csharp_member_public_method_count(member, code, ancestors)
+    csharp_member_public_method_count(member, total)
 }
 
 impl Npm for CsharpCode {
@@ -131,22 +129,23 @@ impl Npm for CsharpCode {
         match parent_kind {
             ClassDeclaration | StructDeclaration | RecordDeclaration => {
                 for member in node.children() {
-                    stats.class_nm += csharp_count_member(&member, code, members);
+                    let total = csharp_count_member(&member, code, members);
+                    stats.class_nm += total;
                     // A public member exposes all its accessors as public
                     // methods *except* those that narrow visibility with
                     // their own `private` / `protected` / `internal`
                     // modifier.
                     if super::npa::csharp_is_explicit_public(&member) {
-                        stats.class_npm +=
-                            csharp_member_public_method_count(&member, code, members);
+                        stats.class_npm += csharp_member_public_method_count(&member, total);
                     }
                 }
             }
             InterfaceDeclaration => {
                 for member in node.children() {
-                    stats.interface_nm += csharp_count_member(&member, code, members);
+                    let total = csharp_count_member(&member, code, members);
+                    stats.interface_nm += total;
                     stats.interface_npm +=
-                        csharp_interface_member_public_method_count(&member, code, members);
+                        csharp_interface_member_public_method_count(&member, total);
                 }
             }
             _ => {}
