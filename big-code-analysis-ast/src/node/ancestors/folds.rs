@@ -393,9 +393,8 @@ pub(super) fn climbed_chain<'tree>(node: &Node<'tree>) -> Vec<Node<'tree>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GateLane {
     /// Whether a declaration sits in a loop or `if` header — a `for`
-    /// initializer — with no statement block between: the C family,
-    /// C#, Go, Groovy and Java. One lane serves all because a walk
-    /// parses one language.
+    /// initializer — with no statement block between: the C family
+    /// and Go. One lane serves all because a walk parses one language.
     InsideHeader,
     /// JS family: whether a declaration sits in an `export` statement
     /// with no statement block between.

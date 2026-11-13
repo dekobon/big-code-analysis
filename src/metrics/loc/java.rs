@@ -45,15 +45,20 @@ impl Loc for JavaCode {
                 stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
-                if !ancestors.has_ancestor_before_stop::<JavaCode>(
-                    node,
-                    GateLane::InsideHeader,
-                    |node| node.kind_id() == ForStatement,
-                    |node| node.kind_id() == Block,
-                ) {
-                    // The initializer, condition, and increment in a for loop are expressions.
-                    // Don't count the variable declaration if in a ForStatement.
-                    // https://docs.oracle.com/javase/tutorial/java/nutsandbolts/for.html
+                // The declaration in a `for` header belongs to the loop's
+                // logical line and adds none.
+                // https://docs.oracle.com/javase/tutorial/java/nutsandbolts/for.html
+                //
+                // The header is the parent's `init` field, which the grammar
+                // gives `for_statement` alone. An enclosing `ForStatement` is
+                // not the test: a declaration in a `switch` group under a
+                // brace-less `for` body has one with no `block` between, and
+                // is a real statement (#1887).
+                let is_for_header = ancestors
+                    .parent(node)
+                    .and_then(|parent| parent.child_by_field_name("init"))
+                    .is_some_and(|init| init.id() == node.id());
+                if !is_for_header {
                     stats.lloc.count_logical_line();
                 }
             }

@@ -4363,6 +4363,50 @@ line two
         );
     }
 
+    /// The declaration in a classic `for` header is part of the
+    /// `for_statement`, which counts its own logical line, so it adds
+    /// none: one declarator or two, it is the statement's `init` field.
+    ///
+    /// expected: `for` 1 = 1, for each spelling.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_for_header_declaration_is_not_a_logical_line() {
+        check_metrics::<JavaParser>(
+            "class A { void f() { for (int i = 0; i < 2; i++) { } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.loc.lloc(), 1),
+        );
+        check_metrics::<JavaParser>(
+            "class A { void f() { for (int i = 0, j = 2; i < j; i++) { } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.loc.lloc(), 1),
+        );
+    }
+
+    /// A declaration in a `switch` group is a statement wherever the
+    /// `switch` sits. As a brace-less `for` body the `switch` puts no
+    /// `block` between the declaration and the `for_statement`, and a
+    /// carve-out that asked for an enclosing `for_statement` took the
+    /// declaration for the header's and dropped it (#1887: 3 where the
+    /// braced spelling counts 4).
+    ///
+    /// expected: `for` 1 + `switch` 1 + `int y = 1;` 1 + `break;` 1 = 4,
+    /// with or without braces around the `for` body.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_braceless_for_body_declaration_counts() {
+        check_metrics::<JavaParser>(
+            "class A { void f() { for (int i = 0; i < 2; i++) switch (i) { case 0: int y = 1; break; } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.loc.lloc(), 4),
+        );
+        check_metrics::<JavaParser>(
+            "class A { void f() { for (int i = 0; i < 2; i++) { switch (i) { case 0: int y = 1; break; } } } }",
+            "foo.java",
+            |metric| assert_eq!(metric.loc.lloc(), 4),
+        );
+    }
+
     #[cfg(feature = "java")]
     #[test]
     fn java_foreach_lloc() {
@@ -6950,6 +6994,48 @@ y, z = 2, 3",
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
+        );
+    }
+
+    /// A declaration a statement header holds is part of that statement
+    /// and adds no logical line. The grammar spells each one as a bare
+    /// `variable_declaration`; only a declaration *statement* is a
+    /// `local_declaration_statement`, so `LocalDeclarationStatement`
+    /// needs no header carve-out and this pins that the bare node stays
+    /// uncounted.
+    ///
+    /// expected: `for` 1 + `using` 1 + `fixed` 1 = 3
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_header_declarations_are_not_logical_lines() {
+        check_metrics::<CsharpParser>(
+            "class A { unsafe void F(int[] a) { for (int i = 0, j = 2; i < j; i++) { } using (var s = G()) { } fixed (int* p = a) { } } }",
+            "foo.cs",
+            |metric| assert_eq!(metric.loc.lloc(), 3),
+        );
+    }
+
+    /// A declaration in a `switch` section is a statement wherever the
+    /// `switch` sits. As a brace-less `for` body the `switch` puts no
+    /// `block` between the declaration and the `for_statement`, and a
+    /// carve-out that asked for an enclosing `for_statement` took the
+    /// declaration for the header's and dropped it (#1887: 3 where the
+    /// braced spelling counts 4).
+    ///
+    /// expected: `for` 1 + `switch` 1 + `int y = 1;` 1 + `break;` 1 = 4,
+    /// with or without braces around the `for` body.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_braceless_for_body_declaration_counts() {
+        check_metrics::<CsharpParser>(
+            "class A { void F() { for (int i = 0; i < 2; i++) switch (i) { case 0: int y = 1; break; } } }",
+            "foo.cs",
+            |metric| assert_eq!(metric.loc.lloc(), 4),
+        );
+        check_metrics::<CsharpParser>(
+            "class A { void F() { for (int i = 0; i < 2; i++) { switch (i) { case 0: int y = 1; break; } } } }",
+            "foo.cs",
+            |metric| assert_eq!(metric.loc.lloc(), 4),
         );
     }
 
@@ -13967,8 +14053,8 @@ class A {
     fn groovy_for_lloc() {
         // The classical `for` statement itself counts as one LLOC;
         // the body's `println(i)` adds another. The init-slot
-        // var-decl is suppressed by the LocalVariableDeclaration
-        // ancestor-check (same rule as `java_for_lloc`).
+        // var-decl adds nothing: it is the `for_statement`'s `init`
+        // field (same rule as `java_for_lloc`).
         check_metrics::<GroovyParser>(
             "for (int i = 0; i < 100; i++) {
                 println(i)
@@ -13978,6 +14064,66 @@ class A {
                 // ForStatement(1) + println-expr(1) = 2
                 assert_eq!(metric.loc.lloc(), 2);
             },
+        );
+    }
+
+    /// The declaration in a classic `for` header is part of the
+    /// `for_statement`, which counts its own logical line, so it adds
+    /// none: typed or `def`, one declarator or two, it is the statement's
+    /// `init` field. A declaration in a closure the header holds is not
+    /// that field. It is a statement of the closure and counts, where the
+    /// carve-out that asked for an enclosing `for_statement` dropped it
+    /// with the header's own (#1887).
+    ///
+    /// expected: `for` 1 = 1, for each of the first three spellings;
+    /// `for` 1 + `int y = 1` 1 = 2 for the closure, whose `def c` adds
+    /// nothing.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_for_header_declaration_is_not_a_logical_line() {
+        check_metrics::<GroovyParser>(
+            "def f() { for (int i = 0; i < 2; i++) { } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 1),
+        );
+        check_metrics::<GroovyParser>(
+            "def f() { for (def i = 0; i < 2; i++) { } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 1),
+        );
+        check_metrics::<GroovyParser>(
+            "def f() { for (int i = 0, j = 2; i < j; i++) { } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 1),
+        );
+        check_metrics::<GroovyParser>(
+            "def f() { for (def c = { int y = 1 }; false; ) { } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 2),
+        );
+    }
+
+    /// A declaration in a closure is a statement wherever the closure
+    /// sits. As part of a brace-less `for` body the closure puts no
+    /// `block` between the declaration and the `for_statement`, and a
+    /// carve-out that asked for an enclosing `for_statement` took the
+    /// declaration for the header's and dropped it (#1887: 2 where the
+    /// braced spelling counts 3).
+    ///
+    /// expected: `for` 1 + the `xs.each { … }` call 1 + `int y = 1` 1 = 3,
+    /// with or without braces around the `for` body.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_braceless_for_body_declaration_counts() {
+        check_metrics::<GroovyParser>(
+            "def f(xs) { for (int i = 0; i < 2; i++) xs.each { int y = 1 } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 3),
+        );
+        check_metrics::<GroovyParser>(
+            "def f(xs) { for (int i = 0; i < 2; i++) { xs.each { int y = 1 } } }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.loc.lloc(), 3),
         );
     }
 

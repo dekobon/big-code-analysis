@@ -262,6 +262,23 @@ for historical reference.
 
 ### Fixed
 
+- **A declaration under a brace-less `for` body counts as a logical
+  line in C#, Java and Groovy** (#1887). In C# and Java, a `for` loop
+  whose body is a `switch` with no braces around it,
+  `for (int i = 0; i < 2; i++) switch (i) { case 0: int y = 1; break; }`,
+  reported `lloc` 3, and 4 with braces around the loop body. The rule
+  that keeps a `for` header's declaration from counting twice asked
+  whether a `for` statement encloses the declaration with no block
+  between, and a `switch` body is not a block, so `int y = 1;` was
+  taken for the header's. Groovy lost a declaration the same way in a
+  `switch` case or in a closure:
+  `for (int i = 0; i < 2; i++) xs.each { int y = 1 }` reported 2 and
+  now reports 3. Java and Groovy now recognise the header's declaration
+  as the `for` statement's `init` field. C# needs no rule: its grammar
+  gives a header's declaration no statement node. `lloc` rises by one
+  for each such declaration; a header's declaration still adds nothing
+  to its `for` statement.
+
 - **Rust's empty inner block doc comment `/*!*/` counts as
   documentation** (#1890). `/*!*/` above `fn f() {}` reported
   `loc.dloc` 0, where the same comment with text (`/*! d */`) and the

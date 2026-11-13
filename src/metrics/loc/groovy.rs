@@ -68,14 +68,18 @@ impl Loc for GroovyCode {
                 stats.lloc.count_logical_line();
             }
             LocalVariableDeclaration => {
-                if !ancestors.has_ancestor_before_stop::<GroovyCode>(
-                    node,
-                    GateLane::InsideHeader,
-                    |node| node.kind_id() == ForStatement,
-                    |node| node.kind_id() == Block,
-                ) {
-                    // Skip the initializer slot of a classic `for` loop —
-                    // same reason as Java's impl.
+                // Skip the initializer slot of a classic `for` loop —
+                // same reason as Java's impl, and the same test: the
+                // parent's `init` field, which the grammar gives
+                // `for_statement` alone. An enclosing `ForStatement` is not
+                // the test: a declaration in a closure or `switch` case
+                // under a brace-less `for` body has one with no `block`
+                // between, and is a real statement (#1887).
+                let is_for_header = ancestors
+                    .parent(node)
+                    .and_then(|parent| parent.child_by_field_name("init"))
+                    .is_some_and(|init| init.id() == node.id());
+                if !is_for_header {
                     stats.lloc.count_logical_line();
                 }
             }

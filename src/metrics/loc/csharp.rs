@@ -43,18 +43,12 @@ impl Loc for CsharpCode {
             | UsingStatement | WhileStatement | YieldStatement => {
                 stats.lloc.count_logical_line();
             }
+            // No `for`-header carve-out, unlike Java's
+            // `LocalVariableDeclaration`: a `for`, `using` or `fixed` header
+            // holds a bare `variable_declaration`, and this kind occurs only
+            // as a statement (#1887).
             LocalDeclarationStatement => {
-                // Variable declarations inside a `for_statement` init/condition/update
-                // (e.g. `for (int i = 0; i < n; i++)`) shouldn't bump LLOC; the
-                // surrounding `for_statement` already counts.
-                if !ancestors.has_ancestor_before_stop::<CsharpCode>(
-                    node,
-                    GateLane::InsideHeader,
-                    |n| n.kind_id() == ForStatement,
-                    |n| n.kind_id() == Block,
-                ) {
-                    stats.lloc.count_logical_line();
-                }
+                stats.lloc.count_logical_line();
             }
             _ => {
                 check_comment_ends_on_code_line(stats, start);
