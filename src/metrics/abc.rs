@@ -15700,6 +15700,13 @@ end
     // `/foo/ =~ $x` the pattern is the *left* operand, so it first
     // matches `$_` and that result is bound (Deparse: `/foo/ =~ /$x/`) —
     // the match and the `=~` both pay, as in the explicit `rev_twin`.
+    //
+    // Once the climb has stepped to a `( … )`, that parenthesis is what
+    // is read among its own siblings (#1868): `bind_nested_list` is
+    // followed by `$y` there and `split_second_paren` preceded by `1`,
+    // so neither is the value of the list nor `split`'s first argument.
+    // Reading the siblings inside the parenthesis instead finds none on
+    // either side, and binds the one and makes a delimiter of the other.
     #[cfg(feature = "perl")]
     #[test]
     fn perl_pattern_role_reads_through_parentheses() {
@@ -15708,9 +15715,11 @@ end
              sub bind_paren { my ($x) = @_; return $x =~ (/foo/); }\n\
              sub bind_parens_m { my ($x) = @_; return $x =~ (((m{foo}))); }\n\
              sub bind_list { my ($x, $y) = @_; return $x =~ (/foo/, $y); }\n\
+             sub bind_nested_list { my ($x, $y) = @_; return $x =~ ((/foo/), $y); }\n\
              sub bind_list_twin { my ($x, $y) = @_; /foo/; return $x =~ $y; }\n\
              sub split_twin { my ($x) = @_; my @p = split(/foo/, $x); return @p; }\n\
              sub split_paren { my ($x) = @_; my @p = split((/foo/), $x); return @p; }\n\
+             sub split_second_paren { my ($x) = @_; my @p = split(1, (/foo/), $x); return @p; }\n\
              sub split_sole { my @p = split(/foo/); return @p; }\n\
              sub subst_twin { my ($x) = @_; $x =~ s/a/b/; return $x; }\n\
              sub subst_paren { my ($x) = @_; $x =~ (s/a/b/); return $x; }\n\
@@ -15727,9 +15736,13 @@ end
                         // A comma operator: `/foo/` matches `$_` and `$y`
                         // is what binds, so the match pays as in the twin.
                         ("bind_list", 2, 1),
+                        ("bind_nested_list", 2, 1),
                         ("bind_list_twin", 2, 1),
                         ("split_twin", 0, 1),
                         ("split_paren", 0, 1),
+                        // `1` is the delimiter; the match is `split`'s
+                        // second argument and pays.
+                        ("split_second_paren", 1, 1),
                         // The pattern is the whole argument list, which is
                         // the call's own and no wrapper to climb through.
                         ("split_sole", 0, 1),
@@ -15737,6 +15750,41 @@ end
                         ("subst_paren", 0, 1),
                         ("rev", 2, 1),
                         ("rev_twin", 2, 1),
+                    ],
+                );
+            },
+        );
+    }
+
+    // A pattern's place in its list is read from the pattern outward
+    // (#1868), so comments ahead of the first operand change nothing:
+    // each `*_commented` row scores as its `*_twin`. `split`'s first
+    // pattern is still its delimiter and its second an ordinary match,
+    // bare or in parentheses of its own, and every pattern of a plain
+    // list is a match. These lists are narrow, so the neighbours are
+    // sought; `the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record`
+    // reads a wide one off the walk's record.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_pattern_role_reads_past_leading_comments() {
+        check_func_space::<PerlParser, _>(
+            "sub split_twin { my ($s) = @_; my @p = split(/,/, /x/, $s); return @p; }\n\
+             sub split_commented { my ($s) = @_; my @p = split(\n# a\n# b\n/,/, /x/, $s); return @p; }\n\
+             sub paren_twin { my ($s) = @_; my @p = split((/,/), /x/, $s); return @p; }\n\
+             sub paren_commented { my ($s) = @_; my @p = split(\n# a\n(\n# b\n/,/), /x/, $s); return @p; }\n\
+             sub list_twin { my @r = (/a/, /b/, 1); return @r; }\n\
+             sub list_commented { my @r = (\n# a\n# b\n/a/, /b/, 1); return @r; }\n",
+            "foo.pl",
+            |space| {
+                assert_members_score(
+                    &space,
+                    &[
+                        ("split_twin", 1, 1),
+                        ("split_commented", 1, 1),
+                        ("paren_twin", 1, 1),
+                        ("paren_commented", 1, 1),
+                        ("list_twin", 2, 1),
+                        ("list_commented", 2, 1),
                     ],
                 );
             },

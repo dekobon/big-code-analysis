@@ -405,6 +405,18 @@ for historical reference.
   parent alone. Metric values are unchanged. New scaling probe
   `abc/js-nested-default-patterns` and its control
   `abc/js-nested-patterns` price it.
+- **Perl `abc` stays linear over a list that opens with comments and
+  holds many patterns** (#1868). The walk asks of every `/re/` and
+  `m{re}` whether it is bound by `=~` or is `split`'s delimiter, and
+  reads the pattern's neighbours in its list to decide. Both reads
+  started at the list's first child, and the comments between the `(`
+  and the first operand are stepped over one by one, so a list of `n`
+  comments and then `n` patterns cost `n²` steps: 16,000 of each took
+  6.5 s under `abc` against 0.05 s for `loc`, and take 0.04 s. A plain
+  list and `split`'s argument list were affected alike. The neighbours
+  are now read from the children the walk already recorded for the
+  list. Metric values are unchanged. New scaling probe
+  `abc/perl-commented-pattern-list` prices it.
 - **Elixir's quoted atom and quoted keyword are string literals to
   `find`, the AST dump and Halstead** (#1816). `:"a b"` (`quoted_atom`)
   and the `"a b":` key of a pair (`quoted_keyword`) are quote-delimited

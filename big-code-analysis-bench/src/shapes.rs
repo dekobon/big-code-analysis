@@ -1394,6 +1394,26 @@ pub fn perl_pattern_list(width: usize) -> String {
     format!("my @r = ({});\n", vec!["/a/"; width].join(", "))
 }
 
+/// Perl: `my @r = (` + `width` comment rows + `/a/, /a/, …, 1);` — the
+/// list of [`perl_pattern_list`] behind as many comments as it holds
+/// matches.
+///
+/// The grammar stores a list's operands as a `repeat()`, which a seek by
+/// byte crosses in `O(log n)`, but the comments between the `(` and the
+/// first operand are the list's own children, outside that repeat: a
+/// seek or a scan from the list's start steps over each. The
+/// pattern-role check reads the sibling after every pattern and whether
+/// an operand precedes it, so reading either from the list's start costs
+/// the comment run once per pattern (#1868).
+#[must_use]
+pub fn perl_commented_pattern_list(width: usize) -> String {
+    format!(
+        "my @r = (\n{}{}1);\n",
+        "# c\n".repeat(width),
+        "/a/, ".repeat(width)
+    )
+}
+
 /// Kotlin: `val s = "$a $a …"` — one string holding `width` short
 /// `$name` interpolations.
 ///
@@ -4465,6 +4485,34 @@ pub const PROBES: &[Probe] = &[
                     match, so it grows with the width.",
     },
     Probe {
+        name: "abc/perl-commented-pattern-list",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_commented_pattern_list,
+        sizes: SLOT_SCAN_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: the pattern-role check reads the sibling after \
+                    each pattern and whether an operand precedes it. A \
+                    list's leading comments are its own children, outside \
+                    the operands' `repeat()`, so a read that starts at the \
+                    list's first child crosses all of them, once per \
+                    pattern: `width²` steps for `width` comments and \
+                    `width` patterns, which `abc/perl-pattern-list` cannot \
+                    show with no comment in it. Both reads go through the \
+                    walk's `SiblingCache`. This reads 1.07 and 8.9 ms at \
+                    the top rung; 2.08 and 0.9 s with the first read back \
+                    on `Node::children_after`, 2.02 and 2.2 s with the \
+                    second back on `children().find(..)`, and 2.02 and \
+                    2.5 s with the second on `Node::children_before`, \
+                    which reads each earlier sibling by index. The \
+                    reading is one condition per bare match.",
+    },
+    Probe {
         name: "abc/perl-or-chain",
         lang: LANG::Perl,
         axis: Axis::Depth,
@@ -5192,6 +5240,7 @@ mod tests {
             "nom/js-arrow-per-array-depth",
             "cognitive/python-and-per-list-depth",
             "abc/js-nested-default-patterns",
+            "abc/perl-commented-pattern-list",
         ] {
             let probe = PROBES
                 .iter()

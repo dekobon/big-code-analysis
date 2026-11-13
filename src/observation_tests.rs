@@ -874,6 +874,96 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
     }
 }
 
+/// Perl ABC's pattern-role check reads a pattern's neighbours in its
+/// list through the walk's record of the list's children, and never by
+/// a seek or a scan from the list's first child (#1868).
+///
+/// The list opens with a run of comments. Those are the list's own
+/// children, outside the `repeat()` its operands are stored under, so a
+/// read that starts at the first child steps over every one of them,
+/// once per pattern, and answers what the record answers. No value
+/// shows it, and `sibling_cache_reads` does: each pattern asks for the
+/// sibling after it and for the operands before it, two reads of the
+/// record. `Node::children_after` for the first, or a
+/// `children().find(..)` or `Node::children_before` for the second,
+/// reads the record once per pattern instead. The list is wider than
+/// `WIDE_PARENT`, so the walk recorded it and no lookup seeks.
+///
+/// The second row climbs: its pattern sits in a `( … )` of its own, the
+/// second argument of a wide `split` list. The pattern's own read is a
+/// seek inside that narrow parenthesis, and the parenthesis is then
+/// asked for the operands before it in the list, through the list's
+/// record. A climb that kept the pattern's chain for the parenthesis
+/// would seek inside the parenthesis again, find nothing before it, and
+/// make the pattern `split`'s delimiter.
+#[cfg(feature = "perl")]
+#[test]
+fn the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record() {
+    use crate::node::{WIDE_PARENT, sibling_cache_reads, sibling_seeks};
+
+    let (comments, patterns, fillers) = (40, 40, 40);
+    let rows = [
+        (
+            "a commented list",
+            format!(
+                "my @r = (\n{}{}1);\n",
+                "# c\n".repeat(comments),
+                "/a/, ".repeat(patterns)
+            ),
+            // expected: the parentheses, the comments, each pattern and
+            // its comma, and the closing `1`.
+            comments + 2 * patterns + 3,
+            // expected: every bare match is a condition; each asks the
+            // record twice, and nothing else in the file asks for a
+            // sibling.
+            (patterns, 0, 2 * patterns),
+        ),
+        (
+            "a parenthesised second argument",
+            format!("my @p = split(1, (/x/), {}3);\n", "2, ".repeat(fillers)),
+            // expected: the parentheses, `1` and `(/x/)` each with a
+            // comma, each filler and its comma, and the closing `3`.
+            2 * fillers + 7,
+            // expected: the one match is a condition. It seeks the
+            // sibling after it in its own parenthesis, and the
+            // parenthesis reads the list's record once.
+            (1, 1, 1),
+        ),
+    ];
+    let lookups = || (sibling_seeks::observed(), sibling_cache_reads::observed());
+    for (shape, source, widest, (conditions, seeks, reads)) in rows {
+        let ast = crate::test_support::parse_named(crate::LANG::Perl, "list.pl", &source);
+        assert_eq!(
+            ast.root_node().preorder().map(|n| n.child_count()).max(),
+            Some(widest),
+            "{shape}: the fixture's list moved; re-derive its counts"
+        );
+        assert!(
+            widest > WIDE_PARENT,
+            "{shape}: the walk must record the list"
+        );
+
+        let (sought_before, read_before) = lookups();
+        let space = ast
+            .metrics(crate::MetricsOptions::default().with_only(&[crate::Metric::Abc]))
+            .expect("the walk must yield a top-level space");
+        let (sought, read) = lookups();
+        assert_eq!(
+            (
+                space.metrics.abc.conditions_sum(),
+                sought - sought_before,
+                read - read_before
+            ),
+            (
+                u64::try_from(conditions).expect("a small count"),
+                seeks,
+                reads
+            ),
+            "{shape}: (conditions, seeks, record reads)"
+        );
+    }
+}
+
 // The member walks ask for no sibling (#1871): the fixture table and the
 // test. The table names each language as a `LANG` value and filters at
 // run time with `is_enabled`, so the module is gated on the union.

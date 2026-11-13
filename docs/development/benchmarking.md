@@ -227,6 +227,7 @@ Read it as follows.
 | `halstead/kotlin-short-interpolations` | Kotlin | width | the `$name` test's previous-token lookup in one string (#1584) | linear |
 | `halstead/kotlin-noinline-params` | Kotlin | width | the modifier recovery guard's next-token lookup (#1558) | linear |
 | `abc/perl-pattern-list` | Perl | width | ABC's pattern-role climb through `( … )` (#1467) | linear |
+| `abc/perl-commented-pattern-list` | Perl | width | the same check's two sibling reads in a list that opens with `width` comments, which sit outside the operands' `repeat()`: both go through the walk's `SiblingCache`, where a seek or a scan from the list's start crossed the comments once per pattern (#1868) | linear |
 | `cognitive/elixir-mixed-arguments` | Elixir | width | the keyword-section lookup per pair and per keyword-form clause (#1574) | linear |
 | `cognitive/elixir-keyword-sections` | Elixir | width | the per-list `do:` memo behind the keyword-section gate (#1602) | linear |
 | `cognitive/elixir-rejected-keyword-list` | Elixir | width | the section lookup's two position memos — trailing argument (#1602) and leading pairs (#1697) — each scanned past `width` comments | linear |
@@ -1058,7 +1059,56 @@ grammars: 83 and 123 memoised, 943 and 1 763 climbed. Under
 `--cfg chain_audit` every memoised answer is also checked against the
 climb.
 
+`abc/perl-commented-pattern-list` guards the second cost #1868 found,
+which was not in a climb's steps but in what each step read. Perl ABC
+asks of every pattern whether it is bound by `=~` or is `split`'s
+delimiter, on the outermost `( … )` holding it as its value. That climb
+takes a linear number of steps over a walk, since only a list's last
+operand climbs on and so one pattern climbs through each list. To
+decide it, the check reads the sibling after the pattern and whether an
+operand precedes it.
+
+Both reads started at the list's first child: the first by
+`Node::children_after`, a seek by byte, and the second by
+`children().find(..)`. The grammar stores a list's operands under a
+`repeat()`, which the seek crosses in `O(log n)`, and
+`abc/perl-pattern-list` reads linear for that reason. A comment between
+the `(` and the first operand is not under that repeat. It is a direct
+child of the list, so a seek or a scan steps over each one, and a list
+of `n` comments and then `n` patterns cost `n²` steps. An `ERROR` built
+by skipping tokens was the flat child array this guide knew
+([#1584][flat-error]); a run of extras ahead of a `repeat()` is
+another, in input that parses.
+
+Both reads now go through `Ancestors::siblings_after` and
+`siblings_before`, which find a pattern by binary search in the
+children the walk recorded for a wide list.
+
+| Read put back | Probe that fails | Clean | Regressed | Top rung |
+|---|---|---|---|---|
+| the sibling after, by `Node::children_after` | `abc/perl-commented-pattern-list` | 1.07 | 2.08 | 8.9 ms → 0.9 s |
+| the operands before, by `children().find(..)` | `abc/perl-commented-pattern-list` | 1.07 | 2.02 | 8.9 ms → 2.2 s |
+| the operands before, by `Node::children_before` | `abc/perl-commented-pattern-list` | 1.07 | 2.02 | 8.9 ms → 2.5 s |
+
+One run each, on a host that was not idle. In each run no other probe
+left its bound, and `abc/perl-pattern-list` read 0.99 to 1.07. The
+third row is a read `main` never had. `Node::children_before` fetches
+each earlier sibling by index, and an index costs its position in a
+flat run, so the one pattern that follows the comments pays `n² / 2` by
+itself.
+
+The per-change guard is
+`the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record`
+in `src/observation_tests.rs`. It holds `sibling_seeks` at zero and
+`sibling_cache_reads` at two per pattern over a list of 40 comments and
+40 patterns, and each of the three reads above drops one read per
+pattern.
+
+Other scans from a parent's first child that run once per child are
+listed in [#1888][prefix-scans], measured and not yet fixed.
+
 [climb-audit]: https://github.com/dekobon/big-code-analysis/issues/1868
+[prefix-scans]: https://github.com/dekobon/big-code-analysis/issues/1888
 
 ### Child scans, and where the allocation actually was {#child-scans}
 
