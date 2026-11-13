@@ -40,7 +40,7 @@ exclude_globs = ["**/*_tests.rs"]
 # - equivalent: identical on every reachable input, panics and side
 #   effects included;
 # - unreachable: the code runs for no language;
-# - non-terminating under mutation;
+# - non-terminating, or allocating without bound, under mutation;
 # - same output, different work: no metric moves, and the entry names
 #   the work the mutant skips or adds, which a test-support counter can
 #   observe;
@@ -233,6 +233,15 @@ exclude_re = [
   # stale line stops excluding this mutant, and a line one off excludes
   # the live one.
   '^big-code-analysis-ast/src/checker\.rs:1105:9: replace \|\| with && in rust_attribute_run_member$',
+  # Allocates without bound under mutation. With `*` a set's last word
+  # is its offset times its length, so `union_with` reserves that far
+  # and every merge up a space tree multiplies the span again. The
+  # suite does notice: several hundred tests fail on the wrong rows.
+  # But a nested fixture then asks for a span of gigabytes, and on a
+  # hosted runner the test binary stalls past the timeout before it can
+  # report (run 43437925608: 168 GB requested, judged a timeout; run
+  # 43278927651 judged the same mutant caught).
+  '^src/metrics/loc/line_set\.rs:\d+:\d+: replace \+ with \* in LineSet::last_word$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
