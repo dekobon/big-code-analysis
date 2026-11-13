@@ -267,3 +267,39 @@ role_table! {
     // function's own doc — is `Checker::doc_comment_opens_body`.
     DocBodyResidual { absent "only the callables and closures hold a doc comment in a body; the trait default" }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RustCode;
+    use crate::test_support::for_each_node_with_chain;
+
+    // The `Guard` row owns a `match_pattern` exactly where it carries
+    // a `condition`, and the guard's `if` pays under it. The one
+    // consumer that reads the owner, ABC's arm walk, reads the
+    // `condition` field again beside it, so an owner that admitted
+    // every pattern scores the same there; the row is asked here.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn guard_owns_a_pattern_only_where_it_carries_a_condition() {
+        let source = b"fn f(x: i32) -> i32 { match x { a if a > 0 => 1, b => b, _ => 0 } }\n";
+        let (mut patterns, mut owned, mut paid) = (0, Vec::new(), Vec::new());
+        for_each_node_with_chain::<RustCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            let text = || node.utf8_text(source).expect("fixture is UTF-8").to_owned();
+            if node.kind_id() == Rust::MatchPattern as u16 {
+                patterns += 1;
+            }
+            if guard::owns(node, source, ancestors) {
+                owned.push(text());
+            }
+            if guard::pays_at_leaf(node, source, ancestors) {
+                paid.push(text());
+            }
+        });
+        // Three arms, three patterns; only the first is guarded.
+        assert_eq!(patterns, 3);
+        assert_eq!(owned, ["a if a > 0"]);
+        assert_eq!(paid, ["if"]);
+    }
+}
