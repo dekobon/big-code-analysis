@@ -117,6 +117,17 @@ exclude_re = [
   # position through this function; answering 0 for a source that opens
   # with a backslash and a newline sends it back to the start for ever.
   '^src/metrics/loc/shared\.rs:\d+:\d+: replace past_horizontal_space -> usize with 0$',
+  # Equivalent. `PYTHON_COMMENTS` is a constant whose `continued` is
+  # false, so the guard reads false for every input before the mutant
+  # says so.
+  '^src/metrics/loc/python\.rs:\d+:\d+: replace match guard in_comment && PYTHON_COMMENTS\.continued with false in classify_python_run$',
+  # Equivalent. Each differs only when the two values compared are
+  # equal, and then keeps or assigns the other of two equal values. The
+  # one pair that is equal and distinguishable is `+0.0` and `-0.0`,
+  # and no population folds a negative zero: a `usize` has none, and
+  # every `f64` folded starts at 1 and only grows.
+  '^src/metrics/mod\.rs:\d+:\d+: replace < with <= in FunctionPopulation<T>::(fold|merge)$',
+  '^src/metrics/mod\.rs:\d+:\d+: replace > with >= in FunctionPopulation<T>::(fold|merge)$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
