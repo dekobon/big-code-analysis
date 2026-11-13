@@ -271,6 +271,16 @@ leaves-only "empirically". Probe a sibling-compliance claim with
 the fix is to *remove* a kind, remove its un-fired aliases too instead
 of completing the list.
 
+**A bump can add an alias that leaves the old id unreported** (#1896).
+tree-sitter-groovy 0.6.0 gave `variable_declarator` and
+`assignment_expression` a second alias each. The regenerated enum gained
+`VariableDeclarator2` and `AssignmentExpression2`, and the parser reports
+only those. Every consumer naming the bare variant still compiled, and
+every Groovy field read zero attributes until the ABC walk, the
+`final`-binding test and NPA moved to the new ids. Run the variant sweep
+against the *new* enum: for each matched rule that gained a suffixed
+variant, dump a fixture to see which id the parser reports.
+
 ---
 
 ## 3. Per-language modules mirror each other — fix the bug in every sibling
@@ -3269,6 +3279,16 @@ wire projection, and *that* conversion was the overflow: ~2.3 KB per
 frame in release against the JSON serializer's ~170 bytes. The same issue
 wrote `Drop` off after a 10,000-level chain survived; a cheap frame is
 not an iterative one, and it aborts at 16,000 in a debug build.
+
+**Widening what reaches a recursive helper is a new depth exposure**
+(#1885). The minimal fix for C++ `T (S::*pd);` sent every method
+declarator's parameter list through the mutually recursive declarator
+classifier, which until then saw only the nested declarators that
+already recursed. A 6,000-level declarator tower the base answered at
+depth one aborted with the fix applied. Before routing a new shape into
+a recursive helper, run a tower of *that* shape on both builds: the
+towers already under test exercise only the shapes that recursed
+before. The classifier became a work-list walk in the same change.
 
 **`Serialize` is the one that cannot be fixed, only bounded** (#1056).
 `serde` offers no iterative escape — `serialize_field` must run the

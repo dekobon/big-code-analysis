@@ -44,6 +44,16 @@ pre-commit`) re-runs the codegen into a temporary directory and fails
 if the checked-in `language_*.rs` or `c_langs_macros/*.rs` files
 differ from it.
 
+A clean build does not prove the bump safe. A release can give a rule a
+second alias, after which the parser reports only the new, suffixed
+id: `dekobon-tree-sitter-groovy` 0.6.0 did this to
+`variable_declarator`, so code matching `Groovy::VariableDeclarator`
+compiled and never matched again. Diff the regenerated
+`language_<lang>.rs`. For every rule that gains a numeric-suffixed
+variant, run `bca dump` on a fixture containing it to see which id the
+parser reports, and move every `match` arm that names an id the parser
+no longer reports.
+
 Commit your changes and open a pull request.
 
 ## Internal grammars
