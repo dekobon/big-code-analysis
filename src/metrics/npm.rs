@@ -6727,21 +6727,37 @@ class C {
     // reached it. Measured with `cpp_answer` calling itself for each
     // nested question, in the dev profile the tests build: that overflows
     // this 512 KiB stack between 270 and 280 levels on both grammars, so
-    // `DEPTH` is ~18x past it.
+    // `DEPTH` is ~18x past it. A primitive type puts the same tower in a
+    // `field_declaration`, whose names the attribute count reads through
+    // `cpp_declarator_names`, and so does #1829's plain function-pointer
+    // tower: that walk recursed once per level until it took a stack of
+    // its own, and aborted the process at ~1,200 levels on the 2 MiB
+    // consumer stack.
     //
     // expected: the method tower is `g` beside the data control `z`
-    // (na 1 / nm 1); the data tower is `pd` and `z` (na 2 / nm 0).
+    // (na 1 / nm 1); each data tower — `pd` under `T` and under `int`,
+    // and the function pointer `fp` — is that member and `z` (na 2 /
+    // nm 0).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_deep_member_pointer_towers_are_read<P: crate::MetricSuite + 'static>() {
         // Levels of `(S::*const …)(int)` around the bottom declarator.
         const DEPTH: usize = 5_000;
         // A deliberately small test-thread stack.
-        const SMALL_STACK: usize = 512 * 1024;
-        let tower = |bottom: &str| {
+        const SMALL_STACK: usize = 512 * 1_024;
+        let tower = |ty: &str, bottom: &str| {
             let (open, close) = ("(S::*const ".repeat(DEPTH), ")(int)".repeat(DEPTH - 1));
-            format!("struct T {{}};\nstruct S {{ T {open}{bottom}{close}); int z; }};\n")
+            format!("struct T {{}};\nstruct S {{ {ty} {open}{bottom}{close}); int z; }};\n")
         };
-        let (method, data) = (tower("g(int)"), tower("pd"));
+        let method = tower("T", "g(int)");
+        let data = [
+            tower("T", "pd"),
+            tower("int", "pd"),
+            format!(
+                "struct S {{ int {}fp{}; int z; }};\n",
+                "(*".repeat(DEPTH),
+                ")(int)".repeat(DEPTH)
+            ),
+        ];
         std::thread::Builder::new()
             .stack_size(SMALL_STACK)
             .spawn(move || {
@@ -6749,10 +6765,12 @@ class C {
                     assert_eq!(metric.npa.class_na_sum(), 1);
                     assert_eq!(metric.npm.class_nm_sum(), 1);
                 });
-                check_metrics_with_npa::<P>(&data, "foo.cpp", |metric| {
-                    assert_eq!(metric.npa.class_na_sum(), 2);
-                    assert_eq!(metric.npm.class_nm_sum(), 0);
-                });
+                for source in &data {
+                    check_metrics_with_npa::<P>(source, "foo.cpp", |metric| {
+                        assert_eq!(metric.npa.class_na_sum(), 2);
+                        assert_eq!(metric.npm.class_nm_sum(), 0);
+                    });
+                }
             })
             .expect("spawn bounded-stack thread")
             .join()

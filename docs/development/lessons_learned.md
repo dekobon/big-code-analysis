@@ -3282,13 +3282,13 @@ not an iterative one, and it aborts at 16,000 in a debug build.
 
 **Widening what reaches a recursive helper is a new depth exposure**
 (#1885). The minimal fix for C++ `T (S::*pd);` sent every method
-declarator's parameter list through the mutually recursive declarator
-classifier, which until then saw only the nested declarators that
-already recursed. A 6,000-level declarator tower the base answered at
-depth one aborted with the fix applied. Before routing a new shape into
-a recursive helper, run a tower of *that* shape on both builds: the
-towers already under test exercise only the shapes that recursed
-before. The classifier became a work-list walk in the same change.
+declarator's parameter list through the recursive declarator
+classifier, and a 6,000-level tower the base answered at depth one
+aborted. A work-list classifier was not the whole fix: with `int` for
+`T` the tower is a `field_declaration`, whose names `npa` counted with
+a recursion the test tower never reached (#1829). Before routing a new
+shape into a recursive helper, run its tower on both builds, through
+every consumer the grammar routes any spelling of it to.
 
 **`Serialize` is the one that cannot be fixed, only bounded** (#1056).
 `serde` offers no iterative escape — `serialize_field` must run the

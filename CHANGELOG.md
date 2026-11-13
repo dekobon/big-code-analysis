@@ -378,6 +378,13 @@ for historical reference.
   still a method. `T (S::*pd) = 0;` and `T (S::*arr)[2];` are still
   misread; #1829 tracks them.
 
+- **C++ `npa` no longer overflows the stack on a deeply nested field
+  declarator** (#1829). A data member nested some 1,200 declarator
+  levels deep, such as #1829's function-pointer tower
+  `int (*(*…(*fp)(int)…)(int))(int);`, aborted the process: the walk
+  that counts the member's names recursed once per level. It keeps its
+  own stack now, as the declarator classifier does since #1885.
+
 - **`npm` and `npa` read the visibility of interface members** (#1880).
   Every interface member used to count as public, whatever it
   declared. These now count as not public: a Java `private` interface

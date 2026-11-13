@@ -1067,69 +1067,86 @@ fn cpp_answer(question: DeclaratorQuestion<'_>) -> bool {
     }
 }
 
-// Matches on node-kind NAMES, not one grammar's enum discriminants, so it
-// is correct for every C-family grammar: upstream `Cpp` and the Mozilla
-// `Mozcpp` fork (#720) assign *different* kind_ids to the same node kinds,
-// and this helper is shared by both impls. (A `kind_id().into()` against a
-// fixed `Cpp` enum silently miscounted Mozcpp nodes, zeroing its `npa`.)
-// Each declarator's aliases all render to the one base name, so a single
-// string arm covers the family.
+// The names a whole declaration's declarators declare, for the tests
+// that pin them per declaration.
+#[cfg(test)]
 pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
     node.children()
         .map(|child| cpp_declarator_names(&child))
         .sum()
 }
 
-// The names one child of a declarator subtree declares; see
-// `cpp_count_field_identifiers` for the arms.
+// The names one child of a declarator subtree declares. Matches on
+// node-kind NAMES, not one grammar's enum discriminants, so it is correct
+// for every C-family grammar: upstream `Cpp` and the Mozilla `Mozcpp` fork
+// (#720) assign *different* kind_ids to the same node kinds, and this
+// helper is shared by both impls. (A `kind_id().into()` against a fixed
+// `Cpp` enum silently miscounted Mozcpp nodes, zeroing its `npa`.) Each
+// declarator's aliases all render to the one base name, so a single
+// string arm covers the family. Walked with an explicit stack, the
+// wrappers pushed only when met: they nest one level per parenthesis or
+// `*` the source writes, and the recursion this replaced overflowed the
+// consumer thread's stack on a function-pointer member some 1,200 levels
+// deep that every other metric reads (#1829).
 fn cpp_declarator_names(child: &Node) -> usize {
-    match child.kind() {
-        "field_identifier" => 1,
-        // `function_declarator` / `parenthesized_declarator` are
-        // in the set for the function-pointer data member
-        // `int (*fp)(int);`, whose name is buried under both
-        // (#1300). A member function's name cannot arrive through
-        // them: reaching here means `cpp_declares_function`
-        // declined the declaration, and it declines a
-        // `function_declarator` only when an indirection inside
-        // the parentheses makes the name the pointee's, never the
-        // function's — `void (f)();` stays a function precisely so
-        // that `f` is never counted here — or when its parameter
-        // lists are recovered member pointers that are all data,
-        // where the name counted stands for the one they declare
-        // (`int DECL(S::*p);`, a macro call and not C++ as written).
-        "function_declarator"
-        | "parenthesized_declarator"
-        | "pointer_declarator"
-        | "array_declarator"
-        | "init_declarator"
-        | "reference_declarator" => cpp_count_field_identifiers(child),
-        // The member-pointer data member `(S::*fp)` that
-        // `cpp_parenthesized_child_verdict` declines (#1718).
-        // One member pointer declares one name, so it counts one
-        // without a walk: the scope `S` is never a member, and the
-        // name's kind does not matter (the templated parse makes it
-        // a `type_identifier`, which a walk for `field_identifier`
-        // would miss). No `field_declaration` reaches this arm under
-        // the pinned grammars, which never leave a member pointer as
-        // a direct `qualified_identifier` child of one: the
-        // parenthesised `int (S::*pmf)(int);` recovers into an
-        // `ERROR` over `S::` beside a `pointer_declarator`, and the
-        // unparenthesised `int S::*pd;` into a `field_identifier`
-        // `S`, an `ERROR` over `:` and a `bitfield_clause`. That
-        // last shape needs no arm: the scope's leading segment is
-        // the one `field_identifier` per declarator, so the plain
-        // walk counts one data member each for `int S::*pd;`,
-        // `int N::T::*pt;` and `int *S::*pd;`, and the clause itself
-        // holds no `field_identifier` to over-count. The method
-        // spelling of the same recovery (`int S::*getPd();`) never
-        // gets here, since `cpp_declares_function` now reads the
-        // clause (#1807). The arm keeps the invariant above if a
-        // grammar stops recovering so: whatever the predicate
-        // declines, this counts.
-        "qualified_identifier" => usize::from(cpp_member_pointer(child).is_some()),
-        _ => 0,
+    let mut names = 0;
+    let mut pending = Vec::new();
+    let mut next = Some(*child);
+    while let Some(node) = next.take().or_else(|| pending.pop()) {
+        match node.kind() {
+            "field_identifier" => names += 1,
+            // `function_declarator` / `parenthesized_declarator` are
+            // in the set for the function-pointer data member
+            // `int (*fp)(int);`, whose name is buried under both
+            // (#1300). A member function's name cannot arrive through
+            // them: reaching here means `cpp_declares_function`
+            // declined the declaration, and it declines a
+            // `function_declarator` only when an indirection inside
+            // the parentheses makes the name the pointee's, never the
+            // function's — `void (f)();` stays a function precisely so
+            // that `f` is never counted here — or when its parameter
+            // lists are recovered member pointers that are all data,
+            // where the name counted stands for the one they declare
+            // (`int DECL(S::*p);`, a macro call and not C++ as written).
+            // One spelling still breaks this: a method whose whole
+            // declarator is parenthesised (`int (*get());`) reads as no
+            // function, because `cpp_child_verdict` does not look inside a
+            // `parenthesized_declarator` that names no function, so `get`
+            // is counted here (#1891).
+            "function_declarator"
+            | "parenthesized_declarator"
+            | "pointer_declarator"
+            | "array_declarator"
+            | "init_declarator"
+            | "reference_declarator" => pending.extend(node.children()),
+            // The member-pointer data member `(S::*fp)` that
+            // `cpp_parenthesized_child_verdict` declines (#1718).
+            // One member pointer declares one name, so it counts one
+            // without a walk: the scope `S` is never a member, and the
+            // name's kind does not matter (the templated parse makes it
+            // a `type_identifier`, which a walk for `field_identifier`
+            // would miss). No `field_declaration` reaches this arm under
+            // the pinned grammars, which never leave a member pointer as
+            // a direct `qualified_identifier` child of one: the
+            // parenthesised `int (S::*pmf)(int);` recovers into an
+            // `ERROR` over `S::` beside a `pointer_declarator`, and the
+            // unparenthesised `int S::*pd;` into a `field_identifier`
+            // `S`, an `ERROR` over `:` and a `bitfield_clause`. That
+            // last shape needs no arm: the scope's leading segment is
+            // the one `field_identifier` per declarator, so the plain
+            // walk counts one data member each for `int S::*pd;`,
+            // `int N::T::*pt;` and `int *S::*pd;`, and the clause itself
+            // holds no `field_identifier` to over-count. The method
+            // spelling of the same recovery (`int S::*getPd();`) never
+            // gets here, since `cpp_declares_function` now reads the
+            // clause (#1807). The arm keeps the invariant above if a
+            // grammar stops recovering so: whatever the predicate
+            // declines, this counts.
+            "qualified_identifier" => names += usize::from(cpp_member_pointer(&node).is_some()),
+            _ => {}
+        }
     }
+    names
 }
 
 // Whether a `template_declaration` child of a class body declares a
