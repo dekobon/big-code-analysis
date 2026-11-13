@@ -128,6 +128,16 @@ exclude_re = [
   # every `f64` folded starts at 1 and only grows.
   '^src/metrics/mod\.rs:\d+:\d+: replace < with <= in FunctionPopulation<T>::(fold|merge)$',
   '^src/metrics/mod\.rs:\d+:\d+: replace > with >= in FunctionPopulation<T>::(fold|merge)$',
+  # Equivalent while the pinned Groovy and Ruby grammars give the
+  # `condition`, `consequence` and `alternative` fields to no kind but
+  # the ternary and the branch, guard and loop kinds an earlier arm of
+  # the same match has already taken. The mutant hands every node that
+  # reaches this arm to the ternary walk, which reads those three fields
+  # and does nothing when all are absent; an `ERROR` node has no fields.
+  # Re-derive on a grammar bump, and if a `Branch` or `Guard` row there
+  # gains a gate.
+  '^src/metrics/abc/groovy\.rs:\d+:\d+: replace match guard ternary::owns_kind\(kind, node, code, ancestors\) with true in groovy_walk_for_conditions$',
+  '^src/metrics/abc/ruby\.rs:\d+:\d+: replace match guard ternary::owns_kind\(kind, node, code, ancestors\) with true in <impl Abc for RubyCode>::compute$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
