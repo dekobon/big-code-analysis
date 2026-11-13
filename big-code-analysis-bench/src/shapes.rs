@@ -923,7 +923,7 @@ pub fn js_arrow_per_array_depth(depth: usize) -> String {
 /// One default per level, each in an array pattern nested in the last.
 /// ABC asks of every `=` whether it initialises a `const` binding, and a
 /// default's `=` is answered by the first ancestor that is no pattern
-/// layer: the declarator, one level below the root, from every level
+/// layer: the declarator, two levels below the root, from every level
 /// (#1868). `let`, so each default counts and the reading grows.
 #[must_use]
 pub fn js_nested_default_patterns(depth: usize) -> String {
@@ -1402,9 +1402,10 @@ pub fn perl_pattern_list(width: usize) -> String {
 /// byte crosses in `O(log n)`, but the comments between the `(` and the
 /// first operand are the list's own children, outside that repeat: a
 /// seek or a scan from the list's start steps over each. The
-/// pattern-role check reads the sibling after every pattern and whether
-/// an operand precedes it, so reading either from the list's start costs
-/// the comment run once per pattern (#1868).
+/// pattern-role check reads the sibling after every pattern of a plain
+/// list, so reading it from the list's start costs the comment run once
+/// per pattern (#1868). It asks whether an operand precedes a pattern
+/// only in a call's list, which [`perl_commented_split_list`] renders.
 #[must_use]
 pub fn perl_commented_pattern_list(width: usize) -> String {
     format!(
@@ -1412,6 +1413,33 @@ pub fn perl_commented_pattern_list(width: usize) -> String {
         "# c\n".repeat(width),
         "/a/, ".repeat(width)
     )
+}
+
+/// Perl: `my @r = split(` + `width` comment rows + `/a/, /a/, …, 1);` —
+/// the list of [`perl_commented_pattern_list`] as `split`'s arguments.
+///
+/// A plain list is asked only for the sibling after each pattern. A
+/// call's argument list is asked instead whether an operand precedes
+/// each pattern, which is what makes the first one `split`'s delimiter,
+/// so the two shapes price one read each (#1868).
+#[must_use]
+pub fn perl_commented_split_list(width: usize) -> String {
+    format!(
+        "my @r = split(\n{}{}1);\n",
+        "# c\n".repeat(width),
+        "/a/, ".repeat(width)
+    )
+}
+
+/// Perl: `my $x = !!…!name;` — one bareword under `depth` negations.
+///
+/// Whether a bareword is an auto-quoted key is read off the token after
+/// it, found by climbing while the node is its parent's last child. Here
+/// that is every level, so the one bareword climbs to the statement
+/// (#1868).
+#[must_use]
+pub fn perl_negated_bareword(depth: usize) -> String {
+    format!("my $x = {}name;\n", "!".repeat(depth))
 }
 
 /// Kotlin: `val s = "$a $a …"` — one string holding `width` short
@@ -2019,6 +2047,15 @@ const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// (`docs/development/benchmarking.md`). The cost is the same ~0.8 s of
 /// a `--gate` run the space-merge probes pay.
 const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
+
+/// Sibling counts for the two `perl-commented-*-list` probes, the ladder
+/// of [`SPACE_MERGE_WIDTHS`]. With its sibling read put back on a pass
+/// from the list's first child the plain list read 2.08 here, 0.9 s at
+/// the top rung against 8.9 ms, and 1.07 without. The `split` list was
+/// measured only on a host under heavy load, where times mean little:
+/// 2.43 against 1.07. They were not measured on
+/// [`LINEAR_WIDTHS`], the ladder of `abc/perl-pattern-list`.
+const COMMENTED_LIST_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 
 /// Depths for `nom/deep-attribute-run`, whose shape grows *two* axes
 /// with one parameter.
@@ -4494,23 +4531,77 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.abc.conditions_sum(),
         },
         render: perl_commented_pattern_list,
-        sizes: SLOT_SCAN_WIDTHS,
+        sizes: COMMENTED_LIST_WIDTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1868: the pattern-role check reads the sibling after \
-                    each pattern and whether an operand precedes it. A \
-                    list's leading comments are its own children, outside \
-                    the operands' `repeat()`, so a read that starts at the \
+                    each pattern, to tell a list's last operand. A list's \
+                    leading comments are its own children, outside the \
+                    operands' `repeat()`, so a read that starts at the \
                     list's first child crosses all of them, once per \
                     pattern: `width²` steps for `width` comments and \
                     `width` patterns, which `abc/perl-pattern-list` cannot \
-                    show with no comment in it. Both reads go through the \
-                    walk's `SiblingCache`. This reads 1.07 and 8.9 ms at \
-                    the top rung; 2.08 and 0.9 s with the first read back \
-                    on `Node::children_after`, 2.02 and 2.2 s with the \
-                    second back on `children().find(..)`, and 2.02 and \
-                    2.5 s with the second on `Node::children_before`, \
-                    which reads each earlier sibling by index. The \
+                    show with no comment in it. The read goes through the \
+                    walk's `SiblingCache`. This read 1.07 and 8.9 ms at \
+                    the top rung while a plain list still made both reads, \
+                    and 2.08 and 0.9 s with this one back on \
+                    `Node::children_after`. A plain list is no longer \
+                    asked for the operands before a pattern; \
+                    `abc/perl-commented-split-list` prices that read. The \
                     reading is one condition per bare match.",
+    },
+    Probe {
+        name: "abc/perl-commented-split-list",
+        lang: LANG::Perl,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
+        render: perl_commented_split_list,
+        sizes: COMMENTED_LIST_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: the list of `abc/perl-commented-pattern-list` \
+                    as `split`'s arguments. A call's list is asked whether \
+                    an operand precedes each pattern, which is what makes \
+                    the first one the delimiter, and not for the sibling \
+                    after it. Read from the list's first child, that is \
+                    `width²` steps over the comments again. On a host \
+                    under heavy load this read 1.07, and 2.43 \
+                    with the read back on `children().find(..)`; with it \
+                    on `Node::children_before`, which reads each earlier \
+                    sibling by index, one walk at the top rung ran past \
+                    the 20 s budget. The same two reads on the plain \
+                    list, while that list still made them, read 2.02 \
+                    each on a quieter host, 2.2 s and 2.5 s at the top \
+                    rung against 8.9 ms. The reading is one condition per \
+                    pattern but the delimiter.",
+    },
+    Probe {
+        name: "abc/perl-negated-bareword",
+        lang: LANG::Perl,
+        axis: Axis::Depth,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.branches_sum(),
+        },
+        render: perl_negated_bareword,
+        sizes: ANCESTOR_GATE_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1868: whether a bareword is an auto-quoted key is \
+                    read off the token after it, found by climbing while \
+                    the node is its parent's last child. Under `depth` \
+                    negations that is every level, so the one bareword's \
+                    climb reads `depth` ancestors: linear over the walk \
+                    while each step is `O(1)` and one asker climbs the \
+                    path. Perturbation: hand the climb no chain \
+                    (`is_key_position(word, Ancestors::unknown())` in \
+                    `perl_bareword_is_key`), so each step finds its parent \
+                    from the root; this shape then read 2.09 against \
+                    1.38, on a host under heavy load. The reading \
+                    is the one bareword call at every depth; the signal \
+                    is the timing.",
     },
     Probe {
         name: "abc/perl-or-chain",
@@ -5216,8 +5307,9 @@ mod tests {
         }
     }
 
-    /// The #1695 probes that read a count *growing* with the shape — one
-    /// decision per `switch` arm or guard, one operator per guard —
+    /// The probes that read a count *growing* with the shape — one
+    /// decision per `switch` arm or guard, one operator per guard, one
+    /// assignment per default, one condition per match —
     /// so a shape that lost the construct it times is caught here,
     /// where [`probe_workload_is_exercised`] would not see it: a
     /// cyclomatic reading floors at one per space, and a Halstead one
@@ -5241,6 +5333,7 @@ mod tests {
             "cognitive/python-and-per-list-depth",
             "abc/js-nested-default-patterns",
             "abc/perl-commented-pattern-list",
+            "abc/perl-commented-split-list",
         ] {
             let probe = PROBES
                 .iter()
