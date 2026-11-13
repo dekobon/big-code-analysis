@@ -1201,8 +1201,8 @@ tree-sitter-python 0.25.0. Their tests read the grammar crate's
 deeper.
 
 The timings behind the linear verdicts, and the classification of
-every `Ancestors::iter` call read for the audit, are in the audit
-comment on [#1868][climb-audit].
+every `Ancestors::iter` call read for the audit, are in the record the
+audit comment on [#1868][climb-audit] links.
 
 #### The probes re-run on the final code {#climb-audit-reruns}
 
