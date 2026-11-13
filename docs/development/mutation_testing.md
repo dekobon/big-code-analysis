@@ -315,13 +315,17 @@ survive edits elsewhere in the file and to match one mutant:
   the site, and a pattern pinned to them stops matching after the next
   one.
 - Anchor the pattern with `^` and `$`, and escape the mutant's text: the
-  names are full of `(`, `|`, `+` and `*`.
+  names are full of `(`, `|`, `+` and `*`. A name that holds a `'`, as
+  a lifetime does, needs a `'''…'''` string; TOML has no escape for it
+  inside `'…'`.
 - Keep the column where another site in the same function carries the
   same description. A column moves only when its own line is edited.
   Say in the comment what it distinguishes.
 - Compare `cargo mutants --list --no-config` with `cargo mutants --list`
   over the CI selection. The difference must be exactly the mutants the
-  entries name.
+  entries name. Check the second command's exit status as well: a file
+  that does not parse prints an error and an empty list, which reads as
+  every mutant excluded.
 - Put the proof above the entry: why no reachable input, panic or side
   effect tells the mutant from the original, and what would change that.
   An entry that rests on a grammar's productions names the pin.

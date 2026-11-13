@@ -52,6 +52,32 @@ exclude_re = [
   # the upward one, which does nothing there either, since `words` is
   # non-empty and `word - first_word >= words.len()` reads `0 >= len`.
   '^src/metrics/loc/line_set\.rs:\d+:\d+: replace < with <= in LineSet::reserve$',
+  # Equivalent. The deleted arm answers `true`, and so does the `_`
+  # arm the three kinds then fall to: `is_assignment` is false for a
+  # rescue modifier, so the guarded arm between them does not take them.
+  '^src/metrics/npa/ruby_body\.rs:\d+:\d+: delete match arm RescueModifier \| RescueModifier2 \| RescueModifier3 in is_statement_of$',
+  # Equivalent. With `&&` the class body's frame and an argument frame
+  # are read through `is_statement_of`, whose answer for a parent that
+  # is a class body or a `call` is `child.is_named()`, the test the
+  # original applies to those two frames itself. No frame is both.
+  '''^src/metrics/npa/ruby_body\.rs:\d+:\d+: replace \|\| with && in RubyBodyState<'a, 'chain>::read_body$''',
+  # Equivalent while tree-sitter-kotlin's `property_declaration` holds
+  # exactly one of `variable_declaration` and
+  # `multi_variable_declaration`: without the arm a single binding sums
+  # to 0, and the `.max(1)` on the sum makes it 1 again.
+  '^src/metrics/npa/kotlin\.rs:\d+:\d+: delete match arm VariableDeclaration in kotlin_count_property_attrs$',
+  # Equivalent, both `&&` of the function. PHP's `Member` row owns
+  # `property_declaration` and the two `const_declaration` ids with no
+  # gate, so `||` only admits members of the other kind into each
+  # filter, and those hold no `property_element` (the class arm) and no
+  # `const_element` (the interface arm) to count.
+  '^src/metrics/npa/php\.rs:\d+:\d+: replace && with \|\| in <impl Npa for PhpCode>::compute$',
+  # Equivalent while tree-sitter-rust places a `const_item` or
+  # `static_item` only in a `block`, a `declaration_list` or the
+  # `source_file`: of those, only a `declaration_list` is a direct child
+  # of an `impl_item` or a `trait_item`, so once the grandparent matches
+  # the guard on the parent is true. Both arms of the function.
+  '^src/metrics/npa/rust\.rs:\d+:\d+: replace match guard matches!\(parent\.kind_id\(\)\.into\(\), DeclarationList\) with true in rust_count_assoc_const$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
