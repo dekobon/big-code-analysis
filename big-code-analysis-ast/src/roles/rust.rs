@@ -19,7 +19,7 @@ else_if_parent_clause_gate!(Rust, ElseClause);
 /// still count; a leading `|` of an or-pattern is skipped. The field is
 /// required at the pinned grammar, so an arm without one — error
 /// recovery only — counts, the polarity both consumers had (#1454).
-fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_decision_arm<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
     !node
         .child_by_field_name("pattern")
         .is_some_and(|pat| pattern_is_bare_underscore(&pat, Rust::UNDERSCORE as u16))
@@ -28,7 +28,7 @@ fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, 
 /// Whether a `let_declaration` is `let PAT = e else { … }`: it carries
 /// the `alternative` field. Read by field, not by the `else` token the
 /// `if` expression also emits.
-fn has_alternative(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_alternative(node: &Node<'_>) -> bool {
     node.child_by_field_name("alternative").is_some()
 }
 
@@ -43,7 +43,7 @@ fn has_alternative(node: &Node<'_>, _code: &[u8]) -> bool {
 /// has the tree as its parent and stays paid — a policy about opaque
 /// macro bodies that applies to `if` / `while` / `loop` there too and
 /// is pinned separately (`rust_macro_token_tree_keywords_score`).
-fn not_in_type_syntax<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn not_in_type_syntax<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     !ancestors.parent(node).is_some_and(|parent| {
         matches!(
             parent.kind_id().into(),
@@ -53,7 +53,7 @@ fn not_in_type_syntax<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a
 }
 
 /// Whether a `match_pattern` carries a guard: its `condition` field.
-fn has_guard(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_guard(node: &Node<'_>) -> bool {
     node.child_by_field_name("condition").is_some()
 }
 
@@ -80,7 +80,7 @@ const DOC_MARKERS: [u16; 4] = [
 /// grammar gives it a marker and no text (#1890). A plain comment has
 /// at most its two delimiters as children, so the count spares every
 /// one of them the cursor the child scan allocates.
-fn has_doc_marker_child(node: &Node<'_>, _: &[u8]) -> bool {
+fn has_doc_marker_child(node: &Node<'_>) -> bool {
     node.child_count() > 2 && node.wraps_any(&DOC_MARKERS)
 }
 

@@ -29,7 +29,7 @@ use crate::{Ancestors, Groovy, GroovyCode, Node};
 /// `<anonymous>` class here with no error node to say so, and
 /// `{ x -> x }` opens one around an `ERROR`
 /// (`groovy_closure_on_the_line_after_new_reads_as_an_anonymous_class`).
-fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_class_body(node: &Node<'_>) -> bool {
     node.child_by_field_name("body").is_some()
 }
 
@@ -38,7 +38,7 @@ fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
 /// `o !instanceof T` emit no operator token at all — the node holds its
 /// two operands and nothing between them — so the owner pays for
 /// itself there and the positive form's keyword pays otherwise.
-fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn has_no_keyword_token<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
     comparison::project(node).is_none()
 }
 
@@ -61,11 +61,7 @@ fn has_no_keyword_token<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors
 /// the grammar rejects (`record a<b`), which is what its pair below
 /// leaves unbilled; `groovy_declaration_keywords_are_operators_1552`
 /// pins both.
-fn contextual_keyword_owns<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn contextual_keyword_owns<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     use Groovy::*;
 
     ancestors.parent(node).is_some_and(|parent| {

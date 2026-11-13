@@ -36,11 +36,7 @@ use crate::{Ancestors, Kotlin, Node, Search};
 /// `user_type`, so the longest run of them is those two;
 /// `the_kinds_between_a_modifier_and_its_host_nest_two_deep_at_most`
 /// reads that off the pinned grammar.
-fn modifier_was_written_as_one<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn modifier_was_written_as_one<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let host = ancestors
         .iter(node)
         .map(|(ancestor, _)| ancestor)
@@ -107,7 +103,7 @@ fn eager_infix(node: &Node<'_>, code: &[u8]) -> bool {
 
 /// Whether a `when_entry` is a case-style arm rather than the `else ->`
 /// fallback, which has no `condition` field (lesson 11, #469).
-fn is_case_entry(node: &Node<'_>, _code: &[u8]) -> bool {
+fn is_case_entry(node: &Node<'_>) -> bool {
     !kotlin_when_entry_is_else(node)
 }
 
@@ -115,7 +111,7 @@ fn is_case_entry(node: &Node<'_>, _code: &[u8]) -> bool {
 /// and interfaces under one node with the discriminating keyword as a
 /// direct child token, so an `interface` token makes it `Interface`
 /// and anything else `Class`.
-fn class_or_interface(node: &Node<'_>, _code: &[u8]) -> crate::SpaceKind {
+fn class_or_interface(node: &Node<'_>) -> crate::SpaceKind {
     if node.first_child(|id| id == Kotlin::Interface).is_some() {
         crate::SpaceKind::Interface
     } else {

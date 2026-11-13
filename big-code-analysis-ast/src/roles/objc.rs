@@ -23,7 +23,7 @@ objc_conditional_kinds!();
 /// Whether an `implementation_definition` is one Doxygen documents —
 /// not a `@synthesize` / `@dynamic` property implementation, which
 /// declares nothing of its own.
-fn implementation_is_not_a_property(node: &Node<'_>, _: &[u8]) -> bool {
+fn implementation_is_not_a_property(node: &Node<'_>) -> bool {
     node.child(0)
         .is_some_and(|d| d.kind_id() != Objc::PropertyImplementation as u16)
 }
@@ -38,11 +38,7 @@ else_if_parent_clause_gate!(Objc, ElseClause);
 /// word is told from a name by position alone. The `isOn` of
 /// `getter=isOn` is a later child and stays an operand, the selector it
 /// names. `ObjcCode::is_primitive` keys the word by its text (#1579).
-fn property_attribute_name<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn property_attribute_name<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent(node).is_some_and(|attribute| {
         attribute.kind_id() == Objc::PropertyAttribute as u16
             && attribute.start_byte() == node.start_byte()

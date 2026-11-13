@@ -9,7 +9,8 @@
 //! ```
 //! # #[macro_use] extern crate big_code_analysis_ast;
 //! # use big_code_analysis_ast::{Ancestors, Java, Node};
-//! fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+//! fn always(_: &Node<'_>, _: Ancestors<'_, '_>) -> bool { true }
+//! fn always_text(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
 //! role_table! {
 //!     lang: Java;
 //!     Exit {
@@ -17,7 +18,7 @@
 //!               YieldStatement(not_under [ClassBody])]
 //!     }
 //!     Comparison {
-//!         owns [BinaryExpression(holds_payer), InstanceofExpression(text_gated_by always)]
+//!         owns [BinaryExpression(holds_payer), InstanceofExpression(text_gated_by always_text)]
 //!         pays [EQEQ under [BinaryExpression]]
 //!     }
 //! }
@@ -30,7 +31,7 @@
 //! ```compile_fail
 //! # #[macro_use] extern crate big_code_analysis_ast;
 //! # use big_code_analysis_ast::{Ancestors, Java, Node};
-//! fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+//! fn always(_: &Node<'_>, _: Ancestors<'_, '_>) -> bool { true }
 //! role_table! {
 //!     lang: Java;
 //!     Exit { owns [ReturnStatement(under [Block] gated_by always)] }
@@ -41,7 +42,7 @@
 //! ```compile_fail
 //! # #[macro_use] extern crate big_code_analysis_ast;
 //! # use big_code_analysis_ast::{Ancestors, Java, Node};
-//! fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+//! fn always(_: &Node<'_>, _: Ancestors<'_, '_>) -> bool { true }
 //! role_table! {
 //!     lang: Java;
 //!     Exit { owns [ReturnStatement(gated_by always under [Block])] }
@@ -52,10 +53,10 @@
 //! ```compile_fail
 //! # #[macro_use] extern crate big_code_analysis_ast;
 //! # use big_code_analysis_ast::{Ancestors, Java, Node};
-//! fn always(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
+//! fn always_text(_: &Node<'_>, _: &[u8], _: Ancestors<'_, '_>) -> bool { true }
 //! role_table! {
 //!     lang: Java;
-//!     Comparison { owns [InstanceofExpression(under [Block] text_gated_by always)] pays [EQEQ] }
+//!     Comparison { owns [InstanceofExpression(under [Block] text_gated_by always_text)] pays [EQEQ] }
 //! }
 //! # fn main() {}
 //! ```

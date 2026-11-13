@@ -14,7 +14,7 @@ use crate::{Ancestors, Lua, LuaCode, Node};
 /// Whether an assignment names one plain or dotted target (`x = 1`,
 /// `M.x = 1`): LDoc's `get_fun_name` stops at `,`, `<` and `[`, so
 /// `local a, b = …`, `local x <const> = …` and `M[1] = …` name no item.
-fn assigns_one_name(node: &Node<'_>, _: &[u8]) -> bool {
+fn assigns_one_name(node: &Node<'_>) -> bool {
     // The grammar always emits the `variable_list` first, empty when
     // recovery had to invent the target (`= 1` on its own).
     node.child(0).is_some_and(|targets| {
@@ -35,18 +35,18 @@ fn is_dotted_name(node: &Node) -> bool {
 
 /// Whether a `local` declaration assigns one name (`local x = 1`, not
 /// a bare `local x`).
-fn declares_one_name(node: &Node<'_>, code: &[u8]) -> bool {
+fn declares_one_name(node: &Node<'_>) -> bool {
     node.children().any(|child| {
         matches!(
             child.kind_id().into(),
             Lua::AssignmentStatement | Lua::AssignmentStatement2
-        ) && assigns_one_name(&child, code)
+        ) && assigns_one_name(&child)
     })
 }
 
 /// Whether a table field has a name (`new = function … end`): the
 /// bracket form starts with `[` and a positional field has no `=`.
-fn field_has_a_name(node: &Node<'_>, _: &[u8]) -> bool {
+fn field_has_a_name(node: &Node<'_>) -> bool {
     node.child(0)
         .is_some_and(|name| name.kind_id() == Lua::Identifier)
         && node.child(1).is_some_and(|eq| eq.kind_id() == Lua::EQ)
@@ -54,7 +54,7 @@ fn field_has_a_name(node: &Node<'_>, _: &[u8]) -> bool {
 
 /// Whether a `return` returns a function or a table — the module
 /// shapes LDoc documents as an item, not an exit.
-fn returns_a_function_or_table(node: &Node<'_>, _: &[u8]) -> bool {
+fn returns_a_function_or_table(node: &Node<'_>) -> bool {
     node.children()
         .find(|child| {
             matches!(

@@ -38,7 +38,7 @@ crate::roles::byte_gate!(opens_with_javadoc_marker, java_doc);
 /// that makes a package no target is then a target itself, and the
 /// helper's scan stops at it. A second gated owner would let a run of
 /// rejected packages seek once each (#1871).
-fn package_takes_the_file_doc<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn package_takes_the_file_doc<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .siblings_after(node)
         .find(|n| doc_target::lists_kind(n.kind_id()))
@@ -47,7 +47,7 @@ fn package_takes_the_file_doc<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestor
 
 /// Whether an `object_creation_expression` carries a `class_body`, which
 /// makes it an anonymous class rather than a plain `new Foo()` (#463).
-fn has_class_body(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_class_body(node: &Node<'_>) -> bool {
     java_anonymous_class_body(node).is_some()
 }
 

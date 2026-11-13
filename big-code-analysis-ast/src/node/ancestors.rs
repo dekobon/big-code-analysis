@@ -210,21 +210,6 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         }
     }
 
-    /// This chain with the walk's [`FoldCache`] withheld and its
-    /// [`SiblingCache`] kept. Test-only, for a test that asks one
-    /// question twice with different inputs: a memo is keyed by node,
-    /// so through the cache the second ask would be served the first
-    /// one's answer.
-    #[cfg(test)]
-    #[inline]
-    #[must_use]
-    pub(crate) const fn without_folds(self) -> Self {
-        Self {
-            folds: None,
-            ..self
-        }
-    }
-
     /// The chain a walk hands its predicates for `node`, the node it is
     /// visiting: `chain`, checked against `node` as
     /// [`for_walk_without_siblings`](Self::for_walk_without_siblings)

@@ -15,7 +15,6 @@ macro_rules! else_if_parent_clause_gate {
     ($lang:ident, $clause:ident) => {
         fn continues_else_clause<'a>(
             node: &$crate::Node<'a>,
-            _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             ancestors.parent_has_kind(node, $lang::$clause as u16)
@@ -33,7 +32,6 @@ macro_rules! else_if_prev_sibling_gate {
     ($lang:ident, $keyword:ident) => {
         fn follows_else_keyword<'a>(
             node: &$crate::Node<'a>,
-            _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             ancestors.previous_sibling_has_kind(node, $lang::$keyword as u16)

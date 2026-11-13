@@ -22,7 +22,7 @@ use crate::{Ancestors, Node, Ruby};
 /// any future non-comparison spelling (#1280). `a < b` emits the
 /// `Binary2` alias; the siblings are listed defensively
 /// (grammar-dispatch §1).
-fn under_binary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn under_binary<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .parent(node)
         .is_some_and(|p| comparison::OWNERS.contains(&p.kind_id()))
@@ -39,14 +39,14 @@ fn is_decision_in_clause(node: &Node<'_>, code: &[u8]) -> bool {
 /// whose `lambda` wrapper already is both (#465, #1257). The keyword
 /// forms `lambda { }` / `proc { }` and iterator blocks parse as a
 /// `call` carrying the block, so those classify once.
-fn not_a_lambda_body<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn not_a_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     !is_stabby_lambda_body(node, ancestors)
 }
 
 /// Whether an `@ivar` / `@@cvar` is the assignment target it declares:
 /// the first child of an `assignment` (`@x = 1`); a read or an operand
 /// is no declaration.
-fn is_assignment_target<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn is_assignment_target<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent(node).is_some_and(|parent| {
         matches!(
             parent.kind_id().into(),
@@ -71,14 +71,14 @@ fn kernel_raise_or_exit(node: &Node<'_>, code: &[u8]) -> bool {
 /// Whether an `alias` names a method: `Alias` is the `alias new old`
 /// statement, which YARD's alias handler documents; a global-variable
 /// alias (`alias $new $old`) names no method, and YARD takes none.
-fn alias_names_a_method(node: &Node<'_>, _: &[u8]) -> bool {
+fn alias_names_a_method(node: &Node<'_>) -> bool {
     node.child_by_field_name("name")
         .is_none_or(|name| name.kind_id() != Ruby::GlobalVariable as u16)
 }
 
 /// Whether a `class << X` opens on a constant: YARD registers a class for
 /// `class << Const`, but nothing for `class << self` or another object.
-fn singleton_of_a_constant(node: &Node<'_>, _: &[u8]) -> bool {
+fn singleton_of_a_constant(node: &Node<'_>) -> bool {
     node.child_by_field_name("value").is_some_and(|value| {
         matches!(
             value.kind_id().into(),
@@ -90,7 +90,7 @@ fn singleton_of_a_constant(node: &Node<'_>, _: &[u8]) -> bool {
 /// Whether an assignment binds what YARD's constant or class-variable
 /// handler documents — `MAX = 10`, the scoped `Foo::BAR = 1`, `@@count
 /// = 0` — and not a local or an instance variable.
-fn binds_a_constant_or_class_variable(node: &Node<'_>, _: &[u8]) -> bool {
+fn binds_a_constant_or_class_variable(node: &Node<'_>) -> bool {
     node.child_by_field_name("left").is_some_and(|left| {
         // role-bypass: allow(Member) — which assignment YARD documents,
         // not whether the target is a container's member

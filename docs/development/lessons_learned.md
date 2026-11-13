@@ -5354,18 +5354,23 @@ replaced by the AST helper it duplicated.
 
 **Lesson:** The keyword a role-row gate is declared under
 (`roles/mod.rs`, "Owner attributes") is what the byte-less and
-chain-less forwards assert against at build time. A gate that reads
-source bytes but is declared `gated_by` leaves `TEXT_GATED` false, so
-every `const` assert passes and a forward hands it `&[]`, believing it
-needs no bytes. The compiler holds the chain axis to the declaration
-(`no_chain` removes the parameter); nothing holds the byte axis, so a
-byte-reading gate under the wrong keyword is caught only by a reader or
-by a behavioural check. Before declaring a gate, list what it reads and
-declare each axis it uses; then confirm the derived suite has a
-backstop for that axis. The chain axis has
-`no_chain_rows_answer_alike_under_the_empty_chain`; the byte axis has
-`unmarked_owners_answer_alike_without_the_bytes` since #1863, which
-sees a gate only on a fixture whose answer moves without the bytes.
+chain-less forwards assert against at build time. Until #1874 a gate
+that read source bytes but was declared `gated_by` left `TEXT_GATED`
+false, so every `const` assert passed and a forward handed it `&[]`,
+believing it needed no bytes. The compiler held the chain axis to the
+declaration (`no_chain` removes the parameter) and nothing held the
+byte axis: a byte-reading gate under the wrong keyword was caught only
+by a reader, or by a behavioural backstop (#1863) that saw a gate only
+on a fixture whose answer moved without the bytes. #1874 made the
+keyword the signature: a `gated_by` fn has no bytes parameter, so the
+wrong keyword no longer builds. When a flag records a claim about what
+a fn reads, make the claim the fn's parameter list, so the compiler
+holds it; a behavioural check sees only the inputs that move the
+answer. A parameter list bounds what a fn is *handed*, not what it can
+reach: a `no_chain` gate can still climb with `Node::parent`
+(`no_chain_rows_answer_alike_under_the_empty_chain` is that axis's
+backstop), and a gate of either keyword can read an answer the walk
+memoised on the chain's caches.
 
 Handed no bytes, a gate that compares spellings sees every spelling as
 the empty string and answers *equal*: a confident wrong `true` that

@@ -28,7 +28,7 @@ use crate::{Ancestors, Elixir, Node};
 /// applies it too, but has no `binary_operator`: that spelling is
 /// text-keyed on the receiver and stays the consumers' named extra
 /// (#1574, #1582).
-fn applied<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn applied<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     elixir_applying_operator(node, ancestors).is_some()
 }
 
@@ -113,13 +113,16 @@ fn is_decision_clause<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a,
 /// read from the *token's* ancestor chain by the payer gate below; the
 /// owner is the operator by kind, which is what the root's guard walker
 /// reaches from the token.
-fn is_when_operator(node: &Node<'_>, _code: &[u8]) -> bool {
+fn is_when_operator(node: &Node<'_>) -> bool {
     elixir_is_when_operator(node)
 }
 
 /// Whether a `when` token is a guard's rather than a typespec's: the
 /// operator joining a clause head or function head to its condition
-/// (#1454). Reads the token's ancestor chain.
+/// (#1454). Reads the token's ancestor chain and the bytes: a function
+/// head is told by its call's target text (`def`, `defguard`, …) and a
+/// `with` clause by its call's, so the row declares it `text_gated_by`
+/// (#1874).
 fn is_guard<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
     elixir_when_is_guard(node, code, ancestors)
 }
@@ -233,7 +236,7 @@ role_table! {
             BinaryOperator2(gated_by is_when_operator no_chain),
             BinaryOperator3(gated_by is_when_operator no_chain),
         ]
-        pays [When gated_by is_guard]
+        pays [When text_gated_by is_guard]
         project "operator"
     }
     // Every control construct is a `call` told by its target's text

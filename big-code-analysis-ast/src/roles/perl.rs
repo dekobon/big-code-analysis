@@ -22,7 +22,7 @@ fn pod_documents(node: &Node<'_>, code: &[u8]) -> bool {
 /// Whether an expression holds one of the `ShortCircuit` payers among
 /// its tokens, with an `and` counted only where it is the operator and
 /// not an auto-quoted key (see `applied_and`).
-fn short_circuit_operator(node: &Node<'_>, _code: &[u8]) -> bool {
+fn short_circuit_operator(node: &Node<'_>) -> bool {
     node.children().any(|token| {
         let kind = token.kind_id();
         if kind == Perl::And as u16 {
@@ -36,7 +36,7 @@ fn short_circuit_operator(node: &Node<'_>, _code: &[u8]) -> bool {
 /// Whether an `and` token is the operator of its chain rather than an
 /// auto-quoted hash key (`(and => 1)`), which tree-sitter-perl parses
 /// as a `unary_expression` whose first child is the token (#1539).
-fn applied_and<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn applied_and<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .parent(node)
         .is_some_and(|parent| perl_and_is_operator(node, &parent))
@@ -50,7 +50,7 @@ fn applied_and<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) 
 /// 1)` and `$h{-name}` as calls of `name`, and `$h{-foo}` as a file test
 /// on a bareword `oo`, where Perl holds a string (#1545, #1572).
 /// `perl_bareword_is_call` reads both off the chain.
-fn bareword_is_call<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn bareword_is_call<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     perl_bareword_is_call(node, ancestors)
 }
 
@@ -71,7 +71,7 @@ fn die_or_exit_not_key<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
 /// `condition` field. The grammar inlines the hidden `_if_simple` rule
 /// into the statement, so `require Foo if $c;` holds the `if` token and
 /// the condition itself, with no `if_simple_statement` between (#1889).
-fn has_condition(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_condition(node: &Node<'_>) -> bool {
     node.child_by_field_name("condition").is_some()
 }
 

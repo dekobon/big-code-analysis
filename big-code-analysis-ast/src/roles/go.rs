@@ -17,7 +17,7 @@ use crate::{Ancestors, FoldLane, Go, Node};
 /// one met is that nearest, and the fold is memoised per ancestor on
 /// the walk's cache, so nested struct types cost one step each rather
 /// than a climb per field (#1597).
-fn outside_function_body<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn outside_function_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     // role-bypass: allow(Container) — the doc scope's top, not whether
     // the file opens a space
     ancestors.fold_down(
@@ -41,11 +41,7 @@ fn outside_function_body<'a>(node: &Node<'a>, _: &[u8], ancestors: Ancestors<'a,
 /// (`Map[string, int]`) as a `type_elem`, which no lead comment
 /// documents, so only an interface's own elements qualify — and only
 /// outside a function body.
-fn interface_element_opens_with_a_name<'a>(
-    node: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn interface_element_opens_with_a_name<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Go::InterfaceType as u16)
         && node.child(0).is_some_and(|first| {
             matches!(
@@ -53,7 +49,7 @@ fn interface_element_opens_with_a_name<'a>(
                 Go::TypeIdentifier | Go::QualifiedType | Go::GenericType
             )
         })
-        && outside_function_body(node, code, ancestors)
+        && outside_function_body(node, ancestors)
 }
 
 // Whether a comment is a go/doc directive (`//go:generate`, `//line`,
@@ -63,7 +59,7 @@ crate::roles::byte_gate!(is_go_directive, go_directive);
 
 /// Whether an `if_statement` continues an `else if` chain: its parent is
 /// the outer `if_statement`, read off the chain (#1084).
-fn parent_is_if<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn parent_is_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent_has_kind(node, Go::IfStatement as u16)
 }
 

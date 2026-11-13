@@ -44,7 +44,7 @@ fn is_exit_command<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_
 
 /// A `try` with at least one `on error` / `trap` handler: an `arguments`
 /// child followed by a body (`tcl_try_handler_bodies`).
-fn has_handler(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_handler(node: &Node<'_>) -> bool {
     tcl_try_handler_bodies(node).next().is_some()
 }
 

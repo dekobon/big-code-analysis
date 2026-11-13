@@ -16,7 +16,7 @@ use crate::{Ancestors, Node, Python};
 
 /// Whether a `case_clause` is a decision: its pattern is not a bare `_`,
 /// or it carries an `if` guard (lesson 11, #469).
-fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_decision_clause<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
     python_case_clause_counts(node)
 }
 
@@ -25,7 +25,7 @@ fn is_decision_clause<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'
 /// that one is declined here so the keyword is not counted twice. Read
 /// off the chain; the ternary has no field for its keyword, so the
 /// parent's kind is the whole test.
-fn not_under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn not_under_ternary<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     !ancestors.parent_has_kind(node, Python::ConditionalExpression as u16)
 }
 
@@ -44,11 +44,7 @@ fn not_under_ternary<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a,
 /// Now the count runs only under an `else:` block, over
 /// at most two of its children. The block's two aliased kinds go through
 /// `python_is_block` (#419).
-fn sole_statement_of_else_block<'a>(
-    node: &Node<'a>,
-    _code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> bool {
+fn sole_statement_of_else_block<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.iter(node).next().is_some_and(|(parent, above)| {
         python_is_block(&parent)
             && above.parent_has_kind(&parent, Python::ElseClause as u16)

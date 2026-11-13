@@ -154,7 +154,6 @@ macro_rules! js_family_binding_gates {
 
         fn bound_function<'a>(
             node: &$crate::Node<'a>,
-            _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             bound(node, ancestors, || node.is_child($lang::Identifier as u16))
@@ -175,11 +174,7 @@ macro_rules! js_family_binding_gates {
         // a grammar bump that gives an arrow another named parent, and
         // no fixture can turn it true (answering a constant `false`
         // changes no output on the corpus or the fixtures).
-        fn bound_arrow<'a>(
-            node: &$crate::Node<'a>,
-            _code: &[u8],
-            ancestors: $crate::Ancestors<'a, '_>,
-        ) -> bool {
+        fn bound_arrow<'a>(node: &$crate::Node<'a>, ancestors: $crate::Ancestors<'a, '_>) -> bool {
             bound(node, ancestors, || {
                 ancestors.parent(node).is_some_and(|parent| {
                     ancestors.memoised($crate::node::MemoQuestion::NamesAnArrow, &parent, || {
@@ -191,18 +186,16 @@ macro_rules! js_family_binding_gates {
 
         fn unbound_function<'a>(
             node: &$crate::Node<'a>,
-            code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
-            !bound_function(node, code, ancestors)
+            !bound_function(node, ancestors)
         }
 
         fn unbound_arrow<'a>(
             node: &$crate::Node<'a>,
-            code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
-            !bound_arrow(node, code, ancestors)
+            !bound_arrow(node, ancestors)
         }
     };
 }
@@ -249,7 +242,6 @@ macro_rules! ts_family_gates {
     ($lang:ident) => {
         fn declares_a_type<'a>(
             node: &$crate::Node<'a>,
-            _code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             let mut up = ancestors.iter(node).map(|(ancestor, _)| ancestor);
@@ -263,7 +255,7 @@ macro_rules! ts_family_gates {
             })
         }
 
-        fn names_a_type_not_void(node: &$crate::Node<'_>, _code: &[u8]) -> bool {
+        fn names_a_type_not_void(node: &$crate::Node<'_>) -> bool {
             !node
                 .child(0)
                 .is_some_and(|child| child.kind_id() == $lang::Void as u16)
@@ -402,7 +394,7 @@ macro_rules! js_family_doc_gates {
         /// Whether a `var` / `let` / `const` declaration's first
         /// declarator binds a plain identifier — what JSDoc and tsc
         /// name; a destructuring declaration documents no binding.
-        fn first_declarator_binds_a_name(node: &$crate::Node<'_>, _: &[u8]) -> bool {
+        fn first_declarator_binds_a_name(node: &$crate::Node<'_>) -> bool {
             node.children()
                 .find(|c| c.kind_id() == $lang::VariableDeclarator as u16)
                 .and_then(|d| d.child_by_field_name("name"))
@@ -417,11 +409,11 @@ macro_rules! js_family_doc_gates {
 /// before it) — but never to a destructuring pattern.
 macro_rules! js_doc_gates {
     ($lang:ident) => {
-        fn export_declares(node: &$crate::Node<'_>, _: &[u8]) -> bool {
+        fn export_declares(node: &$crate::Node<'_>) -> bool {
             !node.is_child($lang::ExportClause as u16)
         }
 
-        fn assigns_to_a_name_or_member(node: &$crate::Node<'_>, _: &[u8]) -> bool {
+        fn assigns_to_a_name_or_member(node: &$crate::Node<'_>) -> bool {
             use $lang::*;
             let mut expr = node.child(0);
             while let Some(e) = expr.filter(|e| e.kind_id() == ParenthesizedExpression) {
@@ -485,9 +477,10 @@ macro_rules! ts_family_doc_targets {
 /// list re-exports; `export *` and `export default <expr>` take none,
 /// while the anonymous `export default function () {}` and `export
 /// default class {}` document as their named twins do. The child is
-/// asked through the row's `owns` with the *export's* chain: exact,
-/// because the `declaration` field holds a `declaration` supertype or
-/// an `internal_module` (`node-types.json`) and the row's chain-reading
+/// asked through the row's `owns` with no bytes, exact while the row
+/// has no text gate (asserted at build time), and with the *export's*
+/// chain: exact, because the `declaration` field holds a `declaration`
+/// supertype or an `internal_module` (`node-types.json`) and the row's chain-reading
 /// owners — the enum-member kinds gated `under [EnumBody]` — are never
 /// among those, which `roles/doc_tests/mod.rs` pins; and the parent context
 /// tsc reads (a declaration under `export` documents nothing on its
@@ -496,10 +489,15 @@ macro_rules! ts_doc_gates {
     ($lang:ident, $roles:ident) => {
         fn export_declares_to_tsc<'a>(
             node: &$crate::Node<'a>,
-            code: &[u8],
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
             use $lang::*;
+            // A plain gate has no bytes to hand the child; the pin sits
+            // beside the forward it protects (#1874).
+            const _: () = assert!(
+                !$crate::roles::$roles::doc_target::TEXT_GATED,
+                "a TS `DocTarget` row reads bytes; `export_declares_to_tsc` cannot forward with `&[]`"
+            );
             node.child_by_field_name("declaration").map_or_else(
                 || {
                     node.is_child(ExportClause as u16)
@@ -511,7 +509,7 @@ macro_rules! ts_doc_gates {
                         })
                 },
                 |inner| {
-                    $crate::roles::$roles::doc_target::owns(&inner, code, ancestors)
+                    $crate::roles::$roles::doc_target::owns(&inner, &[], ancestors)
                         || inner.kind_id() == InternalModule as u16
                 },
             )
@@ -522,7 +520,7 @@ macro_rules! ts_doc_gates {
         /// using`; tsc declares `x` as it does for `const x = f()`. An
         /// `internal_module` statement (`namespace N { }` after a
         /// modifier) is a declaration too.
-        fn using_declares(node: &$crate::Node<'_>, _: &[u8]) -> bool {
+        fn using_declares(node: &$crate::Node<'_>) -> bool {
             use $lang::*;
             node.child(0).is_some_and(|e| {
                 if e.kind_id() == InternalModule {

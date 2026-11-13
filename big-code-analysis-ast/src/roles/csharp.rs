@@ -21,7 +21,7 @@ use crate::{Ancestors, Csharp, Node};
 /// form defers to its `accessor_declaration` children, which open
 /// theirs (#464, #472; lesson 65: gate, never delete — the childless
 /// form relied on the kind being listed at all).
-fn has_no_accessors(node: &Node<'_>, _code: &[u8]) -> bool {
+fn has_no_accessors(node: &Node<'_>) -> bool {
     !csharp_member_has_accessors(node)
 }
 
@@ -48,14 +48,14 @@ fn aliases_a_modifier_keyword(node: &Node<'_>, code: &[u8]) -> bool {
 /// Whether a `switch_expression_arm` is a decision: not the bare
 /// discard `_ =>` / `var _ =>`, the expression form's `default:`,
 /// unless a `when` guard makes it one (`case_arms` has the shapes).
-fn is_decision_arm<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
+fn is_decision_arm<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
     !csharp_switch_expression_arm_is_bare_discard(node)
 }
 
 /// Whether a `case` keyword is a `switch` arm's rather than the one in
 /// `goto case 2;`, an unconditional jump that spells the same token
 /// (#1450).
-fn is_switch_arm_case<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn is_switch_arm_case<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     csharp_case_token_is_switch_arm(node, ancestors)
 }
 

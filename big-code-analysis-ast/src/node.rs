@@ -51,7 +51,7 @@ crate::observation::counter!(
 // Parent lookups that climbed from the node, on this thread.
 //
 // [`Node::parent`] answers what a chain's `last()` does, so a row gate
-// declared `no_chain` — two arguments, no chain to read — that climbs
+// declared `no_chain` — no chain parameter to read — that climbs
 // with it answers identically under any chain its caller held, and no
 // comparison of the row's answers can see the climb (#1793). The
 // counter is what makes one a test failure: the derived suite asks

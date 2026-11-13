@@ -59,7 +59,7 @@ fn is_define_call(node: &Node<'_>, code: &[u8]) -> bool {
 
 /// Whether an `if_statement` continues a two-word `else if`: its parent
 /// is an `else_clause` (either alias), read off the chain (#1084).
-fn continues_else_clause<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+fn continues_else_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors
         .parent(node)
         .is_some_and(|parent| matches!(parent.kind_id().into(), Php::ElseClause | Php::ElseClause2))
