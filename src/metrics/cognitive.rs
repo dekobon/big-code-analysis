@@ -6582,6 +6582,50 @@ fn ie(x: bool) -> i32 {
 
     #[cfg(feature = "bash")]
     #[test]
+    fn bash_jump_level_is_a_named_argument_1765() {
+        // A level is a named child after the word. The grammar spells a
+        // bare `$` argument as an anonymous token, the alias of
+        // `_bare_dollar`, and it is no level: B1 pays for a NUMBER. The
+        // builtin rejects `break $` when it runs ("numeric argument
+        // required"), so the fixture defines `break` as a function,
+        // which makes the line a call Bash accepts (run under 5.1) and
+        // one that costs nothing. `break 2` is the levelled control,
+        // read as the builtin as the test above pins.
+        let src = "break() { :; }
+             f() {
+                 for i in 1 2; do            # +1
+                     break $                 # +0
+                 done
+                 for i in 1 2; do            # +1
+                     for j in 1 2; do        # +2
+                         break 2             # +1
+                     done
+                 done
+             }\n";
+        // The shape the reading rests on: the `$` is a direct child of
+        // the command and anonymous. A grammar that names it fails here.
+        let mut bare_dollars = 0;
+        crate::test_support::for_each_node_with_chain::<BashCode>(src.as_bytes(), |node, chain| {
+            if node.kind_id() == Bash::DOLLAR as u16 {
+                bare_dollars += 1;
+                assert!(!node.is_named(), "the bare `$` argument is a token");
+                assert_eq!(
+                    chain.last().map(Node::kind_id),
+                    Some(Bash::Command as u16),
+                    "and sits directly under the `break` command"
+                );
+            }
+        });
+        assert_eq!(bare_dollars, 1, "the fixture spells one bare `$`");
+        // expected: for(+1) + `break $`(+0) + for(+1) + for(+2 nested)
+        // + `break 2`(+1) = 5; 6 if the `$` read as a level.
+        check_metrics::<BashParser>(src, "foo.sh", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 5);
+        });
+    }
+
+    #[cfg(feature = "bash")]
+    #[test]
     fn bash_case() {
         // `case` adds +1 nesting; case arms do not contribute extra cognitive
         // cost (matching Kotlin's `WhenExpression` treatment).
