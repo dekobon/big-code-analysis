@@ -2194,6 +2194,27 @@ mod tests {
         );
     }
 
+    /// A comment between a parameter's names, or between a name and its
+    /// type, is a child of the `parameter_declaration` and no parameter.
+    /// In the other Go fixtures here a declaration holds as many names as
+    /// other children — `a, b int` is two names, one comma and one type —
+    /// so counting the children that are not names reads the same.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_comment_in_parameter_declaration_is_no_parameter() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a /* width */ int, b, /* height */ c int) {}",
+            "foo.go",
+            |metric| {
+                // expected: `a` (1) + `b, c` (2) = 3. The children that
+                // are not names — a comment and a type, then a comma, a
+                // comment and a type — are 2 + 3 = 5.
+                assert_eq!(metric.nargs.function_args_sum(), 3);
+            },
+        );
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_func_literal_args() {
