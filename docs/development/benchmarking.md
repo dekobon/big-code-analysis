@@ -356,19 +356,42 @@ searches find the spellings of #1864 and #1867 and the adapter and
 helper spellings around them. `Ancestors::iter` is the only `iter` in
 these crates that takes an argument, which is what the first two key
 on; the third finds a `successors` climb over `Node::parent`, and the
-last lists the callers of the climbing helpers. They do not follow an
-iterator bound to a name or passed on as an `AncestorIter`: read those
-sites by hand.
+fourth lists the callers of the climbing helpers. None of the four
+follows an iterator bound to a name and stepped in a `while let`, or
+passed on to a helper, which is how the first sweep missed four of the
+seven climbs [#1868][climb-audit] audited. The last two list every call
+of `Ancestors::iter` and every helper that takes the iterator; read
+each site they print.
 
 ```bash
 rg -U '\.iter\([^)]+\)\)?\s*(\.(map|skip|by_ref|take|filter)\([^\n]*\)\s*)*\.(any|all|find|find_map|position|take_while|skip_while|map_while|last|count|fold|try_fold)\(' src big-code-analysis-ast/src
 rg 'for .* in .*\.iter\([^)]+\)' src big-code-analysis-ast/src
 rg 'successors\(.*parent' src big-code-analysis-ast/src
 rg 'count_specific_ancestors|has_ancestor_before_stop|has_ancestor_of_kind|nearest_level_answer' src big-code-analysis-ast/src
+rg '\.iter\([^)]+\)' src big-code-analysis-ast/src
+rg 'AncestorIter|impl Iterator<Item = Node' src big-code-analysis-ast/src
 ```
 
 For each match, name what stops the loop, then render a shape where
-that stop is absent or far and time it against a control.
+that stop is absent or far and time it against a control. Three
+questions sort a climb before any timing:
+
+- **Does it continue by the ancestor's kind?** Then read the grammar's
+  `node-types.json` for whether those kinds can hold each other.
+  Kotlin's modifier wrappers cannot, nor can Python's
+  `decorated_definition` and `block`, so those climbs take three steps
+  at most. JS destructuring patterns can, without bound, and that climb
+  was quadratic.
+- **Does it continue only from a last child or a last operand?** Then
+  count the askers that can share one path. Each node is the last leaf
+  of one path at most, so a climb asked by a leaf, or by a node that
+  cannot hold another asker, takes a linear number of steps over a
+  walk. The same climb asked by every node of a chain of only children
+  would not.
+- **What does one step read?** A sibling lookup that starts at the
+  parent's first child is a second loop inside the first, and it is
+  where the Perl climb #1868 audited was quadratic while its steps were
+  linear.
 
 ### Why each probe exists
 
@@ -1106,6 +1129,23 @@ pattern.
 
 Other scans from a parent's first child that run once per child are
 listed in [#1888][prefix-scans], measured and not yet fixed.
+
+The other five climbs #1868 listed have no probe, because nothing in
+them grows with the input:
+
+| Climb | Why it is bounded |
+|---|---|
+| Perl's `is_key_position` | It passes a level only from that level's last child, and its askers (a bareword, the `-` before one, the file test around one) hold no other key's asker, so one key's askers climb through each ancestor. |
+| Kotlin's `next_token_is_inserted` | The same, from a modifier keyword leaf. Its descent to the next token steps through first children from a node that is not one, so no two descents share a node. |
+| Kotlin's `modifier_was_written_as_one` | The skipped kinds (`*_modifier`, `type_modifiers`, `user_type`) cannot hold each other beyond `type_modifiers` under `user_type`: three ancestors at most. |
+| Python's `is_class_init` | A `decorated_definition` holds no block and no `decorated_definition`, and no block's parent is a block: three ancestors at most. |
+| Python's `python_code_before_node` | Replaced before the audit by the `LevelQuestion::CodeBeforeOnLine` memo above. |
+
+A deep chain ending in a Perl bareword (`!!…!name`, a ternary chain)
+and Kotlin modifiers at the end of an unclosed nest or at every level
+of one were timed at 4 000 / 8 000 / 16 000 levels and read level with
+`loc`. Every `Ancestors::iter` call in the two crates was read for the
+audit; the classification is linked from the issue.
 
 [climb-audit]: https://github.com/dekobon/big-code-analysis/issues/1868
 [prefix-scans]: https://github.com/dekobon/big-code-analysis/issues/1888

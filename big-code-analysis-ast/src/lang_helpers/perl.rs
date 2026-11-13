@@ -485,6 +485,13 @@ fn is_glued_word(word: &Node, test: &Node) -> bool {
 // last child: the sibling after the first ancestor that has one is the
 // token after the word. A key that stopped being the whole of its node
 // on the way up is no subscript key (`$h{1 - name}` is not quoted).
+//
+// The climb can reach the root and is still linear over a walk (#1868).
+// It passes a level only from that level's last child, and its askers
+// (a plain bareword, the `-` before one, the file test around one) hold
+// no other key's asker, so the askers of one key climb through each
+// ancestor. Each step reads the sibling after the node through the
+// walk's record, not from the parent's first child.
 fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let (mut node, mut node_ancestors) = (*key, ancestors);
     let mut whole = true;

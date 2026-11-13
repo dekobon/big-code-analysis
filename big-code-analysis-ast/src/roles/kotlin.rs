@@ -29,6 +29,11 @@ use crate::{Ancestors, Kotlin, Node, Search};
 /// Kinds are compared by name: `*_modifier` covers every wrapper, and
 /// `user_type` is where recovery can hang `type_modifiers`. The inserted
 /// name is found by width, not `is_missing()` (grammar-dispatch).
+///
+/// The search for the host reads three ancestors at most (#1868). The
+/// grammar puts none of the skipped kinds under a `*_modifier` wrapper
+/// or under `type_modifiers`, and only `type_modifiers` under a
+/// `user_type`, so the longest run of them is those two.
 fn modifier_was_written_as_one<'a>(
     node: &Node<'a>,
     _code: &[u8],
@@ -54,6 +59,12 @@ fn modifier_was_written_as_one<'a>(
 /// Every parameter's modifier asks, and the climb reaches
 /// `function_value_parameters`, so the sibling is found without a scan
 /// from the list's start: that made a long parameter list quadratic.
+///
+/// Both loops are linear over a walk (#1868). The climb starts at a
+/// modifier keyword, which is a leaf, and passes a level only from its
+/// last child, so one modifier climbs through each ancestor. The descent
+/// starts at a node that follows another and steps through first
+/// children only, so no two descents share a node.
 fn next_token_is_inserted<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     std::iter::once((*node, ancestors))
         .chain(ancestors.iter(node))

@@ -525,6 +525,11 @@ fn owner_attributes<'code>(
 /// reads attribute docstrings in: named so, with the class the first
 /// ancestor past its decorators and the class body's block. `up`
 /// continues from `function`'s parent.
+///
+/// The search reads three ancestors at most (#1868): a
+/// `decorated_definition` holds its decorators and one definition, never
+/// a block or another `decorated_definition`, and no block's parent is
+/// a block.
 fn is_class_init(function: &Node, up: AncestorIter<'_, '_>, code: &[u8]) -> bool {
     function
         .child_by_field_name("name")
