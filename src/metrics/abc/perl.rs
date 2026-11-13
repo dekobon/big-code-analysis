@@ -454,16 +454,20 @@ fn perl_count_chain_operands(
 // Whether the pattern is a list's last operand, and whether it is the
 // first, are read from the pattern outward, which stops at the nearest
 // operand: read off the list's last operand instead, every pattern of a
-// wide `(/a/, /b/, …)` scanned the whole list. Both reads go through the
-// walk's record of the list's children (`Ancestors::siblings_after` /
-// `siblings_before`). The grammar stores a list's operands as a
-// `repeat()`, but the comments between the `(` and the first operand are
-// the list's own children, outside it, so a seek or a scan from the
-// list's start steps over each of them: asked once per pattern, a list
-// of `n` comments and then `n` patterns cost `n²` steps, 6.5 s for
-// 16 000 of each in a release build against 0.05 s for `loc` (#1868).
-// The climb itself is linear over a walk: only a list's last operand
-// climbs on, so one pattern climbs through each `Array`.
+// wide `(/a/, /b/, …)` scanned the whole list. Both reads go through
+// `Ancestors::siblings_after` / `siblings_before`: the walk's record of
+// the list's children where the list is wide, a seek over at most
+// `WIDE_PARENT` children otherwise. The grammar stores a list's operands
+// as a `repeat()`, but the comments between the `(` and the first
+// operand are the list's own children, outside it, so a seek or a scan
+// from a wide list's start steps over each of them: asked once per
+// pattern, a list of `n` comments and then `n` patterns cost `n²` steps,
+// 6.5 s for 16 000 of each in a release build against 0.05 s for `loc`
+// (#1868). The climb itself is linear over a walk: only a list's last
+// operand climbs on, so one pattern climbs through each `Array`. The two
+// scans left start at a held node's first child and are asked of it a
+// bounded number of times: `perl_last_operand` of a binding by its two
+// operands, `perl_call_is_split` of a call by its first argument.
 fn perl_pattern_is_bound_or_delimiter<'a>(
     pattern: &Node<'a>,
     code: &[u8],
@@ -497,13 +501,16 @@ fn perl_pattern_is_bound_or_delimiter<'a>(
         }
         // No operand before it, rather than the first named child: a
         // comment is named, so `split( # sep⏎ /,/, $s)` read it as the
-        // first argument (#1455).
-        P::Arguments | P::Array => {
-            !slot_ancestors
-                .siblings_before(&slot)
-                .any(|prev| perl_is_operand(&prev))
-                && above.is_some_and(|(call, _)| perl_call_is_split(&call, code))
-        }
+        // first argument (#1455). The kind test comes first so that only
+        // a call's argument list reads its siblings, and the callee's
+        // name last so that it is read for a first argument alone.
+        P::Arguments | P::Array => above.is_some_and(|(call, _)| {
+            perl_is_call_argument_parent(call)
+                && !slot_ancestors
+                    .siblings_before(&slot)
+                    .any(|prev| perl_is_operand(&prev))
+                && perl_call_is_split(&call, code)
+        }),
         _ => false,
     })
 }

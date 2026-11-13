@@ -878,55 +878,69 @@ fn kotlin_halstead_asks_for_a_sibling_only_of_string_content() {
 /// list through the walk's record of the list's children, and never by
 /// a seek or a scan from the list's first child (#1868).
 ///
-/// The list opens with a run of comments. Those are the list's own
-/// children, outside the `repeat()` its operands are stored under, so a
-/// read that starts at the first child steps over every one of them,
-/// once per pattern, and answers what the record answers. No value
-/// shows it, and `sibling_cache_reads` does: each pattern asks for the
-/// sibling after it and for the operands before it, two reads of the
-/// record. `Node::children_after` for the first, or a
-/// `children().find(..)` or `Node::children_before` for the second,
-/// reads the record once per pattern instead. The list is wider than
-/// `WIDE_PARENT`, so the walk recorded it and no lookup seeks.
+/// Two of the lists open with a run of comments. Those are the list's
+/// own children, outside the `repeat()` its operands are stored under,
+/// so a read that starts at the first child steps over every one of
+/// them, once per pattern, and answers what the record answers. No
+/// value shows it, and `sibling_cache_reads` does. Every list is wider
+/// than `WIDE_PARENT`, so the walk recorded it and no lookup of it
+/// seeks.
 ///
-/// The second row climbs: its pattern sits in a `( … )` of its own, the
-/// second argument of a wide `split` list. The pattern's own read is a
-/// seek inside that narrow parenthesis, and the parenthesis is then
-/// asked for the operands before it in the list, through the list's
-/// record. A climb that kept the pattern's chain for the parenthesis
-/// would seek inside the parenthesis again, find nothing before it, and
-/// make the pattern `split`'s delimiter.
+/// - A plain list: each pattern asks for the sibling after it, to tell
+///   a last operand, and nothing else, since no call holds the list.
+///   A `Node::children_after` in its place never reads the record.
+/// - `split`'s list: each pattern is asked for the operands before it,
+///   to tell the delimiter, and not for the one after, since the list
+///   is the call's own. A `children().find(..)` or a
+///   `Node::children_before` in its place never reads the record. The
+///   first pattern has none before it and is the delimiter, which pays
+///   nothing.
+/// - A binding's list: the pattern is its last operand, so it climbs to
+///   the `=~` that binds it and only the `=~` pays.
+/// - A parenthesised second argument: the pattern's own read is a seek
+///   inside its narrow parenthesis, and the parenthesis is then asked
+///   for the operands before it in the list, through the list's
+///   record. A climb that kept the pattern's chain for the parenthesis
+///   would seek inside the parenthesis again, find nothing before it,
+///   and make the pattern `split`'s delimiter.
 #[cfg(feature = "perl")]
 #[test]
 fn the_perl_pattern_role_check_reads_a_commented_list_through_the_sibling_record() {
     use crate::node::{WIDE_PARENT, sibling_cache_reads, sibling_seeks};
 
-    let (comments, patterns, fillers) = (40, 40, 40);
+    let n = 40;
+    let (comments, patterns, fillers) = ("# c\n".repeat(n), "/a/, ".repeat(n), "1, ".repeat(n));
+    // Each row: the source, the children of its list, and what one
+    // `abc` walk makes of it as (conditions, seeks, record reads).
     let rows = [
         (
             "a commented list",
-            format!(
-                "my @r = (\n{}{}1);\n",
-                "# c\n".repeat(comments),
-                "/a/, ".repeat(patterns)
-            ),
+            format!("my @r = (\n{comments}{patterns}1);\n"),
             // expected: the parentheses, the comments, each pattern and
             // its comma, and the closing `1`.
-            comments + 2 * patterns + 3,
-            // expected: every bare match is a condition; each asks the
-            // record twice, and nothing else in the file asks for a
-            // sibling.
-            (patterns, 0, 2 * patterns),
+            3 * n + 3,
+            (n, 0, n),
+        ),
+        (
+            "a commented `split` list",
+            format!("my @p = split(\n{comments}{patterns}1);\n"),
+            3 * n + 3,
+            (n - 1, 0, n),
+        ),
+        (
+            "a binding's list",
+            format!("my $r = $x =~ ({fillers}/foo/);\n"),
+            // expected: the parentheses, each filler and its comma, and
+            // the pattern.
+            2 * n + 3,
+            (1, 0, 1),
         ),
         (
             "a parenthesised second argument",
-            format!("my @p = split(1, (/x/), {}3);\n", "2, ".repeat(fillers)),
+            format!("my @p = split(1, (/x/), {fillers}3);\n"),
             // expected: the parentheses, `1` and `(/x/)` each with a
             // comma, each filler and its comma, and the closing `3`.
-            2 * fillers + 7,
-            // expected: the one match is a condition. It seeks the
-            // sibling after it in its own parenthesis, and the
-            // parenthesis reads the list's record once.
+            2 * n + 7,
             (1, 1, 1),
         ),
     ];
