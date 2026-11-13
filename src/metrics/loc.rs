@@ -10333,6 +10333,23 @@ EOF
     #[cfg(feature = "python")]
     #[test]
     fn python_bare_row_joining_a_comment_a_nul_cuts_short_is_code() {
+        use crate::traits::ParserTrait;
+
+        // The fixture is this case only while the grammar ends the
+        // comment at the NUL and recovers past it.
+        let parser = PythonParser::new(
+            b"# c\0\nx = 1\n".to_vec(),
+            std::path::Path::new("foo.py"),
+            None,
+        );
+        let root = parser.root();
+        assert!(root.has_error(), "the NUL must leave an `ERROR`");
+        let comment = root
+            .preorder()
+            .find(|node| node.kind_id() == crate::Python::Comment as u16)
+            .expect("the fixture holds one comment");
+        assert_eq!(comment.end_byte(), 3, "the comment must stop at the NUL");
+
         let rows = |source: &[u8]| {
             loc_rows(
                 &metrics_verbatim(
