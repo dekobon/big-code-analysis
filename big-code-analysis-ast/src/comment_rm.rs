@@ -184,7 +184,8 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        CParser, CcommentParser, CppParser, MozcppParser, ObjcParser, ParserTrait, RustParser,
+        CParser, CcommentParser, CppParser, MozcppParser, ObjcParser, ParserTrait, PythonParser,
+        RustParser,
     };
 
     use super::rm_comments;
@@ -319,6 +320,42 @@ mod tests {
         assert!(
             !stripped.contains("// strip"),
             "an ordinary comment must still be stripped: {stripped:?}"
+        );
+    }
+
+    /// Python's `Checker::is_useful_comment` keeps an encoding
+    /// declaration: a comment on the first or second line that names a
+    /// `coding`, the two lines PEP 263 reads one from. Stripping it
+    /// changes how the file decodes.
+    ///
+    /// Each kept row sits beside rows that must go, so neither an
+    /// `is_useful_comment` that keeps nothing nor one that keeps every
+    /// comment passes: a trailing comment, a shebang on the first line,
+    /// and a `coding` comment on the third line, where it declares
+    /// nothing.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_keeps_an_encoding_declaration_on_the_first_two_lines_only() {
+        let strip = |source: &str| {
+            let path = PathBuf::from("foo.py");
+            let parser = PythonParser::new(source.as_bytes().to_vec(), &path, None);
+            let stripped = rm_comments(&parser).expect("each fixture has a removable comment");
+            String::from_utf8(stripped).expect("stripping preserves UTF-8")
+        };
+
+        // expected: the declaration on the first line stays; the
+        // trailing comment goes and leaves the two spaces before it.
+        assert_eq!(
+            strip("# coding: utf-8\nx = 1  # drop\n"),
+            "# coding: utf-8\nx = 1  \n"
+        );
+        // expected: the shebang names no `coding` and goes; the
+        // declaration on the second line stays; the same words on the
+        // third line are an ordinary comment and go. A removed
+        // one-line comment leaves its line break behind.
+        assert_eq!(
+            strip("#!/usr/bin/env python\n# -*- coding: latin-1 -*-\n# coding: utf-8\nx = 1\n"),
+            "\n# -*- coding: latin-1 -*-\n\nx = 1\n"
         );
     }
 
