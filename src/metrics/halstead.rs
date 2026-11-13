@@ -4821,6 +4821,56 @@ mod tests {
         );
     }
 
+    /// The other branch of the delimiter guard (#1312): a `/` whose
+    /// parent is no `pattern_matcher` falls through to the operator arm
+    /// and bills. tree-sitter-perl 1.1.2 spells `/` only as the bare
+    /// pattern's two delimiters (division emits no token, as the test
+    /// above pins), so no valid Perl reaches that branch and only a
+    /// recovery tree shows it. `$s =~ /abc` never closes its pattern,
+    /// and Perl rejects it.
+    ///
+    /// This pins what the arm has always done, not a language contract
+    /// (grammar-dispatch §6). The recovered shape is asserted first: a
+    /// grammar bump that recovers differently fails there, as fixture
+    /// drift, and should delete this test rather than relax it.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_slash_stranded_under_recovery_bills_an_operator() {
+        let src = "my $t = 1;\n$s =~ /abc\n";
+        let parser = PerlParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.pl"),
+            None,
+        );
+        let slashes: Vec<_> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Perl::SLASH as u16)
+            .collect();
+        assert_eq!(slashes.len(), 1, "recovery keeps the opening `/` alone");
+        assert!(
+            slashes[0].parent().is_some_and(|parent| parent.is_error()),
+            "the `/` must be stranded directly under an `ERROR`"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Perl::PatternMatcher as u16),
+            "recovery must not have built a pattern around it"
+        );
+        let h = crate::test_support::metrics_verbatim(
+            crate::LANG::Perl,
+            src.as_bytes(),
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Halstead]),
+        )
+        .halstead;
+        // expected: operators `my`, `$` x2, `=`, `;`, `=~` and the
+        // stranded `/` → n1 = 6, N1 = 7. Operands `$t`, `1`, `$s` →
+        // n2 = N2 = 3.
+        assert_eq!(h.unique_operators(), 6);
+        assert_eq!(h.total_operators(), 7);
+        assert_eq!(h.unique_operands(), 3);
+        assert_eq!(h.total_operands(), 3);
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_readline_closer_alias_never_reaches_kind_id() {
@@ -10131,6 +10181,54 @@ f() {
             operators("def f(name) do\n  a = \"q #{name}\"\nend\n"),
             "interpolating quoted atom vs its string twin"
         );
+    }
+
+    /// The other branch of the quoted-atom guard (#1858): a `:` leaf
+    /// whose parent is no `quoted_atom` falls through to the operator
+    /// arm and bills. tree-sitter-elixir 0.3.5 emits a standalone `:`
+    /// only inside a `quoted_atom`, so no valid Elixir reaches that
+    /// branch and only a recovery tree shows it. `b = [:"q]` never
+    /// closes its quote, and the compiler rejects it.
+    ///
+    /// This pins what the arm has always done, not a language contract
+    /// (grammar-dispatch §6). The recovered shape is asserted first: a
+    /// grammar bump that recovers differently fails there, as fixture
+    /// drift, and should delete this test rather than relax it.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_colon_stranded_under_recovery_bills_an_operator() {
+        let src = "a = 1\nb = [:\"q]\n";
+        let parser = ElixirParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("foo.ex"),
+            None,
+        );
+        let colons: Vec<_> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Elixir::COLON as u16)
+            .collect();
+        assert_eq!(colons.len(), 1, "the fixture spells one `:`");
+        assert!(
+            colons[0].parent().is_some_and(|parent| parent.is_error()),
+            "the `:` must be stranded directly under an `ERROR`"
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Elixir::QuotedAtom as u16),
+            "recovery must not have built a quoted atom around it"
+        );
+        let h = crate::test_support::metrics_verbatim(
+            crate::LANG::Elixir,
+            src.as_bytes(),
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Halstead]),
+        )
+        .halstead;
+        // expected: operators `=` x2, `[]` and the stranded `:` → n1 = 3,
+        // N1 = 4. Operands `a`, `1`, `b` → n2 = N2 = 3.
+        assert_eq!(h.unique_operators(), 3);
+        assert_eq!(h.total_operators(), 4);
+        assert_eq!(h.unique_operands(), 3);
+        assert_eq!(h.total_operands(), 3);
     }
 
     #[cfg(feature = "elixir")]
