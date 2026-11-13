@@ -1663,6 +1663,59 @@ impl Foo {
             );
         }
     }
+
+    // A run's verdict reaches the nodes that start before the byte it
+    // names, and a node that starts on that byte is asked about on its
+    // own. No clean parse puts a prunable node there: the byte is where
+    // the run's item starts, and only the item's own first child shares
+    // it. So this source is one rustc rejects, a `struct` with no `;`
+    // above a documented test module. The grammar keeps the `///` row
+    // inside the unfinished `struct_item` and closes it with an invented
+    // zero-width `;`, which is the item the doc comment's run ends at,
+    // on the byte where `mod t` starts. A reach that took that byte in
+    // answered `RETAIN` for `mod t` and kept the test code in it.
+    #[test]
+    fn a_reach_ending_where_a_test_module_starts_does_not_keep_the_module() {
+        let source =
+            "fn keep() {}\nstruct S\n/// doc\nmod t {\n    #![cfg(test)]\n    fn u() {}\n}\n";
+        // The recovered shape. `fn keep() {}` and its line break are
+        // bytes 0..13, `struct S` 13..21, and the `///` row with its
+        // line break 22..30, so `mod` starts at byte 30; the module's
+        // three rows are 8, 18 and 14 bytes and its `}` is byte 70.
+        let parser = RustParser::new(source.as_bytes().to_vec(), &PathBuf::from("lib.rs"), None);
+        let spans = |node: crate::Node| -> Vec<(&str, usize, usize)> {
+            node.children()
+                .map(|child| (child.kind(), child.start_byte(), child.end_byte()))
+                .collect()
+        };
+        assert_eq!(
+            spans(parser.root()),
+            [
+                ("function_item", 0, 12),
+                ("struct_item", 13, 30),
+                ("mod_item", 30, 71),
+            ]
+        );
+        let unfinished = parser.root().child(1).expect("the `struct_item`");
+        assert_eq!(
+            spans(unfinished),
+            [
+                ("struct", 13, 19),
+                ("type_identifier", 20, 21),
+                ("line_comment", 22, 30),
+                (";", 30, 30),
+            ]
+        );
+
+        // expected: `keep` and `u` are the functions. `mod t` is
+        // test-only by its inner attribute, so the prune takes it and
+        // `u` with it.
+        let baseline = analyse(source, false);
+        let pruned = analyse(source, true);
+        assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
+        assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        assert_eq!(pruned_shape(source).1, ["keep"]);
+    }
 }
 
 // Non-Rust languages must ignore `exclude_tests = true` because
