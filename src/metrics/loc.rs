@@ -9470,6 +9470,32 @@ EOF
         assert_eq!(loc_rows(&loc), (4, 1, 3, 0));
     }
 
+    /// A block comment runs past the row a bare row above it joins, so
+    /// that row is comment text to its end and the bare row is a comment,
+    /// whatever follows `=end`. Something can follow it only where a NUL
+    /// byte ends the comment token: the grammar's `=end.*` stops there, and
+    /// the tree recovers with an `ERROR` token after the comment.
+    /// `ruby -c` accepts the fixture, and Ripper lexes row 0 as space and
+    /// rows 1 and 2, the NUL included, as the comment.
+    ///
+    /// expected: row 0 (`\`) joins row 1 (`=begin`), a comment row, as
+    /// row 2 (`=end` + NUL) is, and row 3 is code: sloc 4, cloc 3.
+    /// Reading on from the comment's end to the `ERROR` makes the bare row
+    /// code, cloc 2. ploc is not asserted: the row holding the NUL reads
+    /// as code too, 2 where `ruby` has 1.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_bare_row_joining_a_block_comment_is_a_comment_whatever_follows_its_end() {
+        let loc = metrics_verbatim(
+            crate::LANG::Ruby,
+            b"\\\n=begin\n=end\0\nx = 1\n",
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc;
+        assert_eq!(loc.sloc(), 4);
+        assert_eq!(loc.cloc(), 3, "the bare row joins the comment's first row");
+    }
+
     /// A bare row continuing the last statement of a method's body is the
     /// method's code: the `body_statement` runs on past its last child to
     /// a hidden line break, so the row sits in its trailing padding.
@@ -10144,6 +10170,36 @@ EOF
             crate::LANG::Python,
             &[(b"if x:\n    \\\n    # note\n\n    pass\n", (5, 2, 2, 1), 1)],
         );
+    }
+
+    /// The one shape in which the `#` comment a bare row joins is not the
+    /// rest of its row: the comment token stops at a NUL byte, and the
+    /// tree recovers with an `ERROR` token after it. CPython rejects a NUL
+    /// byte outright ("source code string cannot contain null bytes"), so
+    /// no tokenizer stream derives the value: like the `\` + NUL row of
+    /// `python_bare_continuation_rows_are_the_line_they_join`, it pins the
+    /// recovery reading only.
+    ///
+    /// expected: the comment's row also holds the `ERROR`, a token that is
+    /// no comment, so it is code carrying a comment, as it reads with no
+    /// bare row above it: `(2, 2, 1, 0)`. The bare row that starts its
+    /// line is code too: `(3, 3, 1, 0)`. Reading the line as its comment
+    /// alone moves the bare row from ploc to cloc, `(3, 2, 2, 0)`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_row_joining_a_comment_a_nul_cuts_short_is_code() {
+        let rows = |source: &[u8]| {
+            loc_rows(
+                &metrics_verbatim(
+                    crate::LANG::Python,
+                    source,
+                    MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+                )
+                .loc,
+            )
+        };
+        assert_eq!(rows(b"# c\0\nx = 1\n"), (2, 2, 1, 0));
+        assert_eq!(rows(b"\\\n# c\0\nx = 1\n"), (3, 3, 1, 0));
     }
 
     /// Two bare rows under two parents, `class_definition` and
