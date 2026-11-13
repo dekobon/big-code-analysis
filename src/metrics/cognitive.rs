@@ -5580,6 +5580,32 @@ fn ie(x: bool) -> i32 {
         );
     }
 
+    /// The lambda channel: an anonymous `sub { … }` is the `Closure`
+    /// row's owner and charges its level to the control flow inside it,
+    /// and a closure inside a closure charges two. No Perl test read
+    /// the arm before: the suite passed with it severed.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_anonymous_sub_contributes_lambda_nesting() {
+        // expected: the outer `if` is 1 + one closure level = 2; the
+        // inner `if` is 1 + two closure levels = 3; 5 in all. With no
+        // lambda level each `if` is 1, 2 in all.
+        check_metrics::<PerlParser>(
+            "my $f = sub {
+                 my ($a) = @_;
+                 if ($a) { return 1; }       # +2
+                 return sub {
+                     my ($b) = @_;
+                     if ($b) { return 2; }   # +3
+                 };
+             };",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+            },
+        );
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_goto_single_increment() {
@@ -7693,6 +7719,34 @@ end",
         );
     }
 
+    /// The lambda channel: an anonymous `function … end` is the
+    /// `Closure` row's owner and charges its level to the control flow
+    /// inside it, and a closure inside a closure charges two. No Lua
+    /// test read the arm before: the suite passed with it severed.
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_cognitive_anonymous_function_contributes_lambda_nesting() {
+        // expected: the outer `if` is 1 + one closure level = 2; the
+        // inner `if` is 1 + two closure levels = 3; 5 in all. With no
+        // lambda level each `if` is 1, 2 in all.
+        check_metrics::<LuaParser>(
+            "local f = function(a)
+    if a then
+        return 1
+    end
+    return function(b)
+        if b then
+            return 2
+        end
+    end
+end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+            },
+        );
+    }
+
     #[cfg(feature = "typescript")]
     #[test]
     fn typescript_switch_statement() {
@@ -7903,6 +7957,41 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
+    }
+
+    /// An element of a tuple or of an expression list is an expression
+    /// of its own, so an `and` inside one opens a new sequence even
+    /// while a like operator around the container is still open. With
+    /// no like operator around the container the reset cannot show — a
+    /// sibling sequence ends where its operator does — which is why
+    /// `python_tuple` reads the same without it. A parenthesised
+    /// operand is the control: it continues the enclosing sequence.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_tuple_and_expression_list_open_a_new_bool_sequence() {
+        use crate::test_support::metrics_verbatim;
+
+        let rows = [
+            // a tuple, an expression list, a parenthesised operand
+            "return a and (b and c, d)",
+            "x = a and (yield b and c, d)",
+            "return a and (b and c)",
+        ];
+        let scored: Vec<u64> = rows
+            .iter()
+            .map(|body| {
+                metrics_verbatim(
+                    crate::LANG::Python,
+                    format!("def f(a, b, c, d):\n    {body}\n").as_bytes(),
+                    MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),
+                )
+                .cognitive
+                .cognitive_sum()
+            })
+            .collect();
+        // expected: rows 1 and 2 are the outer `and` (+1), then the
+        // element's (+1); row 3 is one sequence of `and` (+1).
+        assert_eq!(scored, [2, 2, 1], "{rows:?}");
     }
 
     #[cfg(feature = "perl")]
@@ -10417,6 +10506,44 @@ end",
                 // expected: outer if (+1) + nested if (+2 because nesting=1)
                 assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // A `def` is a function boundary wherever it sits: one written
+    // inside a compile-time `if` — conditional definition, a common
+    // module idiom — scores its body against its own depth. A `def`
+    // directly under `defmodule` cannot show it: the nesting it resets
+    // is already zero there.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_def_inside_a_conditional_restarts_the_nesting() {
+        check_func_space::<ElixirParser, _>(
+            "defmodule Foo do\n  if Mix.env() == :test do\n    def f(x) do\n      if x do\n        :hit\n      end\n    end\n  end\nend\n",
+            "foo.ex",
+            |space| {
+                // expected: the module-level `if` (+1) and the `if` in
+                // `f` (+1, not +2: the `def` restarts the nesting) = 2.
+                assert_eq!(space.metrics.cognitive.cognitive_sum(), 2);
+                assert_eq!(function_space(&space, "f").metrics.cognitive.cognitive(), 1);
+            },
+        );
+    }
+
+    // Only the method-defining macros are boundaries. An ordinary call
+    // is a `call` node like `def` and `if` are, and control flow in its
+    // arguments keeps the nesting of what encloses the call.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_ordinary_call_keeps_the_enclosing_nesting() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y) do\n    if x do\n      g(if y do\n        :hit\n      end)\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: outer if (+1) + the if in `g`'s argument (+2
+                // because nesting=1) = 3; 2 if the call reset the nesting
+                // as a `def` does.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
