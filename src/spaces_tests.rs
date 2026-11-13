@@ -3436,6 +3436,48 @@ mod grammar_bump_shapes {
         );
     }
 
+    /// tree-sitter-groovy#76: up to dekobon-tree-sitter-groovy 0.5.0 a
+    /// `synchronized (lock) { … }` block in a method body was an `ERROR`
+    /// holding the keyword, then a cast of `(lock)` applied to a closure
+    /// that held the block, so the block's `if` sat one closure deep
+    /// (cognitive 2) and the cast counted as a statement (lloc 3). Since
+    /// 0.6.0 it is a `synchronized_statement`, which no row claims, as
+    /// Java's is not: it opens no space and nests nothing.
+    ///
+    /// expected: Java's reading of the same source — the shape `[Unit,
+    /// A, m]`; on `m` cyclomatic 2 (the `if`), cognitive 1 (the `if` at
+    /// nesting 0), lloc 2 (the `if` and the call; neither language
+    /// counts the `synchronized` statement) and no closure.
+    #[cfg(feature = "java")]
+    #[test]
+    fn groovy_synchronized_block_reads_as_javas() {
+        let groovy = "class A {\n    void m(Object lock, boolean b) {\n        \
+                      synchronized (lock) {\n            if (b) { f() }\n        }\n    }\n}\n";
+        let java = "class A {\n    void m(Object lock, boolean b) {\n        \
+                    synchronized (lock) {\n            if (b) { f(); }\n        }\n    }\n}\n";
+        assert!(!has_error(groovy), "a synchronized block parses clean");
+        let groovy_root = analyse(groovy);
+        let java_root = space_verbatim(LANG::Java, java.as_bytes(), MetricsOptions::default());
+        let expected_shape = vec![
+            (None, SpaceKind::Unit),
+            (Some("A"), SpaceKind::Class),
+            (Some("m"), SpaceKind::Function),
+        ];
+        assert_eq!(shape(&groovy_root), expected_shape);
+        assert_eq!(shape(&java_root), expected_shape);
+        let reading = |root: &FuncSpace| {
+            let m = &root.spaces[0].spaces[0].metrics;
+            (
+                m.cyclomatic.cyclomatic_sum(),
+                m.cognitive.cognitive_sum(),
+                m.loc.lloc(),
+                m.nom.closures_sum(),
+            )
+        };
+        assert_eq!(reading(&groovy_root), (2, 1, 2, 0));
+        assert_eq!(reading(&groovy_root), reading(&java_root));
+    }
+
     /// FIXME(tree-sitter-groovy#73): since dekobon-tree-sitter-groovy
     /// 0.5.0 `trait` and `sealed` are keywords wherever a class member
     /// can start, so a field so named after a modifier — valid Groovy,

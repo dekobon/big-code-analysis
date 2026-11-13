@@ -33,11 +33,12 @@ fn has_class_body(node: &Node<'_>) -> bool {
     node.child_by_field_name("body").is_some()
 }
 
-/// Whether a `membership_expression` or `instanceof_expression` spells
-/// its keyword as a token. The negated forms `a !in b` and
-/// `o !instanceof T` emit no operator token at all — the node holds its
-/// two operands and nothing between them — so the owner pays for
-/// itself there and the positive form's keyword pays otherwise.
+/// Whether an `instanceof_expression` spells its keyword as a token.
+/// The negated form `o !instanceof T` emits no operator token at all —
+/// the node holds its two operands and nothing between them — so the
+/// owner pays for itself there and the positive form's keyword pays
+/// otherwise. `a !in b` had the same shape until
+/// dekobon-tree-sitter-groovy 0.6.0 gave it a `!in` token of its own.
 fn has_no_keyword_token<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
     comparison::project(node).is_none()
 }
@@ -53,6 +54,13 @@ fn has_no_keyword_token<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> b
 /// trait = 1`), and a statement opening with `var` as a name anywhere
 /// (`var = 4`, `var++`). Billing the leaf there would make a variable
 /// an operator (#1552, #1565, #1704).
+///
+/// `var` introduces a local, and since dekobon-tree-sitter-groovy 0.6.0
+/// every parameter-like declaration too: a method's or constructor's
+/// `formal_parameter`, a `closure_parameter`, a try-with-resources
+/// `resource` and a `catch` parameter each hold the keyword leaf where
+/// 0.5.0 read the word as their `type_identifier` (which [`spells_var`]
+/// claimed). A parameter *named* `var` is an `identifier` there.
 ///
 /// `record` is the exception since dekobon-tree-sitter-groovy 0.5.0:
 /// its keyword comes from the external scanner only before a record
@@ -74,23 +82,35 @@ fn contextual_keyword_owns<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) ->
                     Sealed,
                     ClassDeclaration | InterfaceDeclaration | TraitDeclaration
                 )
-                | (Var, LocalVariableDeclaration)
+                | (
+                    Var,
+                    LocalVariableDeclaration
+                        | FormalParameter
+                        | ClosureParameter
+                        | Resource
+                        | CatchFormalParameter
+                )
         )
     })
 }
 
 /// The type a `record_component` or a constructor's `formal_parameter`
 /// declares — the `type` field's tokens, comments and whitespace
-/// removed — or `None` for an untyped `formal_parameter` (`def` is a
-/// `type_identifier`, so only a bare name has none; a bare name in a
+/// removed — or `None` for an untyped one (a bare name in a
 /// `record_component` is a `type_identifier` to the pinned grammar,
 /// which requires the type there and recovers an untyped list as one
 /// component — `groovy_untyped_record_components_recover_as_one`) and
-/// for a child that is no parameter.
+/// for a child that is no parameter. `def` and `var` declare no type:
+/// since dekobon-tree-sitter-groovy 0.6.0 a `formal_parameter` holds
+/// either as a keyword outside its `type` field, where a
+/// `record_component` still reads it as its `type_identifier`, so that
+/// spelling is `None` too and `record R(def a)` matches its `R(def a)`
+/// as it did when both were the `type_identifier`.
 fn groovy_parameter_type(param: &Node<'_>, code: &[u8]) -> Option<Vec<u8>> {
     param
         .child_by_field_name("type")
         .map(|ty| token_spelling::<GroovyCode>(&ty, code))
+        .filter(|spelling| !matches!(spelling.as_slice(), b"def" | b"var"))
 }
 
 /// Whether `ctor`, a `constructor_declaration` in `record`'s body,
@@ -249,15 +269,15 @@ fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<
 /// Whether a `type_identifier` spells `var` as the declaration
 /// placeholder (#1706).
 ///
-/// The pinned grammar emits `var` as its keyword leaf only under a
-/// `local_variable_declaration`. In a field (`var field = 1`, `static
-/// var s = 2`), a parameter (`def m(var x)`), a try-with-resources
-/// `resource` (`try (var r = open())`), a `catch` parameter (`catch
-/// (var e)`) and the recovery of a modified local (`final var q = 5`,
-/// which the grammar cannot parse and fails into an `ERROR` holding the
-/// word) it is a `type_identifier` directly under the declaration, the
-/// parameter, the resource, the catch parameter or the `ERROR`: the
-/// five parents admitted. Groovy cannot declare a
+/// The pinned grammar emits `var` as its keyword leaf under a
+/// `local_variable_declaration` and every parameter-like declaration
+/// (see [`contextual_keyword_owns`]). In a field (`var field = 1`,
+/// `static var s = 2`) and in the recovery of a script-level modified
+/// one (`static var x`, which fails into an `ERROR` holding the word)
+/// it is a `type_identifier` directly under the declaration or the
+/// `ERROR`: the two parents admitted. Up to dekobon-tree-sitter-groovy
+/// 0.5.0 a parameter, a resource, a `catch` parameter and a `final var`
+/// local spelled it that way too. Groovy cannot declare a
 /// type named `var` (`class var {}` is a compile error), but the word
 /// is a legal *segment* of a qualified type (`a.var.B`, with `package
 /// a.var`) and a legal import alias (`import java.lang.String as var`),
@@ -265,30 +285,17 @@ fn spells_primitive_type<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<
 /// type is written out — a `qualified_type`, a cast, an `instanceof`, a
 /// type argument, an array or generic type — so a `var` under any of
 /// those stays the operand it was. An aliased `var` used bare as a
-/// field's, parameter's or resource's type is the one spelling the
-/// shape cannot tell from the placeholder, and it bills as the keyword;
-/// a `var` used as a name is an `identifier` and never reaches this
-/// gate. The batch review found the resource and catch parents missing
-/// from the first list — both were in the evidence dump and not acted
-/// on.
+/// field's type is the one spelling the shape cannot tell from the
+/// placeholder, and it bills as the keyword, as the grammar itself
+/// reads one on a parameter; a `var` used as a name is an `identifier`
+/// and never reaches this gate.
 ///
-/// A `method_declaration` parent is not admitted. The invalid return
-/// type `var m() {}` lands there, and so does one valid shape the
-/// grammar recovers that way: a script-level `final var s = 9` followed
-/// by another statement reads as a method head, where the same source
-/// alone recovers as an `ERROR` and is claimed. Whether that `var`
-/// bills therefore depends on what follows it — a gap of the pinned
-/// grammar's recovery, recorded rather than pinned.
+/// A `method_declaration` parent is not admitted: the invalid return
+/// type `var m() {}` lands there.
 fn spells_var<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    use Groovy::*;
-
     node_bytes(node, code) == b"var"
         && ancestors.parent(node).is_some_and(|parent| {
-            parent.is_error()
-                || matches!(
-                    parent.kind_id().into(),
-                    FieldDeclaration | FormalParameter | Resource | CatchFormalParameter
-                )
+            parent.is_error() || parent.kind_id() == Groovy::FieldDeclaration as u16
         })
 }
 
@@ -351,24 +358,26 @@ role_table! {
     // token: `spaceship_expression` / `<=>`, `identity_expression` /
     // `===` and `!==`, `regex_find_expression` / `=~`,
     // `regex_match_expression` / `==~`, `membership_expression` /
-    // `in` (gated: the same keyword opens a `for (x in xs)` header) and
-    // `instanceof_expression` / `instanceof` (gated: a keyword error
-    // recovery strands under `ERROR` is under no test). The negated
-    // forms `!in` and `!instanceof` emit no token at all, so those two
-    // owners pay for themselves exactly when they hold no keyword, and
-    // once per test either way.
+    // `in` or `!in` (gated: the same `in` opens a `for (x in xs)`
+    // header, and both are gated alike) and `instanceof_expression` /
+    // `instanceof` (gated: a keyword error recovery strands under
+    // `ERROR` is under no test). The negated `!instanceof` emits no
+    // token at all, so that owner pays for itself exactly when it holds
+    // no keyword, and once per test either way; `!in` is a token since
+    // dekobon-tree-sitter-groovy 0.6.0 and pays as `in` does.
     Comparison {
         owns [
             BinaryExpression(holds_payer),
             SpaceshipExpression, IdentityExpression, RegexFindExpression, RegexMatchExpression,
-            MembershipExpression(pays_itself_when has_no_keyword_token),
+            MembershipExpression,
             InstanceofExpression(pays_itself_when has_no_keyword_token),
         ]
         pays [
             EQEQ, BANGEQ, LTEQ, GTEQ,
             LT under BinaryExpression, GT under BinaryExpression,
             LTEQGT, EQEQEQ, BANGEQEQ, EQTILDE, EQEQTILDE,
-            In under MembershipExpression, Instanceof under InstanceofExpression,
+            In under MembershipExpression, BANGin under MembershipExpression,
+            Instanceof under InstanceofExpression,
         ]
         project "operator"
     }
@@ -488,14 +497,14 @@ role_table! {
     // `identifier`. `trait` and `record` are contextual, as `sealed` is.
     // `def` declares a method, a field or a local, as Kotlin's `fun` /
     // `val` and Perl's `my` do; it is one kind in every position. `var`
-    // is the same kind of leaf under a `local_variable_declaration`, as
-    // Kotlin's `var` is, and bills with it (#1704) — gated, as `trait`
-    // and `record` are, because a statement that opens with `var` as a
-    // name (`var = 4`) fails into an `ERROR` holding the same leaf. Only
-    // that leaf: a `var` used as a name elsewhere (`def var = 3`,
-    // `[var: 1]`) is an `identifier`. A field's `var field = 1`, a
-    // parameter's `m(var x)` and a `final var q = 5` parse the word as
-    // a `type_identifier`, which the `spells_var` gate claims as the
+    // is the same kind of leaf under a `local_variable_declaration` or a
+    // parameter-like declaration, as Kotlin's `var` is, and bills with
+    // it (#1704) — gated, as `trait` and `record` are, because a
+    // statement that opens with `var` as a name (`var = 4`) fails into
+    // an `ERROR` holding the same leaf. Only that leaf: a `var` used as
+    // a name elsewhere (`def var = 3`, `[var: 1]`, `m(var)`) is an
+    // `identifier`. A field's `var field = 1` parses the word as a
+    // `type_identifier`, which the `spells_var` gate claims as the
     // same keyword where it is the placeholder (#1706);
     // `Checker::keys_operator_by_text` then keys both spellings by
     // their bytes so Halstead counts one `var`, where the operand
@@ -648,10 +657,12 @@ mod tests {
     }
 
     // A node / token pairing with a negated spelling that has no token
-    // (#1695): `a in b` is owned by its node and paid by its `in`;
-    // `a !in b` is owned and paid by the node, since nothing else is
-    // there to pay. One pays per test either way, and the `in` of a
-    // `for` header pays nothing.
+    // (#1695): `o instanceof T` is owned by its node and paid by its
+    // `instanceof`; `o !instanceof T` is owned and paid by the node,
+    // since nothing else is there to pay. `a in b` and `a !in b` each
+    // pay at their token, `!in` one since dekobon-tree-sitter-groovy
+    // 0.6.0, where it was the node until then. One pays per test either
+    // way, and the `in` of a `for` header pays nothing.
     #[cfg(feature = "groovy")]
     #[test]
     fn membership_pays_at_its_keyword_or_at_itself_when_negated() {
@@ -663,9 +674,6 @@ mod tests {
                 paid.push(node.utf8_text(source).expect("fixture is UTF-8").to_owned());
             }
         });
-        assert_eq!(
-            paid,
-            ["in", "a !in b", "instanceof", "o !instanceof String"]
-        );
+        assert_eq!(paid, ["in", "!in", "instanceof", "o !instanceof String"]);
     }
 }

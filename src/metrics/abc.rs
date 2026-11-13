@@ -3602,32 +3602,65 @@ mod tests {
 
     #[cfg(feature = "groovy")]
     #[test]
-    fn groovy_final_local_is_an_error_at_the_pinned_grammar() {
-        // `groovy_eq_initializes_final_binding` lists
-        // `local_variable_declaration` for symmetry with Java, but at
-        // the pinned grammar a `final` local never
-        // reaches it: the parser emits an `ERROR` node for the
-        // declaration, with or without a terminator, so both of its `=`
-        // tokens count. This pins the grammar limitation so a bump that
-        // starts parsing the local shows up here rather than as a silent
-        // change in what the predicate suppresses.
-        let source = b"class K { int x; def m() { final int a = 0; x = 1 } }";
+    fn groovy_final_local_initializer_is_not_an_assignment() {
+        // The local half of `groovy_eq_initializes_final_binding`, the
+        // twin of the last row of
+        // `java_final_initializer_does_not_suppress_the_assignments_inside_it`.
+        // dekobon-tree-sitter-groovy 0.6.0 parses a `final` local in
+        // each spelling (tree-sitter-groovy#56); up to 0.5.0 it was an
+        // `ERROR`, both `=` of the first statement counted, and this
+        // test pinned that as a tripwire.
+        //
+        // expected: 1, the `x = 1`; the three `final` initializers are
+        // skipped, as a `final` field's is.
+        let source =
+            "class K { int x; def m() { final int a = 0; final b = 1; final def c = 2; x = 1 } }";
         let parser = GroovyParser::new(
-            source.to_vec(),
+            source.as_bytes().to_vec(),
             &std::path::PathBuf::from("foo.groovy"),
             None,
         );
-        assert!(
-            ast_has_kind_id(&parser, u16::MAX),
-            "a `final` local should still parse to an ERROR node; if the grammar \
-             now accepts it, re-derive the local half of the predicate",
+        assert!(!parser.root().has_error(), "a `final` local parses clean");
+        check_metrics::<GroovyParser>(source, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 1);
+        });
+    }
+
+    /// dekobon-tree-sitter-groovy 0.6.0 added an alias of each kind —
+    /// `_placeholder_declarator` and `_statement_assignment` — that took
+    /// the unsuffixed variant, so the parser reports every
+    /// `variable_declarator` and `assignment_expression` as
+    /// `VariableDeclarator2` and `AssignmentExpression2`, which the ABC,
+    /// NPA and `final`-binding arms must name (grammar-dispatch §1).
+    /// With the unsuffixed ids every field read zero attributes and no
+    /// declarator or assignment value was a boolean slot.
+    ///
+    /// expected: three declarators (a field, a `def` local, a script
+    /// local) and two assignments (in a method and at script level),
+    /// each reported as the `2` id only.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_declarators_and_assignments_reach_kind_id_as_the_alias() {
+        let parser = GroovyParser::new(
+            b"class A { int f = 1\n  def m() { def x = 1; x = 2 } }\ndef y = 3\ny = 4\n".to_vec(),
+            &std::path::PathBuf::from("foo.groovy"),
+            None,
         );
-        check_metrics::<GroovyParser>(
-            "class K { int x; def m() { final int a = 0; x = 1 } }",
-            "foo.groovy",
-            |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 2);
-            },
+        let ids = |kind: &str| -> Vec<u16> {
+            parser
+                .root()
+                .preorder()
+                .filter(|n| n.kind() == kind)
+                .map(|n| n.kind_id())
+                .collect()
+        };
+        assert_eq!(
+            ids("variable_declarator"),
+            [Groovy::VariableDeclarator2 as u16; 3]
+        );
+        assert_eq!(
+            ids("assignment_expression"),
+            [Groovy::AssignmentExpression2 as u16; 2]
         );
     }
 
@@ -18850,10 +18883,11 @@ mod numeric_bool_operands {
 /// The constructs, and the route each fix took:
 ///
 /// - **Groovy** `a in l` / `a !in l` (`membership_expression`), counted
-///   as a node by `groovy_count_token_condition`. The other four —
-///   `a === b` / `a !== b` (`identity_expression`) and `s =~ /p/` /
-///   `s ==~ /p/` (`regex_find_expression`, `regex_match_expression`) —
-///   are counted there as operator tokens, so all five score outside a
+///   at its `in` / `!in` token by `groovy_count_token_condition`. The
+///   other four — `a === b` / `a !== b` (`identity_expression`) and
+///   `s =~ /p/` / `s ==~ /p/` (`regex_find_expression`,
+///   `regex_match_expression`) — are counted there as operator tokens
+///   too, so all five score outside a
 ///   boolean slot as `==` does, and `groovy_condition_scores_itself`
 ///   lists each so the slot holding one does not pay again; a construct
 ///   takes exactly one of the two routes, never both

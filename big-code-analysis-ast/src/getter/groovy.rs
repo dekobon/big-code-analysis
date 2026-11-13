@@ -172,15 +172,17 @@ impl Getter for GroovyCode {
             // identity, regex and spaceship ones — are not here: the
             // `Comparison` and `ShortCircuit` rows of `roles/groovy.rs`
             // pay them and `get_paying_role` bills them (#1695). `<` /
-            // `>`, `in` and `instanceof` stay for the spellings the rows'
-            // gates leave out — a generic bracket (`LT2` is the opener's
-            // alias), a recovered token (`o instanceof` at end of input
-            // strands the keyword under `ERROR`), the `in` of a `for (x
-            // in xs)` header — which billed before the rows existed.
+            // `>`, `in`, `!in` and `instanceof` stay for the spellings the
+            // rows' gates leave out — a generic bracket (`LT2` is the
+            // opener's alias), a recovered token (`o instanceof` or `a
+            // !in` at the end of a block strands the keyword under
+            // `ERROR`), the `in` of a `for (x in xs)` header — which
+            // billed before the rows existed; `!in` is a token since
+            // dekobon-tree-sitter-groovy 0.6.0 and bills as `in` does.
             // role-bypass: allow(Comparison, Ternary) — the operator classification of the
             // spellings the rows' `under BinaryExpression` / `under MembershipExpression` /
             // `under InstanceofExpression` / `under TernaryExpression` gates leave out
-            LT | LT2 | GT | In | Instanceof
+            LT | LT2 | GT | In | BANGin | Instanceof
             // `case` is the `CaseArm` row's, and `if` / `switch` / `for` /
             // `while` / `catch` the `Branch` / `Switch` / `Loop` / `Catch`
             // rows' payers, all billed by `get_paying_role` (#1695,

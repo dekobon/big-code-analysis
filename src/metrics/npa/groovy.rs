@@ -37,9 +37,11 @@ impl Npa for GroovyCode {
                 let under = ancestors.of_children(node);
                 let members = under.get();
                 for declaration in node.children().filter(|n| member::owns(n, code, members)) {
+                    // `VariableDeclarator2` is the id the parser reports
+                    // since dekobon-tree-sitter-groovy 0.6.0.
                     let attributes = declaration
                         .children()
-                        .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
+                        .filter(|n| matches!(n.kind_id().into(), VariableDeclarator2))
                         .count();
                     if is_interface_like {
                         stats.interface_na += attributes;

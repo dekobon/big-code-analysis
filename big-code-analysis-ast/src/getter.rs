@@ -158,8 +158,8 @@ macro_rules! keyword_roles {
 /// (`pays_at_token_kind`) — the operator token, which is what Halstead
 /// counts — so an owning `binary_expression` bills nothing here and its
 /// `<` bills once, and a `pays_itself` owner, which pays the counting
-/// consumers at the leaf but is a node with no token to bill (Groovy's `a
-/// !in b`), bills nothing; an owner-only row (Kotlin's infix `and`, whose
+/// consumers at the leaf but is a node with no token to bill (Groovy's
+/// `!instanceof`), bills nothing; an owner-only row (Kotlin's infix `and`, whose
 /// name is an `identifier`; every statement-paying language's `Branch`)
 /// lists no payer and bills nothing. The control-flow rows' keyword
 /// payers (`if`, `for`, …) are ungated on every row but two, so a token

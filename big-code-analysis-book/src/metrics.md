@@ -839,12 +839,13 @@ operators, literal delimiters and other syntax:
   `@interface`, `@implementation` and `@protocol`. The `class` tail of
   Java's `C.class` is an operand, not this keyword (see the class
   literal below). Groovy's `var` bills as its `def` does since #1704,
-  once per local declaration however many declarators follow it. A
-  `var` used as a name stays an operand (`def var = 3`, `[var: 1]`),
+  once per local declaration however many declarators follow it, and
+  so does the `var` of a field (`var field = 1`), which the grammar
+  reads as a type name (#1706), or of a parameter, a closure
+  parameter, a resource, a `catch` parameter or a `final var` local.
+  A `var` used as a name stays an operand (`def var = 3`, `[var: 1]`),
   or bills nothing where the grammar cannot parse the statement
-  (`var = 4`), and the `var` of a field (`var field = 1`) or of
-  `final var`, which the grammar reads as a type name, still bills as
-  a type-name operand (#1706). Kotlin's `interface` followed in #1556.
+  (`var = 4`). Kotlin's `interface` followed in #1556.
   #1557 added C++'s `namespace`, `template`, `typename`, `typedef` and
   `using` (C and Objective-C bill `typedef` too), so
   `template <class T>` and `template <typename T>` each bill their
@@ -1814,7 +1815,9 @@ symbol table, so `List<T>` beside a `java.util.List<T>` component, or
 `List<String>` beside a `List<@Nullable String>` one (a type-use
 annotation is a token of the type), is one type to the compiler and
 two spellings here: the constructor is read as non-canonical and the
-header opens beside it. A record and an alternative constructor
+header opens beside it. In Groovy `def` and `var` declare no type, so
+a `def a` component agrees with a `def a` or an untyped `a`
+parameter. A record and an alternative constructor
 written on one line carry two `R::R` rows at one `start_line`, which
 `bca check --baseline` cannot tell apart, as two same-line overloads
 already were. The previous reading, under

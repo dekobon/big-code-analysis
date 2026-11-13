@@ -7103,9 +7103,12 @@ end",
     ///
     /// The rows prove the gate necessary (ungated, the `assigned var`
     /// row reads `[6, 8]`), not narrow: a gate admitting any parent but
-    /// `ERROR` passes them too, because no valid spelling puts the
-    /// `var` leaf under a third parent kind — every other position
-    /// parses it as an `identifier` or a `type_identifier`.
+    /// `ERROR` passes them too, because every valid spelling puts the
+    /// `var` leaf under a declaration the gate admits — a local here,
+    /// a parameter-like declaration since dekobon-tree-sitter-groovy
+    /// 0.6.0 (`groovy_type_identifier_var_is_the_keyword_1706`) — and
+    /// every other position parses it as an `identifier` or a
+    /// `type_identifier`.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_var_is_a_declaration_keyword_1704() {
@@ -7155,18 +7158,20 @@ end",
     }
 
     /// #1706: the `var` the grammar reads as a `type_identifier` — a
-    /// field's, a `static` or `private` field's, a parameter's, a
-    /// try-with-resources resource's, a `catch` parameter's, and the
-    /// one in the recovery of `final var q = 5`, which the grammar
-    /// cannot parse and fails into an `ERROR` holding the word — is the keyword
-    /// #1704 bills, not a type-name operand: Groovy reserves the word
-    /// in type position (`class var {}` is a compile error), so no type
-    /// is named. Before the fix every row read one fewer operator and
-    /// one more operand per `var`, and the "mixed" rows read two
-    /// distinct `var` operators, because the keyword leaf was keyed by
-    /// kind and the `type_identifier` would have been keyed by text —
-    /// `keys_operator_by_text` now keys both by the bytes, which the
-    /// `[n1, N1]` of those rows is the only thing to pin.
+    /// field's, a `static` or `private` field's — is the keyword #1704
+    /// bills, not a type-name operand: Groovy reserves the word in type
+    /// position (`class var {}` is a compile error), so no type is
+    /// named. A parameter's, a try-with-resources resource's, a `catch`
+    /// parameter's and a `final var q = 5` local's were the same
+    /// `type_identifier` (the last inside an `ERROR`) up to
+    /// dekobon-tree-sitter-groovy 0.5.0 and are the keyword leaf since
+    /// 0.6.0; their rows read the same either way. Before the fix every
+    /// row read one fewer operator and one more operand per `var`, and
+    /// the "mixed" rows read two distinct `var` operators, because the
+    /// keyword leaf was keyed by kind and the `type_identifier` would
+    /// have been keyed by text — `keys_operator_by_text` now keys both
+    /// by the bytes, which the `[n1, N1]` of those rows is the only
+    /// thing to pin.
     ///
     /// The "named" rows are controls: `def var = 3` and `var var = 6`
     /// name a variable `var`, an `identifier`, and stay operands. So
@@ -7230,7 +7235,6 @@ end",
             // twice
             ("two fields", "class C { var a = 1; var b = 2 }\n", [5, 7]),
             // `def`, `()`, `{}`, `final`, `var`, `=`: the modified local
-            // the grammar recovers
             ("final local", "def f() { final var q = 5 }\n", [6, 6]),
             // `def`, `()`, `var`, `{}`: a parameter's placeholder type
             ("parameter", "def m(var x) { x }\n", [4, 4]),
@@ -7250,6 +7254,15 @@ end",
                 "class D { D(var a) { } }\n",
                 [4, 5],
             ),
+            // `def`, `=`, `{}`, `var`, `->`: a closure's, which parses
+            // since dekobon-tree-sitter-groovy 0.6.0
+            ("closure parameter", "def c = { var x -> x }\n", [5, 5]),
+            // `def` x2, `()`, `{}`: a parameter's `def` is the keyword
+            // leaf since 0.6.0, where it was a `type_identifier` operand
+            ("def parameter", "def m(def x) { x }\n", [3, 4]),
+            // `def`, `()`, `{}`, `final`: so is a parameter's untyped
+            // `final`, which 0.5.0 read as its type
+            ("final parameter", "def m(final x) { x }\n", [4, 4]),
             // `class`, `{}` x2, `var` x2, `=` x2, `;`, `def`, `()`: a
             // field's `type_identifier` and a local's keyword leaf, one
             // `var` — keyed by kind and by text they would be two
@@ -8490,11 +8503,13 @@ end",
     }
 
     /// #1695: Groovy's `Comparison` / `ShortCircuit` rows' payers bill
-    /// as operators, one spelling apiece, and the negated membership
-    /// forms — which carry no token — bill nothing, as before; the
+    /// as operators, one spelling apiece, and the negated `!instanceof`
+    /// — which carries no token — bills nothing, as before; the
     /// gated-out spellings (a `for` header's `in`, a generic opener as
     /// the `<>` pair, an `instanceof` error recovery strands under
-    /// `ERROR`) bill as they did before the rows.
+    /// `ERROR`) bill as they did before the rows. `!in` is a token since
+    /// dekobon-tree-sitter-groovy 0.6.0 and bills as Kotlin's does; up to
+    /// 0.5.0 it was the tokenless node and billed nothing.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_comparison_and_short_circuit_spellings_bill_1695() {
@@ -8511,23 +8526,25 @@ end",
             ("=~", "def c = a =~ /x/\n"),
             ("==~", "def c = a ==~ /x/\n"),
             ("in", "def c = a in b\n"),
+            ("!in", "def c = a !in b\n"),
             ("instanceof", "def c = a instanceof B\n"),
             // stranded under `ERROR` only inside a block the recovery
             // cannot close; at top level the type is a zero-width node
             ("instanceof", "def f(o) { o instanceof }\n"),
+            // stranded the same way
+            ("!in", "def f(a) { a !in }\n"),
             ("&&", "def c = a && b\n"),
             ("||", "def c = a || b\n"),
             ("in", "for (x in xs) { }\n"),
             ("<>", "List<String> l = null\n"),
         ];
         assert_spellings_bill_as_operators::<GroovyParser>("foo.groovy", ROWS);
-        // The tokenless negated forms pay the counting consumers at the
+        // The tokenless negated form pays the counting consumers at the
         // node, which is no token: the vocabulary is exactly the
         // declaration's, as before the rows.
-        for source in ["def c = a !in b\n", "def c = a !instanceof B\n"] {
-            let ops = ops_of::<GroovyParser>(source, "foo.groovy");
-            assert_eq!(ops.operators, ["=", "def"], "{source}");
-        }
+        let source = "def c = a !instanceof B\n";
+        let ops = ops_of::<GroovyParser>(source, "foo.groovy");
+        assert_eq!(ops.operators, ["=", "def"], "{source}");
     }
 
     /// #1695: the JS family's `Comparison` / `ShortCircuit` rows' payers

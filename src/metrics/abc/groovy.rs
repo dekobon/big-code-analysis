@@ -76,14 +76,14 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // Whether an arm of `compute` already charges `expr` (already peeled) as
 // a condition: a comparison, identity, regex, spaceship, membership or
 // `instanceof` test (the `Comparison` row's owners, paid at their
-// token or, for the negated membership forms, at the node), a ternary
+// token or, for the negated `!instanceof`, at the node), a ternary
 // (its `?`) or an elvis (its `?:`, the `NullSafe` owner paid by that
 // token — not the row's three safe navigations), or an `&&` /
 // `||` chain (the `ShortCircuit` row's owner), whose operands each pay
 // through `groovy_count_condition`. Neither owner gate reads ancestors,
 // so the peeled descendant is asked with none.
 //
-// An assignment is not peeled, because the `AssignmentExpression` arm
+// An assignment is not peeled, because the `AssignmentExpression2` arm
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
 // counts. It scores itself exactly when its value does, as Java's does.
@@ -105,7 +105,7 @@ fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     rows_own!(expr, code; comparison, short_circuit, ternary)
         || groovy_is_elvis(expr, code)
         || match expr.kind_id().into() {
-            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
+            AssignmentExpression2 => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
                 proves_boolean || groovy_condition_scores_itself(&value, code)
             }),
@@ -164,34 +164,41 @@ fn groovy_count_negated_slot(slot: Option<Node>, code: &[u8], conditions: &mut f
 
 // The Groovy spelling of `java_eq_initializes_final_binding`: the
 // grammar puts `final` directly under the declaration rather than in a
-// `modifiers` node. Only the field form is reachable — the pinned
-// grammar parses a `final` local as an `ERROR` node, with or
-// without a `;` (pinned by `groovy_final_local_is_an_error_at_the_pinned_grammar`)
-// — but the local kind is listed so a grammar that starts parsing it
-// classifies it like Java. Before this predicate a sentinel stack
-// suppressed every `=` inside a `final` field's initializer, so a
-// `final Closure c = { x = 1 }` hid the closure body's assignment.
+// `modifiers` node, a field's or a local's alike (the local parses
+// since dekobon-tree-sitter-groovy 0.6.0;
+// `groovy_final_local_initializer_is_not_an_assignment`). A field and
+// an untyped local (`final x = 1`, `final def x = 1`) wrap each name
+// and its `=` in a `variable_declarator`; a typed local
+// (`final int x = 1`) spells them directly under the declaration, so
+// the `=`'s parent is the declaration there. Before this predicate a
+// sentinel stack suppressed every `=` inside a `final` field's
+// initializer, so a `final Closure c = { x = 1 }` hid the closure
+// body's assignment.
 fn groovy_eq_initializes_final_binding<'a>(
     eq_node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
     use Groovy::*;
-    eq_node.parent_grandparent_match(
-        ancestors,
-        |parent| parent.kind_id() == VariableDeclarator,
-        |declaration| {
-            // role-bypass: allow(Member, Modifier) — the binding shape a `=`
-            // initialises, a local or a field alike, and which modifier it
-            // carries; not whether it is a container's member or a modifier
-            matches!(
-                declaration.kind_id().into(),
-                FieldDeclaration | LocalVariableDeclaration
-            ) && declaration
-                .children()
-                .take_while(|child| child.kind_id() != VariableDeclarator)
-                .any(|child| child.kind_id() == Final)
-        },
-    )
+    // role-bypass: allow(Member, Modifier) — the binding shape a `=`
+    // initialises, a local or a field alike, and which modifier it
+    // carries; not whether it is a container's member or a modifier
+    fn declares_final(declaration: &Node) -> bool {
+        matches!(
+            declaration.kind_id().into(),
+            FieldDeclaration | LocalVariableDeclaration
+        ) && declaration
+            .children()
+            .take_while(|child| !matches!(child.kind_id().into(), VariableDeclarator2 | EQ))
+            .any(|child| child.kind_id() == Final)
+    }
+    let mut climb = ancestors.iter(eq_node).map(|(node, _)| node);
+    match climb.next() {
+        Some(parent) if parent.kind_id() == VariableDeclarator2 => climb
+            .next()
+            .is_some_and(|declaration| declares_final(&declaration)),
+        Some(parent) => declares_final(&parent),
+        None => false,
+    }
 }
 
 fn groovy_count_token_assignment<'a>(
@@ -292,8 +299,8 @@ fn groovy_count_token_condition<'a>(
     // its `<` under an `ERROR` only the positive form copes with — the
     // identity `===` / `!==`, regex `=~` / `==~` and spaceship `<=>`
     // tokens, each emitted by exactly one production (#1461), the `in`
-    // of a membership test and `instanceof`, and the negated `!in` /
-    // `!instanceof` nodes, which carry no token to pay (#1461). One pays
+    // or `!in` of a membership test and `instanceof`, and the negated
+    // `!instanceof` node, which carries no token to pay (#1461). One pays
     // per test (§5). Fitzpatrick Rule 5 scores a relational operator
     // wherever it is written, so `def r = a <=> b` and
     // `def b = a in l` score as `def r = a == b` does. The `Ternary`
@@ -366,10 +373,14 @@ fn groovy_walk_for_conditions<'a>(
             |operand, conds| groovy_count_negated(operand, code, conds),
             conds,
         ),
-        VariableDeclarator => {
+        // The `2` ids are the ones the parser reports since
+        // dekobon-tree-sitter-groovy 0.6.0; the unsuffixed two are
+        // aliases it never emits
+        // (`groovy_declarators_and_assignments_reach_kind_id_as_the_alias`).
+        VariableDeclarator2 => {
             groovy_count_negated_slot(node.child_by_field_name("value"), code, conds);
         }
-        AssignmentExpression => {
+        AssignmentExpression2 => {
             groovy_count_negated_slot(node.child_by_field_name("right"), code, conds);
         }
         // The dekobon grammar inlines the parens of `if` / `while` /

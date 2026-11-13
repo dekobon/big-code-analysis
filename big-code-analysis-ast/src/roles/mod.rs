@@ -218,8 +218,8 @@
 //! - `pays_itself` marks a kind the grammar gives no token for, so the
 //!   owner is also the payer; `pays_itself_when f` one the grammar gives
 //!   a token in some spellings and none in others, so the owner pays
-//!   only where `f` says it holds none (Groovy's `a !in b` beside
-//!   `a in b`).
+//!   only where `f` says it holds none (Groovy's `o !instanceof T`
+//!   beside `o instanceof T`).
 //! - `holds_payer` gates the owner on its `project` field (the row
 //!   attribute below) holding one of the row's payers, so a
 //!   `binary_expression` owns a comparison only when its `operator`
@@ -2085,11 +2085,11 @@ macro_rules! role_table {
     // In `pays_at_leaf`: a `pays_itself` owner pays under its own gate,
     // and a `pays_itself_when w` owner under its gate *and* `w` — the
     // owner whose grammar gives it a token in one spelling and none in
-    // another (Groovy's `a in b` / `a !in b`), so the token pays where
-    // there is one and the owner where there is not. The attribute is
-    // only meaningful on a split row — on a plain row every owner
-    // already pays, and under `pays never` it would contradict the row
-    // — so the other two modes reject it.
+    // another (Groovy's `o instanceof T` / `o !instanceof T`), so the
+    // token pays where there is one and the owner where there is not.
+    // The attribute is only meaningful on a split row — on a plain row
+    // every owner already pays, and under `pays never` it would
+    // contradict the row — so the other two modes reject it.
     (@self_payer_done [$mode:ident] $ctx:tt $k:ident $g:tt [] $s:tt $c:tt) => {};
     (@self_payer_done [split] $ctx:tt $k:ident $g:tt [pays_itself] $s:tt $c:tt) => {
         $crate::role_table!(@clause_gated $ctx $k $g);

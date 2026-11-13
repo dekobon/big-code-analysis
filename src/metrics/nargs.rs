@@ -4794,6 +4794,39 @@ record A(int x) {}",
         );
     }
 
+    /// A `def` component and a `def` or untyped constructor parameter
+    /// declare the same type, so `R(def a)` and `S(a)` are the canonical
+    /// constructors and close their headers. dekobon-tree-sitter-groovy
+    /// 0.6.0 reads a parameter's `def` as a keyword outside its `type`
+    /// field, where the component's is still its `type_identifier`;
+    /// comparing those spellings opened `R`'s header beside its own
+    /// canonical constructor (three rows, `nargs` 2). Up to 0.5.0 both
+    /// were the `type_identifier`, `R` read as here, and `S` opened its
+    /// header too.
+    ///
+    /// expected: each record a class with one function, the written
+    /// constructor, of one argument.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_def_component_matches_a_def_or_untyped_parameter() {
+        check_spaces::<GroovyParser, _>(
+            "record R(def a) { R(def a) { } }\nrecord S(def a) { S(a) { } }\n",
+            "r.groovy",
+            |space| {
+                assert_eq!(
+                    space_rows(&space),
+                    [
+                        row("R", SpaceKind::Class, 0),
+                        row("R", SpaceKind::Function, 1),
+                        row("S", SpaceKind::Class, 0),
+                        row("S", SpaceKind::Function, 1),
+                    ]
+                );
+                assert_eq!(space.metrics.nargs.function_args_sum(), 2);
+            },
+        );
+    }
+
     /// Groovy's owner rule, Java's without the compact form (the pinned
     /// grammar cannot parse one — `groovy_compact_constructor_does_not_parse`):
     /// implicit (`I`), explicit canonical (`N`, closing the header),
