@@ -16232,6 +16232,45 @@ end
         }
     }
 
+    /// A ternary slot is the operand inside its parentheses, never the
+    /// parenthesis token.
+    ///
+    /// `_expr` inlines `( … )` as anonymous children of `ternary_expr`,
+    /// so a slot located by position alone lands on `)` for a
+    /// parenthesised condition and on `(` for a parenthesised branch.
+    /// `($a) ? …` cannot show it: a token pays the condition slot as
+    /// `$a` does. Each row below holds an operand whose score differs
+    /// from a token's — a comparison, which pays through its `>` and
+    /// leaves the slot quiet, and a negation, which makes a branch a
+    /// condition — in one slot at a time.
+    #[cfg(feature = "tcl")]
+    #[test]
+    fn tcl_parenthesised_ternary_slots_hold_the_operand_inside() {
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Tcl,
+                source.as_bytes(),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc
+            .conditions_sum()
+        };
+        let rows = ["($a > 1) ? $b : $c", "$a ? (!$b) : $c", "$a ? $b : (!$c)"];
+        let scored: Vec<u64> = rows
+            .iter()
+            .map(|expr| {
+                conditions(&format!(
+                    "proc f {{a b c}} {{\n set r [expr {{{expr}}}]\n}}"
+                ))
+            })
+            .collect();
+        // expected: row 1 is the ternary (+1) and the `>` (+1), its
+        // condition slot holding the comparison and adding nothing;
+        // rows 2 and 3 are the ternary (+1), its condition `$a` (+1)
+        // and the negated branch (+1).
+        assert_eq!(scored, [2, 3, 3], "{rows:?}");
+    }
+
     #[cfg(feature = "irules")]
     #[test]
     fn irules_abc_parenthesised_negated_operands_match_the_bare_form() {
@@ -16694,6 +16733,36 @@ end
             bare,
             "parenthesising the condition must not change the count"
         );
+    }
+
+    /// The iRules half of
+    /// `tcl_parenthesised_ternary_slots_hold_the_operand_inside`: the
+    /// grammar inlines the parentheses the same way (dumped, not
+    /// assumed), and `($a) ? …` hides a slot that lands on the `)`
+    /// because the token pays as `$a` does. One slot per row holds an
+    /// operand that scores differently from a token.
+    #[cfg(feature = "irules")]
+    #[test]
+    fn irules_abc_parenthesised_ternary_slots_hold_the_operand_inside() {
+        let conditions = |source: &str| {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Irules,
+                source.as_bytes(),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Abc]),
+            )
+            .abc
+            .conditions_sum()
+        };
+        let rows = ["($a > 1) ? $b : $c", "$a ? (!$b) : $c", "$a ? $b : (!$c)"];
+        let scored: Vec<u64> = rows
+            .iter()
+            .map(|expr| conditions(&format!("when X {{\n    set y [expr {{ {expr} }}]\n}}\n")))
+            .collect();
+        // expected: row 1 is the ternary (+1) and the `>` (+1), its
+        // condition slot holding the comparison and adding nothing;
+        // rows 2 and 3 are the ternary (+1), its condition `$a` (+1)
+        // and the negated branch (+1).
+        assert_eq!(scored, [2, 3, 3], "{rows:?}");
     }
 
     // #1454's five-language sweep of #1422's C# rule: a pattern-match
