@@ -127,15 +127,14 @@ slowest shard's `mutants.out/outcomes.json` — the file in each report
 artifact that records per-mutant `duration` — prices a root-crate
 mutant at ~28 seconds and an ast-crate one, which rebuilds both
 crates, at ~39, with a missed mutant about twice either since both
-suites then run to completion. The current sixteen rests on those
-per-crate rates and the census after #1728 widened the selection:
-`cargo mutants --list` (27.1.0, at 7008fdb3) reports 5048
-mutants, up from 3673, and the ast share rose from 5 % to 31 % since
-every added mutant is in that crate. Sixteen shards hold about 316
-each, roughly 165 minutes at the slow-runner rates; fourteen would
-have been ~361 and ~190 minutes, inside the timeout but with the
-margin eaten by the 1.6x host variance the first run showed between
-two shards of identical composition. The laptop figure the count was first sized from,
+suites then run to completion. The ast crate holds about 31 % of the
+list since #1728 widened the selection. The current eighteen rests on
+the second complete run (43278927651, 2026-11-12, at 68b70b08): its
+sixteen shards of 341 mutants run for 125 to 222 minutes, two of them
+past 200, and the slowest prices a mutant at 39 seconds. The list holds
+5249 mutants with the test modules and the excluded mutants out, so
+eighteen shards hold about 292 each, roughly 190 minutes at that rate.
+The laptop figure the count was first sized from,
 about ten seconds per mutant, is roughly half the hosted cost. Both
 halves of `utils/mutation-report.py` are covered by `make
 mutation-report-test`, and the workflow's four `run:` bodies by `make

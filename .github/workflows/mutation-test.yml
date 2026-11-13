@@ -42,9 +42,14 @@ jobs:
   # twice either. Widening the selection to the per-language checker/,
   # getter/ and roles/ modules (#1728) took the census from 3673 to
   # 5048 mutants (`cargo mutants --list`, 27.1.0, at 7008fdb3)
-  # and the ast share from 5 % to 31 %. Sixteen gives ~316 per shard,
+  # and the ast share from 5 % to 31 %. Sixteen gave ~316 per shard,
   # about 165 min at those slow-runner rates; the margin to 270 is for
-  # the runner variance that made identical shards differ 1.6x.
+  # the runner variance that made identical shards differ 1.6x. The
+  # second complete run (43278927651, sixteen shards of 341 at
+  # 68b70b08) took 125 to 222 min, two shards past 200, so the count is
+  # eighteen: ~292 per shard of the 5249 the list holds once the test
+  # modules and the excluded mutants are out, about 190 min at that
+  # run's slowest rate of 39 s per mutant.
   prepare:
     name: shard list
     runs-on: ubuntu-latest
@@ -56,7 +61,7 @@ jobs:
       - id: define
         run: |
           set -euo pipefail
-          shards='[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]'
+          shards='[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]'
           echo "shards=${shards}" >> "$GITHUB_OUTPUT"
           echo "count=$(jq -n "${shards} | length")" >> "$GITHUB_OUTPUT"
 
