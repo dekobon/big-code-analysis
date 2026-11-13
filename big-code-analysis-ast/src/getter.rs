@@ -1730,6 +1730,7 @@ mod keyword_role_tests {
         feature = "python",
         feature = "rust",
         feature = "kotlin",
+        feature = "elixir",
     ))]
     fn roles_of<L: LanguageInfo + Getter>(
         source: &[u8],
@@ -1979,6 +1980,112 @@ mod keyword_role_tests {
             crate::RustCode::get_op_type(n, a)
         }));
         assert_eq!((via_walk, via_rows, via_byte_less), (5, 1, 5));
+    }
+
+    /// Elixir's hand-written `get_paying_role` bills the applied tokens
+    /// of the `Comparison` row and of the `ShortCircuit` row, each row
+    /// on its own. The walk cannot show which reading billed one: the
+    /// byte-less arm lists the same tokens, for the spellings the rows'
+    /// `applied` gate leaves out, so it answers `Operator` for an
+    /// applied `==` the rows declined. Asked directly, as the
+    /// control-keyword tests above ask the macro-built readings.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_paying_role_bills_each_rows_applied_tokens() {
+        use crate::ElixirCode;
+        // `==` and `<` are the `Comparison` row's, `&&` and `or` the
+        // `ShortCircuit` row's. `=`, `+` and `/` are no row's, and the
+        // capture `&==/2` names its `==` without applying it.
+        let source = b"x = a == b && c < d or e + f\ng = &==/2\n";
+        let via_rows = roles_of::<ElixirCode>(source, ElixirCode::get_paying_role);
+        assert_eq!(
+            via_rows,
+            [
+                ("==", TokenRole::Operator),
+                ("&&", TokenRole::Operator),
+                ("<", TokenRole::Operator),
+                ("or", TokenRole::Operator),
+            ]
+        );
+    }
+
+    /// Java's byte-less arm bills a `class` token only as the tail of a
+    /// class literal, the spelling the `DeclKeyword` row's gate leaves
+    /// to it (#1566). A declaration's `class` is the row's: on the walk
+    /// the row answers first and the arm never sees that token, so only
+    /// the arm asked directly shows that its parent guard holds.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_byte_less_arm_bills_class_only_in_a_class_literal() {
+        use crate::JavaCode;
+        let source = b"class A { Object o = A.class; }\n";
+        let class_tokens = |roles: Vec<(&'static str, TokenRole)>| {
+            roles
+                .into_iter()
+                .filter(|&(kind, _)| kind == "class")
+                .map(|(_, role)| role)
+                .collect::<Vec<_>>()
+        };
+        let via_walk = class_tokens(roles_of::<JavaCode>(
+            source,
+            JavaCode::get_op_type_with_code,
+        ));
+        let via_rows = class_tokens(roles_of::<JavaCode>(source, JavaCode::get_keyword_role));
+        let via_byte_less = class_tokens(roles_of::<JavaCode>(source, |n, _, a| {
+            JavaCode::get_op_type(n, a)
+        }));
+        // The declaration's `class` first, then the literal's.
+        assert_eq!(via_walk, [TokenRole::Operator, TokenRole::Operand]);
+        assert_eq!(via_rows, [TokenRole::Operator]);
+        assert_eq!(via_byte_less, [TokenRole::Operand]);
+    }
+
+    /// Perl's byte-less arm tells an `and` operator from an auto-quoted
+    /// `and` key (#1539) by its own test of the token's position. On the
+    /// walk the `ShortCircuit` row's `applied_and` gate, the same test,
+    /// pays the operator first, so the arm sees only the key there; the
+    /// operator half of its test shows only when the arm is asked
+    /// directly.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_byte_less_arm_tells_an_and_operator_from_an_and_key() {
+        use crate::PerlCode;
+        use crate::test_support::for_each_node_with_chain_tolerating_errors;
+        // The key's `=>` recovers into an `ERROR` (#1539), so the walk
+        // cannot require a clean parse.
+        let source = b"my $c = $a and $b;\nmy %h = (and => 1);\n";
+        let and_tokens = |classify: fn(&Node<'_>, &[u8], Ancestors<'_, '_>) -> TokenRole| {
+            let mut out = Vec::new();
+            for_each_node_with_chain_tolerating_errors::<PerlCode>(source, |node, chain| {
+                if node.kind() == "and" {
+                    out.push(classify(node, source, Ancestors::known(chain)));
+                }
+            });
+            out
+        };
+        // The operator first, then the key.
+        let via_walk = and_tokens(PerlCode::get_op_type_with_code);
+        let via_rows = and_tokens(PerlCode::get_paying_role);
+        let via_byte_less = and_tokens(|n, _, a| PerlCode::get_op_type(n, a));
+        assert_eq!(via_walk, [TokenRole::Operator, TokenRole::Operand]);
+        assert_eq!(via_rows, [TokenRole::Operator, TokenRole::Unknown]);
+        assert_eq!(via_byte_less, [TokenRole::Operator, TokenRole::Operand]);
+    }
+
+    /// The trait's default operator name is the empty string, which the
+    /// two pseudo-languages whose rows are all `absent` inherit:
+    /// `ccomment` and `preproc` bill no operator, so no kind of theirs
+    /// has a name to render. No walk shows it, since their Halstead
+    /// `compute` records no operator for `ops` to name, hence the direct
+    /// reading.
+    #[cfg(feature = "c-family-helpers")]
+    #[test]
+    fn row_less_languages_render_no_operator_name() {
+        use crate::{CcommentCode, PreprocCode};
+        for id in [0, 1, u16::MAX] {
+            assert_eq!(CcommentCode::get_operator_id_as_str(id), "");
+            assert_eq!(PreprocCode::get_operator_id_as_str(id), "");
+        }
     }
 
     /// A C-family modifier, declaration keyword and primitive reach
