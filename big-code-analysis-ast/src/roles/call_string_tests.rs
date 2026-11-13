@@ -1080,3 +1080,41 @@ fn byte_less_is_primitive_is_the_rows_kind_table() {
         probe::<crate::RustCode>("rust", rs, primitive::OWNERS, primitive::lists_kind, &unmet);
     }
 }
+
+/// Groovy's byte-less `Checker::is_primitive` is the `Primitive` row's
+/// kind table as well, and that table is the two name kinds: a
+/// primitive there is a name told by its text, which this spelling
+/// cannot read (#1599). So it answers `true` for every name, `int` and
+/// `a` alike, and `false` for every other node.
+///
+/// Asked directly, because no walk asks it: Halstead reads the row
+/// through `keys_operator_by_text`, which `GroovyCode` overrides.
+#[cfg(feature = "groovy")]
+#[test]
+fn groovy_byte_less_is_primitive_is_the_name_kinds_and_nothing_else() {
+    let source = b"class C {\n  int a = 1\n}\n";
+    let mut answers = Vec::new();
+    for_each_node_with_chain::<crate::GroovyCode>(source, |node, _| {
+        answers.push((node.kind(), crate::GroovyCode::is_primitive(node)));
+    });
+    // expected: in document order, the class name, the `int` and the
+    // field name are the tree's three names.
+    assert_eq!(
+        answers,
+        [
+            ("source_file", false),
+            ("class_declaration", false),
+            ("class", false),
+            ("identifier", true),
+            ("class_body", false),
+            ("{", false),
+            ("field_declaration", false),
+            ("type_identifier", true),
+            ("variable_declarator", false),
+            ("identifier", true),
+            ("=", false),
+            ("number_literal", false),
+            ("}", false),
+        ]
+    );
+}
