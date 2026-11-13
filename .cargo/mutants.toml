@@ -153,6 +153,18 @@ exclude_re = [
   # a leading identifier of at least one byte, so `prefix_len` is never
   # 0 here and `>` and `>=` agree.
   '''^big-code-analysis-ast/src/getter/kotlin\.rs:\d+:\d+: replace > with >= in kotlin_short_interp_operand_bytes$''',
+  # Unreachable. Every `impl Checker for` in `checker/` defines these
+  # three itself, through `impl_comment_from_rows!` or
+  # `impl_doc_comment_rows_in_bodies!` and through
+  # `impl_row_predicates!`, so the trait's default bodies run for no
+  # language. The only types that inherit them are two test probes in
+  # `cyclomatic.rs`, which call no `Checker` method. A language added
+  # without the macros would make them live.
+  '^big-code-analysis-ast/src/checker\.rs:\d+:\d+: replace Checker::(is_comment|is_call|is_string) -> bool with true$',
+  # Equivalent. Both bodies read a role table in which `FuncOpener` and
+  # `Container` are `absent`, so each already answers `false` for every
+  # node of a Ccomment or Preproc tree.
+  '^big-code-analysis-ast/src/checker/(ccomment|preproc)\.rs:\d+:\d+: replace <impl Checker for (Ccomment|Preproc)Code>::(is_func_space_with_code|is_func_with_code) -> bool with false$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
