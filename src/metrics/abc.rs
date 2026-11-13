@@ -5125,6 +5125,42 @@ mod tests {
         });
     }
 
+    // A `#if` / `#elif` directive names its symbol test `condition` and
+    // its `#elif` / `#else` `alternative`, the field names a
+    // `conditional_expression` uses, and is no ternary: the operand
+    // slots are walked for the `Ternary` row's owner alone. A bare
+    // symbol is the discriminating operand, since an operator in the
+    // directive scores itself and the slot would stay quiet either way.
+    // The directive selects text at compile time and is no decision to
+    // cyclomatic either.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_preprocessor_symbol_test_is_not_a_ternary_slot() {
+        let src = "class A {
+                int d(int a, int b) {
+                #if DEBUG
+                    if (a == b) { return 1; }
+                #elif TRACE
+                    if (a != b) { return 2; }
+                #endif
+                    return 0;
+                }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[
+                (Csharp::PreprocIf as u16, 1, "the `#if DEBUG`"),
+                (Csharp::PreprocElif as u16, 1, "the `#elif TRACE`"),
+            ],
+        );
+        // expected: the `==` and the `!=`, 2 conditions; `DEBUG` and
+        // `TRACE` add none (4 if the directives were walked as ternaries).
+        // Cyclomatic: 1 + the two `if` statements = 3.
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(&space.spaces[0], &[("d", 2, 3)]);
+        });
+    }
+
     // #1448, the C++ / Mozcpp instance of #1420. C++ overloads seven
     // comparison operators; before the fix only `<` / `>` were gated on a
     // `binary_expression` parent, so `operator<=` `>=` `==` `!=` and the
@@ -5912,6 +5948,44 @@ mod tests {
                     // #1455 again, through the paren wrapper.
                     ("rc", 1, 2),
                 ],
+            );
+        });
+    }
+
+    // The null-forgiving suffix is peeled, not merely tolerated: what it
+    // wraps decides whether the slot pays. The fixtures above wrap a
+    // bare `b`, which pays one condition whether the slot sees `b` or
+    // the `postfix_unary_expression` around it, so they cannot tell a
+    // peel from a wrapper the slot stops at. An operand that scores
+    // itself can: a ternary pays through its `?` and its own condition
+    // slot, a comparison through its token, and the `if` slot holding
+    // either must not pay again.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_null_forgiving_operand_that_scores_itself_pays_once() {
+        let src = "class A {
+                int t(bool p, bool a, bool b) { if (p ? a : b) { return 1; } return 0; }
+                int tn(bool p, bool a, bool b) { if ((p ? a : b)!) { return 1; } return 0; }
+                int e(int a, int b) { if (a == b) { return 1; } return 0; }
+                int en(int a, int b) { if ((a == b)!) { return 1; } return 0; }
+            }";
+        assert_csharp_fixture_spells(
+            src,
+            &[(
+                Csharp::PostfixUnaryExpression as u16,
+                2,
+                "the null-forgiving suffixes of `tn` and `en`",
+            )],
+        );
+        // expected: `t` / `tn` are the `?` (+1) and the ternary's
+        // condition `p` (+1), 2; `e` / `en` are the `==`, 1. The `if`
+        // slot adds nothing to any of them, so each suffixed member
+        // equals its control. Cyclomatic: 1 + `if` + `?` = 3, and
+        // 1 + `if` = 2.
+        check_func_space::<CsharpParser, _>(src, "foo.cs", |space| {
+            assert_members_score(
+                &space.spaces[0],
+                &[("t", 2, 3), ("tn", 2, 3), ("e", 1, 2), ("en", 1, 2)],
             );
         });
     }
