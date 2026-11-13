@@ -186,12 +186,22 @@ fn js_family_walk_for(node: &Node, scores: ScoresItself, conditions: &mut f64) {
 // 1.6 s for 16 000 nested `[a = 1, …]` in a release build against
 // 0.14 s for `loc` (#1868). Those levels are read through
 // `Ancestors::nearest_level_answer`, which keeps each pattern's answer
-// for the walk; the direct read of the parent stays outside it, so an
-// ordinary `=` touches no memo.
+// for the walk.
+//
+// The first `CONST_BINDING_DIRECT_LEVELS` levels are read outside that
+// memo, which is a hash map. The first answers the `=` of a declarator,
+// an assignment or a TypeScript parameter; the second a JavaScript
+// default parameter's, whose `=` sits in an `assignment_pattern`; the
+// third a default written straight into one array or object pattern
+// (`[a = 1]`, `{a = 1}`). None of those touches the memo. A default
+// behind one more layer does (`{a: b = 1}`, a pattern in a pattern).
+// Read through the memo, `{a = 1}` cost two lookups and two inserts,
+// which measured 4 to 9% of a whole run over a file of nothing but
+// `const {a = 1} = v;`.
 macro_rules! impl_js_family_const_binding {
     ($Lang:ident, $name:ident) => {
         fn $name<'a>(eq_node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-            fn binds_const<'a>(
+            fn const_binding_at_level<'a>(
                 _code: &[u8],
                 level: &Node<'a>,
                 above: Ancestors<'a, '_>,
@@ -219,18 +229,32 @@ macro_rules! impl_js_family_const_binding {
                 }
             }
 
-            let Some((owner, above)) = ancestors.iter(eq_node).next() else {
-                return false;
-            };
-            binds_const(code, &owner, above).unwrap_or_else(|| {
-                above.nearest_level_answer(&owner, LevelQuestion::InConstBinding, code, binds_const)
+            let mut highest_read = None;
+            for (level, above) in ancestors.iter(eq_node).take(CONST_BINDING_DIRECT_LEVELS) {
+                if let Some(answer) = const_binding_at_level(code, &level, above) {
+                    return answer;
+                }
+                highest_read = Some((level, above));
+            }
+            highest_read.is_some_and(|(level, above)| {
+                above.nearest_level_answer(
+                    &level,
+                    LevelQuestion::InConstBinding,
+                    code,
+                    const_binding_at_level,
+                )
             })
         }
     };
 }
 
-// Levels the `const`-binding question reads: the `=`'s parent, and each
-// ancestor a pattern default's climb asks. Every way of reading them
+// How many ancestors of an `=` the `const`-binding question reads before
+// it asks the walk's memo: a default one pattern deep has its own
+// pattern node, the pattern holding it and that pattern's owner.
+const CONST_BINDING_DIRECT_LEVELS: usize = 3;
+
+// Levels the `const`-binding question reads: those nearest the `=`, and
+// each ancestor a deeper default's climb asks. Every way of reading them
 // answers the same, so only this tells a walk that reads each pattern
 // level once from one that climbs to the declarator from every default
 // (#1868).

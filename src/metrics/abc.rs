@@ -14033,11 +14033,19 @@ end
     // of reading the levels answers the same.
     //
     // - `arrays`: `n` nested array patterns under a `const`, a default
-    //   in each and a second in the innermost.
+    //   in each ahead of the next array, and a second in the innermost.
+    //   The walk meets the shallowest default first.
+    // - `deep_first`: the same nest with each default after the array it
+    //   holds, so the walk meets the deepest default first and the one
+    //   climb that reads every level is the first.
     // - `objects`: `n` nested object patterns under a `let`, each
     //   holding a default and a `pair_pattern` around the next, the
     //   innermost pair holding a default instead. Two pattern layers per
     //   level, and the other answer.
+    //
+    // Each `=` reads the three levels nearest it directly, or fewer when
+    // one answers, and a default deeper than that then asks the memo
+    // about the levels above the third.
     #[cfg(all(feature = "javascript", feature = "mozjs", feature = "typescript"))]
     #[test]
     fn js_family_const_binding_reads_each_pattern_level_once() {
@@ -14049,6 +14057,7 @@ end
             "[a = 1, ".repeat(n),
             "]".repeat(n)
         );
+        let deep_first = format!("const {}b{} = v;\n", "[".repeat(n), ", a = 1]".repeat(n));
         let objects = format!(
             "let {}c = 3{} = v;\n",
             "{a = 1, b: ".repeat(n),
@@ -14065,33 +14074,53 @@ end
             .assignments_sum();
             (assignments, const_binding_levels_read::observed() - before)
         };
-        // `make chain-audit` runs the climb beside every memoised ask,
-        // so there each count is the two together.
+        // `make chain-audit` runs the climb beside every ask of the
+        // memo, so there each count is the two together.
         let audited = usize::from(cfg!(chain_audit));
-        // expected, arrays: every `=` reads its parent, `n + 2` reads.
-        // Each of the `n + 1` defaults then asks the levels above its
-        // own pattern: the outermost reads its array and the
-        // declarator, each deeper `a = 1` its own array before meeting
-        // the answer on the array above, and `b = 2` meets it on its
-        // own array at once — `n + 1` more, 83 in all. The climb reads
-        // `k + 1` levels from the default `k` arrays deep and `n + 1`
-        // from `b = 2`, (n² + 5n + 2) / 2 = 901: 943 with the parent
-        // reads when it replaces the memo, 984 when it runs beside it.
-        let arrays_read = 2 * n + 3 + audited * ((n * n + 5 * n + 2) / 2);
-        // expected, objects: `n + 2` parent reads again. The outermost
-        // default reads its object and the declarator; each deeper
-        // `a = 1` its own object and the pair around it; `c = 3` its
-        // pair — `2n + 1` more, 123 in all. The climb reads `2k` levels
-        // from the default `k` objects deep and `2n + 1` from `c = 3`,
-        // n² + 3n + 1 = 1721: 1763 when it replaces the memo. Every
-        // `=` counts under `let`.
-        let objects_read = 3 * n + 3 + audited * (n * n + 3 * n + 1);
+        // expected, arrays: the outermost default reads its own node, its
+        // array and the declarator, which answers: 3. Each deeper
+        // `a = 1` reads three pattern levels and then one through the
+        // memo, the declarator from the second array and otherwise the
+        // array two above its own, before it meets an answer: 4 each.
+        // `b = 2` meets one at once, 3, and the declarator's `=` reads
+        // its parent: 4n + 3, 163. The climb reads `k + 2` levels from
+        // the default `k` arrays deep, 943 in all when it replaces the
+        // memo. Beside it, it reads `k - 1` for each default past the
+        // first and `n - 1` for `b = 2`: (n - 1)(n + 2) / 2, 819.
+        let arrays_read = 4 * n + 3 + audited * ((n - 1) * (n + 2) / 2);
+        // expected, deep first: the innermost default reads three levels
+        // directly and the other `n - 2` arrays and the declarator
+        // through the memo, `n + 2`. Every other default reads three
+        // and meets an answer, the declarator's `=` one: 4n, 160. The
+        // climb beside the memo reads `k - 1` levels for each default
+        // past the outermost: n(n - 1) / 2, 780.
+        let deep_first_read = 4 * n + audited * (n * (n - 1) / 2);
+        // expected, objects: the outermost default reads its own node,
+        // its object and the declarator: 3. Each deeper `a = 1` reads
+        // its own node, its object and the pair around that directly,
+        // then the object and the pair above through the memo: 5 each.
+        // `c = 3` reads its own node, its pair and the innermost object,
+        // then one pair through the memo: 4. With the declarator's `=`,
+        // 5n + 3, 203; 1763 when the climb replaces the memo. Beside it,
+        // the climb reads `2k - 2` levels for each `a = 1` past the
+        // first and `2n - 1` for `c = 3`: n² + n - 1, 1639. Every `=`
+        // counts under `let`.
+        let objects_read = 5 * n + 3 + audited * (n * n + n - 1);
         let object_assignments = u64::try_from(n + 2).expect("a small count");
         for lang in [LANG::Javascript, LANG::Mozjs, LANG::Typescript, LANG::Tsx] {
             assert_eq!(
-                (read(lang, &arrays), read(lang, &objects)),
-                ((0, arrays_read), (object_assignments, objects_read)),
-                "{lang:?}: (assignments, levels read) on the array nest, then the object nest"
+                (
+                    read(lang, &arrays),
+                    read(lang, &deep_first),
+                    read(lang, &objects)
+                ),
+                (
+                    (0, arrays_read),
+                    (0, deep_first_read),
+                    (object_assignments, objects_read)
+                ),
+                "{lang:?}: (assignments, levels read) on the array nest, the deep-first \
+                 nest and the object nest"
             );
         }
     }
