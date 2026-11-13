@@ -11155,6 +11155,30 @@ end
 
     #[cfg(feature = "rust")]
     #[test]
+    fn rust_block_ending_in_a_semicolon_yields_no_operand() {
+        // A block evaluates to its tail expression. `{ !b }` is the
+        // negation; `{ !a; }` discards it and is `()`, so the argument
+        // holding it is no negated operand. The fixture compiles as
+        // written (`rustc --crate-type lib`, warnings only).
+        // expected: `m({ !a; })` 0, `m({ !b })` 1 and `return { !a }` 1:
+        // 2 conditions. The two calls are 2 branches.
+        check_metrics::<RustParser>(
+            "fn m<T>(_: T) {}\n\
+             fn f(a: bool, b: bool) -> bool {\n\
+             \x20   m({ !a; });                  // +1b\n\
+             \x20   m({ !b });                   // +1b +1c\n\
+             \x20   return { !a };               // +1c\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
     fn rust_short_circuit_with_boolean_literal_operand() {
         // `if a && true` reports 2 conditions: one for the identifier
         // operand, one for the boolean-literal operand. Confirms the
