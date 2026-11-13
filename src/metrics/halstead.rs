@@ -5866,6 +5866,28 @@ end",
 
     #[cfg(feature = "kotlin")]
     #[test]
+    fn kotlin_unicode_escape_is_not_a_short_template() {
+        // Issue #454 boundary: the name token must follow a token that
+        // spells exactly `$`. kotlin-ng splits a `\uXXXX` escape into two
+        // `string_content` tokens, `\u` and the hex digits, so
+        // `"\uCAFE\uBABE"` is `\u`, `CAFE`, `\u`, `BABE`: each digit
+        // run starts like an identifier and follows a `string_content`,
+        // which is every condition of a short template but the `$`.
+        //
+        // `fun f() { val a = "\uCAFE\uBABE" }\n`
+        //   expected: operands `f`, `a` and the literal → u_operands =
+        //   3, N2 = 3. Read as `$CAFE$BABE`, the literal is suppressed
+        //   and both digit runs recovered: 4 / 4.
+        let src = "fun f() { val a = \"\\uCAFE\\uBABE\" }\n";
+        check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
+        });
+        assert_ops_operands::<KotlinParser>(src, "foo.kt", 3, vec!["f", "a", "\"\\uCAFE\\uBABE\""]);
+    }
+
+    #[cfg(feature = "kotlin")]
+    #[test]
     fn kotlin_string_template_long_form_no_double_count() {
         // The `${expr}` long form of a Kotlin string template also
         // produces an `Interpolation` child. The fix must apply to it
@@ -9224,6 +9246,28 @@ int helper(int a, char b) { return a; }
                 "val f: suspend () -> Unit = {}\nsuspend fun g() {}\n",
                 [8, 11],
             ),
+        ];
+        assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
+    }
+
+    /// #1558, a stranding the rows above do not spell: a function
+    /// *named* `suspend`, called and declared. Both are valid Kotlin,
+    /// since `suspend` is a soft keyword and the standard library
+    /// declares such a function, and kotlin-ng parses neither. The name
+    /// recovers into an `ERROR` that holds a `type_modifiers` list,
+    /// where the rows above strand the bare leaf or a `*_modifier`
+    /// wrapper. The leaf is a name here too and bills nothing, so each
+    /// row scores what its twin scores with a name the grammar parses.
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_function_named_suspend_bills_no_modifier_1558() {
+        const ROWS: &[(&str, &str, [u64; 2])] = &[
+            // `val`, `=`, `()`
+            ("call", "val c = suspend(1)\n", [3, 3]),
+            ("call, twin", "val c = suspended(1)\n", [3, 3]),
+            // `fun`, `()`, `:`, `=`
+            ("declaration", "fun suspend(x: Int) = x\n", [4, 4]),
+            ("declaration, twin", "fun suspended(x: Int) = x\n", [4, 4]),
         ];
         assert_operator_rows::<KotlinParser>("foo.kt", ROWS);
     }
