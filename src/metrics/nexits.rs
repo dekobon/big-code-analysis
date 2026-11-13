@@ -1089,6 +1089,29 @@ mod tests {
         );
     }
 
+    /// An ordinary call is no exit. The `Exit` row admits a call whose
+    /// callee is a bare identifier *and* spells `panic`; every other Go
+    /// fixture here calls `panic`, a selector, or nothing, so a gate
+    /// that admitted any bare callee scored them all the same.
+    #[cfg(feature = "go")]
+    #[test]
+    fn go_ordinary_call_is_not_exit() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                g()
+                h(1)
+                panic(\"boom\")
+            }",
+            "foo.go",
+            |metric| {
+                // expected: `g()` and `h(1)` call bare identifiers that
+                // are not `panic` → 0; `panic("boom")` → 1.
+                assert_eq!(metric.nexits.nexits_sum(), 1);
+            },
+        );
+    }
+
     #[cfg(feature = "java")]
     #[test]
     fn java_split_function() {
@@ -2408,6 +2431,24 @@ end",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.nexits.nexits_sum(), 0);
+            },
+        );
+    }
+
+    /// The receiver gate reads the receiver's kind *and* its text: a
+    /// constant other than `Kernel` names a user method, as any other
+    /// receiver does. The fixture above spells only lowercase receivers
+    /// and `self`, which a gate admitting every constant rejects too.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_constant_receiver_other_than_kernel_is_not_exit() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  Salary.raise(x)\n  Menu.exit\n  Kernel.raise \"boom\"\nend\n",
+            "foo.rb",
+            |metric| {
+                // expected: `Salary.raise` and `Menu.exit` → 0;
+                // `Kernel.raise` → 1.
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
