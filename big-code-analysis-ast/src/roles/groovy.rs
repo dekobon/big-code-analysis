@@ -33,7 +33,7 @@ fn has_class_body(node: &Node<'_>) -> bool {
     node.child_by_field_name("body").is_some()
 }
 
-/// Whether an `instanceof_expression` spells its keyword as a token.
+/// Whether an `instanceof_expression` holds no keyword token.
 /// The negated form `o !instanceof T` emits no operator token at all —
 /// the node holds its two operands and nothing between them — so the
 /// owner pays for itself there and the positive form's keyword pays

@@ -478,11 +478,11 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
         })
 }
 
-// Name-based for cross-grammar correctness (see `cpp_count_field_identifiers`).
+// Name-based for cross-grammar correctness (see `cpp_declarator_names`).
 //
 // A `function_definition` child is accepted outright rather than
-// recursed into: it *is* a function, whatever declarator it carries.
-// Recursing would miss a conversion operator with an inline body,
+// looked into: it *is* a function, whatever declarator it carries.
+// Looking into it would miss a conversion operator with an inline body,
 // whose declarator is an `operator_cast` and not a
 // `function_declarator` (#1258).
 //
@@ -496,17 +496,19 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // function-pointer type positions (#1298).
 //
 // A `function_declarator`, by contrast, is *not* accepted outright:
-// the same node spells two opposite things, and only its `declarator`
-// field tells them apart. A name (`realMethod()`) or an
+// the same node spells two opposite things. In a clean parse only its
+// `declarator` field tells them apart: a name (`realMethod()`) or an
 // `operator_name` (`operator->()`) is a member function; a
 // `parenthesized_declarator` may be either, so its children are asked
 // as `DeclaratorQuestion::Parenthesized`, which reads each with
-// `cpp_parenthesized_child_verdict` (#1300).
+// `cpp_parenthesized_child_verdict` (#1300). One holding a parse error
+// may instead be the recovery of a member-pointer data member, which
+// is read from its parameter lists as described below (#1807, #1885).
 //
 // Neither `function_definition` nor `operator_cast` can be reached
 // from `Npa`'s `field_declaration` call site: per both grammars'
 // `node-types.json`, neither `field_declaration` nor the
-// `pointer_declarator` / `reference_declarator` wrappers this recurses
+// `pointer_declarator` / `reference_declarator` wrappers this looks
 // through can carry a `function_definition`, an `operator_cast`, or a
 // `declaration` — so there is no path to either at any depth. `Npa`'s
 // other call site, `cpp_template_declares_data_member`, hands over the
@@ -541,11 +543,16 @@ pub(crate) fn cpp_declares_function(node: &Node) -> bool {
 // over anything else beside a bit-field — a macro, a GNU attribute —
 // is a genuine bit-field's, and so is a clean sibling.
 fn cpp_is_recovered_colon(node: &Node) -> bool {
+    cpp_error_opens_with(node, ":")
+}
+
+// An `ERROR` whose first child is the `token` the recovery stranded.
+fn cpp_error_opens_with(node: &Node, token: &str) -> bool {
     node.is_error()
         && node
             .children()
             .next()
-            .is_some_and(|first| first.kind() == ":")
+            .is_some_and(|first| first.kind() == token)
 }
 
 fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
@@ -583,23 +590,6 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
         // precedes (`virtual FOO(N::*x);`) is the method it expands to,
         // whatever its argument reads as.
         "function_definition" | "operator_cast" | "virtual" => Verdict::Known(true),
-        // Look through declarator wrappers that can sit above the
-        // function_declarator (`Foo* operator->()`,
-        // `template<...> T fn();`, constructor / destructor
-        // `declaration`s inside a class body). `init_declarator` is the
-        // deleted templated member `template<class T> void f(T) =
-        // delete;` — the one `= …` a function declarator takes, which
-        // the grammar reads as an initialiser only in the templated
-        // form (the plain `void f(int) = delete;` is a
-        // `function_definition` with a `delete_method_clause`). The
-        // batch review found the attribute consumer counting it as a
-        // data member once #1299 taught it the `template_declaration`
-        // payload. A field's own initialiser is its `default_value`
-        // field, never an `init_declarator`, so the `field_declaration`
-        // call site is unaffected.
-        "pointer_declarator" | "reference_declarator" | "declaration" => {
-            Verdict::Ask(DeclaratorQuestion::any_child(child))
-        }
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
         // parameter parses as one: `template<class T> void connect(T* obj,
@@ -615,7 +605,23 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
         {
             Verdict::Known(true)
         }
-        "init_declarator" => Verdict::Ask(DeclaratorQuestion::any_child(child)),
+        // Look through declarator wrappers that can sit above the
+        // function_declarator (`Foo* operator->()`,
+        // `template<...> T fn();`, constructor / destructor
+        // `declaration`s inside a class body). `init_declarator` is the
+        // deleted templated member `template<class T> void f(T) =
+        // delete;` — the one `= …` a function declarator takes, which
+        // the grammar reads as an initialiser only in the templated
+        // form (the plain `void f(int) = delete;` is a
+        // `function_definition` with a `delete_method_clause`). The
+        // batch review found the attribute consumer counting it as a
+        // data member once #1299 taught it the `template_declaration`
+        // payload. A field's own initialiser is its `default_value`
+        // field, never an `init_declarator`, so the `field_declaration`
+        // call site is unaffected.
+        "pointer_declarator" | "reference_declarator" | "declaration" | "init_declarator" => {
+            Verdict::Ask(DeclaratorQuestion::any_child(child))
+        }
         // A member pointer outside parentheses: `template<class T>
         // static int S::*getPd();` and, under a `pointer_declarator`,
         // `template<class T> int (*S::*getPp())(T);` are methods
@@ -825,23 +831,19 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
         return false;
     };
     let mut star_seen = false;
-    let mut invented_slot = None;
+    let mut recovered_slot = None;
     for child in cpp_innermost_qualified(&qualified).children() {
-        star_seen |= child.is_error()
-            && child
-                .children()
-                .next()
-                .is_some_and(|first| first.kind() == "*");
+        star_seen |= cpp_error_opens_with(&child, "*");
         // role-bypass: allow(DeclKeyword, Primitive) — the name slot of a C++
         // qualified name, which Groovy's rows claim by the same spelling
         if child.kind() == "type_identifier" {
             let invented = child.start_byte() == child.end_byte();
             if star_seen || invented {
-                invented_slot = Some(invented);
+                recovered_slot = Some(invented);
             }
         }
     }
-    invented_slot.is_some_and(|invented| {
+    recovered_slot.is_some_and(|invented| {
         !invented
             || parameter
                 .child_by_field_name("declarator")
@@ -858,13 +860,15 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
 // counts nothing here. The method consumer asks the same chain through
 // `cpp_declares_function`, so the two readings are of one walk and
 // cannot both claim a declarator; that one also reads a `virtual`
-// declaration as a method, so it holds no data here.
+// declaration as a method, so it holds no data here. A declaration with
+// no parse error holds no recovery, and its children are not read.
 pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usize {
-    if declaration
-        .children()
-        // role-bypass: allow(Modifier) — a `virtual` makes the declaration
-        // a method's; not whether the token is a modifier
-        .any(|child| child.kind() == "virtual")
+    if !declaration.has_error()
+        || declaration
+            .children()
+            // role-bypass: allow(Modifier) — a `virtual` makes the declaration
+            // a method's; not whether the token is a modifier
+            .any(|child| child.kind() == "virtual")
     {
         return 0;
     }
@@ -902,7 +906,9 @@ pub(crate) fn cpp_field_data_members(field: &Node) -> usize {
             continue;
         }
         segment.declares_function |= cpp_child_declares_function(&child, segment.after_colon);
-        segment.names += cpp_declarator_names(&child);
+        if !segment.declares_function {
+            segment.names += cpp_declarator_names(&child);
+        }
         segment.after_colon = cpp_is_recovered_colon(&child);
     }
     total + segment.data_members()

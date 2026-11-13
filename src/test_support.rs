@@ -366,15 +366,7 @@ pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]
 #[cfg(feature = "groovy")]
 #[track_caller]
 pub(crate) fn assert_clean_groovy_annotation_type(src: &str) {
-    let parser = crate::GroovyParser::new(
-        src.as_bytes().to_vec(),
-        std::path::Path::new("foo.groovy"),
-        None,
-    );
-    assert!(
-        !parser.root().has_error(),
-        "the annotation-type fixture parses with an `ERROR`"
-    );
+    assert_parses_cleanly::<crate::GroovyParser>(src, "foo.groovy");
     assert_fixture_spells::<crate::GroovyParser>(
         src,
         "foo.groovy",

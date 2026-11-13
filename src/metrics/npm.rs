@@ -367,9 +367,7 @@ macro_rules! impl_npm_java_like {
                     declaration
                         .child(0)
                         .filter(|first| first.kind_id() == Modifiers)
-                        .is_some_and(|modifiers| {
-                            modifiers.children().any(|m| m.kind_id() == keyword)
-                        })
+                        .is_some_and(|modifiers| modifiers.is_child(keyword))
                 }
                 // The one rule for every member an interface body holds,
                 // methods and member records alike.

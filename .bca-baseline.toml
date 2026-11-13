@@ -1259,19 +1259,19 @@ value = 67953.64906173921
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 601.0
+value = 602.0
 
 [[entry]]
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1313.0
+value = 1319.0
 
 [[entry]]
 path = "src/metrics/npm/csharp.rs"
 qualified = "CsharpCode::compute"
 metric = "halstead.effort"
-value = 47903.42336997061
+value = 50595.022736193045
 
 [[entry]]
 path = "src/metrics/npm/go.rs"
