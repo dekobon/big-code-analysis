@@ -2672,6 +2672,32 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kotlin")]
+    #[test]
+    fn kotlin_destructuring_property_counts_each_binding() {
+        // A destructuring declaration is one `property_declaration`
+        // holding a `multi_variable_declaration`, counted by binding:
+        // two public, three private, and the plain `z`. kotlinc rejects
+        // the form at class scope ("Destructuring declarations are only
+        // allowed for local variables/values"); the grammar accepts it
+        // there, and this pins what the consumer makes of it. One
+        // attribute per declaration reads 3 / 2.
+        //
+        // expected: na = 6 (x, y, a, b, c, z), npa = 3 (x, y, z).
+        check_metrics::<KotlinParser>(
+            "class Pt(p: Pair<Int, Int>, t: Triple<Int, Int, Int>) {
+                val (x, y) = p
+                private val (a, b, c) = t
+                val z = 0
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 6);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+            },
+        );
+    }
+
     // --- TypeScript / TSX NPA tests --------------------------------------
     //
     // TypeScript class fields are `public_field_definition` direct children
@@ -4179,6 +4205,32 @@ mod tests {
 
     #[cfg(feature = "ruby")]
     #[test]
+    fn ruby_keyword_wrapping_an_unresolvable_attr_name_decides_its_visibility() {
+        // An attribute whose name the walk cannot resolve (`:"a_#{S}"`,
+        // an interpolated symbol) is counted and can be re-filed by
+        // nothing, so the bit it is declared with is final: the
+        // wrapping keyword's, not the flag's. `a` is declared by
+        // `private attr_reader` under a public flag, `b` and `c` by
+        // `public attr_reader` under a private one (measured on ruby
+        // 3.0.2 with `S = "x"`: public `[b_x, c_x]`, private `[a_x]`).
+        // A resolvable name cannot show this: the keyword re-files it
+        // by name when the call is left, over whatever bit the
+        // declaration took.
+        //
+        // expected: na = 3, npa = 2 (b, c); the flag in place of the
+        // keyword, or the keyword inverted, reads 1.
+        check_metrics::<RubyParser>(
+            "class At\n  private attr_reader :\"a_#{S}\"\n  private\n  public attr_reader :\"b_#{S}\", :\"c_#{S}\"\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
     fn ruby_string_argument_names_an_accessor() {
         // `private "b"` is `private :b` (#1399 §3; measured: A10 private
         // `[b]`), in either quote, and `attr_reader "f"` is `attr_reader
@@ -4967,6 +5019,29 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
+            },
+        );
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_extern_type_is_not_an_interface_attribute() {
+        // `type Opaque;` in an `extern` block — an extern type, the
+        // unstable `extern_types` feature — is the same
+        // `associated_type` node under the same `declaration_list` kind
+        // as a trait's `type Output;`. Only the trait's two count: the
+        // body's kind alone does not make its member an associated
+        // type.
+        //
+        // expected: interface_na = 2 (Output, Error), interface_npa = 2;
+        // every `associated_type` in a `declaration_list` reads 3.
+        check_metrics::<RustParser>(
+            "extern \"C\" {\n    type Opaque;\n}\ntrait Shape {\n    type Output;\n    type Error;\n}\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 2);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
             },
         );
     }
