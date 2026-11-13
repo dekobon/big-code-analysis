@@ -2538,6 +2538,33 @@ mod tests {
         );
     }
 
+    /// Mozcpp's copy of the C-family for-header gate, which no fixture
+    /// reached: Mozcpp owns no file extension, so the C++ tests never
+    /// route to it (mirrors `objc_no_declaration_in_for_header_lloc`).
+    /// The `int i = 0` declaration in the header is part of the `for`
+    /// statement's logical line; `int x = i;` in the body is a line of
+    /// its own, because the `compound_statement` between it and the
+    /// `for` ends the header.
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_no_declaration_in_for_header_lloc() {
+        check_metrics::<MozcppParser>(
+            "void f() {
+                 for (int i = 0; i < 10; ++i) {
+                     int x = i;
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // expected: for-statement (1) + body declaration
+                // `int x = i;` (1) = 2. Without the gate the header
+                // declaration counts too, 3; a gate that stopped at no
+                // `compound_statement` would drop the body's, 1.
+                assert_eq!(metric.loc.lloc(), 2);
+            },
+        );
+    }
+
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_while_lloc() {
@@ -13663,6 +13690,32 @@ class A {
             "foo.groovy",
             |metric| {
                 assert_eq!(metric.loc.lloc(), 3);
+            },
+        );
+    }
+
+    /// A labelled block, Groovy's spelling of an anonymous code block,
+    /// parses as `labeled_statement (expression_statement (closure))`:
+    /// the braces are a grouping, as Java's `block` is, and the wrapper
+    /// is no statement of its own. The bare-`Closure` carve-out still
+    /// meets this shape; the grammar now parses an `else { … }` branch
+    /// as a `block`, so `groovy_general_loc` no longer reaches the
+    /// carve-out.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_labelled_block_wrapper_is_not_a_logical_line() {
+        check_metrics::<GroovyParser>(
+            "void f() {
+                scope: {
+                    a()
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // expected: the call `a()` (1) = 1. Neither the label nor
+                // the `expression_statement` wrapping the braces counts;
+                // counting the wrapper gives 2.
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
