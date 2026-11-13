@@ -53,3 +53,68 @@ pub fn find<'a, T: ParserTrait>(
     });
     Ok(good)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::find;
+    use crate::count::count;
+    use crate::langs::RustParser;
+    use crate::node::Node;
+    use crate::traits::ParserTrait;
+
+    // The `error` filter is `Checker::is_error`: a node that is a parse
+    // error or holds one. A clean source matches nothing, which an
+    // `is_error` answering `true` for every node fails. A broken one
+    // matches the path from the root down to its `ERROR` and nothing
+    // beside that path, which an `is_error` answering `false` fails. The
+    // second source is one rustc rejects, by necessity: a tree with no
+    // parse error gives the filter nothing to match.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn the_error_filter_matches_the_path_to_a_parse_error_and_nothing_else() {
+        let error = ["error".to_owned()];
+        let parse = |source: &str| {
+            RustParser::new(source.as_bytes().to_vec(), &PathBuf::from("t.rs"), None)
+        };
+        let kind_and_row = |node: &Node| (node.kind(), node.start_row());
+
+        let clean = parse("fn ok() {}\nfn also() {}\n");
+        // expected: no node of a clean parse is or holds an error, so
+        // `find` returns nothing and `count` tallies none of the nodes.
+        let found = find(&clean, &error).expect("`find` is infallible");
+        assert_eq!(found.iter().map(kind_and_row).collect::<Vec<_>>(), []);
+        let (good, total) = count(&clean, &error);
+        assert_eq!(good, 0);
+        assert!(total > 1, "the clean fixture parsed to {total} nodes");
+
+        let broken = parse("fn ok() {}\nfn broken() { let = ; }\n");
+        // The recovered shape: `let =` is the tree's one `ERROR`, in
+        // the body of the second function, and no token is invented.
+        let errors: Vec<_> = broken.root().preorder().filter(Node::is_error).collect();
+        let [error_node] = errors[..] else {
+            panic!("the fixture must recover into one `ERROR`, got {errors:?}");
+        };
+        assert!(broken.root().preorder().all(|node| !node.is_missing()));
+        // expected: the `ERROR` and each of its ancestors, root first,
+        // which is the order `find` visits them in. `fn ok` on row 0
+        // holds no error and is on no such path.
+        let mut path: Vec<_> = std::iter::successors(Some(error_node), Node::parent)
+            .map(|node| kind_and_row(&node))
+            .collect();
+        path.reverse();
+        assert_eq!(
+            path,
+            [
+                ("source_file", 0),
+                ("function_item", 1),
+                ("block", 1),
+                ("ERROR", 1)
+            ]
+        );
+        let found = find(&broken, &error).expect("`find` is infallible");
+        assert_eq!(found.iter().map(kind_and_row).collect::<Vec<_>>(), path);
+        assert_eq!(count(&broken, &error).0, path.len());
+    }
+}
