@@ -1375,10 +1375,14 @@ mod rust {
 
     // Every target kind; every doc form (`///`, `//!`, `/** */`,
     // `/*! */`) a `DocComment`, and `////`, `/**/`, `//`, `/* */` not —
-    // decided by the `doc_comment` child, never the bytes. The tuple
-    // field's slot (`u8` under `ordered_field_declaration_list`) is no
-    // row's: the Checker's clause, pinned below.
-    pub(super) const SOURCE: &[u8] = b"//! inner\n/// m\nmod m { }\n/// s\nstruct S { /// f\n    f: u8 }\n/// tuple\nstruct T(/// slot\n    u8, #[doc = \"x\"] u16);\n/// u\nunion U { a: u8 }\n/// e\nenum E { /// v\n    V }\n/// c\nconst C: u8 = 1;\n/// st\nstatic ST: u8 = 1;\n/// ty\ntype Ty = u8;\n/// f\nfn f() { //! inner in body\n    /// on a stmt\n    let x = 1; let c = || { /// in closure\n    1 }; }\n//// banner\n/**/\n// line\n/* block */\n/** block doc */\n/*! inner block */\ntrait Tr { /// sig\n    fn g(); /// assoc\n    type A; }\nimpl S { }\nuse std::fmt;\nextern crate core;\nmacro_rules! mk { () => {} }\n";
+    // decided by the marker child, never the bytes. Each form is also
+    // spelled with no text, as rustc lexes it (#1890): `/*!*/`, `//!`
+    // and `///` are doc comments, the first with a marker and no
+    // `doc_comment` node; `/***/`, `/****/` and `////` are plain, and no
+    // outer block form is empty. The tuple field's slot (`u8` under
+    // `ordered_field_declaration_list`) is no row's: the Checker's
+    // clause, pinned below.
+    pub(super) const SOURCE: &[u8] = b"//! inner\n/// m\nmod m { }\n/// s\nstruct S { /// f\n    f: u8 }\n/// tuple\nstruct T(/// slot\n    u8, #[doc = \"x\"] u16);\n/// u\nunion U { a: u8 }\n/// e\nenum E { /// v\n    V }\n/// c\nconst C: u8 = 1;\n/// st\nstatic ST: u8 = 1;\n/// ty\ntype Ty = u8;\n/// f\nfn f() { //! inner in body\n    /// on a stmt\n    let x = 1; let c = || { /// in closure\n    1 }; }\n//// banner\n/**/\n// line\n/* block */\n/** block doc */\n/*! inner block */\n/*!*/\n/***/\n/****/\n//!\n///\n////\ntrait Tr { /// sig\n    fn g(); /// assoc\n    type A; }\nimpl S { }\nuse std::fmt;\nextern crate core;\nmacro_rules! mk { () => {} }\n";
 
     #[test]
     fn rows_answer_the_table() {
@@ -1418,6 +1422,12 @@ mod rust {
             ("block_comment", "/* block */", PLAIN),
             ("block_comment", "/** block doc */", DOC),
             ("block_comment", "/*! inner block */", DOC),
+            ("block_comment", "/*!*/", DOC),
+            ("block_comment", "/***/", PLAIN),
+            ("block_comment", "/****/", PLAIN),
+            ("line_comment", "//!", DOC),
+            ("line_comment", "///", DOC),
+            ("line_comment", "////", PLAIN),
             ("trait_item", "trait Tr { /// sig", TARGET),
             ("line_comment", "/// sig", DOC),
             ("function_signature_item", "fn g();", TARGET),

@@ -262,6 +262,20 @@ for historical reference.
 
 ### Fixed
 
+- **Rust's empty inner block doc comment `/*!*/` counts as
+  documentation** (#1890). `/*!*/` above `fn f() {}` reported
+  `loc.dloc` 0, where the same comment with text (`/*! d */`) and the
+  empty line form `//!` report 1. rustc lexes `/*!*/` as an inner block
+  doc comment with empty text; tree-sitter-rust gives it the doc marker
+  and no `doc_comment` text node, and that node was what marked a
+  comment as documentation. The marker decides now, so `/*!*/` is a
+  `dloc` row wherever `/*! d */` is one: the first row of a crate, a
+  module or an `impl`, or the row opening a function body.
+  `Checker::is_doc_comment` answers `true` for it, and `mi.sei`, whose
+  comment ratio leaves documentation rows out, moves with `dloc` for a
+  file that holds one. `/**/`, `/***/`, `/****/` and `////` stay plain
+  comments, and `cloc` is unchanged.
+
 - **`cognitive::Stats` and `nexits::Stats` print a well-formed
   `Display` line** (#1736). The cognitive line printed the space's own
   score under `sum`, where the JSON `sum` field and every sibling

@@ -54,7 +54,7 @@ fn rust_doc_binds_forward<'a>(
 
 impl Checker for RustCode {
     // The `Comment` and `DocComment` rows of `roles/rust.rs` (#1699):
-    // both comment kinds, documentation by the grammar's `doc_comment`
+    // both comment kinds, documentation by the grammar's doc marker
     // child — a structural gate, so the bytes are never read.
     impl_comment_from_rows!(rust);
     impl_doc_comment_from_row!(rust);

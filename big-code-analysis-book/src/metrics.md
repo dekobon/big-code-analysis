@@ -1183,7 +1183,7 @@ Each language's own documentation tool decides which comments are
 documentation; there is no single rule for all:
 
 - Where the grammar marks it, the mark decides: a Rust `///`, `//!`,
-  `/** */` or `/*! */` comment (tree-sitter's `doc_comment` child;
+  `/** */` or `/*! */` comment (tree-sitter's doc marker child;
   `////` and `/**/` carry none), a Groovy `groovydoc_comment` (but not
   the empty `/**/` that grammar also marks), a Perl POD block (but not
   one that is nothing but `=begin comment` and `=for comment` regions,

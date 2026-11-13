@@ -1,7 +1,7 @@
 //! Doc-comment recognition by bytes, for the grammars that emit one
 //! comment kind for every comment form (#1597).
 //!
-//! Rust (a `doc_comment` child), Groovy (`groovydoc_comment`) and
+//! Rust (a doc marker child), Groovy (`groovydoc_comment`) and
 //! Perl (`pod_statement`) mark documentation structurally. Every other
 //! grammar parses `/** … */`, `///` or `---` to the same `comment` node
 //! as a plain comment, so the opening marker is the only evidence, and

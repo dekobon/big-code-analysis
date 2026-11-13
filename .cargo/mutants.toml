@@ -187,11 +187,6 @@ exclude_re = [
   # `source_file` and, in recovery, an `ERROR`: the arm's resets change
   # nothing there. The mutant skips the arm's ancestor fold probe.
   '^src/metrics/cognitive/go\.rs:\d+:\d+: replace match guard func_opener::is_callable_kind\(kind, node, code, ancestors\) with false in <impl Cognitive for GoCode>::compute$',
-  # Same output, more work. `>=` differs only for a comment with exactly
-  # two children, one a `doc_comment`, and tree-sitter-rust 0.24.2
-  # builds a doc comment with three or four. The mutant scans the
-  # children of every two-child comment to learn that.
-  '^big-code-analysis-ast/src/roles/rust\.rs:\d+:\d+: replace > with >= in has_doc_marker_child$',
   # Same output, more work, both `&&` of the function. PHP's `Member`
   # row owns `property_declaration` and the two `const_declaration` ids
   # with no gate, so `||` only admits members of the other kind into

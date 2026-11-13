@@ -393,7 +393,7 @@ pub trait Checker {
         false
     }
     /// Whether this comment node is documentation: a doc comment the
-    /// grammar marks (Rust's `doc_comment` child, Groovy's
+    /// grammar marks (Rust's doc marker child, Groovy's
     /// `groovydoc_comment`, Perl's `pod_statement`) or one its
     /// language's own tool recognises by the opening marker in `code`
     /// (Doxygen, Javadoc, KDoc, JSDoc, PHPDoc, C# XML docs; see

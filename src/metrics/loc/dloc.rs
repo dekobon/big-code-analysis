@@ -171,7 +171,7 @@ mod tests {
         /// Every comment spelling worth pinning per language, with whether
         /// that language's own tool treats it as documentation: Doxygen for
         /// the C family, javac, Kotlin's lexer, JSDoc, PHP's scanner, Roslyn,
-        /// tree-sitter-rust's `doc_comment` child, Groovy's kind as
+        /// tree-sitter-rust's doc marker child, Groovy's kind as
         /// Groovydoc reads it. The pitfalls are the edges where those tools
         /// disagree (`/***`, `////`, `/**/`, `//!`), which is why the table
         /// is per language rather than one list.
@@ -249,6 +249,16 @@ mod tests {
                     ("// d", false),
                     ("//// d", false),
                     ("/**/", false),
+                    // expected: rustc lexes a doc form with no text as
+                    // a doc comment (`DocComment(Block, "")` for `/*!*/`
+                    // in `-Zunpretty=ast-tree`), and `/***/` as a plain
+                    // one: no outer block form is empty (#1890).
+                    ("/*!*/", true),
+                    ("//!", true),
+                    ("///", true),
+                    ("/***/", false),
+                    ("/****/", false),
+                    ("////", false),
                 ],
                 Groovy => &[
                     ("/** d */", true),
@@ -1446,6 +1456,97 @@ mod tests {
                 ),
             ],
         );
+    }
+
+    /// The same forms where they end the file with no newline after
+    /// them: a line doc comment's text then stops at the end of input,
+    /// and the gate still has a marker to find. The harness behind
+    /// `check_metrics` appends a newline, so only the verbatim path
+    /// reaches this shape.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_inner_doc_comment_ending_the_file_documents() {
+        // expected: each is the crate's inner doc comment, one
+        // documentation row; `/**/` and `////` are plain.
+        for (source, dloc) in [
+            (&b"//!"[..], 1),
+            (b"//! d", 1),
+            (b"/*!*/", 1),
+            (b"/*! d */", 1),
+            (b"/**/", 0),
+            (b"////", 0),
+        ] {
+            let loc = metrics_verbatim(LANG::Rust, source, loc_only()).loc;
+            assert_eq!(
+                (loc.dloc(), loc.cloc()),
+                (dloc, 1),
+                "{:?}",
+                String::from_utf8_lossy(source)
+            );
+        }
+    }
+
+    /// An inner doc comment with no text is still one to rustc, so it
+    /// documents wherever the same comment with text does (#1890). The
+    /// block form `/*!*/` is the one tree-sitter-rust gives a marker and
+    /// no `doc_comment` node, and it was read as a plain comment. Its
+    /// look-alikes are plain to rustc and stay `cloc` rows in every
+    /// placement. The marker table above pins the file's first row too,
+    /// but only in a build with all thirteen of its languages; this is
+    /// the guard a Rust-only build runs.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_inner_doc_comment_with_no_text_documents_as_one_with_text() {
+        // expected: the `dloc` of `/*! d */` in each placement, the
+        // first form of every row, which the fix does not move. rustc
+        // 1.99.0 accepts every source here, and rejects each of the
+        // first three forms after an item as an inner doc comment out
+        // of place (E0753), which it does for none of the last four.
+        let placements: &[(&str, &str, u64)] = &[
+            // (placement, source with `@` for the comment, dloc)
+            ("the crate", "@\nfn f() {}\n", 1),
+            ("a function body", "fn f() {\n    @\n    let x = 1;\n}\n", 1),
+            (
+                "a method body",
+                "struct S;\nimpl S {\n    fn m(&self) {\n        @\n    }\n}\n",
+                1,
+            ),
+            ("a module body", "mod m {\n    @\n}\n", 1),
+            ("an impl body", "struct S;\nimpl S {\n    @\n}\n", 1),
+            (
+                "a loop body",
+                "fn f() {\n    loop {\n        @\n        break;\n    }\n}\n",
+                0,
+            ),
+            (
+                "a nested function body",
+                "fn outer() {\n    fn inner() {\n        @\n    }\n}\n",
+                0,
+            ),
+        ];
+        let mut ran = 0;
+        for (placement, shape, dloc) in placements {
+            let forms = [
+                ("/*! d */", *dloc),
+                ("/*!*/", *dloc),
+                ("//!", *dloc),
+                ("/**/", 0),
+                ("/***/", 0),
+                ("/****/", 0),
+                ("////", 0),
+            ];
+            for (form, dloc) in forms {
+                let source = shape.replace('@', form);
+                let loc = metrics_verbatim(LANG::Rust, source.as_bytes(), loc_only()).loc;
+                assert_eq!(
+                    (loc.dloc(), loc.cloc()),
+                    (dloc, 1),
+                    "{form:?} in {placement}"
+                );
+                ran += 1;
+            }
+        }
+        assert_eq!(ran, 49, "seven forms in seven placements");
     }
 
     /// rustc makes every outer doc comment above an item one of its

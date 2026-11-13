@@ -57,13 +57,31 @@ fn has_guard(node: &Node<'_>, _code: &[u8]) -> bool {
     node.child_by_field_name("condition").is_some()
 }
 
-/// Whether a comment carries the `doc_comment` child tree-sitter-rust
-/// marks every doc form with — `///`, `//!`, `/** */`, `/*! */` — and
-/// leaves `////` and `/**/` without, so the bytes are never consulted. A
-/// plain comment has at most its two delimiters as children, so the
-/// count spares every one of them the cursor the child scan allocates.
+/// The marker tree-sitter-rust puts after the opening delimiter of
+/// every doc form: the outer one for `///` and `/** */`, the inner one
+/// for `//!` and `/*! */`. Each name has two ids, the block form's
+/// token and the line form's non-terminal; the parser canonicalises
+/// them, so written source reaches `kind_id()` as the base id and the
+/// `2` aliases are defensive (grammar-dispatch section 1;
+/// `doc_markers_reach_the_gate_as_the_base_ids` records which is
+/// observed).
+const DOC_MARKERS: [u16; 4] = [
+    Rust::OuterDocCommentMarker as u16,
+    Rust::OuterDocCommentMarker2 as u16,
+    Rust::InnerDocCommentMarker as u16,
+    Rust::InnerDocCommentMarker2 as u16,
+];
+
+/// Whether a comment carries the doc marker child tree-sitter-rust
+/// opens every doc form with — `///`, `//!`, `/** */`, `/*! */` — and
+/// leaves `////`, `/**/` and `/***/` without, so the bytes are never
+/// consulted. The marker decides, not the `doc_comment` text node after
+/// it: the empty `/*!*/` is an inner doc comment to rustc, and the
+/// grammar gives it a marker and no text (#1890). A plain comment has
+/// at most its two delimiters as children, so the count spares every
+/// one of them the cursor the child scan allocates.
 fn has_doc_marker_child(node: &Node<'_>, _: &[u8]) -> bool {
-    node.child_count() > 2 && node.is_child(Rust::DocComment as u16)
+    node.child_count() > 2 && node.wraps_any(&DOC_MARKERS)
 }
 
 role_table! {
@@ -214,7 +232,7 @@ role_table! {
     // fields — which are type nodes, not declarations — stay with the
     // attribute consumer.
     Member { owns [FieldDeclaration, ConstItem, StaticItem, AssociatedType] }
-    // The two comment kinds; either carries the grammar's `doc_comment`
+    // The two comment kinds; either carries the grammar's doc marker
     // child in a doc form, so both are `DocComment` owners under a
     // *child* gate — the one `DocComment` row that reads structure
     // rather than bytes (#1699).
@@ -301,5 +319,90 @@ mod tests {
         assert_eq!(patterns, 3);
         assert_eq!(owned, ["a if a > 0"]);
         assert_eq!(paid, ["if"]);
+    }
+
+    // The marker of a line form and of a block form reach `kind_id()` as
+    // the same base id, so the two `2` aliases in `DOC_MARKERS` are
+    // defensive. The markers are selected by name, not through the
+    // list, so a grammar that starts emitting an alias fails here.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn doc_markers_reach_the_gate_as_the_base_ids() {
+        let source = b"/// a\n//! b\n/** c */\n/*! d */\n/*!*/\nfn f() {}\n";
+        let mut markers = Vec::new();
+        for_each_node_with_chain::<RustCode>(source, |node, chain| {
+            if matches!(
+                node.kind(),
+                "outer_doc_comment_marker" | "inner_doc_comment_marker"
+            ) {
+                let comment = Ancestors::known(chain)
+                    .parent(node)
+                    .map(|parent| parent.kind());
+                markers.push((comment, node.kind_id()));
+            }
+        });
+        // expected: one marker per doc comment, in source order: outer
+        // for `///` and `/** */`, inner for `//!`, `/*! */` and `/*!*/`.
+        let (outer, inner) = (
+            Rust::OuterDocCommentMarker as u16,
+            Rust::InnerDocCommentMarker as u16,
+        );
+        assert_eq!(
+            markers,
+            [
+                (Some("line_comment"), outer),
+                (Some("line_comment"), inner),
+                (Some("block_comment"), outer),
+                (Some("block_comment"), inner),
+                (Some("block_comment"), inner),
+            ]
+        );
+    }
+
+    // The `DocComment` gate reads a comment's child count before it
+    // scans for the marker, so a plain comment builds no cursor
+    // (`Node::children` records each one in `child_scan_cursors`). No
+    // answer shows that: a scan finds no marker in a plain comment
+    // either, so a gate that scanned every comment would own the same
+    // nodes. The doc comments are scanned once each, which also shows
+    // the counter counts.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn doc_comment_gate_scans_a_doc_comment_and_no_plain_one() {
+        use crate::node::child_scan_cursors;
+
+        let source = b"// a\n//// b\n/* c */\n/**/\n/***/\n/// d\n//! e\n/** f */\n/*! g */\n/*!*/\nfn f() {}\n";
+        let mut asked = Vec::new();
+        for_each_node_with_chain::<RustCode>(source, |node, chain| {
+            let ancestors = Ancestors::known(chain);
+            if !comment::owns(node, source, ancestors) {
+                return;
+            }
+            let before = child_scan_cursors::observed();
+            let doc = doc_comment::owns(node, source, ancestors);
+            let scans = child_scan_cursors::observed() - before;
+            let text = node.utf8_text(source).expect("fixture is UTF-8");
+            asked.push((text.trim_end().to_owned(), doc, scans));
+        });
+        // expected: (comment, documentation, child scans). A plain
+        // comment has one child (`//`) or two (`/*`, `*/`) and is
+        // answered by the count. A doc comment has three (`//`, marker,
+        // text; `/*`, marker, `*/`) or four and is scanned once.
+        let expected = [
+            ("// a", false, 0),
+            ("//// b", false, 0),
+            ("/* c */", false, 0),
+            ("/**/", false, 0),
+            ("/***/", false, 0),
+            ("/// d", true, 1),
+            ("//! e", true, 1),
+            ("/** f */", true, 1),
+            ("/*! g */", true, 1),
+            ("/*!*/", true, 1),
+        ];
+        assert_eq!(
+            asked,
+            expected.map(|(text, doc, scans)| (text.to_owned(), doc, scans))
+        );
     }
 }
