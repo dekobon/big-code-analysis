@@ -4474,6 +4474,42 @@ class A(val x: Int)",
         );
     }
 
+    /// A variable-arity parameter is a parameter of the list it sits
+    /// in, compared like any other. Every variable-arity record of
+    /// `java_canonical_constructor_is_told_by_its_types` has it as the
+    /// *only* component, so a reading that dropped such a parameter
+    /// compared an empty list there and answered the same. Here the
+    /// lists differ by it alone: a constructor that stops short of the
+    /// variable-arity component (`S`), one that runs past the components
+    /// with a variable-arity parameter (`P`), and one whose only
+    /// parameter is variable-arity of another type (`K`) are
+    /// alternatives, so the header opens beside each. `X` writes the
+    /// canonical constructor, and its header closes.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_variable_arity_parameter_takes_part_in_the_canonical_rule() {
+        check_spaces::<JavaParser, _>(
+            "record S(int a, int... xs) { S(int a) { this(a, 0); } }
+             record P(int a) { P(int a, int... more) { this(a); } }
+             record K(int... xs) { K(String... ss) { this(ss.length); } }
+             record X(int a, int... xs) { X(int a, int... xs) { this.a = a; this.xs = xs; } }",
+            "variadic.java",
+            |space| {
+                let functions_per_record: Vec<(&str, usize)> = space
+                    .spaces
+                    .iter()
+                    .map(|r| (r.name.as_deref().unwrap_or("?"), r.spaces.len()))
+                    .collect();
+                // expected: the header and the written constructor for
+                // `S`, `P` and `K`; the written constructor alone for `X`.
+                assert_eq!(
+                    functions_per_record,
+                    [("S", 2), ("P", 2), ("K", 2), ("X", 1)]
+                );
+            },
+        );
+    }
+
     /// Groovy's twin of `java_canonical_constructor_is_told_by_its_types`,
     /// without the shapes the pinned grammar cannot parse (an annotated
     /// component, a variable-arity component, C-style dimensions): a
