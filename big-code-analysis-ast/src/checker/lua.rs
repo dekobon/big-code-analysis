@@ -174,15 +174,9 @@ impl Checker for LuaCode {
     impl_row_predicates!(lua, call, is_call, is_call_with_code);
     impl_row_predicates!(lua, string_lit, is_string, is_string_with_code);
 
-    fn is_non_arg(node: &Node) -> bool {
-        // NOTE: `impl NArgs for LuaCode` overrides `compute` with a positive
-        // filter on `Identifier | VarargExpression` and never calls `is_non_arg`.
-        // This implementation satisfies the trait contract but is unused for NArgs.
-        matches!(
-            node.kind_id().into(),
-            Lua::LPAREN | Lua::COMMA | Lua::RPAREN
-        )
-    }
+    // No `is_non_arg`: `impl NArgs for LuaCode` counts a parameter list
+    // positively (`Identifier` and `VarargExpression`), so the trait's
+    // negative filter is never consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/lua.rs`: the dedicated `elseif_statement`
     // itself is the else-if, never a nested `if` (#1697).

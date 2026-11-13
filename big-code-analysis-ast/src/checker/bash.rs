@@ -30,12 +30,10 @@ impl Checker for BashCode {
     impl_row_predicates!(bash, call, is_call, is_call_with_code);
     impl_row_predicates!(bash, string_lit, is_string, is_string_with_code);
 
-    fn is_non_arg(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Bash::LPAREN | Bash::RPAREN | Bash::COMMA | Bash::SEMI
-        )
-    }
+    // No `is_non_arg`: a Bash function declares no parameters, and
+    // tree-sitter-bash 0.25.1 has no `parameters` field for the default
+    // `NArgs::compute` to find, so the trait's negative filter is never
+    // consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/bash.rs`: the dedicated `elif_clause`
     // itself is the else-if (#1697).

@@ -41,9 +41,9 @@ impl Checker for GoCode {
     impl_row_predicates!(go, call, is_call, is_call_with_code);
     impl_row_predicates!(go, string_lit, is_string, is_string_with_code);
 
-    fn is_non_arg(node: &Node) -> bool {
-        matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)
-    }
+    // No `is_non_arg`: `impl NArgs for GoCode` counts by declaration
+    // kind (`compute_go_args`), so the trait's negative filter is never
+    // consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/go.rs`: an `if_statement` whose parent
     // is the outer `if_statement` (the grammar has no else clause node),

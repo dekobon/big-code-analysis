@@ -35,10 +35,10 @@ impl Checker for TclCode {
     impl_row_predicates!(tcl, call, is_call, is_call_with_code);
     impl_row_predicates!(tcl, string_lit, is_string, is_string_with_code);
 
-    // Tcl arguments are whitespace-separated; no punctuation to exclude.
-    fn is_non_arg(_: &Node) -> bool {
-        false
-    }
+    // No `is_non_arg`: Tcl arguments are whitespace-separated, with no
+    // punctuation to exclude, and `impl NArgs for TclCode` reads them
+    // itself (`compute_tcl_args`), so the trait's negative filter is
+    // never consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/tcl.rs`: the dedicated `elseif` node
     // itself is the else-if, never a nested `if`. `Elseif2` is the

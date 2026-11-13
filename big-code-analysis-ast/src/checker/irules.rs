@@ -53,10 +53,10 @@ impl Checker for IrulesCode {
     impl_row_predicates!(irules, call, is_call, is_call_with_code);
     impl_row_predicates!(irules, string_lit, is_string, is_string_with_code);
 
-    // iRules arguments are whitespace-separated; no punctuation to exclude.
-    fn is_non_arg(_: &Node) -> bool {
-        false
-    }
+    // No `is_non_arg`: iRules arguments are whitespace-separated, with
+    // no punctuation to exclude, and `impl NArgs for IrulesCode` reads
+    // them itself (`compute_irules_args`), so the trait's negative filter
+    // is never consulted and the default `false` stands.
 
     // The `ElseIf` row of `roles/irules.rs`: the dedicated `elseif` node
     // itself is the else-if. `Elseif2` is the `elseif` keyword token, not
