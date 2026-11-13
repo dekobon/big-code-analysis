@@ -115,18 +115,20 @@ fn is_assignment(kind: u16) -> bool {
 // that no spelling produced; listed defensively per rule 2, and
 // pinned unreachable by `ruby_rescue_modifier_aliases_are_not_emitted`.
 //
-// The exclusions are chosen by role, and no fixture pins them (the
-// perturbation sweep recorded on #1401): a widened arm that read a
-// condition, a loop header, a `case` value or a `when` pattern as a
-// statement would find, in every valid fixture, either a local that
-// shadows the keyword — which the walk already ignores — or a
-// bare keyword that Ruby evaluates as the marker call, which the
-// widened arm would then read *correctly* where this arm does not.
-// A `when` pattern and a `rescue` class list are wrapped (`pattern`,
-// `exceptions`) besides. The arms stay as the statement inventory
-// they are; the fixture that would discriminate them is the one
-// whose answer they get wrong, and the comment above records that
-// gap rather than pinning it.
+// The exclusions are chosen by role. A widened arm that read a
+// condition, a loop header, a `case` value or a pattern as a
+// statement would find, in most valid fixtures, either a local that
+// shadows the keyword — which the walk already ignores — or a bare
+// keyword that Ruby evaluates as the marker call, which the widened
+// arm would then read *correctly* where this arm does not; the
+// comment above records that gap rather than pinning it. Three
+// shapes tell the arms apart with Ruby's own answer, and `npm.rs`
+// pins them: a local the shadow ledger does not record (one bound
+// inside an array literal) read in an `if` condition, a `case` value
+// or a modifier's condition; a `case … in` pattern, which binds a
+// local as a direct child of its clause; and a setter call's or a
+// `for`'s target spelled `self.public`. A `when` pattern and a
+// `rescue` class list are wrapped (`pattern`, `exceptions`) besides.
 fn is_statement_of(parent: &Node<'_>, parent_kind: u16, child: &Node<'_>) -> bool {
     use Ruby::*;
 

@@ -2073,8 +2073,9 @@ mod keyword_role_tests {
     }
 
     /// The trait's default operator name is the empty string, which the
-    /// two pseudo-languages whose rows are all `absent` inherit:
-    /// `ccomment` and `preproc` bill no operator, so no kind of theirs
+    /// two pseudo-languages inherit. Their tables declare a `Comment` and
+    /// a `StringLit` row and no operator row: `ccomment` and `preproc`
+    /// bill no operator, so no kind of theirs
     /// has a name to render. No walk shows it, since their Halstead
     /// `compute` records no operator for `ops` to name, hence the direct
     /// reading.
