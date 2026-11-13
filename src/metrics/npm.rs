@@ -3541,6 +3541,27 @@ class C {
 
     #[cfg(feature = "ruby")]
     #[test]
+    fn ruby_public_class_method_republishes_a_private_singleton() {
+        // `public_class_method` must be able to move a singleton *back*
+        // to public: `a` and `b` are demoted first, then `a` is named
+        // again (measured on ruby 3.0.2: `Cm.singleton_methods(false)`
+        // is `[a, c]`, with `b` private). Where the keyword only
+        // restates a default, as in the fixture above, a walk that does
+        // not know the word reports the same count.
+        //
+        // expected: nm = 3 (a, b, c), npm = 2 (a, c).
+        check_metrics::<RubyParser>(
+            "class Cm\n  def self.a\n  end\n  def self.b\n  end\n  def self.c\n  end\n  private_class_method :a, :b\n  public_class_method :a\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
     fn ruby_private_in_a_singleton_class_body_demotes() {
         // The one place a bare `private` legitimately demotes a class
         // method: inside `class << self` the declarations are plain
@@ -4324,6 +4345,105 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 6);
                 assert_eq!(metric.npm.class_npm_sum(), 5);
                 insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_setter_target_named_like_a_keyword_is_not_the_marker() {
+        // `self.public = true` calls the setter `public=`, and the loop
+        // target of `for self.public in [true]` does too: neither runs
+        // `public`, so the `private` above each stays in force
+        // (measured on ruby 3.0.2: `after` is private in `A`, `in_for`
+        // and `after` in `F`, and the one public method of each is the
+        // singleton `public=`). The target is a `call` with a `self`
+        // receiver and no argument list, which as a statement is the
+        // bare keyword — `self.public` on a line of its own republishes
+        // what follows — so a walk that read an assignment's `left` or
+        // a `for`'s `pattern` as a statement would do the same here.
+        //
+        // expected: A nm = 2 (self.public=, after), npm = 1; F nm = 3
+        // (self.public=, in_for, after), npm = 1.
+        check_metrics::<RubyParser>(
+            "class A\n  def self.public=(flag)\n  end\n  private\n  self.public = true\n  def after\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+        check_metrics::<RubyParser>(
+            "class F\n  def self.public=(flag)\n  end\n  private\n  for self.public in [true] do\n    def in_for\n    end\n  end\n  def after\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_pattern_binding_named_like_a_keyword_is_not_the_marker() {
+        // A bare identifier as a `case … in` pattern binds a local: `in
+        // public` matches anything and names it `public`, calling
+        // nothing, so the `private` above stays in force (measured on
+        // ruby 3.0.2: `P` has `[a]` public and `[b, c]` private). The
+        // pattern is a direct `identifier` child of the `in_clause` —
+        // a `when` pattern and a `rescue` class list are wrapped — so a
+        // walk that read every child of the clause as a statement would
+        // take it for the marker and publish `b` and `c`.
+        //
+        // expected: nm = 3 (a, b, c), npm = 1 (a).
+        check_metrics::<RubyParser>(
+            "class P\n  def a\n  end\n  private\n  case 1\n  in public\n    def b\n    end\n  end\n  def c\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_keyword_named_local_in_a_wrapper_header_is_not_the_marker() {
+        // A local bound where the walk does not look — inside an array
+        // literal here, `x = [public = true]`, the gap
+        // `shadow_statement_bindings` records — is a local to Ruby all
+        // the same, so the bare `public` in an `if` condition, a `case`
+        // value and a modifier's condition reads it and the `private`
+        // above stays in force (measured on ruby 3.0.2: each class has
+        // `[a]` public and `[b, c]` private). The walk agrees because
+        // it reads none of the three as a statement. Read as one, the
+        // word is the marker call, no shadow having been recorded, and
+        // `b` and `c` come out public — `c` alone under the modifier,
+        // whose body is read before its condition.
+        //
+        // expected, for each: nm = 3 (a, b, c), npm = 1 (a).
+        check_metrics::<RubyParser>(
+            "class I\n  def a\n  end\n  private\n  x = [public = true]\n  if public\n    def b\n    end\n  end\n  def c\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3, "if condition");
+                assert_eq!(metric.npm.class_npm_sum(), 1, "if condition");
+            },
+        );
+        check_metrics::<RubyParser>(
+            "class C\n  def a\n  end\n  private\n  x = [public = 1]\n  case public\n  when 1\n    def b\n    end\n  end\n  def c\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3, "case value");
+                assert_eq!(metric.npm.class_npm_sum(), 1, "case value");
+            },
+        );
+        check_metrics::<RubyParser>(
+            "class M\n  def a\n  end\n  private\n  x = [public = true]\n  def b\n  end if public\n  def c\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3, "modifier condition");
+                assert_eq!(metric.npm.class_npm_sum(), 1, "modifier condition");
             },
         );
     }
