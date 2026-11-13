@@ -10157,6 +10157,53 @@ EOF
         }
     }
 
+    /// A bare run continuing a docstring's `\` where the docstring shares
+    /// its row with the header of the compound statement it ends: the
+    /// sibling before the run is the `if_statement`, and the code before
+    /// the string is a token of a level the descent to the statement
+    /// passes — the `if`'s `:` before its `block`, or the `;` before the
+    /// statement inside the `block`. Every other fixture either puts that
+    /// code beside the statement or the run (`x=1; """doc""" \`), or
+    /// leaves the header on a row of its own, where the answer is "no
+    /// code" whether or not the descent's level is read.
+    ///
+    /// expected: `NAME NAME OP STRING NEWLINE NAME OP NUMBER NEWLINE` —
+    /// the run is on the logical line `if x: """doc"""`, which holds
+    /// code, so it is that code's: rows `if x: """doc""" \` (code
+    /// carrying the string's comment row, #415), the bare row (code),
+    /// the empty row (blank) and `y = 2` (code), `(4, 3, 1, 1)`. The
+    /// `block` here has exactly one child, so the level recorded for
+    /// the descent must be the `if_statement`'s, the deepest one with a
+    /// token before its node; reading the run as the string's line
+    /// instead gives `(4, 2, 2, 1)`. `NAME NAME OP NEWLINE INDENT NAME OP
+    /// STRING NEWLINE DEDENT NAME OP NUMBER NEWLINE` — `pass;` precedes
+    /// the string inside a three-child `block`, the deepest level:
+    /// `if x:` (code), `pass; """doc""" \` (code carrying a comment), the
+    /// bare row (code), the empty row (blank), `y = 2` (code),
+    /// `(5, 4, 1, 1)`; as the string's line, `(5, 3, 2, 1)`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_run_after_a_docstring_on_its_headers_row_is_code() {
+        let rows = |source: &[u8]| {
+            loc_rows(
+                &metrics_verbatim(
+                    crate::LANG::Python,
+                    source,
+                    MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+                )
+                .loc,
+            )
+        };
+        assert_eq!(
+            rows(b"if x: \"\"\"doc\"\"\" \\\n\\\n\ny = 2\n"),
+            (4, 3, 1, 1)
+        );
+        assert_eq!(
+            rows(b"if x:\n    pass; \"\"\"doc\"\"\" \\\n\\\n\ny = 2\n"),
+            (5, 4, 1, 1)
+        );
+    }
+
     /// A bare row under an `if_statement`, joining a comment before an
     /// empty row: the comment is the line's whole text, and the empty row
     /// stays blank.
