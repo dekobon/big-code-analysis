@@ -74,7 +74,7 @@ for historical reference.
   - **`synchronized (x) { … }` reads as Java's**: no closure and no
     extra nesting.
 
-  Measured over 216 local Gradle and Groovy files against the 0.5.0
+  Measured over 216 Gradle and Groovy files against the 0.5.0
   pin (files moved / net change): `abc.branches` 78 / +452,
   `abc.assignments` 29 / −211, `abc.conditions` 4 / +12, `cyclomatic`
   30 / −155, `cognitive` 4 / +2, `loc.lloc` 88 / −163, `loc.cloc`
@@ -86,8 +86,10 @@ for historical reference.
   `nexits` do not move. Still open upstream and still pinned here:
   modifiers on `@interface`
   ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92)),
-  the compact constructor (#72) and a field named `trait` after a
-  modifier (#73).
+  the compact constructor
+  ([tree-sitter-groovy#72](https://github.com/dekobon/tree-sitter-groovy/issues/72))
+  and a field named `trait` after a modifier
+  ([tree-sitter-groovy#73](https://github.com/dekobon/tree-sitter-groovy/issues/73)).
 
 - **`big-code-analysis-ast`: a role-row gate is handed the source bytes
   only when its keyword declares them** (#1874). `role_table!` passed
@@ -415,7 +417,7 @@ for historical reference.
   attribute climbed back through the enclosing tuple and list patterns
   to the assignment. The walk down the target already proves what the
   climb checked, so it is no longer asked. At 16,000 levels a release
-  build goes from 0.92 s to 0.11 s. Values are unchanged.
+  build goes from 0.92 s to 0.10 s. Values are unchanged.
 
 - **`cognitive::Stats` and `nexits::Stats` print a well-formed
   `Display` line** (#1736). The cognitive line printed the space's own
