@@ -12543,6 +12543,35 @@ f() {
 
     #[cfg(feature = "php")]
     #[test]
+    fn php_plain_heredoc_counts_as_one_operand() {
+        // The other side of #184's wrapper skip. A heredoc whose body
+        // interpolates nothing is one operand, like the double-quoted
+        // string it is shaped as. It still has a `heredoc_body` child,
+        // holding one `string_content`, so the skip must ask whether
+        // that body wraps an interpolation and not merely whether the
+        // heredoc has a body. The interpolating fixture above cannot
+        // tell the two apart, and a nowdoc is another kind.
+        //
+        // Source:
+        //   <?php $a = <<<EOT
+        //   plain text
+        //   EOT;
+        //
+        // expected: operands `$a` and the heredoc literal → u_operands
+        // = 2, N2 = 2. Skipped for having a body, the literal is lost:
+        // 1 / 1.
+        check_metrics::<PhpParser>(
+            "<?php $a = <<<EOT\nplain text\nEOT;\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "php")]
+    #[test]
     fn php_nowdoc_unaffected() {
         // `Nowdoc` (single-quoted heredoc) never interpolates and is
         // never matched by `php_string_has_interpolation`. It must
