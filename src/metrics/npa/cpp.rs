@@ -77,10 +77,12 @@ macro_rules! cpp_family_npa {
                         // destructor or conversion-operator declaration —
                         // the method consumer's — or the grammars'
                         // recovery of a parenthesised member-pointer data
-                        // member (`static constexpr int (S::*fp)(int) =
-                        // nullptr;`, #1807), which the helper counts per
-                        // declarator and nothing else does. The wrapper is
-                        // no row's, as for the template above.
+                        // member whose type is read as a function name
+                        // (`T (S::*pd);`, #1885, and `static constexpr int
+                        // (S::*fp)(int) = nullptr;`, #1807), which the
+                        // helper counts per declarator and nothing else
+                        // does. The wrapper is no row's, as for the
+                        // template above.
                         // role-bypass: allow(DocTarget) — the recovered declaration read
                         // for its member pointers; not whether it takes a doc comment
                         Declaration | Declaration2 | Declaration3 | Declaration4 => {

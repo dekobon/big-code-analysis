@@ -1250,6 +1250,12 @@ metric = "halstead.effort"
 value = 67953.64906173921
 
 [[entry]]
+path = "src/metrics/npa/shared.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 552.0
+
+[[entry]]
 path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 metric = "halstead.effort"

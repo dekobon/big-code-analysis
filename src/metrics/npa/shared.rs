@@ -14,6 +14,7 @@
 )]
 
 use super::*;
+use crate::node::Children;
 
 // Distinguishes interface-like containers (interface, trait, annotation
 // type) — whose members are implicitly public — from class-like
@@ -491,28 +492,23 @@ pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<
 // wrapper.
 //
 // Two of the arms read what the grammars' error recovery makes of a
-// non-templated member pointer at class scope (#1807), shapes the
-// `cpp_recovered_*` helpers below describe. The loop tracks whether the
-// previous non-comment sibling was the recovered `:` — an `ERROR`
-// spelling that one token — which is what tells the recovered
+// non-templated member pointer at class scope (#1807, #1885), shapes the
+// `cpp_recovered_*` helpers below describe. The child walk tracks
+// whether the previous non-comment sibling was the recovered `:` — an
+// `ERROR` spelling that one token — which is what tells the recovered
 // `bitfield_clause` of `int S::*getPd();` from a genuine bit-field's.
-// The flag belongs to `node`'s own child list: a recursive call walks a
-// child's list and starts its own, and a `bitfield_clause` is only ever
-// a `field_declaration`'s direct child, so no recursion can meet one.
+// The flag belongs to `node`'s own child list: a nested question walks
+// a child's list and starts its own, and a `bitfield_clause` is only
+// ever a `field_declaration`'s direct child, so no nested question can
+// meet one.
+//
+// Every arm that looks below its child asks a further question rather
+// than calling back in, and `cpp_answer` keeps the open questions on a
+// heap stack: how deep the declarators these readers follow nest is the
+// source's choice — one level per parenthesis in `T (S::*const
+// (S::*const g(int))(int));` — so it costs no call depth (#1829).
 pub(crate) fn cpp_declares_function(node: &Node) -> bool {
-    let mut after_colon = false;
-    for child in node.children() {
-        // role-bypass: allow(Comment) — stepping over a comment between two
-        // declarator parts; not whether the node is one
-        if child.kind() == "comment" {
-            continue;
-        }
-        if cpp_child_declares_function(&child, after_colon) {
-            return true;
-        }
-        after_colon = cpp_is_recovered_colon(&child);
-    }
-    false
+    cpp_answer(DeclaratorQuestion::any_child(node))
 }
 
 // The recovery's own `ERROR`: one holding a `:` token first. An `ERROR`
@@ -527,28 +523,34 @@ fn cpp_is_recovered_colon(node: &Node) -> bool {
 }
 
 fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
+    match cpp_child_verdict(child, after_colon) {
+        Verdict::Known(answer) => answer,
+        Verdict::Ask(question) => cpp_answer(question),
+    }
+}
+
+fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
     match child.kind() {
-        "function_declarator" => match child.child_by_field_name("declarator") {
-            Some(inner) if inner.kind() == "parenthesized_declarator" => {
-                cpp_parenthesized_declares_function(&inner)
-            }
-            // A `function_declarator` directly under another is the
-            // recovery of a parenthesised member-pointer data member
-            // (`static constexpr int (S::*fp)(int) = nullptr;`, #1807):
-            // the return type became the function's name and the
-            // member pointer its first parameter list. A comma list
-            // with a method among its declarators is a function, and
-            // its data declarators are the attribute consumer's through
-            // `cpp_recovered_declaration_data_members`. Any other
-            // nested pair keeps the function reading it had.
-            Some(inner) if inner.kind() == "function_declarator" => {
-                let recovered = cpp_recovered_member_pointers(child);
-                recovered.declares_function || recovered.data == 0
-            }
-            _ => true,
+        "function_declarator" => match cpp_parenthesized_name(child) {
+            Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
+            // Any other `function_declarator` may be the recovery of a
+            // parenthesised member-pointer data member, whose return
+            // type became the function's name and whose member pointer
+            // became a parameter list: one directly under another for
+            // `static constexpr int (S::*fp)(int) = nullptr;` (#1807),
+            // or alone, named by the type, for `T (S::*pd);` (#1885).
+            // A declarator with no recovered member pointer — every
+            // ordinary method — is a function, and so is a comma list
+            // with a method among its declarators, whose data
+            // declarators are the attribute consumer's through
+            // `cpp_recovered_declaration_data_members`.
+            None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
+                pointers: Box::new(cpp_recovered_member_pointers(child)),
+                seen: false,
+            }),
         },
-        "function_definition" | "operator_cast" => true,
-        // Recurse through declarator wrappers that can sit above the
+        "function_definition" | "operator_cast" => Verdict::Known(true),
+        // Look through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
         // `declaration`s inside a class body). `init_declarator` is the
@@ -563,7 +565,7 @@ fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
         // field, never an `init_declarator`, so the `field_declaration`
         // call site is unaffected.
         "pointer_declarator" | "reference_declarator" | "declaration" => {
-            cpp_declares_function(child)
+            Verdict::Ask(DeclaratorQuestion::any_child(child))
         }
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
@@ -573,25 +575,45 @@ fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
         // brace-or-equal-initializer ([class.mem.general]), so at class
         // scope, the only scope these helpers read, that value is never
         // an initialiser.
-        "init_declarator" => {
-            child
+        "init_declarator"
+            if child
                 .child_by_field_name("value")
-                .is_some_and(|value| value.kind() == "argument_list")
-                || cpp_declares_function(child)
+                .is_some_and(|value| value.kind() == "argument_list") =>
+        {
+            Verdict::Known(true)
         }
+        "init_declarator" => Verdict::Ask(DeclaratorQuestion::any_child(child)),
         // A member pointer outside parentheses: `template<class T>
         // static int S::*getPd();` and, under a `pointer_declarator`,
         // `template<class T> int (*S::*getPp())(T);` are methods
         // returning one (#1718). Any other qualified name — the `std::`
         // of a field's type among them — declares no function.
-        "qualified_identifier" => {
-            cpp_member_pointer(child).is_some_and(|pointer| cpp_declares_function(&pointer))
-        }
+        "qualified_identifier" => cpp_member_pointer_verdict(child, false),
         // The unparenthesised non-templated member pointer, which the
         // grammars recover as a bit-field (#1807).
-        "bitfield_clause" => cpp_recovered_bitfield_declares_function(child, after_colon),
-        _ => false,
+        "bitfield_clause" => cpp_recovered_bitfield_verdict(child, after_colon),
+        _ => Verdict::Known(false),
     }
+}
+
+// The `parenthesized_declarator` naming a `function_declarator`, which
+// `cpp_parenthesized_child_verdict` reads; one named any other way is
+// read by `cpp_recovered_member_pointers`. Both consumers split on this
+// one test, so neither reads a recovered member pointer the other skips:
+// only source that is not C++ (`(f)(S::*p);`) puts one beside a
+// parenthesised name, and it is then a method and not also data.
+fn cpp_parenthesized_name<'a>(declarator: &Node<'a>) -> Option<Node<'a>> {
+    declarator
+        .child_by_field_name("declarator")
+        .filter(|inner| inner.kind() == "parenthesized_declarator")
+}
+
+// Whether the member pointer a qualified name spells declares a
+// function, and `without_pointer` when it spells none.
+fn cpp_member_pointer_verdict<'a>(qualified: &Node<'a>, without_pointer: bool) -> Verdict<'a> {
+    cpp_member_pointer(qualified).map_or(Verdict::Known(without_pointer), |pointer| {
+        Verdict::Ask(DeclaratorQuestion::any_child(&pointer))
+    })
 }
 
 // What both grammars make of `int S::*getPd();` at class scope: a
@@ -617,22 +639,21 @@ fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
 // clause — a macro or a GNU attribute between the name and the width —
 // is a genuine bit-field's too. Comments are `extra` nodes and can sit
 // between any two of these.
-fn cpp_recovered_bitfield_declares_function(clause: &Node, after_colon: bool) -> bool {
+fn cpp_recovered_bitfield_verdict<'a>(clause: &Node<'a>, after_colon: bool) -> Verdict<'a> {
     let Some(expression) = cpp_recovered_member_pointer_in_bitfield(clause, after_colon) else {
-        return false;
+        return Verdict::Known(false);
     };
     if expression.kind() == "qualified_identifier" {
-        return cpp_member_pointer(&expression)
-            .is_some_and(|pointer| cpp_declares_function(&pointer));
-    }
-    if expression.kind() != "pointer_expression" {
-        return false;
+        return cpp_member_pointer_verdict(&expression, false);
     }
     // role-bypass: allow(Call) — whether the recovered width expression is a
     // call, which is the only thing telling `*getPd()` from `*pd`
-    expression
-        .child_by_field_name("argument")
-        .is_some_and(|argument| argument.kind() == "call_expression")
+    Verdict::Known(
+        expression.kind() == "pointer_expression"
+            && expression
+                .child_by_field_name("argument")
+                .is_some_and(|argument| argument.kind() == "call_expression"),
+    )
 }
 
 // The member-pointer expression a recovered `bitfield_clause` holds —
@@ -666,113 +687,106 @@ fn cpp_recovered_member_pointer_in_bitfield<'a>(
     Some(expression)
 }
 
-// The member pointers both grammars recover inside a nested
-// `function_declarator` pair: how many are data, and whether any
-// declares a function.
-#[derive(Default)]
-struct RecoveredMemberPointers {
-    data: usize,
-    declares_function: bool,
-}
-
-// What both grammars make of `static constexpr int (S::*fp)(int) =
-// nullptr;` at class scope — a parenthesised member pointer whose
-// return type is read as an identifier, which two or more declaration
-// specifiers before a primitive (`static inline`, `inline static`,
-// `static const`) bring about and a user type (`T (S::*fp)(int);`,
-// `std::string`) does alone: a constructor-shaped `declaration` whose
-// `function_declarator` is named by that return type and nests a
-// further `function_declarator` per parameter list, so `(S::*fp)` is
-// read as a parameter list. A
-// comma list adds one nesting level per declarator. The member pointer
-// is then a `parameter_declaration` whose `type` is a
-// `qualified_identifier` ending in a `type_identifier` the grammar
-// could not read cleanly: `S::*fp` leaves the `*` as an `ERROR` beside
-// the name, and `S::*const fp` leaves a zero-width name with the
-// `*const fp` as a `pointer_declarator` beside it. A method returning
-// one — `(S::*get())` — adds an `abstract_function_declarator` to the
-// parameter, and `(S::*const get())` a `function_declarator` under the
-// `pointer_declarator`. One specifier (`static int (S::*fp)(int);`)
-// recovers differently, into the parenthesised shape
-// `cpp_parenthesized_declares_function` reads, and the templated form
+// What both grammars make of a parenthesised member pointer whose
+// return type is read as an identifier at class scope: a
+// constructor-shaped `declaration` whose `function_declarator` is named
+// by that return type, with `(S::*pd)` read as its parameter list. A
+// user type does it alone (`T (S::*pd);`, `N::Q`, `V<int>`, #1885), and
+// so do two or more declaration specifiers before a primitive (`static
+// inline int (S::*pe) = nullptr;`). A member-function pointer (`static
+// constexpr int (S::*fp)(int) = nullptr;`, #1807) nests a further
+// `function_declarator` per parameter list, and a comma list one per
+// declarator. The member pointer is then a `parameter_declaration`
+// whose `type` is a `qualified_identifier` ending in a
+// `type_identifier` the grammar could not read cleanly: `S::*fp` leaves
+// the `*` as an `ERROR` beside the name, and `S::*const fp` leaves a
+// zero-width name with the `*const fp` as a `pointer_declarator` beside
+// it. A method returning one — `(S::*get())` — adds an
+// `abstract_function_declarator` to the parameter, and `(S::*const
+// get())` a `function_declarator` under the `pointer_declarator`. One
+// specifier before a primitive (`static int (S::*fp)(int);`) recovers
+// differently, into the parenthesised shape
+// `cpp_parenthesized_child_verdict` reads, and the templated form
 // parses cleanly (#1718). The recovery is the pinned grammars';
 // `*_member_pointer_recovery_shapes_are_still_emitted` in `npm`'s tests
 // names the day it stops.
 //
-// The declarator chain is walked by a loop so a long comma list cannot
-// deepen the stack.
-fn cpp_recovered_member_pointers(outer: &Node) -> RecoveredMemberPointers {
-    let mut recovered = RecoveredMemberPointers::default();
-    let mut declarator = Some(*outer);
-    while let Some(level) = declarator.filter(|level| level.kind() == "function_declarator") {
-        let parameters = level
-            .child_by_field_name("parameters")
-            .into_iter()
-            .flat_map(|list| list.children())
-            .filter(|parameter| parameter.kind() == "parameter_declaration");
-        for declares_function in
-            parameters.filter_map(|p| cpp_recovered_member_pointer_parameter(&p))
-        {
-            recovered.data += usize::from(!declares_function);
-            recovered.declares_function |= declares_function;
-        }
-        declarator = level.child_by_field_name("declarator");
-    }
-    recovered
+// This yields the recovered member pointers among the parameters of a
+// `function_declarator` and of each one nested in its `declarator`
+// field, outermost first. The chain is walked by an iterator so a long
+// comma list cannot deepen the stack.
+fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
+    std::iter::successors(Some(*outer), |level| {
+        level.child_by_field_name("declarator")
+    })
+    .take_while(|level| level.kind() == "function_declarator")
+    .filter_map(|level| level.child_by_field_name("parameters"))
+    .flat_map(|list| list.children())
+    .filter(|parameter| {
+        parameter.kind() == "parameter_declaration" && cpp_is_recovered_member_pointer(parameter)
+    })
 }
 
-// Whether a `parameter_declaration` is a recovered member pointer, and
-// if so whether a function sits under it. A clean parameter — `int`,
-// or `S::T *arg` with a written type name and no stray token — is
-// `None`. The name is the innermost `qualified_identifier`'s
-// `type_identifier`; it counts when the grammar invented it
-// (zero-width, tested by width rather than `is_missing()` — see
-// `docs/development/grammar_dispatch.md`) or left an `ERROR` beside it.
-fn cpp_recovered_member_pointer_parameter(parameter: &Node) -> Option<bool> {
-    let qualified = parameter
+// Whether a parameter is a recovered member pointer that names a
+// member. A clean parameter — `int`, or `S::T *arg` with a written type
+// name and no stray token — is not. The name slot is the innermost
+// `qualified_identifier`'s `type_identifier`; it marks a recovery when
+// the grammar invented it (zero-width, tested by width rather than
+// `is_missing()` — see `docs/development/grammar_dispatch.md`) or left
+// an `ERROR` beside it.
+//
+// An invented slot leaves the name to the declarator beside it
+// (`S::*const pc` puts `pc` in a `pointer_declarator`). When that
+// declarator is abstract or absent, nothing anywhere names a member —
+// the argument list of a method-declaring macro, `DECL_METHOD(S::*);` —
+// so the parameter is not one either, and the macro call stays the
+// method it reads as rather than becoming an attribute with no name.
+fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
+    let Some(qualified) = parameter
         .child_by_field_name("type")
-        .filter(|ty| ty.kind() == "qualified_identifier")?;
-    let qualified = cpp_innermost_qualified(&qualified);
+        .filter(|ty| ty.kind() == "qualified_identifier")
+    else {
+        return false;
+    };
     let mut error_seen = false;
-    let mut recovered = false;
-    for child in qualified.children() {
+    let mut invented_slot = None;
+    for child in cpp_innermost_qualified(&qualified).children() {
         error_seen |= child.is_error();
         // role-bypass: allow(DeclKeyword, Primitive) — the name slot of a C++
         // qualified name, which Groovy's rows claim by the same spelling
-        let is_name = child.kind() == "type_identifier";
-        recovered |= is_name && (error_seen || child.start_byte() == child.end_byte());
+        if child.kind() == "type_identifier" {
+            let invented = child.start_byte() == child.end_byte();
+            if error_seen || invented {
+                invented_slot = Some(invented);
+            }
+        }
     }
-    if !recovered {
-        return None;
-    }
-    let declares_function = parameter.children().any(|child| match child.kind() {
-        "abstract_function_declarator" => true,
-        "pointer_declarator" => cpp_declares_function(&child),
-        _ => false,
-    });
-    Some(declares_function)
+    invented_slot.is_some_and(|invented| {
+        !invented
+            || parameter
+                .child_by_field_name("declarator")
+                .is_some_and(|declarator| declarator.kind() != "abstract_pointer_declarator")
+    })
 }
 
 // The data members a class-scope `declaration` declares through the
-// nested-declarator recovery above: one per recovered member pointer
-// that declares no function, so a comma list counts each of its data
-// declarators beside any method it also spells (#1807). A constructor,
-// destructor or conversion-operator declaration — what a valid
-// class-scope `declaration` otherwise is — nests no
-// `function_declarator` pair and so counts nothing here. The method
-// consumer asks the same chain through `cpp_declares_function`, so the
-// two readings are of one walk and cannot both claim a declarator.
+// recovery above: one per recovered member pointer that declares no
+// function, so a comma list counts each of its data declarators beside
+// any method it also spells (#1807). A constructor, destructor or
+// conversion-operator declaration — what a valid class-scope
+// `declaration` otherwise is — holds no recovered member pointer and so
+// counts nothing here. The method consumer asks the same chain through
+// `cpp_declares_function`, so the two readings are of one walk and
+// cannot both claim a declarator.
 pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usize {
     declaration
         .children()
         .filter(|child| {
-            child.kind() == "function_declarator"
-                && child
-                    .child_by_field_name("declarator")
-                    .is_some_and(|inner| inner.kind() == "function_declarator")
+            child.kind() == "function_declarator" && cpp_parenthesized_name(child).is_none()
         })
-        .map(|declarator| cpp_recovered_member_pointers(&declarator).data)
-        .sum()
+        .flat_map(|declarator| cpp_recovered_member_pointers(&declarator))
+        .filter(|pointer| !cpp_answer(DeclaratorQuestion::RecoveredPointer(pointer.children())))
+        .count()
 }
 
 // The data members a `field_declaration` declares: its comma-separated
@@ -853,10 +867,11 @@ fn cpp_innermost_qualified<'a>(qualified: &Node<'a>) -> Node<'a> {
     innermost
 }
 
-// Given the `parenthesized_declarator` in a `function_declarator`'s
-// `declarator` field, says whether the enclosing declaration is still
-// a function. Parentheses alone do not make it a function *pointer* —
-// what does is an indirection interposed inside them:
+// One child of the `parenthesized_declarator` in a
+// `function_declarator`'s `declarator` field, read for whether the
+// enclosing declaration is still a function. Parentheses alone do not
+// make it a function *pointer* — what does is an indirection interposed
+// inside them:
 //
 // - `void (f)();` and `int (operator+)(int);` are ordinary member
 //   functions written with redundant parentheses. This is the
@@ -878,24 +893,144 @@ fn cpp_innermost_qualified<'a>(qualified: &Node<'a>) -> Node<'a> {
 //   into an `ERROR` over `S::` beside a plain `pointer_declarator`,
 //   which the first arm already reads correctly. With two specifiers
 //   before the return type (`static constexpr int (S::*fp)(int) =
-//   nullptr;`) the grammars recover into a nested `function_declarator`
-//   pair instead, which never reaches here: `cpp_declares_function`
-//   hands that shape to `cpp_recovered_member_pointers` (#1807).
+//   nullptr;`) or a user return type (`T (S::*pd);`) the grammars
+//   recover into a `function_declarator` named by that type instead,
+//   which never reaches here: `cpp_child_verdict` hands that shape to
+//   `cpp_recovered_member_pointers` (#1807, #1885).
 //
 // Hence: every child must still read as a function. An indirection
-// qualifies only when `cpp_declares_function` finds a function under
-// it; a bare name, an `operator_name`, a qualified name with no member
-// pointer, or an `ms_call_modifier` (`int (__cdecl *f)(int)`) never
-// disqualifies on its own.
-fn cpp_parenthesized_declares_function(paren: &Node) -> bool {
-    paren.children().all(|child| match child.kind() {
-        "pointer_declarator" | "reference_declarator" => cpp_declares_function(&child),
-        "parenthesized_declarator" => cpp_parenthesized_declares_function(&child),
-        "qualified_identifier" => {
-            cpp_member_pointer(&child).is_none_or(|pointer| cpp_declares_function(&pointer))
+// qualifies only when a function sits under it; a bare name, an
+// `operator_name`, a qualified name with no member pointer, or an
+// `ms_call_modifier` (`int (__cdecl *f)(int)`) never disqualifies on
+// its own.
+fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>) -> Verdict<'a> {
+    match child.kind() {
+        "pointer_declarator" | "reference_declarator" => {
+            Verdict::Ask(DeclaratorQuestion::any_child(child))
         }
-        _ => true,
-    })
+        "parenthesized_declarator" => {
+            Verdict::Ask(DeclaratorQuestion::Parenthesized(child.children()))
+        }
+        "qualified_identifier" => cpp_member_pointer_verdict(child, true),
+        _ => Verdict::Known(true),
+    }
+}
+
+// A question the readers above ask of a node, with how far its answer
+// has got: each walks its node's children and reads every one as a
+// `Verdict`.
+enum DeclaratorQuestion<'a> {
+    // Whether any child declares a function — `cpp_declares_function` —
+    // and whether the last non-comment child read was the recovered `:`.
+    AnyChild {
+        children: Children<'a>,
+        after_colon: bool,
+    },
+    // Whether every child of a `parenthesized_declarator` still reads as
+    // a function.
+    Parenthesized(Children<'a>),
+    // Whether a `function_declarator` is a function: it is unless it
+    // holds recovered member pointers and every one is data. `seen`
+    // records whether it holds any.
+    RecoveredChain {
+        pointers: Box<dyn Iterator<Item = Node<'a>> + 'a>,
+        seen: bool,
+    },
+    // Whether a function sits under one recovered member pointer.
+    RecoveredPointer(Children<'a>),
+}
+
+// What one child says towards its question: an answer read off the
+// child itself, or a further question about it to answer first.
+enum Verdict<'a> {
+    Known(bool),
+    Ask(DeclaratorQuestion<'a>),
+}
+
+impl<'a> DeclaratorQuestion<'a> {
+    fn any_child(node: &Node<'a>) -> Self {
+        Self::AnyChild {
+            children: node.children(),
+            after_colon: false,
+        }
+    }
+
+    // The child answer that settles the question at once: `true` for the
+    // questions asking whether any child holds a function, `false` for
+    // the one asking whether every child still reads as one.
+    fn decisive(&self) -> bool {
+        !matches!(self, Self::Parenthesized(_))
+    }
+
+    // The answer once every child is read and none was decisive.
+    fn undecided(&self) -> bool {
+        match self {
+            Self::Parenthesized(_) => true,
+            // No recovered member pointer: an ordinary method.
+            Self::RecoveredChain { seen, .. } => !seen,
+            Self::AnyChild { .. } | Self::RecoveredPointer(_) => false,
+        }
+    }
+
+    // The next child's verdict, or `None` once every child is read.
+    fn next_verdict(&mut self) -> Option<Verdict<'a>> {
+        match self {
+            Self::AnyChild {
+                children,
+                after_colon,
+            } => {
+                // role-bypass: allow(Comment) — stepping over a comment between
+                // two declarator parts; not whether the node is one
+                let child = children.find(|child| child.kind() != "comment")?;
+                let verdict = cpp_child_verdict(&child, *after_colon);
+                *after_colon = cpp_is_recovered_colon(&child);
+                Some(verdict)
+            }
+            Self::Parenthesized(children) => children
+                .next()
+                .map(|child| cpp_parenthesized_child_verdict(&child)),
+            Self::RecoveredChain { pointers, seen } => {
+                let pointer = pointers.next()?;
+                *seen = true;
+                Some(Verdict::Ask(Self::RecoveredPointer(pointer.children())))
+            }
+            Self::RecoveredPointer(children) => children.next().map(|child| match child.kind() {
+                "abstract_function_declarator" => Verdict::Known(true),
+                "pointer_declarator" => Verdict::Ask(Self::any_child(&child)),
+                _ => Verdict::Known(false),
+            }),
+        }
+    }
+}
+
+// Answers a question, keeping the questions still waiting on a nested
+// one in `waiting` rather than in recursive calls: the nesting is the
+// source's (see `cpp_declares_function`), so this holds one entry per
+// open question however deep it goes.
+fn cpp_answer(question: DeclaratorQuestion<'_>) -> bool {
+    let mut current = question;
+    let mut waiting = Vec::new();
+    let mut returned = None;
+    loop {
+        let verdict = match returned.take() {
+            Some(answer) => Some(Verdict::Known(answer)),
+            None => current.next_verdict(),
+        };
+        let answer = match verdict {
+            Some(Verdict::Ask(nested)) => {
+                waiting.push(std::mem::replace(&mut current, nested));
+                continue;
+            }
+            Some(Verdict::Known(answer)) if answer != current.decisive() => continue,
+            Some(Verdict::Known(answer)) => answer,
+            None => current.undecided(),
+        };
+        let Some(parent) = waiting.pop() else {
+            return answer;
+        };
+        current = parent;
+        returned = Some(answer);
+    }
 }
 
 // Matches on node-kind NAMES, not one grammar's enum discriminants, so it
@@ -925,7 +1060,10 @@ fn cpp_declarator_names(child: &Node) -> usize {
         // `function_declarator` only when an indirection inside
         // the parentheses makes the name the pointee's, never the
         // function's — `void (f)();` stays a function precisely so
-        // that `f` is never counted here.
+        // that `f` is never counted here — or when its parameter
+        // lists are recovered member pointers that are all data,
+        // where the name counted stands for the one they declare
+        // (`int DECL(S::*p);`, a macro call and not C++ as written).
         "function_declarator"
         | "parenthesized_declarator"
         | "pointer_declarator"

@@ -6152,16 +6152,17 @@ class C {
         );
     }
 
-    // The two readers above exist for the pinned grammars' recovery and
+    // The readers above exist for the pinned grammars' recovery and
     // nothing else, so these name the day it stops: the metric tests
     // keep passing through a grammar that parses the spellings cleanly,
     // which is the outcome wanted, but the arms are then dead and their
     // comments stale. Each asserts the recovery's distinctive node —
-    // a `bitfield_clause` on a declaration with no `:` written, and a
-    // `function_declarator` directly under another — on the fixture
-    // above, for both grammars. By `kind()` name, as the readers match,
-    // so a re-aliasing that moves either onto a suffixed id is not a
-    // false alarm.
+    // a `bitfield_clause` on a declaration with no `:` written, a
+    // `function_declarator` directly under another, and a parameter
+    // whose qualified type holds an `ERROR` (#1885's `T (S::*pd);`) — on
+    // a fixture of its reader, for both grammars. By `kind()` name, as
+    // the readers match, so a re-aliasing that moves any onto a suffixed
+    // id is not a false alarm.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn member_pointer_recovery_shapes<P: ParserTrait>() {
         let parse =
@@ -6184,7 +6185,21 @@ class C {
         assert!(
             nested,
             "the pinned grammar no longer recovers `static constexpr int (S::*fp)(int)` into \
-             nested `function_declarator`s; `cpp_recovered_member_pointers` is dead"
+             nested `function_declarator`s; `cpp_recovered_member_pointers`' walk down them is dead"
+        );
+        let type_named = parse(USER_TYPE_MEMBER_POINTER)
+            .root()
+            .preorder()
+            .any(|node| {
+                node.kind() == "parameter_declaration"
+                    && node.child_by_field_name("type").is_some_and(|ty| {
+                        ty.kind() == "qualified_identifier" && ty.children().any(|c| c.is_error())
+                    })
+            });
+        assert!(
+            type_named,
+            "the pinned grammar no longer recovers `T (S::*pd);` into a parameter list; \
+             `cpp_recovered_member_pointers` no longer reads it"
         );
     }
 
@@ -6274,6 +6289,242 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 1);
             },
         );
+    }
+
+    // #1885: a parenthesised pointer to data member whose type both
+    // grammars read as a function name, making the member pointer that
+    // function's parameter list: a user type does it alone, two
+    // specifiers before a primitive do it too. Each issue input sits
+    // alone in its class, the first two beside a data control. Until the
+    // fix each member pointer read as a method rather than an attribute
+    // (na 1 / nm 1, 1 / 1 and 0 / 1): the method consumer claimed it and
+    // the attribute consumer missed it, so either half of the fix alone
+    // fails one assertion here. Valid C++20 (`g++ -std=c++20
+    // -fsyntax-only`).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const USER_TYPE_MEMBER_POINTER: &str = "struct T {};\nstruct S {\n  T (S::*pd);\n  T t;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const SPECIFIED_MEMBER_POINTER: &str =
+        "struct U {\n  static inline int (U::*pe) = nullptr;\n  int x;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CONST_MEMBER_POINTER: &str =
+        "struct T {};\nstruct W {\n  T (W::*const pc) = nullptr;\n};\n";
+
+    // Every spelling of #1885's recovery in one class, beside the methods
+    // the same reader must leave alone. Valid C++20 as written.
+    //
+    // - `arr` (an array), `pq` (a nested scope), `pg` (the global scope),
+    //   `pn` (a qualified type), `pv` (a template type), `pc` (a comment
+    //   after the `*`), `self` (the class's own type, spelled as a
+    //   constructor declaration would be), and the private `hidden` and
+    //   `counted` (two specifiers before a primitive) are data.
+    // - The constructors `S(int)`, `S(T S::*p)` and `S(T (S::*q), int)`,
+    //   whose member-pointer parameters parse cleanly, `getpd` and the
+    //   private `getc` (methods returning a member pointer: an
+    //   `abstract_function_declarator` beside the recovered pointer, and
+    //   a `function_declarator` under its `pointer_declarator`), `~S()`
+    //   and the two conversion operators are methods.
+    //
+    // 9 data against 8 methods, 7 against 6 public: a swap of the two
+    // counters or a visibility-blind arm cannot pass. Until the fix the
+    // nine data members read as methods too, na 0 / nm 17.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPE_NAMED_MEMBER_POINTERS: &str = "namespace N { struct Q {}; }\n\
+         struct T {};\n\
+         template<class X> struct V {};\n\
+         class S {\n\
+         public:\n\
+             T (S::*arr[2]);\n\
+             T (N::Q::*pq);\n\
+             T (::S::*pg);\n\
+             N::Q (S::*pn);\n\
+             V<int> (S::*pv);\n\
+             T (S::* /* member */ pc);\n\
+             S (S::*self);\n\
+             S(int);\n\
+             S(T S::*p);\n\
+             S(T (S::*q), int);\n\
+             T (S::*getpd());\n\
+             ~S();\n\
+             operator int();\n\
+         private:\n\
+             T (S::*hidden);\n\
+             static inline int (S::*counted) = nullptr;\n\
+             T (S::*const getc());\n\
+             explicit operator bool() const;\n\
+         };";
+
+    // A recovered member pointer is data only when something names a
+    // member. `pc` is named by the `pointer_declarator` beside the
+    // grammars' invented, zero-width name slot; a macro call whose
+    // argument is a bare member-pointer type leaves that slot empty with
+    // only an abstract declarator beside it, and stays the method it
+    // reads as. A test of the empty slot alone would decline `pc` as
+    // well, and no test at all makes all three macros data. Valid C++20
+    // as written: each macro expands to a method returning a member
+    // pointer.
+    //
+    // expected: na 2 (`pc`, `x`), nm 3 (one per macro call).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const NAMELESS_MEMBER_POINTERS: &str = "\
+         #define DECL_METHOD(scope_pointer) int scope_pointer get()\n\
+         #define DECL_METHOD2(name, scope_pointer) int scope_pointer name()\n\
+         struct T {};\n\
+         struct W { T (W::*const pc) = nullptr; int x; };\n\
+         struct A { DECL_METHOD(A::*); };\n\
+         struct B { DECL_METHOD(B::*const); };\n\
+         struct C { DECL_METHOD2(get, C::*); };\n";
+
+    // Not C++ — the parameter has no type — but the one spelling that
+    // puts a recovered member pointer beside a parenthesised name, which
+    // the method consumer reads through `cpp_parenthesized_child_verdict`
+    // and the attribute consumer must therefore skip. No count is right
+    // for it; what is pinned is that one declarator is never claimed by
+    // both consumers, whatever a grammar makes of it.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const PARENTHESISED_NAME_BESIDE_MEMBER_POINTER: &str = "struct S {\n  (f)(S::*p);\n};\n";
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_type_named_member_pointers_are_attributes<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(USER_TYPE_MEMBER_POINTER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(SPECIFIED_MEMBER_POINTER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(CONST_MEMBER_POINTER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(TYPE_NAMED_MEMBER_POINTERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 9);
+            assert_eq!(metric.npa.class_npa_sum(), 7);
+            assert_eq!(metric.npm.class_nm_sum(), 8);
+            assert_eq!(metric.npm.class_npm_sum(), 6);
+        });
+        check_metrics_with_npa::<P>(NAMELESS_MEMBER_POINTERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 3);
+        });
+        check_metrics_with_npa::<P>(
+            PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                let claims = metric.npa.class_na_sum() + metric.npm.class_nm_sum();
+                assert!(claims <= 1, "one declarator claimed {claims} times");
+            },
+        );
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_type_named_member_pointers_are_attributes() {
+        assert_type_named_member_pointers_are_attributes::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_type_named_member_pointers_are_attributes() {
+        assert_type_named_member_pointers_are_attributes::<MozcppParser>();
+    }
+
+    // The readers of #1885's recovery follow the declarator nesting the
+    // source writes, one level per parenthesis, and `cpp_answer` keeps
+    // their open questions on the heap so that nesting costs no call
+    // depth (#1829). Two towers on a small stack: a method `g` returning
+    // a const member pointer to a function returning one, nested `DEPTH`
+    // levels, and the same tower ending in the data member `pd`. Only the
+    // bottom level tells them apart, so each count also says the walk
+    // reached it. Measured with `cpp_answer` calling itself for each
+    // nested question, in the dev profile the tests build: that overflows
+    // this 512 KiB stack between 270 and 280 levels on both grammars, so
+    // `DEPTH` is ~18x past it.
+    //
+    // expected: the method tower is `g` beside the data control `z`
+    // (na 1 / nm 1); the data tower is `pd` and `z` (na 2 / nm 0).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_deep_member_pointer_towers_are_read<P: crate::MetricSuite + 'static>() {
+        // Levels of `(S::*const …)(int)` around the bottom declarator.
+        const DEPTH: usize = 5_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        let tower = |bottom: &str| {
+            let (open, close) = ("(S::*const ".repeat(DEPTH), ")(int)".repeat(DEPTH - 1));
+            format!("struct T {{}};\nstruct S {{ T {open}{bottom}{close}); int z; }};\n")
+        };
+        let (method, data) = (tower("g(int)"), tower("pd"));
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(move || {
+                check_metrics_with_npa::<P>(&method, "foo.cpp", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 1);
+                    assert_eq!(metric.npm.class_nm_sum(), 1);
+                });
+                check_metrics_with_npa::<P>(&data, "foo.cpp", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 2);
+                    assert_eq!(metric.npm.class_nm_sum(), 0);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the member-pointer readers must not overflow a 512 KiB stack");
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_deep_member_pointer_towers_are_read() {
+        assert_deep_member_pointer_towers_are_read::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_deep_member_pointer_towers_are_read() {
+        assert_deep_member_pointer_towers_are_read::<MozcppParser>();
+    }
+
+    // FIXME(#1829): two spellings of #1885's member pointer that neither
+    // grammar leaves in the shape its reader handles. Each class holds
+    // `t0` and `z9` beside it, so the truth is na 3 / nm 0 for each:
+    // `T (S::*pd) = 0;` recovers as a `function_definition` (one phantom
+    // method, as #1829's `= 0` row), and the pointer to an array `T
+    // (R::*arr)[2];` as a class-level `ERROR` around an
+    // `array_declarator`, which neither consumer reads. Valid C++20.
+    // Pinned so a grammar bump that moves them is named.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
+        "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPE_NAMED_MEMBER_POINTER_TO_ARRAY: &str =
+        "struct T {};\nstruct R {\n  T t0;\n  T (R::*arr)[2];\n  int z9;\n};\n";
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_type_named_member_pointers_still_misread<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(
+            ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
+        check_metrics_with_npa::<P>(TYPE_NAMED_MEMBER_POINTER_TO_ARRAY, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_type_named_member_pointers_still_misread() {
+        assert_type_named_member_pointers_still_misread::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_type_named_member_pointers_still_misread() {
+        assert_type_named_member_pointers_still_misread::<MozcppParser>();
     }
 
     #[cfg(feature = "cpp")]
