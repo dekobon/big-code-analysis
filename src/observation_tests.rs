@@ -410,14 +410,17 @@ fn the_metric_and_suppression_walks_scan_a_tree_on_one_cursor() {
 ///
 /// Nothing in the output can see it: every arrow is bound to `x` either
 /// way, so the function counts, the space tree and the markers come out
-/// the same, and only the fold's stored-state count tells a memoised walk
-/// from the quadratic climb. A seam that lent no cache would fold
-/// nothing and climb instead, reading 0 here; the suppression seam is
-/// the one whose lend #1767 added.
+/// the same, and only the fold's two counts tell a memoised walk from
+/// the quadratic climb. Both are exact (#1869). A seam that lent no cache
+/// climbs instead and reads (0, 0); the suppression seam is the one whose
+/// lend #1767 added. A memo that never matched would refold the whole
+/// chain of every arrow `k`, `Σ (k + 2)` = 20,500 states and as many
+/// slots per ask, and a search for the stored state started at the root
+/// would read those 20,500 slots while folding the same 202 states.
 #[cfg(feature = "javascript")]
 #[test]
 fn every_seam_folds_the_js_binding_question() {
-    use crate::node::fold_steps;
+    use crate::node::{fold_slot_probes, fold_steps};
 
     type Seam<'a> = &'a dyn Fn(&crate::Ast);
 
@@ -428,35 +431,58 @@ fn every_seam_folds_the_js_binding_question() {
         "]\n".repeat(depth)
     );
     let ast = crate::test_support::parse_named(crate::LANG::Javascript, "a.js", &source);
-    let nodes = ast.root_node().preorder().count();
-    let seams: [(&str, Seam); 4] = [
-        ("Ast::metrics", &|ast| {
+    // How often each seam asks about an arrow. `Ast::metrics` asks in its
+    // promotion test and in `nom` and `nargs`, whose `is_func_with_code`
+    // settles a bound arrow before `is_closure` is reached; cognitive
+    // takes an arrow's own arm ahead of its callable test, and the space
+    // kind and name read no binding. The other seams ask once.
+    let seams: [(&str, usize, Seam); 4] = [
+        ("Ast::metrics", 3, &|ast| {
             ast.metrics(crate::MetricsOptions::default())
                 .expect("the walk must yield a top-level space");
         }),
-        ("Ast::ops", &|ast| {
+        ("Ast::ops", 1, &|ast| {
             ast.ops().expect("the walk must yield a top-level space");
         }),
-        ("Ast::functions", &|ast| {
+        ("Ast::functions", 1, &|ast| {
             assert_eq!(ast.functions().len(), depth, "every arrow is a function");
         }),
-        ("Ast::suppressions", &|ast| {
+        ("Ast::suppressions", 1, &|ast| {
             assert!(
                 ast.suppressions().is_empty(),
                 "the fixture carries no marker"
             );
         }),
     ];
-    for (name, run) in seams {
-        let before = fold_steps::observed();
-        run(&ast);
-        let folded = fold_steps::observed() - before;
-        assert!(
-            (depth..=4 * nodes).contains(&folded),
-            "{name} folded {folded} ancestor states over {nodes} nodes: it must \
-             lend its walk a FoldCache, and fold each ancestor about once"
-        );
-    }
+    // expected: every arrow's chain is a prefix of the innermost one's,
+    // the program, the statement, the assignment and `depth` arrays, and
+    // the fold stores a state per entry below the root, once whichever
+    // end a walk starts from.
+    let stored = depth + 2;
+    // expected: on its first ask, left to right, the outermost arrow reads
+    // its three empty slots and each later one the slot its own array
+    // takes and the one above, which matches; right to left (the
+    // suppression walk) the innermost reads all `depth + 2` and every
+    // other arrow one, which matches: `2 * depth + 1` both ways. A repeat
+    // ask reads the arrow's own array's slot alone.
+    let read = |asks| 2 * depth + 1 + (asks - 1) * depth;
+    let readings: Vec<_> = seams
+        .iter()
+        .map(|&(name, _, run)| {
+            let before = (fold_steps::observed(), fold_slot_probes::observed());
+            run(&ast);
+            let folded = fold_steps::observed() - before.0;
+            (name, folded, fold_slot_probes::observed() - before.1)
+        })
+        .collect();
+    let expected: Vec<_> = seams
+        .iter()
+        .map(|&(name, asks, _)| (name, stored, read(asks)))
+        .collect();
+    assert_eq!(
+        readings, expected,
+        "(seam, states folded, slots probed) over {depth} levels"
+    );
 }
 
 /// The cognitive walk folds "is this function inside a function" down
