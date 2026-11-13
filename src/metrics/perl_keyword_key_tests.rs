@@ -529,6 +529,46 @@ fn perl_dash_key_scores_like_its_quoted_twin() {
     }
 }
 
+/// Two different `-bareword` keys are two operands, as their quoted
+/// twins are (#1545). `DASH_KEY_ROWS` pairs a file-test key only with
+/// itself or with a plain word, which pins that the key is not spelled
+/// as the word after it, nor as the pair it swallowed; spelled as the
+/// sign alone, every key there still makes one entry. Here the keys
+/// differ after the sign: two word forms in one list (`-text` and
+/// `-foo`, each a file test on the rest of its word), and two exact
+/// file tests in two lists (`-x` and `-e`, each swallowing its `=>`
+/// and value).
+#[cfg(feature = "perl")]
+#[test]
+fn perl_distinct_dash_keys_are_distinct_operands() {
+    for (twin, key, halstead) in [
+        // expected: operators `sub`, `{}`, `()`, `=>` x2, `,`, `;`;
+        // operands `f` x2, the two keys, `1`, `2`.
+        (
+            "f('-text' => 1, '-foo' => 2);",
+            "f(-text => 1, -foo => 2);",
+            [6, 7, 5, 6],
+        ),
+        // expected: operators `sub`, `{}`, `my` x2, `=` x2, `()` x2,
+        // `=>` x2, `;` x2; operands `f`, `%h`, `%g`, the two keys, `1`,
+        // `2`.
+        (
+            "my %h = ('-x' => 1); my %g = ('-e' => 2);",
+            "my %h = (-x => 1); my %g = (-e => 2);",
+            [7, 12, 7, 7],
+        ),
+    ] {
+        assert_eq!(twin.replace('\'', ""), key, "`{key}` drifted from its twin");
+        let want = measure_with_branches(twin);
+        assert_eq!(want.1, halstead, "`{twin}` moved; re-derive the row");
+        assert_eq!(
+            measure_with_branches(key),
+            want,
+            "`{key}` must score like `{twin}`"
+        );
+    }
+}
+
 /// A `-and` / `-not` key keeps its sign when whitespace separates the
 /// two: Perl keys `(- not => 1)` as `"-not"`, so it must not share a
 /// vocabulary entry with the plain `not` key beside it. The twins'

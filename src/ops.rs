@@ -517,6 +517,21 @@ mod tests {
         );
     }
 
+    /// A `[` lists as the `[]` pair it opens, in an array reference and
+    /// in an element access, as `(` and `{` list as theirs. The counts
+    /// key the operator by kind and cannot see how it is spelled.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_square_bracket_renders_as_its_pair() {
+        check_ops(
+            LANG::Perl,
+            "my $r = [1, 2];\nmy $v = $a[0];",
+            "foo.pl",
+            &mut ["$", ",", ";", "=", "[]", "my"],
+            &mut ["$a", "$r", "$v", "0", "1", "2"],
+        );
+    }
+
     /// A bareword key bills as the string it is (#1572): `-name` as one
     /// operand with its sign, no `-` operator, and apart from the plain
     /// `name` key. The expected vocabularies are the quoted twin's
