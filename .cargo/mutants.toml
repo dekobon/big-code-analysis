@@ -34,15 +34,30 @@ test_package = ["big-code-analysis", "big-code-analysis-ast"]
 # `examine_globs`, cannot widen a single-file local run.
 exclude_globs = ["**/*_tests.rs"]
 
-# Mutants no run tests. Each entry is one mutant shown to behave
-# identically on every reachable input, panics and side effects
-# included, or one that never terminates; the reason sits above it. A
-# pattern omits the line and column, which move with any edit above the
-# site, and is anchored at both ends so it matches that mutant alone.
-# Compare `cargo mutants --list --no-config` with `cargo mutants --list`
-# after adding one: the difference must be exactly the mutants named.
-# Where another site in the same function shares the description, the
-# entry keeps the column to tell the two apart and says so. A
+# Mutants no run tests. The comment above an entry says which of five
+# kinds it is, and why:
+#
+# - equivalent: identical on every reachable input, panics and side
+#   effects included;
+# - unreachable: the code runs for no language;
+# - non-terminating under mutation;
+# - same output, different work: no metric moves, and the entry names
+#   the work the mutant skips or adds, which a test-support counter can
+#   observe;
+# - separated only by source the language rejects, where the comment at
+#   the site says the branch is unpinned on purpose.
+#
+# An entry that rests on evidence short of a proof says what the
+# evidence covers and what it does not.
+#
+# A pattern omits the line and column, which move with any edit above
+# the site, and is anchored at both ends so it matches that mutant
+# alone. Compare `cargo mutants --list --no-config` with
+# `cargo mutants --list` after adding one: the difference must be
+# exactly the mutants named. Where another site in the same function
+# shares the description, the entry keeps the column to tell the two
+# apart and says so; where the column is shared too, it keeps the line
+# and has to be checked again whenever that line moves. A
 # `delete field …` mutant cannot be listed here at all: cargo-mutants
 # 27.1.0 applies no name filter to those.
 exclude_re = [
@@ -153,6 +168,71 @@ exclude_re = [
   # `Container` are `absent`, so each already answers `false` for every
   # node of a Ccomment or Preproc tree.
   '^big-code-analysis-ast/src/checker/(ccomment|preproc)\.rs:\d+:\d+: replace <impl Checker for (Ccomment|Preproc)Code>::(is_func_space_with_code|is_func_with_code) -> bool with false$',
+  # Unreachable. `count_args` in `nargs.rs` is the one caller, and no
+  # language that inherits the default reaches it: C#, Go, Lua, Tcl and
+  # iRules count their parameters themselves, Bash has no `parameters`
+  # field for the default `NArgs::compute` to find, and Ccomment and
+  # Preproc open no function.
+  '^big-code-analysis-ast/src/checker\.rs:\d+:\d+: replace Checker::is_non_arg -> bool with true$',
+  # Same output, less work. With the guard gone every
+  # `parenthesized_expression` takes the arm that credits nothing, and
+  # its row is credited by the expression's own `(`, the next node the
+  # walk reads, through the same catch-all; both productions of the kind
+  # in tree-sitter-python 0.25.0 open with that token. The mutant makes
+  # one memoised fold probe fewer per such expression. The same guard at
+  # column 32 is live; the column tells the two apart.
+  '^src/metrics/loc/python\.rs:\d+:40: replace match guard python_is_bare_string_parenthesis\(node, ancestors\) with true in <impl Loc for PythonCode>::compute$',
+  # Same output, less work. tree-sitter-go 0.25.0 derives a function or
+  # method declaration only at the top level, so its ancestors are the
+  # `source_file` and, in recovery, an `ERROR`: the arm's resets change
+  # nothing there. The mutant skips the arm's ancestor fold probe.
+  '^src/metrics/cognitive/go\.rs:\d+:\d+: replace match guard func_opener::is_callable_kind\(kind, node, code, ancestors\) with false in <impl Cognitive for GoCode>::compute$',
+  # Same output, more work. `>=` differs only for a comment with exactly
+  # two children, one a `doc_comment`, and tree-sitter-rust 0.24.2
+  # builds a doc comment with three or four. The mutant scans the
+  # children of every two-child comment to learn that.
+  '^big-code-analysis-ast/src/roles/rust\.rs:\d+:\d+: replace > with >= in has_doc_marker_child$',
+  # Same output, more work, both `&&` of the function. PHP's `Member`
+  # row owns `property_declaration` and the two `const_declaration` ids
+  # with no gate, so `||` only admits members of the other kind into
+  # each filter, and those hold no `property_element` (the class arm)
+  # and no `const_element` (the interface arm) to count. The mutant
+  # scans the children of each member it admits.
+  '^src/metrics/npa/php\.rs:\d+:\d+: replace && with \|\| in <impl Npa for PhpCode>::compute$',
+  # Separated only by source C# rejects. With the guard gone the peel
+  # also takes `x++` and `x--`, which no boolean slot holds in a program
+  # that compiles. The comment above `csharp_wrapper_operand` says the
+  # exclusion is unpinned on purpose.
+  '^src/metrics/abc/csharp\.rs:\d+:\d+: replace match guard node\.is_child\(BANG as u16\) with true in csharp_wrapper_operand$',
+  # Separated only by source Groovy rejects. The grammar spells `super`
+  # as a token only in a `wildcard` bound, so the operand arm is reached
+  # through recovery alone. The comment at the arm says it is untested
+  # on purpose.
+  '^big-code-analysis-ast/src/getter/groovy\.rs:\d+:\d+: replace match guard ancestors\.parent_has_kind\(node, Wildcard as u16\) with true in <impl Getter for GroovyCode>::get_op_type$',
+  '^big-code-analysis-ast/src/getter/groovy\.rs:\d+:\d+: delete match arm Super in <impl Getter for GroovyCode>::get_op_type$',
+  # Equivalent on the evidence, not proved. In a modifier's condition
+  # tree-sitter-perl 1.1.2 parses a non-empty `(X)` as `arguments >
+  # array`; only the empty `()` becomes a `parenthesized_argument`, and
+  # that has no operand with or without the arm. About 13 000 generated
+  # sources, most of them damaged, showed no `parenthesized_argument`
+  # with a child under a modifier. The parse table was not read.
+  '^src/metrics/abc/perl\.rs:\d+:\d+: delete match arm P::ParenthesizedArgument in perl_wrapper_operand$',
+  # Equivalent for every production, not proved for recovery trees.
+  # tree-sitter-rust 0.24.2 places a `const_item` or `static_item` only
+  # in a `block`, a `declaration_list` or the `source_file`, and only a
+  # `declaration_list` is a direct child of an `impl_item` or a
+  # `trait_item`, so once the grandparent matches the guard on the
+  # parent is true. An `ERROR` between the two would separate the
+  # mutant; a handful of damaged sources built none. Both arms.
+  '^src/metrics/npa/rust\.rs:\d+:\d+: replace match guard matches!\(parent\.kind_id\(\)\.into\(\), DeclarationList\) with true in rust_count_assoc_const$',
+  # Equivalent while Rust's `Comment` and `DocComment` rows list the
+  # same kinds: `lists_kind` reads no gate, so the two calls are one
+  # function of the kind and `&&` between them reads as `||`. The `||`
+  # one line above has the same name and the same column and is live,
+  # so this entry keeps the line. Check it whenever that line moves: a
+  # stale line stops excluding this mutant, and a line one off excludes
+  # the live one.
+  '^big-code-analysis-ast/src/checker\.rs:1105:9: replace \|\| with && in rust_attribute_run_member$',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values

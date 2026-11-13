@@ -329,6 +329,26 @@ survive edits elsewhere in the file and to match one mutant:
   effect tells the mutant from the original, and what would change that.
   An entry that rests on a grammar's productions names the pin.
 
+An entry is one of five kinds, and its comment says which:
+
+- Equivalent: identical on every reachable input, panics and side
+  effects included.
+- Unreachable: the code runs for no language.
+- Non-terminating under mutation.
+- Same output, different work: no metric moves, and the comment names
+  the work the mutant skips or adds, which a test-support counter can
+  observe.
+- Separated only by source the language rejects, where the comment at
+  the site says the branch is unpinned on purpose.
+
+Prefer a test to either of the last two kinds. A mutant that does less
+work for the same output often marks code that can go: the unused
+`is_non_arg` overrides and the C `init_declarator` guard were removed,
+not excluded. An entry that rests on evidence short of a proof says
+what the evidence covers and what it does not. Keep the line in a
+pattern only where two mutants share both their name and their column,
+and check such an entry whenever that line moves.
+
 A `delete field …` mutant cannot be excluded in 27.1.0, for the reason
 above; kill it with a test. To replay a mutant that is already
 excluded, pass `--no-config` and repeat the file's settings as
