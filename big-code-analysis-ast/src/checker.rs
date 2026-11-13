@@ -2186,6 +2186,63 @@ mod tests {
         );
     }
 
+    /// A run's verdict answers for the run and for the item it
+    /// decorates, and stops there: the item's first child starts at the
+    /// byte the reach ends on, and is asked about on its own (#1783).
+    ///
+    /// A direct test of the reach, because no walk over a clean parse
+    /// shows where it ends: the only other nodes starting on that byte
+    /// are the item's own leading descendants, which the hook retains
+    /// whether it is asked or not, and a pruned item's are never
+    /// visited. Only a recovery tree puts a prunable node there.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_run_verdict_answers_for_its_item_and_not_for_the_items_first_child() {
+        let code = b"#[inline]\nfn f() {}\n";
+        let mut verdict: Option<SubtreeSkip> = None;
+        let mut after_the_attribute = Vec::new();
+        for_each_node_with_chain::<RustCode>(code, |node, chain| {
+            if let Some(verdict) = verdict {
+                after_the_attribute.push((
+                    node.kind(),
+                    node.start_byte(),
+                    verdict.answers_for(node),
+                ));
+            } else if node.kind_id() == Rust::AttributeItem {
+                verdict = Some(RustCode::should_skip_subtree(
+                    node,
+                    code,
+                    Ancestors::known(chain),
+                ));
+            }
+        });
+        // expected: `#[inline]` is bytes 0..9 and `fn f() {}` starts at
+        // byte 10. The verdict answers for the attribute's five
+        // descendants, which start before byte 10, and for the
+        // `function_item`, which it names. The `fn` keyword starts at
+        // byte 10 as well and is not the named node, so it is not
+        // answered for, and nothing after it is.
+        assert_eq!(
+            after_the_attribute,
+            [
+                ("#", 0, true),
+                ("[", 1, true),
+                ("attribute", 2, true),
+                ("identifier", 2, true),
+                ("]", 8, true),
+                ("function_item", 10, true),
+                ("fn", 10, false),
+                ("identifier", 13, false),
+                ("parameters", 14, false),
+                ("(", 14, false),
+                (")", 15, false),
+                ("block", 17, false),
+                ("{", 17, false),
+                ("}", 18, false),
+            ]
+        );
+    }
+
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_is_else_if_recognises_else_followed_by_if() {
