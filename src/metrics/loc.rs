@@ -6415,6 +6415,51 @@ end",
         );
     }
 
+    /// A `]]` that closes no comment is code. The `[[` / `]]` arm skips
+    /// the brackets only under a `comment`. In a well-formed `string`
+    /// both of their rows are credited whatever that arm does — the
+    /// opening one by the string's arm or its parent, the closing one as
+    /// the literal's last row — so no valid source shows the guard.
+    /// Recovery does: where no token fits before a `]]`, the scanner
+    /// hands back the padding as `string_content` and the `]]` as a
+    /// block-string end, both direct children of the `ERROR`, with no
+    /// `string` around them. The source does not compile, so this pins
+    /// the recovery reading only
+    /// (`docs/development/grammar_dispatch.md` §6).
+    ///
+    /// expected: three rows, each holding a token outside any comment —
+    /// `x = (`, the stray `]]`, and `)` — so every row is code. Reading
+    /// the `]]` as a comment's bracket credits its row to nothing, and
+    /// the row falls to `blank`: ploc 2, blank 1.
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_closing_bracket_outside_a_comment_is_code() {
+        const SOURCE: &str = "x = (\n]]\n)\n";
+        let ast = crate::test_support::parse_named(crate::LANG::Lua, "foo.lua", SOURCE);
+        let root = ast.root_node();
+        let brackets = root.descendants_by_kind(&["]]"]);
+        assert_eq!(brackets.len(), 1, "fixture drift: expected one `]]`");
+        assert_eq!(
+            (
+                brackets[0].start_row(),
+                brackets[0].parent().map(|parent| parent.kind())
+            ),
+            (1, Some("ERROR")),
+            "fixture drift: the `]]` must open row 1 as a child of the `ERROR`"
+        );
+
+        let loc = metrics_verbatim(
+            crate::LANG::Lua,
+            SOURCE.as_bytes(),
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc;
+        assert_eq!(loc.sloc(), 3);
+        assert_eq!(loc.ploc(), 3);
+        assert_eq!(loc.cloc(), 0);
+        assert_eq!(loc.blank(), 0);
+    }
+
     #[cfg(feature = "lua")]
     #[test]
     fn lua_no_functiondefinition_lloc() {
@@ -10300,6 +10345,67 @@ EOF
         };
         assert_eq!(rows(b"# c\0\nx = 1\n"), (2, 2, 1, 0));
         assert_eq!(rows(b"\\\n# c\0\nx = 1\n"), (3, 3, 1, 0));
+    }
+
+    /// Parentheses that hold a token before the string are not the
+    /// string's own: a parenthesis's value is read as its first named
+    /// child that is no comment or `\`, and here that is the `ERROR`
+    /// recovery leaves for a stray `:`. The `string` is still a bare
+    /// string statement's — its statement holds one value — so its row
+    /// is a comment row (#415), while the walk bills each parenthesis
+    /// as code, and a bare run beside one is that code's. In source
+    /// that parses cleanly every parenthesis around a bare string is
+    /// the string's, so only this shape tells "the string's
+    /// parenthesis" from "a parenthesis". CPython rejects both sources,
+    /// so no tokenizer stream derives the values: they pin the recovery
+    /// reading only (`docs/development/grammar_dispatch.md` §6).
+    ///
+    /// expected: `( :` (code), `"""doc""" \` (the string's comment row),
+    /// the bare row, `)` (code). The run is on the string's line and
+    /// joins a `)` that is not the string's, a token like any other, so
+    /// it is code: `(4, 3, 1, 0)`. Stepping over that `)` as the
+    /// string's own reads the run as the string's line, `(4, 2, 2, 0)`.
+    ///
+    /// expected: `( :` (code), `("""doc""" \` (code carrying the string's
+    /// comment row), the bare row, `# c` (comment), `))` (code). The
+    /// inner `(` is code before the string on its row, so the run is
+    /// that code's whatever it joins: `(5, 4, 2, 0)`. Skipping the `(`
+    /// as the string's own finds no code before the string — the `:` is
+    /// on the row above — and the run joins the comment, `(5, 3, 3, 0)`.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_bare_run_beside_a_parenthesis_that_is_not_the_strings_is_code() {
+        for (source, expected) in [
+            ("( :\n\"\"\"doc\"\"\" \\\n\\\n)\n", (4, 3, 1, 0)),
+            ("( :\n(\"\"\"doc\"\"\" \\\n\\\n# c\n))\n", (5, 4, 2, 0)),
+        ] {
+            let ast = crate::test_support::parse_named(crate::LANG::Python, "foo.py", source);
+            let root = ast.root_node();
+            let errors = root.descendants_by_kind(&["ERROR"]);
+            let strings = root.descendants_by_kind(&["string"]);
+            assert_eq!(
+                (errors.len(), strings.len()),
+                (1, 1),
+                "fixture drift: {source:?} must hold one `ERROR` and one `string`"
+            );
+            assert_eq!(
+                errors[0].parent().map(|parent| parent.kind()),
+                Some("parenthesized_expression"),
+                "fixture drift: {source:?} must keep the `ERROR` inside the parentheses"
+            );
+            assert!(
+                errors[0].end_byte() <= strings[0].start_byte(),
+                "fixture drift: {source:?} must keep the `ERROR` before the string"
+            );
+
+            let loc = metrics_verbatim(
+                crate::LANG::Python,
+                source.as_bytes(),
+                MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+            )
+            .loc;
+            assert_eq!(loc_rows(&loc), expected, "{source:?}");
+        }
     }
 
     /// Two bare rows under two parents, `class_definition` and
