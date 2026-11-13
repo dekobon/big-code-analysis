@@ -490,8 +490,9 @@ fn is_glued_word(word: &Node, test: &Node) -> bool {
 // It passes a level only from that level's last child, and its askers
 // (a plain bareword, the `-` before one, the file test around one) hold
 // no other key's asker, so the askers of one key climb through each
-// ancestor. Each step reads the sibling after the node through the
-// walk's record, not from the parent's first child.
+// ancestor. Each step reads the sibling after the node through
+// `Ancestors::siblings_after`: the walk's record under a wide parent, a
+// seek over at most `WIDE_PARENT` children otherwise.
 fn is_key_position<'a>(key: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     let (mut node, mut node_ancestors) = (*key, ancestors);
     let mut whole = true;

@@ -113,6 +113,9 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// deliberate: the mismatch is a caller error the walk constructors
     /// report (#1122), and "no siblings" is the conservative answer for
     /// the `exclude_tests` prune that reads these (nothing is pruned).
+    /// It is not conservative for every reader: Perl ABC's pattern-role
+    /// check would take a pattern with no sibling for a list's first and
+    /// last operand, so its tests pin the chain it passes (#1868).
     pub fn siblings_before(
         self,
         node: &Node<'tree>,
