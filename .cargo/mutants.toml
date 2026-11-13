@@ -138,6 +138,21 @@ exclude_re = [
   # gains a gate.
   '^src/metrics/abc/groovy\.rs:\d+:\d+: replace match guard ternary::owns_kind\(kind, node, code, ancestors\) with true in groovy_walk_for_conditions$',
   '^src/metrics/abc/ruby\.rs:\d+:\d+: replace match guard ternary::owns_kind\(kind, node, code, ancestors\) with true in <impl Abc for RubyCode>::compute$',
+  # Equivalent. The body forwards to the language's `opens_space`,
+  # which answers `SpaceKind::Unknown` unless a row's owner carries
+  # `opens` or `opens_by`. Neither the Ccomment nor the Preproc table has
+  # one, and `SpaceKind::default()` is `Unknown`.
+  '^big-code-analysis-ast/src/getter/(ccomment|preproc)\.rs:\d+:\d+: replace <impl Getter for (Ccomment|Preproc)Code>::get_space_kind_with_code -> SpaceKind with Default::default\(\)$',
+  # Equivalent. The outer loop's extra pass has `i == a.len()`, so the
+  # inner loop, the only place that indexes, starts past the end and
+  # does not run. The inner loop's own `<` is at column 17 and is live:
+  # the column tells the two apart.
+  '^big-code-analysis-ast/src/roles/mod\.rs:\d+:13: replace < with <= in kinds_repeat$',
+  # Unreachable. The helper's one caller reaches it only where
+  # `kotlin_is_short_interp_name` holds for the same bytes, which needs
+  # a leading identifier of at least one byte, so `prefix_len` is never
+  # 0 here and `>` and `>=` agree.
+  '''^big-code-analysis-ast/src/getter/kotlin\.rs:\d+:\d+: replace > with >= in kotlin_short_interp_operand_bytes$''',
   # Non-terminating under mutation. The loop then breaks when
   # `goto_next_sibling` succeeds and repeats when it fails, so a list
   # with one child is visited forever. Its one caller walks the values
