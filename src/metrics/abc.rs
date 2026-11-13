@@ -13152,6 +13152,31 @@ end
 
     #[cfg(feature = "cpp")]
     #[test]
+    fn cpp_compound_assignment_in_a_slot_is_not_peeled_to_its_value() {
+        // A plain `=` evaluates to its right-hand side, so the slot
+        // holding `y = x > 2` tests the comparison the `>` arm already
+        // counted. A compound assignment yields the updated `y`, a
+        // value of its own: the slot pays beside the `>`. Only a
+        // right-hand side that scores itself tells the two apart;
+        // `if (y += 1)` reads 1 either way.
+        // expected: `y += x > 1` is the `>` (+1) and the slot (+1);
+        // `y = x > 2` is the `>` (+1) alone: 3 conditions. Two
+        // assignment expressions: 2 assignments.
+        check_metrics::<CppParser>(
+            "void f(int x, int y) {\n\
+             \x20   if (y += x > 1) {}             // +1a +2c\n\
+             \x20   if (y = x > 2) {}              // +1a +1c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
     fn cpp_if_constexpr_condition_counts() {
         // Regression for the code-review finding: C++ `if constexpr
         // (cond)` puts the `constexpr` keyword at child(1) and the
