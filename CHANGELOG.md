@@ -63,7 +63,9 @@ for historical reference.
   - **A `final` local's initializer is not an `abc` assignment**, as in
     Java.
   - **A Gradle-style `foo a: 1, b: 2` call is one statement**: `loc.lloc`
-    falls and `abc.branches` counts the call.
+    falls and `abc.branches` counts the call. A negated argument of such
+    a call (`foo 'x', !a`) is an `abc.conditions` slot, as in
+    `foo('x', !a)`.
   - **Fields misread from a method after a comment are gone**, so `npa`
     falls. The method, read as a constructor before, keeps its
     modifiers, so a `public` one now counts in `npm`.

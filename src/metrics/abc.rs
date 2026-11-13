@@ -3390,6 +3390,33 @@ mod tests {
         );
     }
 
+    /// A parenthesis-free call scores its negated arguments as the
+    /// parenthesised call does. Its `command_chain` holds them directly,
+    /// with no `argument_list`, and takes any expression after a comma
+    /// since dekobon-tree-sitter-groovy 0.6.0 (only a literal or a closure
+    /// up to 0.5.0), so `foo 'x', !a` scored no condition at the bump.
+    ///
+    /// expected: three calls, branches 3; one `!a` in each `foo` and the
+    /// `!a`, `!b` of `bar`, conditions 4 (1 before the fix).
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_command_chain_negated_arguments_are_conditions() {
+        let source = "void f(boolean a, boolean b) {
+                foo 'x', !a
+                foo('x', !a)
+                bar 'x', !a, !b
+            }";
+        assert_fixture_spells::<GroovyParser>(
+            source,
+            "foo.groovy",
+            &[(Groovy::CommandChain as u16, 2, "parenthesis-free calls")],
+        );
+        check_metrics::<GroovyParser>(source, "foo.groovy", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 3);
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+    }
+
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_return_with_conditions() {

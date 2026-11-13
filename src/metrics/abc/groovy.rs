@@ -272,6 +272,21 @@ fn groovy_count_token_branch<'a>(
     };
     if is_branch {
         stats.branches += 1.;
+        // A parenthesis-free call holds its arguments directly, with no
+        // `argument_list` for `groovy_walk_for_conditions` to score, and
+        // `compute` stops at the branch: so each negated argument (`foo
+        // 'x', !a`, any expression since dekobon-tree-sitter-groovy
+        // 0.6.0) is scored here as `foo('x', !a)` scores it, and the
+        // receiver, no negation, scores nothing.
+        // role-bypass: allow(Call) — which call spells its arguments with no
+        // `argument_list`, not whether the node is a call
+        if kind == CommandChain as u16 {
+            count_each_operand(
+                node,
+                |operand, conds| groovy_count_negated(operand, code, conds),
+                &mut stats.conditions,
+            );
+        }
     }
     is_branch
 }
