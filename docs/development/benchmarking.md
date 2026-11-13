@@ -1489,9 +1489,10 @@ interleaving that removes the load.
 
 ## Measurement traps
 
-Every one of these produced a wrong number in this repository before
-the harness existed. The harness defends against the first three
-structurally; the fourth is on you.
+Every one of these produced a misleading measurement in this
+repository. The first four predate the harness, which defends against
+the first three structurally. The fourth is on you, and so is most of
+the fifth.
 
 1. **An indented generator makes the input grow quadratically.** A
    Python nested-`def` generator produced 32 MB at depth 4000, so
@@ -1509,6 +1510,39 @@ structurally; the fourth is on you.
 4. **Use a control.** Without one, a cross-build code-layout shift
    reads as a real effect. An independent replication of a #1062
    measurement saw the control move 1.02% on its own.
+5. **A flat timing clears only the code the run reached.** The
+   [#1868][climb-audit] audit timed three Perl shapes under `halstead`
+   to show that the climb in `is_key_position` is linear, and each
+   matched its `loc` control. `halstead` reaches that function only
+   from a `-` sign or a file-test word. `abc` reaches it from a plain
+   bareword, to tell a call from an auto-quoted key, and these shapes
+   hold only plain barewords.
+   [`perf`](https://perfwiki.github.io/main/) profiles of the three
+   shapes agree: no sample falls under the function with `halstead`,
+   and roughly 3% to 8% do with `abc`. The audit also wrote two Kotlin
+   shapes to time `next_token_is_inserted` from a modifier in a deep
+   nest. Both recovered under a wide `ERROR` root whose depth stayed
+   constant as the input grew, so neither timed a nest.
+
+   Before quoting a shape as level with its control:
+
+   - Confirm that the metric calls the function. Find samples inside
+     it in a profile, or count its calls with an observation counter
+     (`counter!` in `big-code-analysis-ast/src/observation.rs`) in a
+     test that runs the same metric selection on the same shape. A
+     profile with no sample does not show that a function never ran.
+   - Confirm that the input nests as written. Read a small tree with
+     `bca dump`, then check the largest size you time for an `ERROR`:
+     a parser limit is reached at scale and not on a toy input. For a
+     registered probe, `shapes_nest_proportionally_to_depth` checks a
+     depth shape at two small sizes, and `shapes_parse_without_error`
+     checks the parse at the smallest size of its ladder. A shape
+     timed by hand has neither.
+   - Show that the timing can fail. Perturb the function so that each
+     step costs `O(depth)`, and watch the exponent move. The
+     perturbation recorded for
+     [`abc/perl-negated-bareword`](#climb-audit-1868) does that by
+     handing the climb no chain.
 
 ## Why not in CI {#why-not-in-ci}
 
