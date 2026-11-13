@@ -9448,6 +9448,28 @@ EOF
         }
     }
 
+    /// A row holding only `\` inside an `=begin` … `=end` block is the
+    /// comment's own text. The comment is one childless node spanning the
+    /// row, so it has no gap for the bare-row scan to read, and its bytes
+    /// are not padding. `ruby -c` accepts the fixture, and Ripper lexes
+    /// row 1 as `on_embdoc`.
+    ///
+    /// expected: rows 0–2 are the block comment and row 3 is code:
+    /// `(4, 1, 3, 0)`. A scan that reads a childless node's bytes as one
+    /// gap finds row 1 bare, joins it to `=end` as code, and reports
+    /// `(4, 2, 3, 0)`.
+    #[cfg(feature = "ruby")]
+    #[test]
+    fn ruby_backslash_row_inside_a_block_comment_is_comment_text() {
+        let loc = metrics_verbatim(
+            crate::LANG::Ruby,
+            b"=begin\n\\\n=end\nx = 1\n",
+            MetricsOptions::default().with_only(&[crate::Metric::Loc]),
+        )
+        .loc;
+        assert_eq!(loc_rows(&loc), (4, 1, 3, 0));
+    }
+
     /// A bare row continuing the last statement of a method's body is the
     /// method's code: the `body_statement` runs on past its last child to
     /// a hidden line break, so the row sits in its trailing padding.
@@ -10228,6 +10250,43 @@ EOF
         }
     }
 
+    /// The row test the gap scan and the C-family index share
+    /// (`RowShape`): a row is bare when it holds optional padding, one `\`
+    /// and an optional CR, the `[ \t\v\f]* \ \r?` whose spellings
+    /// `may_hold_bare_rows` admits. Each row is given without its newline.
+    ///
+    /// Stepped directly. Through `loc` the padding test shows only where
+    /// a gap holds bytes that are no padding: a lone CR before the `\`, or
+    /// text an error recovery leaves in no node. Both rows read blank
+    /// today, which no fixture here endorses. Reading any byte before the
+    /// `\` as padding fails the three rows that hold code before it.
+    #[test]
+    fn row_shape_is_bare_for_padding_and_one_backslash_alone() {
+        for (row, bare) in [
+            (&b"\\"[..], true),
+            (b"  \\", true),
+            (b"\t\x0b\x0c\\", true),
+            (b"\\\r", true),
+            (b" \\\r", true),
+            // Code before the `\`: a continued row, not a bare one.
+            (b"x \\", false),
+            (b"int x = 1 + \\", false),
+            (b"x \\\r", false),
+            // No `\`, more than one, or one that does not end the row.
+            (b"", false),
+            (b"  ", false),
+            (b"\\\\", false),
+            (b"\\ ", false),
+            (b"\\x", false),
+            (b"\\\r\r", false),
+        ] {
+            let shape = row
+                .iter()
+                .fold(RowShape::default(), |shape, &byte| shape.step(byte));
+            assert_eq!(shape.is_bare(), bare, "{:?}", String::from_utf8_lossy(row));
+        }
+    }
+
     /// A no-`\` fixture and its twin holding one bare row, per grammar
     /// with a `Loc::bare_rows` policy: the first skips the
     /// scan (no `bare_row_scans` recorded) and the second runs it, and
@@ -10564,6 +10623,44 @@ EOF
             2,
             "two walks, two builds"
         );
+    }
+
+    /// The index closes the file's last row when no newline does: a bare
+    /// `\` ending the file is a row of it, and one the scan credits where
+    /// the root's trailing padding holds it.
+    ///
+    /// Read from the index itself, since no `loc` value shows the row
+    /// missing: the grammars hold a `\` ending the file in an `ERROR`
+    /// token, which the scan never asks about, and for the `\` + CR
+    /// spelling, which they leave in padding, the scan's own reading
+    /// answers code as the index does.
+    ///
+    /// expected: `int x;` / `\` — row 0 is not bare; row 1 is, and its `\`
+    /// splices nothing, a stray token, so its line holds code. The same
+    /// with a CR after it. With the newline, the control, the `\` is
+    /// spliced and the line it starts holds nothing: blank, and the file
+    /// has no row 2.
+    #[cfg(feature = "c")]
+    #[test]
+    fn c_family_bare_row_index_closes_a_last_row_with_no_newline() {
+        let classes = |source: &[u8]| {
+            let ast = crate::Ast::parse(crate::Source::new(crate::LANG::C, source))
+                .expect("the c feature is enabled");
+            let index = continuation::BareRowIndex::build(
+                &ast.root_node(),
+                source,
+                crate::roles::c::comment::lists_kind,
+            );
+            [0, 1, 2].map(|row| match index.class(row) {
+                None => "not bare",
+                Some(BareRow::Code) => "code",
+                Some(BareRow::Comment) => "comment",
+                Some(BareRow::Blank) => "blank",
+            })
+        };
+        assert_eq!(classes(b"int x;\n\\"), ["not bare", "code", "not bare"]);
+        assert_eq!(classes(b"int x;\n\\\r"), ["not bare", "code", "not bare"]);
+        assert_eq!(classes(b"int x;\n\\\n"), ["not bare", "blank", "not bare"]);
     }
 
     /// The orphan `heredoc_body` — the shape that makes routing the
