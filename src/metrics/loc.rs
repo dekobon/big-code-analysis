@@ -4890,6 +4890,32 @@ line two
         );
     }
 
+    /// Java's row of `multiline_string_ploc_consistent_across_languages`
+    /// (#778): a text block's interior rows are code. Its
+    /// `multiline_string_fragment` is one node from the opening `"""` to
+    /// the closing one, so no node starts on an interior row and only the
+    /// `string_literal` arm credits it. A text block opens with a line
+    /// terminator, so the shape is one row longer than the quoted form's;
+    /// one interior row holds text and one is empty.
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_text_block_interior_rows_are_ploc() {
+        check_metrics::<JavaParser>(
+            "class A { String s = \"\"\"\nline1\n\nline3\"\"\"; }",
+            "foo.java",
+            |metric| {
+                // expected: four rows — the opening `"""` row, `line1`,
+                // the empty row and the closing row — all code. Left to
+                // the catch-all, the literal credits its opening row
+                // alone and both interior rows read blank: ploc 2.
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
     #[cfg(feature = "go")]
     #[test]
     fn go_general_loc() {
@@ -11507,6 +11533,27 @@ EOF
         );
     }
 
+    /// TypeScript's row of
+    /// `multiline_string_ploc_consistent_across_languages` (#778): a
+    /// template string's interior row is code. Its `string_fragment` is
+    /// one node from the opening backtick to the closing one, so no node
+    /// starts on the interior row and only the `template_string` arm
+    /// credits it. The middle row is empty, as in that table.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn typescript_template_string_interior_rows_are_ploc() {
+        check_metrics::<TypescriptParser>("const s = `line1\n\nline3`;", "foo.ts", |metric| {
+            // expected: three rows — the opening backtick's, the empty
+            // interior one and the closing backtick's — all code. Left
+            // to the catch-all, the literal credits its opening row
+            // alone and the interior row reads blank: ploc 2, blank 1.
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
+    }
+
     #[cfg(feature = "typescript")]
     #[test]
     fn tsx_blank() {
@@ -11819,6 +11866,26 @@ EOF
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    /// TSX's row of `multiline_string_ploc_consistent_across_languages`
+    /// (#778), the twin of
+    /// `typescript_template_string_interior_rows_are_ploc`: TSX carries
+    /// its own copy of the `template_string` arm, which only a `.tsx`
+    /// source routes to.
+    #[cfg(feature = "typescript")]
+    #[test]
+    fn tsx_template_string_interior_rows_are_ploc() {
+        check_metrics::<TsxParser>("const s = `line1\n\nline3`;", "foo.tsx", |metric| {
+            // expected: three rows — the opening backtick's, the empty
+            // interior one and the closing backtick's — all code. Left
+            // to the catch-all, the literal credits its opening row
+            // alone and the interior row reads blank: ploc 2, blank 1.
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        });
     }
 
     #[cfg(feature = "php")]
@@ -12690,6 +12757,40 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             !stats.ploc.lines.contains(3),
             "row 3 holds the `EOF` terminator: the body ends at its column 0 \
              and so does not occupy it"
+        );
+    }
+
+    /// Rust's row of `multiline_string_ploc_consistent_across_languages`
+    /// (#778), for both kinds its arm routes: the interior row of a
+    /// `string_literal` and of a `raw_string_literal` is code. Each
+    /// literal's `string_content` is one node from the opening quote to
+    /// the closing one, so no node starts on the interior row and only
+    /// the arm credits it. The middle row is empty, as in that table.
+    /// The two-row literals of `multiline_string_gate_fixture` have no
+    /// such row: their closing row holds the closing quote.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn rust_multiline_string_interior_rows_are_ploc() {
+        // expected: three rows — the opening quote's, the empty interior
+        // one and the closing quote's — all code. Left to the catch-all,
+        // a literal credits its opening row alone and the interior row
+        // reads blank: ploc 2, blank 1.
+        #[allow(clippy::needless_pass_by_value)]
+        fn assert_three_code_rows(metric: crate::CodeMetrics) {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        }
+        check_metrics::<RustParser>(
+            "const S: &str = \"line1\n\nline3\";",
+            "foo.rs",
+            assert_three_code_rows,
+        );
+        check_metrics::<RustParser>(
+            "const S: &str = r#\"line1\n\nline3\"#;",
+            "foo.rs",
+            assert_three_code_rows,
         );
     }
 
@@ -13839,6 +13940,39 @@ class A {
                 assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
             },
+        );
+    }
+
+    /// Groovy's row of `multiline_string_ploc_consistent_across_languages`
+    /// (#778), for both triple-quoted spellings: the interior row of a
+    /// `"""…"""` and of a `'''…'''` literal is code. Each literal's
+    /// `string_fragment` is one node from the opening quotes to the
+    /// closing ones, so no node starts on the interior row and only the
+    /// `string_literal` arm credits it. The middle row is empty, as in
+    /// that table.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_multiline_string_interior_rows_are_ploc() {
+        // expected: three rows — the opening quotes', the empty interior
+        // one and the closing quotes' — all code. Left to the catch-all,
+        // a literal credits its opening row alone and the interior row
+        // reads blank: ploc 2, blank 1.
+        #[allow(clippy::needless_pass_by_value)]
+        fn assert_three_code_rows(metric: crate::CodeMetrics) {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        }
+        check_metrics::<GroovyParser>(
+            "def s = \"\"\"line1\n\nline3\"\"\"",
+            "foo.groovy",
+            assert_three_code_rows,
+        );
+        check_metrics::<GroovyParser>(
+            "def s = '''line1\n\nline3'''",
+            "foo.groovy",
+            assert_three_code_rows,
         );
     }
 
