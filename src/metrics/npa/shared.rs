@@ -575,7 +575,10 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
                 seen: false,
             }),
         },
-        "function_definition" | "operator_cast" => Verdict::Known(true),
+        // Only a function is `virtual`, so a class-scope macro call it
+        // precedes (`virtual FOO(N::*x);`) is the method it expands to,
+        // whatever its argument reads as.
+        "function_definition" | "operator_cast" | "virtual" => Verdict::Known(true),
         // Look through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
@@ -741,16 +744,54 @@ fn cpp_recovered_member_pointer_in_bitfield<'a>(
 // `function_declarator` and of each one nested in its `declarator`
 // field, outermost first. The chain is walked by an iterator so a long
 // comma list cannot deepen the stack.
+//
+// The recovery puts each member pointer alone in its level's parameter
+// list (a comma list nests one level per declarator) and puts nothing a
+// function declarator alone takes on that level: `int (S::*fc)() const`
+// puts the `const` on the outer level. A recovered pointer beside a
+// second parameter or on a qualified level is a class-scope macro
+// call's argument (`DEFINE_GETTER(int, S::*x);`, `FOO(N::*x) override;`),
+// and the call stays the method it reads as.
 fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
     std::iter::successors(Some(*outer), |level| {
         level.child_by_field_name("declarator")
     })
     .take_while(|level| level.kind() == "function_declarator")
+    .filter(|level| !cpp_level_takes_function_syntax(level))
     .filter_map(|level| level.child_by_field_name("parameters"))
-    .flat_map(|list| list.children())
+    .filter_map(|list| cpp_sole_parameter(&list))
     .filter(|parameter| {
         parameter.kind() == "parameter_declaration" && cpp_is_recovered_member_pointer(parameter)
     })
+}
+
+// Whether a `function_declarator` carries a child only a function's
+// declarator takes (`node-types.json` lists these beside the
+// attributes and the GNU asm label, which a variable takes too).
+fn cpp_level_takes_function_syntax(level: &Node) -> bool {
+    level.children().any(|child| {
+        matches!(
+            child.kind(),
+            "type_qualifier"
+                | "ref_qualifier"
+                | "virtual_specifier"
+                | "noexcept"
+                | "throw_specifier"
+                | "trailing_return_type"
+                | "requires_clause"
+        )
+    })
+}
+
+// The parameter of a list that holds exactly one.
+fn cpp_sole_parameter<'a>(list: &Node<'a>) -> Option<Node<'a>> {
+    // role-bypass: allow(Comment) — stepping over a comment between two
+    // parameters; not whether the node is one
+    let mut parameters = list
+        .children()
+        .filter(|child| child.is_named() && child.kind() != "comment");
+    let sole = parameters.next()?;
+    parameters.next().is_none().then_some(sole)
 }
 
 // Whether a parameter is a recovered member pointer that names a
@@ -765,12 +806,13 @@ fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = N
 // of `FOO(N::&x);` — is a class-scope macro call's argument, and the
 // call stays the method it reads as.
 //
-// An invented slot leaves the name to the declarator beside it
-// (`S::*const pc` puts `pc` in a `pointer_declarator`). When that
-// declarator is abstract or absent, nothing anywhere names a member —
-// the argument list of a method-declaring macro, `DECL_METHOD(S::*);` —
-// so the parameter is not one either, and the macro call stays the
-// method it reads as rather than becoming an attribute with no name.
+// An invented slot leaves the name to the `pointer_declarator` beside
+// it (`S::*const pc` puts `*const pc` in one), which a member pointer's
+// `*` always opens. When the declarator is abstract (`DECL_METHOD(S::*);`,
+// `FOO(N::&);`, `FOO(N::[3]);`), of another kind, or absent, nothing
+// anywhere names a member — the argument list of a method-declaring
+// macro — so the parameter is not one either, and the macro call stays
+// the method it reads as rather than becoming an attribute with no name.
 fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
     let Some(qualified) = parameter
         .child_by_field_name("type")
@@ -799,7 +841,7 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
         !invented
             || parameter
                 .child_by_field_name("declarator")
-                .is_some_and(|declarator| declarator.kind() != "abstract_pointer_declarator")
+                .is_some_and(|declarator| declarator.kind() == "pointer_declarator")
     })
 }
 
@@ -811,8 +853,17 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
 // `declaration` otherwise is — holds no recovered member pointer and so
 // counts nothing here. The method consumer asks the same chain through
 // `cpp_declares_function`, so the two readings are of one walk and
-// cannot both claim a declarator.
+// cannot both claim a declarator; that one also reads a `virtual`
+// declaration as a method, so it holds no data here.
 pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usize {
+    if declaration
+        .children()
+        // role-bypass: allow(Modifier) — a `virtual` makes the declaration
+        // a method's; not whether the token is a modifier
+        .any(|child| child.kind() == "virtual")
+    {
+        return 0;
+    }
     declaration
         .children()
         .filter(|child| {

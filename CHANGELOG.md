@@ -373,10 +373,14 @@ for historical reference.
   from `npm` to `npa`: `class_methods` falls and `class_attributes`
   rises by one, as do the public counts where the member is public,
   with the `total`, `coa` and `cda` values that follow. A macro call
-  whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`)
-  or a scope followed by a `~` or `&` (`R(S::~S);`, `FOO(N::&x);`) is
-  still a method. `T (S::*pd) = 0;` and `T (S::*arr)[2];` are still
-  misread; #1829 tracks them.
+  whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`,
+  `FOO(N::&);`) or a scope followed by a `~` or `&` (`R(S::~S);`,
+  `FOO(N::&x);`) is still a method, and so is one whose member pointer
+  has a second argument beside it (`DEFINE_GETTER(int, S::*x);`) or a
+  `virtual`, `override` or trailing `const` with it. Some spellings are
+  still misread, among them `T (S::*pd) = 0;`, `T (S::*arr)[2];`,
+  `T (S::*pe) = &S::t0;` and a comma list after one
+  (`T (S::*pd), f();`); #1829 tracks them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 1,200 declarator

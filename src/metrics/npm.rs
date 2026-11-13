@@ -6643,24 +6643,44 @@ class C {
     // `R(D::~D)` and `FOO(N::&x)` leave an `ERROR` beside a written name,
     // as `pd` in `T (S::*pd);` does, but over a `~` and a `&` rather than
     // the member pointer's `*`; a test blind to the `ERROR`'s token reads
-    // each as data (na 4 / nm 3 here). Valid C++20 as written: the first
-    // two macros expand to a method returning a member pointer, the last
-    // two to a method that ignores its argument.
+    // each as data (na 4 / nm 3 here). An empty slot beside any other
+    // abstract declarator names nothing either (`F` to `I`), and a named
+    // pointer is data only alone on a level with nothing a function alone
+    // takes: a second argument (`J`, `K`), `override`, a trailing `const`
+    // or a `virtual` (`L`, `M`, `O`) keeps the call the method it
+    // expands to; a reader with neither rule reads na 11 / nm 6 here.
+    // Valid C++20 as written: the first two macros expand to a method
+    // returning a member pointer, the others to a method that ignores its
+    // arguments.
     //
-    // expected: na 2 (`pc`, `x`), nm 5 (one per macro call).
+    // expected: na 2 (`pc`, `x`), nm 15 (one per macro call, and `V`'s
+    // `foo`).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NAMELESS_MEMBER_POINTERS: &str = "\
          #define DECL_METHOD(scope_pointer) int scope_pointer get()\n\
          #define DECL_METHOD2(name, scope_pointer) int scope_pointer name()\n\
          #define R(ignored) void r()\n\
          #define FOO(ignored) void foo()\n\
+         #define GET2(type, ignored) type get2()\n\
+         #define CHECK_OFFSET(member, offset) void check()\n\
+         #define VGET(ignored) int vget()\n\
          struct T {};\n\
          struct W { T (W::*const pc) = nullptr; int x; };\n\
          struct A { DECL_METHOD(A::*); };\n\
          struct B { DECL_METHOD(B::*const); };\n\
          struct C { DECL_METHOD2(get, C::*); };\n\
          struct D { R(D::~D); };\n\
-         struct E { FOO(N::&x); };\n";
+         struct E { FOO(N::&x); };\n\
+         struct F { FOO(N::&); };\n\
+         struct G { FOO(N::&&); };\n\
+         struct H { FOO(N::[3]); };\n\
+         struct I { FOO(N::(*)); };\n\
+         struct J { GET2(int, J::*x); };\n\
+         struct K { CHECK_OFFSET(K::*x, 8); };\n\
+         struct V { virtual void foo(); };\n\
+         struct L : V { FOO(N::*x) override; };\n\
+         struct M { virtual VGET(M::*x) const; };\n\
+         struct O { virtual VGET(O::*x); };\n";
 
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
@@ -6693,7 +6713,7 @@ class C {
         });
         check_metrics_with_npa::<P>(NAMELESS_MEMBER_POINTERS, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 2);
-            assert_eq!(metric.npm.class_nm_sum(), 5);
+            assert_eq!(metric.npm.class_nm_sum(), 15);
         });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
@@ -6796,13 +6816,29 @@ class C {
     // method, as #1829's `= 0` row), and the pointer to an array `T
     // (R::*arr)[2];` as a class-level `ERROR` around an
     // `array_declarator`, which neither consumer reads. Valid C++20.
-    // Pinned so a grammar bump that moves them is named.
+    // Pinned so a grammar bump that moves them is named. Three more lose
+    // a member to an `ERROR` neither consumer reads: a comma list ending
+    // in a method, `T (S::*pd), f();` (truth na 3 / nm 1, reads na 2 /
+    // nm 1), and the address-of initialiser `T (S::*pe) = &S::t0;` (truth
+    // na 3 / nm 0, reads na 2), each `pd` / `pe` in a class-level
+    // `ERROR`; and a comma list ending in data, `T (S::*pf), y;` (truth
+    // na 4 / nm 0, reads na 3), whose `y` sits in an `ERROR` under the
+    // `declaration`.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TYPE_NAMED_MEMBER_POINTER_TO_ARRAY: &str =
         "struct T {};\nstruct R {\n  T t0;\n  T (R::*arr)[2];\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPE_NAMED_MEMBER_POINTER_BEFORE_A_METHOD: &str =
+        "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd), f();\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ADDRESS_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
+        "struct T {};\nstruct S {\n  T t0;\n  T (S::*pe) = &S::t0;\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPE_NAMED_MEMBER_POINTER_BEFORE_DATA: &str =
+        "struct T {};\nstruct S {\n  T t0;\n  T (S::*pf), y;\n  int z9;\n};\n";
 
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_type_named_member_pointers_still_misread<P: crate::MetricSuite>() {
@@ -6816,6 +6852,26 @@ class C {
         );
         check_metrics_with_npa::<P>(TYPE_NAMED_MEMBER_POINTER_TO_ARRAY, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(
+            TYPE_NAMED_MEMBER_POINTER_BEFORE_A_METHOD,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
+        check_metrics_with_npa::<P>(
+            ADDRESS_INITIALISED_TYPE_NAMED_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
+        check_metrics_with_npa::<P>(TYPE_NAMED_MEMBER_POINTER_BEFORE_DATA, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 3);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
     }
