@@ -380,11 +380,17 @@ for historical reference.
   whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`,
   `FOO(N::&);`) or a scope followed by a `~` or `&` (`R(S::~S);`,
   `FOO(N::&x);`) is still a method, and so is one whose member pointer
-  has a second argument beside it (`DEFINE_GETTER(int, S::*x);`) or a
-  `virtual`, `override` or trailing `const` with it. Some spellings are
-  still misread, among them `T (S::*pd) = 0;`, `T (S::*arr)[2];`,
-  `T (S::*pe) = &S::t0;` and a comma list after one
-  (`T (S::*pd), f();`); #1829 tracks them.
+  has a second argument beside it (`DEFINE_GETTER(int, S::*x);`) or
+  anything only a function takes with it: `virtual`, `explicit` or
+  `consteval` before it, a destructor's `~`, or `override`, `const`,
+  `&`, `noexcept`, a return type or `requires` after it. One macro
+  call cannot be told from the data member: `FOO(S::*x);` is token for
+  token `T (S::*pd);`, and now counts as an attribute too. Some
+  spellings are still misread, among them `T (S::*pd) = 0;`,
+  `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;`, a comma list after one
+  (`T (S::*pd), f();`), and the macro calls `int DECL(S::*p);` and
+  `[[noreturn]] FOO(S::*x);`, which count as attributes; #1829 tracks
+  them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 1,200 declarator

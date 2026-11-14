@@ -6615,9 +6615,11 @@ class C {
     //
     // - `arr` (an array), `pq` (a nested scope), `pg` (the global scope),
     //   `pn` (a qualified type), `pv` (a template type), `pc` (a comment
-    //   after the `*`), `self` (the class's own type, spelled as a
-    //   constructor declaration would be), and the private `hidden` and
-    //   `counted` (two specifiers before a primitive) are data.
+    //   after the `*`), `lead` (a comment before the scope, the one place
+    //   the grammars make it the parameter list's own child, beside the
+    //   pointer), `self` (the class's own type, spelled as a constructor
+    //   declaration would be), and the private `hidden` and `counted`
+    //   (two specifiers before a primitive) are data.
     // - The constructors `S(int)`, `S(T S::*p)` and `S(T (S::*q), int)`,
     //   whose member-pointer parameters parse cleanly, `getpd` and the
     //   private `getc` (methods returning a member pointer: an
@@ -6625,9 +6627,9 @@ class C {
     //   a `function_declarator` under its `pointer_declarator`), `~S()`
     //   and the two conversion operators are methods.
     //
-    // 9 data against 8 methods, 7 against 6 public: a swap of the two
+    // 10 data against 8 methods, 8 against 6 public: a swap of the two
     // counters or a visibility-blind arm cannot pass. Until the fix the
-    // nine data members read as methods too, na 0 / nm 17.
+    // ten data members read as methods too, na 0 / nm 18.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TYPE_NAMED_MEMBER_POINTERS: &str = "namespace N { struct Q {}; }\n\
          struct T {};\n\
@@ -6640,6 +6642,7 @@ class C {
              N::Q (S::*pn);\n\
              V<int> (S::*pv);\n\
              T (S::* /* member */ pc);\n\
+             T (/* lead */ S::*lead);\n\
              S (S::*self);\n\
              S(int);\n\
              S(T S::*p);\n\
@@ -6664,27 +6667,45 @@ class C {
     // `R(D::~D)` and `FOO(N::&x)` leave an `ERROR` beside a written name,
     // as `pd` in `T (S::*pd);` does, but over a `~` and a `&` rather than
     // the member pointer's `*`; a test blind to the `ERROR`'s token reads
-    // each as data (na 4 / nm 3 here). An empty slot beside any other
-    // abstract declarator names nothing either (`F` to `I`), and a named
-    // pointer is data only alone on a level with nothing a function alone
-    // takes: a second argument (`J`, `K`), `override`, a trailing `const`
-    // or a `virtual` (`L`, `M`, `O`) keeps the call the method it
-    // expands to; a reader with neither rule reads na 11 / nm 6 here.
-    // Valid C++20 as written: the first two macros expand to a method
-    // returning a member pointer, the others to a method that ignores its
-    // arguments.
+    // each as data. An empty slot beside any other abstract declarator
+    // names nothing either (`F` to `I`), and a named pointer is data only
+    // alone on a level with nothing a function alone takes: a second
+    // argument (`J`, `K`), `override`, a trailing `const` or a `virtual`
+    // (`L`, `M`, `O`) keeps the call the method it expands to.
     //
-    // expected: na 2 (`pc`, `x`), nm 15 (one per macro call, and `V`'s
-    // `foo`).
+    // Each remaining thing only a function takes has a row of its own,
+    // with nothing else on it to keep the call a method: a trailing
+    // `const`, `&`, `noexcept`, return type and `requires` (`QC` to
+    // `QQ`), a default argument, which makes the parameter an
+    // `optional_parameter_declaration` (`OP`), `explicit` before a
+    // constructor and before a conversion function (`EC`, `XC`),
+    // `consteval` (`CE`), and a destructor's name (`DT`). `origin/main`
+    // read all of these as methods; the first #1885 reader read the last
+    // four as data.
+    //
+    // `BM` is the spelling no reader can decide: `FOO(BM::*x);` is token
+    // for token the data member `T (S::*pd);`, and is read as one. The
+    // row pins that choice, so a change to it is seen.
+    //
+    // Valid C++20 as written: the first two macros expand to a method
+    // returning a member pointer, the others to a method, constructor,
+    // conversion function or destructor that ignores its arguments.
+    //
+    // expected: na 3 (`pc`, `x` and `BM`'s call), nm 25 (one per other
+    // macro call, and `V`'s `foo`).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NAMELESS_MEMBER_POINTERS: &str = "\
          #define DECL_METHOD(scope_pointer) int scope_pointer get()\n\
          #define DECL_METHOD2(name, scope_pointer) int scope_pointer name()\n\
          #define R(ignored) void r()\n\
          #define FOO(ignored) void foo()\n\
+         #define AFOO(ignored) auto foo()\n\
          #define GET2(type, ignored) type get2()\n\
          #define CHECK_OFFSET(member, offset) void check()\n\
          #define VGET(ignored) int vget()\n\
+         #define CTOR(ignored) EC(int)\n\
+         #define CONV(ignored) operator int()\n\
+         #define DTOR(ignored) DT()\n\
          struct T {};\n\
          struct W { T (W::*const pc) = nullptr; int x; };\n\
          struct A { DECL_METHOD(A::*); };\n\
@@ -6701,7 +6722,28 @@ class C {
          struct V { virtual void foo(); };\n\
          struct L : V { FOO(N::*x) override; };\n\
          struct M { virtual VGET(M::*x) const; };\n\
-         struct O { virtual VGET(O::*x); };\n";
+         struct O { virtual VGET(O::*x); };\n\
+         struct QC { FOO(N::*x) const; };\n\
+         struct QR { FOO(N::*x) &; };\n\
+         struct QN { FOO(N::*x) noexcept; };\n\
+         struct QT { AFOO(N::*x) -> int; };\n\
+         template<class Z> struct QQ { FOO(N::*x) requires true; };\n\
+         struct OP { FOO(N::*x = 3); };\n\
+         struct EC { explicit CTOR(EC::*x); };\n\
+         struct XC { explicit CONV(XC::*x); };\n\
+         struct CE { consteval VGET(CE::*x); };\n\
+         struct DT { ~DTOR(DT::*x); };\n\
+         struct BM { FOO(BM::*x); };\n";
+
+    // The dynamic exception specification, the one thing a function's
+    // declarator alone takes that C++20 no longer has (`throw()` is
+    // valid through C++17, and g++ 11 still accepts it under
+    // `-std=c++20`), so it sits apart from the C++20 rows above.
+    //
+    // expected: the call is the method it expands to, nm 1.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const THROW_SPECIFIED_MACRO_CALL: &str =
+        "#define FOO(ignored) void foo()\nstruct P { FOO(N::*x) throw(); };\n";
 
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
@@ -6727,14 +6769,18 @@ class C {
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(TYPE_NAMED_MEMBER_POINTERS, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 9);
-            assert_eq!(metric.npa.class_npa_sum(), 7);
+            assert_eq!(metric.npa.class_na_sum(), 10);
+            assert_eq!(metric.npa.class_npa_sum(), 8);
             assert_eq!(metric.npm.class_nm_sum(), 8);
             assert_eq!(metric.npm.class_npm_sum(), 6);
         });
         check_metrics_with_npa::<P>(NAMELESS_MEMBER_POINTERS, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 2);
-            assert_eq!(metric.npm.class_nm_sum(), 15);
+            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 25);
+        });
+        check_metrics_with_npa::<P>(THROW_SPECIFIED_MACRO_CALL, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
         });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
@@ -6845,6 +6891,17 @@ class C {
     // `ERROR`; and a comma list ending in data, `T (S::*pf), y;` (truth
     // na 4 / nm 0, reads na 3), whose `y` sits in an `ERROR` under the
     // `declaration`.
+    //
+    // Three more read as data because nothing these readers match tells
+    // them from a data member. A macro call under an attribute only a
+    // function takes, `[[noreturn]] NR(S::*p);`, differs from `T
+    // (S::*pd);` by the attribute's name alone (truth na 2 / nm 1, reads
+    // na 3 / nm 0; `origin/main` read it right). A macro call after a
+    // written type, `int DECL(S::*p);`, is the tree of the annotated data
+    // member `MOZ_X T (S::*pd);` with a keyword for its first word (the
+    // same truth and reading). The type alias `T typedef (R::*pm_t);`
+    // has its `typedef` read as the declared name (truth na 2 / nm 0,
+    // reads na 3; `origin/main` read a method).
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
@@ -6860,6 +6917,15 @@ class C {
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TYPE_NAMED_MEMBER_POINTER_BEFORE_DATA: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pf), y;\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ATTRIBUTED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define NR(ignored) void nr()\n\
+         struct T {};\nstruct S {\n  T t0;\n  [[noreturn]] NR(S::*p);\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define DECL(P) method(int P)\n\
+         struct T {};\nstruct S {\n  T t0;\n  int DECL(S::*p);\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
+        "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
 
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_type_named_member_pointers_still_misread<P: crate::MetricSuite>() {
@@ -6895,6 +6961,26 @@ class C {
             assert_eq!(metric.npa.class_na_sum(), 3);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
+        check_metrics_with_npa::<P>(
+            ATTRIBUTED_MACRO_CALL_WITH_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
+        check_metrics_with_npa::<P>(TYPED_MACRO_CALL_WITH_MEMBER_POINTER, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(
+            MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
     }
 
     #[cfg(feature = "cpp")]

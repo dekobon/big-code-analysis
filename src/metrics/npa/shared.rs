@@ -562,7 +562,30 @@ fn cpp_child_declares_function(child: &Node, after_colon: bool) -> bool {
     }
 }
 
+// A declaration specifier only a function takes: `virtual`, `explicit`
+// (with or without its condition) and `consteval`, which the grammars
+// spell as a `type_qualifier`. A class-scope macro call one precedes
+// (`virtual FOO(N::*x);`, `explicit CTOR(S::*x);`) is the method it
+// expands to, whatever its argument reads as. `static`, `inline` and
+// `constexpr` precede a data member too (`static inline T (S::*pe) =
+// nullptr;`) and decide nothing. Both consumers ask this one test, so
+// neither reads such a declaration as data.
+fn cpp_is_function_only_specifier(child: &Node) -> bool {
+    match child.kind() {
+        "virtual" | "explicit_function_specifier" => true,
+        "type_qualifier" => child
+            .children()
+            // role-bypass: allow(Modifier) — which qualifier only a function
+            // takes; not whether the token is a modifier
+            .any(|token| token.kind() == "consteval"),
+        _ => false,
+    }
+}
+
 fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
+    if cpp_is_function_only_specifier(child) {
+        return Verdict::Known(true);
+    }
     match child.kind() {
         "function_declarator" => match cpp_parenthesized_name(child) {
             Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
@@ -586,10 +609,7 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
                 seen: false,
             }),
         },
-        // Only a function is `virtual`, so a class-scope macro call it
-        // precedes (`virtual FOO(N::*x);`) is the method it expands to,
-        // whatever its argument reads as.
-        "function_definition" | "operator_cast" | "virtual" => Verdict::Known(true),
+        "function_definition" | "operator_cast" => Verdict::Known(true),
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
         // parameter parses as one: `template<class T> void connect(T* obj,
@@ -777,12 +797,15 @@ fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = N
 
 // Whether a `function_declarator` carries a child only a function's
 // declarator takes (`node-types.json` lists these beside the
-// attributes and the GNU asm label, which a variable takes too).
+// attributes and the GNU asm label, which a variable takes too), or is
+// named by a destructor, which no member's type spells: `~DTOR(S::*x);`
+// is the destructor the macro expands to.
 fn cpp_level_takes_function_syntax(level: &Node) -> bool {
     level.children().any(|child| {
         matches!(
             child.kind(),
-            "type_qualifier"
+            "destructor_name"
+                | "type_qualifier"
                 | "ref_qualifier"
                 | "virtual_specifier"
                 | "noexcept"
@@ -857,18 +880,20 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
 // any method it also spells (#1807). A constructor, destructor or
 // conversion-operator declaration — what a valid class-scope
 // `declaration` otherwise is — holds no recovered member pointer and so
-// counts nothing here. The method consumer asks the same chain through
-// `cpp_declares_function`, so the two readings are of one walk and
-// cannot both claim a declarator; that one also reads a `virtual`
-// declaration as a method, so it holds no data here. A declaration with
-// no parse error holds no recovery, and its children are not read.
+// counts nothing here. The method consumer reads the same declarators
+// through `cpp_declares_function`. The two share the pointers
+// (`cpp_recovered_member_pointers`), the verdict on each
+// (`DeclaratorQuestion::RecoveredPointer`) and the function-only
+// specifier test, and each gates and sums them itself, so a test added
+// to one side is added to the other;
+// `assert_no_declarator_is_claimed_twice` holds them together. A
+// declaration with no parse error holds no recovery, and its children
+// are not read.
 pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usize {
     if !declaration.has_error()
         || declaration
             .children()
-            // role-bypass: allow(Modifier) — a `virtual` makes the declaration
-            // a method's; not whether the token is a modifier
-            .any(|child| child.kind() == "virtual")
+            .any(|child| cpp_is_function_only_specifier(&child))
     {
         return 0;
     }
@@ -1170,7 +1195,9 @@ fn cpp_declarator_names(child: &Node) -> usize {
             // that `f` is never counted here — or when its parameter
             // lists are recovered member pointers that are all data,
             // where the name counted stands for the one they declare
-            // (`int DECL(S::*p);`, a macro call and not C++ as written).
+            // (`MOZ_X T (S::*pd);`, an annotated data member, and also the
+            // macro call `int DECL(S::*p);`, which is the same tree and
+            // is pinned as misread, FIXME(#1829)).
             // One spelling still breaks this: a method whose whole
             // declarator is parenthesised (`int (*get());`) reads as no
             // function, because `cpp_child_verdict` does not look inside a
