@@ -112,7 +112,7 @@ macro_rules! cpp_family_npm {
                         // comment is neither's question
                         FieldDeclaration | Declaration | Declaration2 | Declaration3
                         | Declaration4 | TemplateDeclaration
-                            if super::npa::cpp_declares_function(&child) =>
+                            if super::npa::cpp_declares_function(&child, code) =>
                         {
                             stats.class_nm += 1;
                             if current_is_public {
