@@ -55,6 +55,31 @@ macro_rules! csharp_var_declarator_kinds {
     };
 }
 
+// Aliased Groovy `kind_id` unions. Since dekobon-tree-sitter-groovy
+// 0.6.0 the parser reports every `variable_declarator` and
+// `assignment_expression` as the `2` id; the unsuffixed id of each
+// belongs to a hidden rule and is never reported
+// (`groovy_declarators_and_assignments_reach_kind_id_as_the_alias` pins
+// that). Consumers that named the unsuffixed id alone compiled and
+// matched nothing after the bump, so both are named here, once: which of
+// the two a later grammar reports is the enum generator's ordering, not
+// a fact about the rule (#1907).
+#[macro_export]
+#[doc(hidden)]
+macro_rules! groovy_var_declarator_kinds {
+    () => {
+        $crate::Groovy::VariableDeclarator | $crate::Groovy::VariableDeclarator2
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! groovy_assignment_kinds {
+    () => {
+        $crate::Groovy::AssignmentExpression | $crate::Groovy::AssignmentExpression2
+    };
+}
+
 // Terminal-bool operand kinds for the Phase-2 unary-conditional walker
 // (issue #403). Each `<lang>_bool_terminal_kinds!()` macro lists the
 // expression kinds whose evaluated value is implicitly boolean in an

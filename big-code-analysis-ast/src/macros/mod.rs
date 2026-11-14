@@ -726,7 +726,8 @@ mod kind_sets;
 // the `crate::macros::<name>` spelling the classifiers use keeps working.
 pub use crate::{
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
-    csharp_var_declarator_kinds, go_bool_terminal_kinds, with_any_parser,
+    csharp_var_declarator_kinds, go_bool_terminal_kinds, groovy_assignment_kinds,
+    groovy_var_declarator_kinds, with_any_parser,
 };
 pub(crate) use {
     get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,

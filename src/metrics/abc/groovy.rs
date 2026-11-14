@@ -13,6 +13,7 @@ use super::{
     Abc, Stats, count_boolean_slot, count_each_operand, count_field_operands,
     count_negated_operand, peel, rows_own, rows_own_inventory, wrapped_operand,
 };
+use crate::macros::{groovy_assignment_kinds, groovy_var_declarator_kinds};
 use crate::roles::groovy::{
     branch, case_arm, catch, comparison, null_safe, short_circuit, ternary,
 };
@@ -83,7 +84,7 @@ fn groovy_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // through `groovy_count_condition`. Neither owner gate reads ancestors,
 // so the peeled descendant is asked with none.
 //
-// An assignment is not peeled, because the `AssignmentExpression2` arm
+// An assignment is not peeled, because the `assignment_expression` arm
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
 // counts. It scores itself exactly when its value does, as Java's does.
@@ -97,15 +98,13 @@ fn groovy_is_elvis(expr: &Node, code: &[u8]) -> bool {
 }
 
 fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    use Groovy::*;
-
     // The elvis owner is the one `NullSafe` owner that is a boolean
     // test; the three safe navigations never reach a slot as a value
     // that proves boolean, and score nothing if one does.
     rows_own!(expr, code; comparison, short_circuit, ternary)
         || groovy_is_elvis(expr, code)
         || match expr.kind_id().into() {
-            AssignmentExpression2 => expr.child_by_field_name("right").is_some_and(|right| {
+            groovy_assignment_kinds!() => expr.child_by_field_name("right").is_some_and(|right| {
                 let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
                 proves_boolean || groovy_condition_scores_itself(&value, code)
             }),
@@ -188,12 +187,15 @@ fn groovy_eq_initializes_final_binding<'a>(
             FieldDeclaration | LocalVariableDeclaration
         ) && declaration
             .children()
-            .take_while(|child| !matches!(child.kind_id().into(), VariableDeclarator2 | EQ))
+            .take_while(|child| {
+                child.kind_id() != EQ
+                    && !matches!(child.kind_id().into(), groovy_var_declarator_kinds!())
+            })
             .any(|child| child.kind_id() == Final)
     }
     let mut climb = ancestors.iter(eq_node).map(|(node, _)| node);
     match climb.next() {
-        Some(parent) if parent.kind_id() == VariableDeclarator2 => climb
+        Some(parent) if matches!(parent.kind_id().into(), groovy_var_declarator_kinds!()) => climb
             .next()
             .is_some_and(|declaration| declares_final(&declaration)),
         Some(parent) => declares_final(&parent),
@@ -388,14 +390,13 @@ fn groovy_walk_for_conditions<'a>(
             |operand, conds| groovy_count_negated(operand, code, conds),
             conds,
         ),
-        // The `2` ids are the ones the parser reports since
-        // dekobon-tree-sitter-groovy 0.6.0; the unsuffixed two are
-        // aliases it never emits
+        // Both ids of each kind: the parser reports the `2` one since
+        // dekobon-tree-sitter-groovy 0.6.0 and never the unsuffixed
         // (`groovy_declarators_and_assignments_reach_kind_id_as_the_alias`).
-        VariableDeclarator2 => {
+        groovy_var_declarator_kinds!() => {
             groovy_count_negated_slot(node.child_by_field_name("value"), code, conds);
         }
-        AssignmentExpression2 => {
+        groovy_assignment_kinds!() => {
             groovy_count_negated_slot(node.child_by_field_name("right"), code, conds);
         }
         // The dekobon grammar inlines the parens of `if` / `while` /

@@ -7,6 +7,7 @@
 )]
 
 use super::*;
+use crate::macros::groovy_var_declarator_kinds;
 
 // Groovy uses the dekobon grammar, which models class/interface/trait/
 // annotation-type/record bodies as a single `class_body` node and
@@ -37,11 +38,11 @@ impl Npa for GroovyCode {
                 let under = ancestors.of_children(node);
                 let members = under.get();
                 for declaration in node.children().filter(|n| member::owns(n, code, members)) {
-                    // `VariableDeclarator2` is the id the parser reports
-                    // since dekobon-tree-sitter-groovy 0.6.0.
+                    // Both declarator ids; the parser reports the `2`
+                    // one since dekobon-tree-sitter-groovy 0.6.0.
                     let attributes = declaration
                         .children()
-                        .filter(|n| matches!(n.kind_id().into(), VariableDeclarator2))
+                        .filter(|n| matches!(n.kind_id().into(), groovy_var_declarator_kinds!()))
                         .count();
                     if is_interface_like {
                         stats.interface_na += attributes;
