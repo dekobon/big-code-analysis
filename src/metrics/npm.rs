@@ -818,8 +818,12 @@ mod tests {
     /// ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92)),
     /// so `public @interface`, at the top level or as a class member, is
     /// an `interface_declaration` with its `@` in an `ERROR`. Nor does an
-    /// element take a `default` value: the value lands in an `ERROR`
-    /// after its element. Each recovery keeps both elements and opens the
+    /// element take a `default` value: in the spelling here, a string
+    /// and then the last element's integer, each value lands in an
+    /// `ERROR` after its element (`default true` reads as a field, and
+    /// an integer before another element drops that element:
+    /// tree-sitter-groovy#101). Each recovery pinned here keeps both
+    /// elements and opens the
     /// `Interface` space a clean parse does, so `npm` reads the 2/2 of
     /// `groovy_annotation_type_counts_elements`. Recorded so a grammar
     /// bump that parses a form, or recovers it differently, moves this
@@ -6893,8 +6897,9 @@ class C {
     // `field_declaration`, whose names the attribute count reads through
     // `cpp_declarator_names`, and so does #1829's plain function-pointer
     // tower: that walk recursed once per level until it took a stack of
-    // its own, and aborted the process at ~1,200 levels on the 2 MiB
-    // consumer stack.
+    // its own, and in this profile aborted the process at about 1,000
+    // levels on the 2 MiB consumer stack (about 2,000 in a release
+    // build).
     //
     // expected: the method tower is `g` beside the data control `z`
     // (na 1 / nm 1); each data tower — `pd` under `T` and under `int`,

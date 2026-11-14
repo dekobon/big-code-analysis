@@ -2029,9 +2029,13 @@ NPM counts the two elements as public methods. The Groovy grammar
 also fails to parse two valid spellings: a modifier before
 `@interface`
 ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92))
-and an element's `default` value. Each leaves an error node in the
-tree, and the annotation type reports the NOM, NPA, NPM and WMC it
-would report without it.
+and an element's `default` value
+([tree-sitter-groovy#101](https://github.com/dekobon/tree-sitter-groovy/issues/101)).
+The modifier leaves an error node and the counts the annotation type
+reports without it. A `default` value is read as an error node or as a
+field named `default`, depending on the value: it can add an attribute
+to NPA, and one written before another element can drop that element
+from NOM, NPM and WMC.
 
 ### How to read it
 
@@ -2173,8 +2177,8 @@ narrows its own access:
 | Language | Not public in an interface |
 | --- | --- |
 | Java | a `private` method ([JLS 9.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.4)) |
-| Kotlin | a `private` or `internal` function |
-| Groovy | a `private` or `protected` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type |
+| Kotlin | a `private` function, the one narrowing the compiler accepts there (`protected` and `internal`, which it rejects, read the same) |
+| Groovy | a `private` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type, and a `protected` one (groovyc accepts that on a member record only) |
 | C# | a member marked `private`, `protected` or `internal`, alone or paired; the static constructor; an explicit implementation of another interface's member (`void IA.M() { }`); a `partial` method that does not say `public` |
 
 C# allows these modifiers on an interface member since

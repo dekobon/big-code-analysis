@@ -50,8 +50,9 @@ pub(crate) fn groovy_has_explicit_public(declaration: &Node) -> bool {
 // same flattened modifiers: public unless declared `private` or
 // `protected`. groovyc accepts a `private` method or field in a trait and
 // keeps it off the trait's interface; a private interface method needs
-// Groovy 5 (GROOVY-10060). `protected` compiles in neither, and reads as
-// not public rather than as an exception to the rule.
+// Groovy 5 (GROOVY-10060). `protected` compiles on a member record or a
+// nested class alone, not on a method or a field, and reads as not
+// public everywhere rather than as an exception to the rule.
 pub(crate) fn groovy_interface_member_is_public(declaration: &Node) -> bool {
     declaration
         .first_child(|id| {
@@ -1172,8 +1173,8 @@ fn cpp_answer(question: DeclaratorQuestion<'_>) -> bool {
 // string arm covers the family. Walked with an explicit stack, the
 // wrappers pushed only when met: they nest one level per parenthesis or
 // `*` the source writes, and the recursion this replaced overflowed the
-// consumer thread's stack on a function-pointer member some 1,200 levels
-// deep that every other metric reads (#1829).
+// consumer thread's stack on a function-pointer member some 2,000 levels
+// deep in a release build, which every other metric reads (#1829).
 pub(super) fn cpp_declarator_names(child: &Node) -> usize {
     let mut names = 0;
     let mut pending = Vec::new();

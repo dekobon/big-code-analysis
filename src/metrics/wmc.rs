@@ -902,7 +902,7 @@ mod tests {
     // section) rather than gated to Java's (#1865). The premise rules
     // out the recovery a `public` or a `default` value would cause
     // (`groovy_annotation_type_gaps_do_not_parse`, `npm.rs`), which
-    // reads the same numbers.
+    // reads the same numbers in the spellings pinned there.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_annotation_type_elements_are_weighted_methods() {

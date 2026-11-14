@@ -49,12 +49,15 @@ for historical reference.
 ### Changed
 
 - **Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.6.0`**
-  (#1896). Release 0.6.0 closes twelve upstream parse issues (see its
+  (#1896). Release 0.6.0 closes six upstream parse issues and lands
+  five earlier grammar fixes (see its
   [changelog](https://github.com/dekobon/tree-sitter-groovy/blob/v0.6.0/CHANGELOG.md)).
-  Metrics move on Groovy that uses the constructs below:
+  Metrics move on Groovy that uses a construct the release touches. The
+  ones that move the most:
   - **A bare word before a call and a `final` local are no longer
     method declarations.** `nom`, `nargs`, `wmc` and `cyclomatic` fall,
-    and the calls inside now count as `abc.branches`.
+    `loc.lloc` rises by the statements the phantom method hid, and the
+    calls inside now count as `abc.branches`.
   - **A script-level method after a comment is a method**, not a call
     passing a closure (`foo()`, then `/* note */`, then
     `String call() { 'x' }`): `nom.functions` and `cyclomatic` rise,
@@ -63,9 +66,10 @@ for historical reference.
   - **A `final` local's initializer is not an `abc` assignment**, as in
     Java.
   - **A Gradle-style `foo a: 1, b: 2` call is one statement**: `loc.lloc`
-    falls and `abc.branches` counts the call. A negated argument of such
-    a call (`foo 'x', !a`) is an `abc.conditions` slot, as in
-    `foo('x', !a)`.
+    falls and `abc.branches` counts the call. A negated positional
+    argument of a parenthesis-free call (`foo 'x', !a`) is an
+    `abc.conditions` slot, as in `foo('x', !a)`; a negated named
+    argument (`foo x: !a`) is not one in either spelling.
   - **Fields misread from a method after a comment are gone**, so `npa`
     falls. The method, read as a constructor before, keeps its
     modifiers, so a `public` one now counts in `npm`.
@@ -73,6 +77,25 @@ for historical reference.
     `def` or `final` is an operator instead of a type operand.
   - **`synchronized (x) { … }` reads as Java's**: no closure and no
     extra nesting.
+  - **A record component typed `def` or `var` matches an untyped
+    constructor parameter**, so `record S(def a) { S(a) { } }` closes
+    its header: `nom.functions`, `nargs.function_args` and
+    `npm.class_methods` fall by one.
+  - **Other constructs 0.5.0 misread or rejected now parse**, and their
+    counts follow: comment-like text inside a string (`loc.cloc` falls),
+    a typed local or a field after a comment (`loc.lloc`, `npa`), a
+    member after an enum's trailing comma, a script-level
+    `final f() { }`, a closure parameter with `def`, `final`, a default
+    or varargs (`nargs.closure_args` rises), `implements` on an enum or
+    a trait, and identifiers with non-ASCII letters.
+  - **One valid shape reads worse.** After a parenthesis-free call with
+    two or more arguments, a next line that opens with `(` joins the
+    call's last argument: `foo 1, 2` followed by `(a).toString()` is one
+    statement and three calls where Groovy reads two of each, so
+    `loc.lloc` falls by one and `abc.branches` rises by one. 0.5.0 read
+    it as Groovy does. The grammar's newline handling is upstream's
+    ([tree-sitter-groovy#90](https://github.com/dekobon/tree-sitter-groovy/issues/90));
+    a test pins the reading until it is fixed there.
 
   Measured over 216 Gradle and Groovy files against the 0.5.0
   pin (files moved / net change): `abc.branches` 78 / +452,
@@ -83,7 +106,12 @@ for historical reference.
   `wmc` 27 / −85, `npm.class_npm` 6 / +18, `npa.class_attributes`
   16 / −32 and `npa.class_npa` 4 / −4. Halstead operators and operands
   and `tokens` move in at most 26 files; `sloc`, `ploc`, `blank` and
-  `nexits` do not move. Still open upstream and still pinned here:
+  `nexits` do not move in those files. The regenerated `Groovy` enum
+  renumbers every kind from id 22 (`EQ`) up, drops
+  `MembershipExpressionToken1` and gains thirteen variants, among them
+  `VariableDeclarator2` and `AssignmentExpression2`, the ids every
+  `variable_declarator` and `assignment_expression` now reaches as.
+  Still open upstream and still pinned here:
   modifiers on `@interface`
   ([tree-sitter-groovy#92](https://github.com/dekobon/tree-sitter-groovy/issues/92)),
   the compact constructor
@@ -238,9 +266,9 @@ for historical reference.
     method named `P`; it is a record now, and its header counts as a
     public method. So does the header of a record declared in an
     interface, a trait or an annotation type, where a member counts as
-    public unless it is `private` or `protected` (#1880). A record with
-    neither stays non-public, the reading
-    `npm` gives every unmodified Groovy member.
+    public unless it is `private` or `protected` (#1880). A record in a
+    class without `public` stays non-public, the reading `npm` gives
+    every unmodified Groovy class member.
   - **Nested types are class members.** A `class`, `interface`, `trait`,
     `enum` or `@interface` inside a class body broke the rest of the
     body, and a nested `record` read as a method named after it. Each
@@ -395,19 +423,23 @@ for historical reference.
   them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
-  declarator** (#1829). A data member nested some 1,200 declarator
+  declarator** (#1829). A data member nested some 2,000 declarator
   levels deep, such as #1829's function-pointer tower
-  `int (*(*…(*fp)(int)…)(int))(int);`, aborted the process: the walk
+  `int (*(*…(*fp)(int)…)(int))(int);`, aborted a release build: the walk
   that counts the member's names recursed once per level. It keeps its
   own stack now, as the declarator classifier does since #1885.
 
 - **`npm` and `npa` read the visibility of interface members** (#1880).
-  Every interface member used to count as public, whatever it
-  declared. These now count as not public: a Java `private` interface
-  method; a Kotlin `private` or `internal` interface function or
-  property; a Groovy `private` or `protected` member of an interface,
-  trait or annotation type, member records included; and a C# interface
-  member marked `private`, `protected` or `internal` (alone or paired).
+  An interface member used to count as public whatever it declared;
+  only a C# interface field already read `private` and `protected`.
+  These now count as not public: a Java `private` interface method; a
+  Kotlin `private` interface function or property; a Groovy `private`
+  member of an interface, trait or annotation type, and a `private` or
+  `protected` record declared in one; and a C# interface member marked
+  `private`, `protected` or `internal` (alone or paired). A modifier
+  the compiler rejects there reads as not public as well: `protected`
+  and `internal` in a Kotlin interface, and `protected` on a method or
+  field of a Groovy interface or trait.
   A C# interface's static constructor, its explicit implementations of
   another interface's members and its `partial` methods that do not say
   `public` are not public either. C# `internal` now
@@ -417,8 +449,9 @@ for historical reference.
   for Java, Kotlin, Groovy and C#. In `npa`, `interface_npa_sum`,
   `interface_cda`, `total` and `cda` drop for Kotlin, Groovy and C#.
   C# `class_npm_sum`, `class_coa`, `total` and `coa` drop for a class
-  with an `internal` accessor. Groovy `class_npm_sum` drops for a
-  `private record` declared in an interface, trait or annotation type.
+  with an `internal` accessor, and Groovy's for a `private` or
+  `protected` record declared in an interface, trait or annotation
+  type.
 
 - **Python `npa` is linear in a nested destructuring target** (#1867).
   A target that binds `self` or `cls` attributes at every level,

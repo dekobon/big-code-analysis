@@ -313,7 +313,8 @@ The control probes are what make the other readings mean something.
   **shape** controls:
   each is the same nesting (or, for the last, the same width) as the
   probe it sits next to, with the one node that triggers the walk
-  removed. Before [#1084][parent-walk] each fitted near 1.0 where its
+  removed. Before its counterpart was fixed ([#1084][parent-walk] for
+  most, #1867 for the Python pair) each fitted near 1.0 where the
   counterpart fitted near 2.0, which is what attributed the quadratic
   cost to that call rather than to nesting in general. Now that every
   probe fits near 1.0, the pair is what would localise a relapse: a

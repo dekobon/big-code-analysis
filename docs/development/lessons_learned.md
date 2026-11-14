@@ -3281,14 +3281,13 @@ wrote `Drop` off after a 10,000-level chain survived; a cheap frame is
 not an iterative one, and it aborts at 16,000 in a debug build.
 
 **Widening what reaches a recursive helper is a new depth exposure**
-(#1885). The minimal fix for C++ `T (S::*pd);` sent every method
-declarator's parameter list through the recursive declarator
-classifier, and a 6,000-level tower the base answered at depth one
-aborted. A work-list classifier was not the whole fix: with `int` for
-`T` the tower is a `field_declaration`, whose names `npa` counted with
-a recursion the test tower never reached (#1829). Before routing a new
-shape into a recursive helper, run its tower on both builds, through
-every consumer the grammar routes any spelling of it to.
+(#1885). The minimal fix for C++ `T (S::*pd);` sent every method's
+parameter list through the recursive declarator classifier, and a
+6,000-level tower the base answered at depth one aborted. A work-list
+classifier was half the fix: with `int` for `T` the tower is a
+`field_declaration`, whose names `npa` counted by a recursion the test
+never reached (#1829). Before routing a new shape into such a helper,
+run its tower on both builds through every consumer it can reach.
 
 **`Serialize` is the one that cannot be fixed, only bounded** (#1056).
 `serde` offers no iterative escape — `serialize_field` must run the

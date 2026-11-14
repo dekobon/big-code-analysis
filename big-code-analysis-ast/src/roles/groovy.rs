@@ -57,10 +57,11 @@ fn has_no_keyword_token<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> b
 ///
 /// `var` introduces a local, and since dekobon-tree-sitter-groovy 0.6.0
 /// every parameter-like declaration too: a method's or constructor's
-/// `formal_parameter`, a `closure_parameter`, a try-with-resources
-/// `resource` and a `catch` parameter each hold the keyword leaf where
-/// 0.5.0 read the word as their `type_identifier` (which [`spells_var`]
-/// claimed). A parameter *named* `var` is an `identifier` there.
+/// `formal_parameter`, a try-with-resources `resource` and a `catch`
+/// parameter each hold the keyword leaf where 0.5.0 read the word as
+/// their `type_identifier` (which [`spells_var`] claimed), and so does
+/// a `closure_parameter`, which 0.5.0 did not parse with a `var` at
+/// all. A parameter *named* `var` is an `identifier` there.
 ///
 /// `record` is the exception since dekobon-tree-sitter-groovy 0.5.0:
 /// its keyword comes from the external scanner only before a record

@@ -357,12 +357,15 @@ pub(crate) fn assert_perl_fixture_spells(src: &str, kinds: &[(u16, usize, &str)]
 /// `interface_declaration`.
 ///
 /// The pinned grammar parses neither a modifier before `@interface` nor
-/// an element's `default` value, and its recovery from each reads the
-/// counts a clean parse does: `public @interface` becomes an
-/// `interface_declaration`, which opens the same `Interface` space, and a
-/// `default` value lands in an `ERROR` beside its element. A metric
-/// assertion alone passes on either spelling, which is how the earlier
-/// fixtures passed through recovery (#1865).
+/// an element's `default` value, and its recovery can read the counts a
+/// clean parse does: `public @interface` becomes an
+/// `interface_declaration`, which opens the same `Interface` space, and
+/// the `default` values of the earlier fixtures (a string, then a last
+/// element's integer) each land in an `ERROR` beside their element. A
+/// metric assertion alone passes on either spelling, which is how those
+/// fixtures passed through recovery (#1865). Other `default` values
+/// read as a field or drop the element after them
+/// (tree-sitter-groovy#101).
 #[cfg(feature = "groovy")]
 #[track_caller]
 pub(crate) fn assert_clean_groovy_annotation_type(src: &str) {

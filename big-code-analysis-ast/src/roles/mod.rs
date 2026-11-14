@@ -1443,8 +1443,9 @@ macro_rules! role_table {
     // (`[lang role mode { tail }]`, `[pays lang role mode [owners]
     // { tail }]` and `[lang kind node code ancestors]`), so the walk's
     // terminal arms tell them apart and a fragment carries its list
-    // once, whichever list splices it. A payer entry is `K` or `K
-    // gated_by f`, so a fragment of payers spells its gate inline
+    // once, whichever list splices it. A payer entry is `K`, `K under
+    // P`, `K gated_by f` or `K text_gated_by f`, so a fragment of payers
+    // spells its gate inline
     // (`LT gated_by applied,`) and the gate resolves at the dialect's
     // row, where the fragment is expanded. `utils/role_tables.py`
     // reads that one arm, and the differential test holds the compiled
