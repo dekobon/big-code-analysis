@@ -2296,13 +2296,16 @@ mod tests {
     }
 
     /// An unmodified `partial` method is the third interface member that
-    /// is a method and not public (#1880): it is private unless it says
-    /// `public` (C# standard §15.6.9), in its declaring part and in its
+    /// is a method and not public (#1880): with no access modifier the
+    /// compiler makes it private, in its declaring part and in its
     /// implementing part alike. `A` is the public control, `C` the
     /// `public partial` one, and the partial property `P` is public as
-    /// any other property is. Not compiled here (no C# compiler); the
-    /// rule is the standard's and Roslyn's
-    /// `ModifierUtils.AdjustModifiersForAnInterfaceMember`.
+    /// any other property is. Not compiled here (no C# compiler). The
+    /// rule is Roslyn's
+    /// (`ModifierUtils.AdjustModifiersForAnInterfaceMember`): it keeps
+    /// §15.6.9's implicitly private partial method inside an interface,
+    /// and says itself that this departs from the specification, where
+    /// interface members are implicitly public.
     ///
     /// expected: the declaring part holds `A`, `B`, `C` and `P`'s getter,
     /// 4 methods, 3 public; the implementing part holds `B`, `C` and the

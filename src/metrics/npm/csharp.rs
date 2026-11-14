@@ -76,9 +76,12 @@ fn csharp_is_partial(member: &Node) -> bool {
 // which only the runtime calls (an interface has no other constructor);
 // an explicit implementation of a base interface's member
 // (`void IA.M() { }`), reachable only through that interface; and a
-// `partial` method, which is private unless it says `public` (C#
-// standard §15.6.9, kept for interfaces by Roslyn's
-// `ModifierUtils.AdjustModifiersForAnInterfaceMember`, which makes a
+// `partial` method with no access modifier, which the compiler makes
+// private. That is §15.6.9's rule for a partial method, which Roslyn
+// keeps inside an interface although interface members are otherwise
+// implicitly public; its own source calls that a deviation from the
+// specification kept for compatibility
+// (`ModifierUtils.AdjustModifiersForAnInterfaceMember`, which makes a
 // partial property public as any other member is). `total` is the
 // member's `csharp_count_member`; a child worth no method — a field, a
 // comment, a brace — has no public one, so its modifiers are not read.

@@ -107,8 +107,9 @@ for historical reference.
   16 / −32 and `npa.class_npa` 4 / −4. Halstead operators and operands
   and `tokens` move in at most 26 files; `sloc`, `ploc`, `blank` and
   `nexits` do not move in those files. The regenerated `Groovy` enum
-  renumbers every kind from id 22 (`EQ`) up, drops
-  `MembershipExpressionToken1` and gains thirteen variants, among them
+  renumbers 259 of the 311 kinds it keeps (the lowest is `EQ`, 22 to
+  26), drops `MembershipExpressionToken1` and gains thirteen variants,
+  among them
   `VariableDeclarator2` and `AssignmentExpression2`, the ids every
   `variable_declarator` and `assignment_expression` now reaches as.
   Still open upstream and still pinned here:

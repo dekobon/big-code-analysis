@@ -2178,7 +2178,7 @@ narrows its own access:
 | --- | --- |
 | Java | a `private` method ([JLS 9.4](https://docs.oracle.com/javase/specs/jls/se21/html/jls-9.html#jls-9.4)) |
 | Kotlin | a `private` function, the one narrowing the compiler accepts there (`protected` and `internal`, which it rejects, read the same) |
-| Groovy | a `private` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type, and a `protected` one (groovyc accepts that on a member record only) |
+| Groovy | a `private` member of an interface, [trait](https://groovy-lang.org/objectorientation.html#_private_methods) or annotation type, and a `protected` one (groovyc accepts that on a nested type only, a member record among them) |
 | C# | a member marked `private`, `protected` or `internal`, alone or paired; the static constructor; an explicit implementation of another interface's member (`void IA.M() { }`); a `partial` method that does not say `public` |
 
 C# allows these modifiers on an interface member since
