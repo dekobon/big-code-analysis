@@ -6947,11 +6947,13 @@ class C {
     // type for the function's name, so a declaration that still writes
     // one is no recovery: under a pointer or a reference (`I`, `J`),
     // under a template header (`K`, `L`) and at the head of a comma list
-    // (`M`, `O`) too. A reader that asked only the member pointer read
-    // every call as data (na 17 / nm 0), where each read right before
-    // #1885. Valid C++20.
+    // (`M`, `O`) too. A keyword type is told by its word and not by its
+    // node kind: tree-sitter-cpp reads `wchar_t` as a `type_identifier`
+    // and the Mozcpp fork as a `primitive_type` (`Q`). A reader that
+    // asked only the member pointer read every call as data (na 18 /
+    // nm 0), where each read right before #1885. Valid C++20.
     //
-    // expected: one method per class `A` to `O`, nm 14; `S`'s `m`, `M`'s
+    // expected: one method per class `A` to `Q`, nm 15; `S`'s `m`, `M`'s
     // `x` and `O`'s `q`, na 3.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
@@ -6972,7 +6974,8 @@ class C {
          struct K { template<class U> int *DECL(S::*p); };\n\
          struct L { template<class U> int *DECL(S::*p) = delete; };\n\
          struct M { int DECL(S::*p), x; };\n\
-         struct O { int DECL(S::*p), (S::*q); };\n";
+         struct O { int DECL(S::*p), (S::*q); };\n\
+         struct Q { wchar_t DECL(S::*p); };\n";
 
     // A class-scope macro call under the standard attribute
     // `[[noreturn]]`, which a function's declaration alone takes
@@ -7013,12 +7016,27 @@ class C {
     // as methods, where each read as data before and after #1885. The
     // macro call `int NAME(S::*x)(int);`, with `NAME` expanding to a
     // function's name, is `pf`'s tree and reads as data, as it always
-    // has. Valid C++20 with the macro defined as here.
+    // has.
     //
-    // expected: `pa`, `pb`, `pn`, `pm`, `pd`, `pe`, `pf`, `pg`, `ph` and
-    // `z9` are data, na 10 / nm 0.
+    // A written type settles nothing when its own last word is what the
+    // grammars read as the declarator's name. They give that word to the
+    // declarator when a qualifier splits the type (`pi`), when an
+    // annotation macro joins its first word (`pj`), and when the word is
+    // one they do not know (`pk`, `pl`, whose `__int128` and `_Complex`
+    // are extensions GCC and clang accept). A reader that took the word
+    // for a function's name read the four as methods, where #1885 had
+    // made each data. A word the Mozcpp fork lists as a `primitive_type`
+    // is no keyword type either when it is a macro: `APIENTRY`, the
+    // calling convention, is there beside the Windows typedef names, and
+    // `pw` read as a method on that grammar alone.
+    //
+    // Valid C++20 with the macros defined as here, but for `pk` and `pl`.
+    //
+    // expected: `pa`, `pb`, `pn`, `pm`, `pd`, `pe`, `pf`, `pg`, `ph`,
+    // `pi`, `pj`, `pk`, `pl`, `pw` and `z9` are data, na 15 / nm 0.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTERS_NO_FIRST_WORD_SETTLES: &str = "#define MOZ_X\n\
+         #define APIENTRY\n\
          struct T {};\n\
          struct S {\n\
              [[maybe_unused]] T (S::*pa);\n\
@@ -7030,6 +7048,11 @@ class C {
              int MOZ_X (S::*pf)(int);\n\
              static inline int MOZ_X (S::*pg)(int) = nullptr;\n\
              int MOZ_X (S::*ph)(int) const;\n\
+             unsigned const int (S::*pi);\n\
+             MOZ_X unsigned int (S::*pj);\n\
+             unsigned __int128 (S::*pk);\n\
+             double _Complex (S::*pl);\n\
+             APIENTRY T (S::*pw);\n\
              int z9;\n\
          };\n";
 
@@ -7115,7 +7138,7 @@ class C {
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3);
-                assert_eq!(metric.npm.class_nm_sum(), 14);
+                assert_eq!(metric.npm.class_nm_sum(), 15);
             },
         );
         check_metrics_with_npa::<P>(
@@ -7127,7 +7150,7 @@ class C {
             },
         );
         check_metrics_with_npa::<P>(MEMBER_POINTERS_NO_FIRST_WORD_SETTLES, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 10);
+            assert_eq!(metric.npa.class_na_sum(), 15);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(NORETURN_THAT_SETTLES_NOTHING, "foo.cpp", |metric| {
@@ -7262,13 +7285,19 @@ class C {
     // lone identifier, `T DECL(S::*p);`, is token for token the
     // annotated data member `MOZ_X T (S::*pd);` (truth na 2 / nm 1,
     // reads na 3 / nm 0; before #1885 it read right and the data member
-    // wrong). A macro call under `noreturn` in a spelling a pointer to
+    // wrong). A typedef name is such an identifier whichever kind a
+    // grammar gives it: the Mozcpp fork lists `DWORD` as a
+    // `primitive_type`, and `DWORD DECL(R::*p);` reads as data on both
+    // grammars (truth na 0 / nm 1, reads na 1 / nm 0). A macro call
+    // under `noreturn` in a spelling a pointer to
     // member function takes too, `__attribute__((noreturn)) NR(S::*p);`
     // and `[[gnu::noreturn]] NR(R::*p);`, is `T (S::*pd);` under that
     // attribute (truth na 2 / nm 2 over the two classes, reads na 4 /
     // nm 0; before #1885 both read right). The type alias `T typedef
-    // (R::*pm_t);` has its `typedef` read as the declared name (truth
-    // na 2 / nm 0, reads na 3; `origin/main` read a method).
+    // (R::*pm_t);` has its `typedef` read as the declared name, and so
+    // has `int typedef (Q::*pm_t);`, whose written type settles nothing
+    // because `typedef` names no function (truth na 2 / nm 0 over the
+    // two classes, reads na 4; before #1885 each read as a method).
     //
     // One reads as a method and is data: an annotation macro between a
     // written type and the parentheses of a pointer to data member,
@@ -7323,7 +7352,9 @@ class C {
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pf), y;\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define DECL(P) method(int P)\n\
-         struct T {};\nstruct S {\n  T t0;\n  T DECL(S::*p);\n  int z9;\n};\n";
+         typedef unsigned long DWORD;\n\
+         struct T {};\nstruct S {\n  T t0;\n  T DECL(S::*p);\n  int z9;\n};\n\
+         struct R { DWORD DECL(R::*p); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const VENDOR_NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define NR(ignored) void nr()\n\
          struct T {};\n\
@@ -7333,8 +7364,8 @@ class C {
     const ANNOTATION_BETWEEN_TYPE_AND_MEMBER_POINTER: &str = "#define MOZ_X\n\
          struct T {};\nstruct S {\n  T t0;\n  int MOZ_X (S::*pd);\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
-        "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
+    const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str = "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n\
+         struct Q { int typedef (Q::*pm_t); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const COMMA_LISTS_THAT_LOSE_A_DECLARATOR: &str = "#define DECL_METHOD(scope_pointer) int scope_pointer getp()\n\
          struct T {};\nstruct S { int m; };\n\
@@ -7385,7 +7416,7 @@ class C {
             IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
@@ -7409,7 +7440,7 @@ class C {
             MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );

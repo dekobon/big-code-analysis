@@ -146,11 +146,21 @@ enum DeclaredName {
 }
 
 fn cpp_declared_name<'a>(declaration: &Node<'a>, code: &'a [u8]) -> DeclaredName {
-    let writes_a_type = declaration
-        .child_by_field_name("type")
-        // role-bypass: allow(DeclKeyword, Primitive) — the lone identifier in a
-        // C++ type slot, which Groovy's rows claim by the same spelling
-        .is_some_and(|written| written.kind() != "type_identifier");
+    let writes_a_type =
+        declaration
+            .child_by_field_name("type")
+            .is_some_and(|written| match written.kind() {
+                // One word: a type only when the word is a keyword. The kind
+                // does not say. The Mozcpp fork lists typedef names (`size_t`,
+                // `DWORD`) and the macro `APIENTRY` as `primitive_type`, and
+                // tree-sitter-cpp reads `wchar_t` as a `type_identifier`.
+                // role-bypass: allow(DeclKeyword, Primitive) — the one word in a
+                // C++ type slot, which Groovy's rows claim by the same spelling
+                "type_identifier" | "primitive_type" => {
+                    cpp_is_type_keyword(written.utf8_text(code))
+                }
+                _ => true,
+            });
     if writes_a_type || cpp_opens_with_standard_noreturn(declaration, code) {
         DeclaredName::Certain
     } else {
@@ -197,11 +207,45 @@ fn cpp_opens_with_standard_noreturn<'a>(declaration: &Node<'a>, code: &'a [u8]) 
 // function after an annotation macro, is data), or the levels are a
 // comma list's (`[[noreturn]] T (S::*pa), (S::*pb);`, which GCC accepts
 // as two data members).
-fn cpp_is_named_function(declarator: &Node, name: DeclaredName) -> bool {
+fn cpp_is_named_function<'a>(declarator: &Node<'a>, name: DeclaredName, code: &'a [u8]) -> bool {
     name == DeclaredName::Certain
         && declarator
             .child_by_field_name("declarator")
-            .is_none_or(|inner| inner.kind() != "function_declarator")
+            .is_none_or(|word| {
+                word.kind() != "function_declarator" && !cpp_is_type_word(word.utf8_text(code))
+            })
+}
+
+// The words only a fundamental type spells.
+const CPP_TYPE_KEYWORDS: [&str; 14] = [
+    "bool", "char", "char8_t", "char16_t", "char32_t", "wchar_t", "short", "int", "long", "signed",
+    "unsigned", "float", "double", "void",
+];
+
+// Whether a word is a type keyword, whichever node kind a grammar gives
+// it.
+fn cpp_is_type_keyword(word: Option<&str>) -> bool {
+    word.is_some_and(|word| CPP_TYPE_KEYWORDS.contains(&word))
+}
+
+// A word that is part of a declaration's type and so names no function:
+// a type keyword, `typedef`, or an identifier the implementation
+// reserves ([lex.name]: two leading underscores, or one and a capital),
+// which is how the extension types and qualifiers are spelled
+// (`__int128`, `_Complex`, `__const`). The grammars give a type's last
+// word to the declarator when a qualifier, a specifier or a word they
+// do not know splits it from the first: `unsigned const int (S::*pd);`
+// is a `function_declarator` named `int` after the type `unsigned`.
+fn cpp_is_type_word(word: Option<&str>) -> bool {
+    cpp_is_type_keyword(word)
+        || word.is_some_and(|word| {
+            word == "typedef"
+                || word.starts_with("__")
+                || word
+                    .strip_prefix('_')
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|second| second.is_ascii_uppercase())
+        })
 }
 
 fn cpp_child_verdict<'a>(
@@ -235,7 +279,7 @@ fn cpp_child_verdict<'a>(
             // surely a name is none: the grammars read `int (S::*pd);`
             // as a `parenthesized_declarator`, and `int DECL(S::*p);`
             // is a function named `DECL`.
-            None if !child.has_error() || cpp_is_named_function(child, name) => {
+            None if !child.has_error() || cpp_is_named_function(child, name, code) => {
                 Verdict::Known(true)
             }
             None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
@@ -661,7 +705,7 @@ pub(crate) fn cpp_recovered_declaration_data_members<'a>(
             child.kind() == "function_declarator"
                 && child.has_error()
                 && cpp_parenthesized_name(child).is_none()
-                && !cpp_is_named_function(child, name)
+                && !cpp_is_named_function(child, name, code)
         })
         .flat_map(|declarator| cpp_recovered_member_pointers(&declarator))
         .filter(|level| match level {
