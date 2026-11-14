@@ -89,7 +89,7 @@ exclude_re = [
   # false, so with `after` true `diff` is positive and both spellings
   # read `after`.
   '^src/metrics/loc/shared\.rs:\d+:\d+: replace > with >= in add_cloc_lines$',
-  # The next five rest on one fact about the grammars whose bare rows
+  # The next two rest on one fact about the grammars whose bare rows
   # reach the gap scan (Bash, Tcl, iRules, Ruby, Elixir, Python; the C
   # family answers every row from its index): `comment` is a childless
   # terminal that ends only before a newline, a NUL or the end of the
@@ -102,15 +102,6 @@ exclude_re = [
   # `in_comment` reads false either way. `<=` is both boundary tests.
   '''^src/metrics/loc/shared\.rs:\d+:\d+: replace && with \|\| in GapScan<'_, 'a>::holder_of$''',
   '''^src/metrics/loc/shared\.rs:\d+:\d+: replace < with <= in GapScan<'_, 'a>::holder_of$''',
-  # The sibling step of `only_comments_after` runs only for a comment a
-  # NUL cuts short. No comment starts at a NUL, so its guard is never
-  # true and the sibling list feeding it is never read; the NUL is a
-  # leaf of its own, so a next sibling starts exactly at `after`.
-  # `opens_comment_only_line` has a second, live `==` at column 33; the
-  # column is what tells this one from it.
-  '^src/metrics/loc/shared\.rs:\d+:37: replace == with != in opens_comment_only_line$',
-  '^src/metrics/loc/shared\.rs:\d+:\d+: replace match guard sibling\.start_byte\(\) == after && comments\.lists\(sibling\) with false in only_comments_after$',
-  '^src/metrics/loc/shared\.rs:\d+:\d+: replace == with != in only_comments_after$',
   # Non-terminating under mutation. With `||` a node that is not a
   # comment short-circuits past `goto_first_child`, and the `continue`
   # reads the same node again; the root is never a comment, so every

@@ -214,7 +214,7 @@ Read it as follows.
 | `loc/tcl-wide-continued-comment` | Tcl | width | the comment lookup for a bare row continuing a comment, from the child before the row's gap (#1445) | linear |
 | `loc/tcl-unclosed-continued-comments` | Tcl | width | the same lookup when an unclosed opener per unit leaves every unit a direct child of one flat `ERROR` (#1445) | linear |
 | `loc/elixir-unclosed-spliced-comments` | Elixir | width | the joined-row comment a bare row after a non-continuing comment is classified by, read off the gap's next child under one flat `ERROR` (#1801) | linear |
-| `loc/c-unclosed-spliced-comments` | C | width | the second comment of a comment-only joined row, reached by a copy of the gap scan's cursor under one flat `ERROR` (#1801) | linear |
+| `loc/c-unclosed-spliced-comments` | C | width | the second comment of a comment-only joined row under one flat `ERROR`, read by the per-walk `BareRowIndex` in its one cursor walk (#1801, #1818) | linear |
 | `loc/c-comment-chain` | C | width | one logical line of comment-only rows and bare rows, each bare row's class settled once by the per-walk `BareRowIndex` rather than read back from the row (#1818) | linear |
 | `loc/c-unclosed-comment-rows` | C | width | the same index's comment spans, one cursor walk, where a lookup from each gap's owner would scan the flat root `ERROR`'s children per row (#1818) | linear |
 | `loc/python-long-bare-run` | Python | width | a run of bare `line_continuation` nodes classified and credited by its head alone, later nodes O(1) (#1819) | linear |

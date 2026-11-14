@@ -57,7 +57,6 @@ use super::*;
 use crate::lang_helpers::{
     bound_doc_run, documents_unbound, documents_where_it_sits, leading_doc_run,
 };
-use crate::node::Cursor;
 
 #[inline]
 pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> usize {
@@ -404,7 +403,10 @@ pub(crate) fn may_hold_bare_rows(code: &[u8]) -> bool {
 // is empty or EOF (`\` + an empty row), and code otherwise, a C-family
 // `/* c */ int z;` included. The joined row is the first after the run of
 // bare rows, and since only padding precedes its first token, that token
-// is the gap's next child.
+// is the gap's next child, the one node of that row the gap scan asks
+// (`opens_comment_only_line`). The C family, where a second comment or
+// code can follow the first, settles the whole line in its index instead
+// (#1818).
 //
 // A bare row that continues a row is the code it continues, unless that
 // row holds only a C-family `/* … */` before its `\`: the logical line
@@ -672,15 +674,11 @@ impl<'a> GapScan<'_, 'a> {
         } else {
             (node.start_byte(), node.start_row())
         };
-        // A cursor rather than `children()`: seated on the gap's next
-        // child while the gap is scanned, a copy of it steps to the
-        // comments after that child at one sibling each
-        // (`only_comments_after`).
         let mut cursor = node.cursor();
         let mut more = cursor.goto_first_child();
         while more {
             let child = cursor.node();
-            self.gap(gap_start, gap_row, child.start_byte(), Some(&cursor));
+            self.gap(gap_start, gap_row, child.start_byte(), Some(&child));
             gap_start = child.end_byte();
             gap_row = child.end_row();
             self.before.rotate_right(1);
@@ -697,10 +695,10 @@ impl<'a> GapScan<'_, 'a> {
         self.gap(gap_start, gap_row, end, None);
     }
 
-    // Scans `start` up to `end`, where `next` (a cursor on the child ending
-    // the gap) starts, or the node or the file ends for `None`; the gap's
-    // first byte sits on `row`.
-    fn gap(&mut self, start: usize, mut row: usize, end: usize, next: Option<&Cursor<'a>>) {
+    // Scans `start` up to `end`, where `next` (the child ending the gap)
+    // starts, or the node or the file ends for `None`; the gap's first
+    // byte sits on `row`.
+    fn gap(&mut self, start: usize, mut row: usize, end: usize, next: Option<&Node<'a>>) {
         let Some(bytes) = self.code.get(start..end) else {
             return;
         };
@@ -733,13 +731,7 @@ impl<'a> GapScan<'_, 'a> {
 
     // Credits the bare `row`, which starts at byte `row_start` in the gap
     // that starts at `gap_start` and ends at `next`.
-    fn credit(
-        &mut self,
-        row: usize,
-        row_start: usize,
-        gap_start: usize,
-        next: Option<&Cursor<'a>>,
-    ) {
+    fn credit(&mut self, row: usize, row_start: usize, gap_start: usize, next: Option<&Node<'a>>) {
         let class = self.classify(row, row_start, gap_start, next);
         match class {
             // A range arm already made the row code — a Tcl quoted word
@@ -771,7 +763,7 @@ impl<'a> GapScan<'_, 'a> {
         row: usize,
         row_start: usize,
         gap_start: usize,
-        next: Option<&Cursor<'a>>,
+        next: Option<&Node<'a>>,
     ) -> BareRow {
         if let Some(class) = self.index.and_then(|index| index.class(row)) {
             return class;
@@ -810,17 +802,17 @@ impl<'a> GapScan<'_, 'a> {
     // becomes, read off the first row after the run: blank when that row
     // is empty or the file ends, a comment when the line holds only
     // comment text, code otherwise.
-    fn spliced_into(&self, row_start: usize, next: Option<&Cursor<'a>>) -> BareRow {
+    fn spliced_into(&self, row_start: usize, next: Option<&Node<'a>>) -> BareRow {
         // Only padding precedes `next`, so the skip stops there: Elixir
         // lexes a form feed as a token, which must not read as space.
         let padding = next
-            .and_then(|cursor| self.code.get(..cursor.node().start_byte()))
+            .and_then(|next| self.code.get(..next.start_byte()))
             .unwrap_or(self.code);
         let first = past_line_padding(padding, row_start);
         if at_row_end(self.code, first) {
             BareRow::Blank
         } else if next
-            .is_some_and(|cursor| opens_comment_only_line(self.code, self.comments, cursor, first))
+            .is_some_and(|next| opens_comment_only_line(self.code, self.comments, next, first))
         {
             BareRow::Comment
         } else {
@@ -869,77 +861,39 @@ impl<'a> GapScan<'_, 'a> {
 }
 
 // Whether the logical line from byte `first`, the joined row's first
-// token, holds only comment text: the gap's next child (`next`) — or the
+// token, holds only comment text: the gap's next child (`child`) — or the
 // first sibling that is not a `line_continuation` after a Python run — or
-// a first descendant of it, is a comment starting at `first`, and only padding,
-// `\` splices and further comments follow it. A `#` comment runs to its
-// row's end unless a NUL ends its token, where the tree recovers with an
-// `ERROR` that makes that row code, as the bare row joining it then is; a
-// C-family block comment can leave code there (`\` + `/* c */ int z = 1;`
-// is one code line once spliced). Each node is asked for one gap's run at
-// most, so the descent stays linear in the file. The comment is `child`
-// itself in every tree seen so far but that NUL's, a child of the `ERROR`
-// in Tcl and iRules; the descent (which Tcl's `puts a` + `\` + `# c`,
-// #1808, runs into a word) is kept because a grammar may wrap one.
+// a first descendant of it, is a comment starting at `first`, and only
+// padding and `\` splices follow it to the end of its line. A `#` comment
+// runs to its row's end unless a NUL ends its token, where the tree
+// recovers with an `ERROR` that makes that row code, as the bare row
+// joining it then is (the reading #1886 questions). No second comment is
+// looked for: the token after a comment on its row in these grammars is
+// that NUL's, never a comment, and the C family, whose `/* a */ /* b */`
+// does put one there, answers every bare row from its index (#1818). Each
+// node is asked for one gap's run at most, so the descent stays linear in
+// the file. The comment is `child` itself in every tree seen so far but
+// that NUL's, a child of the `ERROR` in Tcl and iRules; the descent
+// (which Tcl's `puts a` + `\` + `# c`, #1808, runs into a word) is kept
+// because a grammar may wrap one.
 pub(super) fn opens_comment_only_line(
     code: &[u8],
     comments: BareRowComments,
-    next: &Cursor<'_>,
+    child: &Node<'_>,
     first: usize,
 ) -> bool {
-    let child = next.node().as_tree_sitter();
-    let mut node = Some(child);
+    let mut node = Some(child.as_tree_sitter());
     while let Some(current) = node
         && current.start_byte() == first
     {
         if comments.lists(current) {
-            // Only `child`'s own siblings are at hand; a comment below it
-            // is the line's last token or the line is code.
-            let siblings = (current == child).then_some(next);
-            return only_comments_after(code, comments, current, siblings);
+            // A comment running past its row is the rest of that row.
+            return current.end_position().row > current.start_position().row
+                || at_row_end(code, past_line_padding(code, current.end_byte()));
         }
         node = current.child(0);
     }
     false
-}
-
-// Whether only padding, `\` splices and comments follow `comment` to the
-// end of its logical line. The comments after it are its siblings, which
-// a copy of `siblings` (a cursor on `comment`) steps to, made only once
-// the line runs on past it: a sibling step is amortised O(1), where
-// `next_sibling` or a lookup from the gap's owner scans a flat `ERROR`
-// from its first child.
-fn only_comments_after<'a>(
-    code: &[u8],
-    comments: BareRowComments,
-    mut comment: tree_sitter::Node<'a>,
-    siblings: Option<&Cursor<'a>>,
-) -> bool {
-    let mut copy: Option<Cursor<'a>> = None;
-    loop {
-        // A comment running past its row is the rest of that row.
-        if comment.end_position().row > comment.start_position().row {
-            return true;
-        }
-        let after = past_line_padding(code, comment.end_byte());
-        if at_row_end(code, after) {
-            return true;
-        }
-        // The line runs on, and stays comment text only if the next token,
-        // where the padding ends, is a comment too.
-        let next = siblings.and_then(|siblings| {
-            let cursor = copy.get_or_insert_with(|| siblings.clone());
-            cursor
-                .goto_next_sibling()
-                .then(|| cursor.node().as_tree_sitter())
-        });
-        match next {
-            Some(sibling) if sibling.start_byte() == after && comments.lists(sibling) => {
-                comment = sibling;
-            }
-            _ => return false,
-        }
-    }
 }
 
 // The offset of the `\` that ends the row before the one starting at byte

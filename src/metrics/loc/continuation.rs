@@ -24,8 +24,8 @@
 //! newline *inside* a comment ends the line for this purpose whether
 //! or not a `\` precedes it: the bare row before `/* a` + `b */ int z;`
 //! joins the comment's first physical row only, which is the policy
-//! `GapScan::only_comments_after` keeps for the row a bare run joins
-//! ("a comment running past its row is the rest of that row"), and
+//! `opens_comment_only_line` (`shared.rs`) keeps for the row a bare run
+//! joins ("a comment running past its row is the rest of that row"), and
 //! what a bare row after `y */ \` joins is that row alone, with the
 //! code before the comment's newline forgotten.
 //!

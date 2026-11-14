@@ -523,8 +523,8 @@ pub fn python_deep_paren_extra_prefix(depth: usize) -> String {
 /// comments (#1801). The unclosed braces leave every unit a direct child
 /// of one flat root `ERROR`, so reaching the second comment with
 /// `next_sibling`, which scans the parent's children from the first,
-/// costs the root's width per bare row; the gap scan steps a copy of its
-/// own cursor instead.
+/// costs the root's width per bare row; the per-walk index reads every
+/// comment in its one cursor walk instead (#1818).
 #[must_use]
 pub fn c_unclosed_spliced_comments(width: usize) -> String {
     "{\n\\\n/* a */ /* b */\n".repeat(width)
@@ -3072,11 +3072,13 @@ pub const PROBES: &[Probe] = &[
         rationale: "#1801 review: a bare row joining `/* a */ /* b */` is a \
                     comment only once both comments are read, and the \
                     second is a sibling of the first under the flat root \
-                    `ERROR` the unclosed braces leave. The gap scan steps a \
-                    copy of its own cursor to it; `next_sibling` instead \
-                    measured 1.91 / 1.97 against 0.91 / 0.95 (dev `bca` end \
-                    to end at these sizes). The reading is the comment rows, \
-                    half of them the bare ones.",
+                    `ERROR` the unclosed braces leave. The per-walk index \
+                    reads both in its one cursor walk (#1818; before it the \
+                    gap scan stepped a copy of its own cursor to the \
+                    second); `next_sibling` instead measured 1.91 / 1.97 \
+                    against 0.91 / 0.95 (dev `bca` end to end at these \
+                    sizes). The reading is the comment rows, half of them \
+                    the bare ones.",
     },
     Probe {
         name: "loc/c-comment-chain",

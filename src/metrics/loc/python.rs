@@ -714,9 +714,7 @@ fn python_backslash_in_comment<'a>(
 // Whether the token at byte `first`, where the run headed by `node` goes
 // on, opens a comment-only line: the first sibling after the run is asked
 // as a gap's next child is. A `#` comment is the rest of its row, so the
-// line ends with it, and `only_comments_after`'s sibling step is not
-// needed: the cursor handed down is rooted at `joined`, so that step
-// could never succeed here anyway.
+// line ends with it.
 fn python_joins_comment<'a>(
     node: &Node<'a>,
     code: &[u8],
@@ -728,9 +726,7 @@ fn python_joins_comment<'a>(
     ancestors
         .siblings_after(node)
         .find(|sibling| sibling.kind_id() != Python::LineContinuation as u16)
-        .is_some_and(|joined| {
-            opens_comment_only_line(code, PYTHON_COMMENTS, &joined.cursor(), first)
-        })
+        .is_some_and(|joined| opens_comment_only_line(code, PYTHON_COMMENTS, &joined, first))
 }
 
 // Python's `#` comment, which swallows a `\` at its end, so a bare row
