@@ -3478,6 +3478,44 @@ mod grammar_bump_shapes {
         assert_eq!(reading(&groovy_root), reading(&java_root));
     }
 
+    /// FIXME(tree-sitter-groovy#90): a newline does not end the last
+    /// argument of a parenthesis-free call. Since
+    /// dekobon-tree-sitter-groovy 0.6.0 `foo 1, 2` is a `command_chain`
+    /// of any expressions (tree-sitter-groovy#57), and a `(a)` opening
+    /// the next line is read as an argument list applied to the `2`:
+    /// one statement, and a call `2(a)` the source does not hold, with
+    /// no `ERROR` to say so. groovyc 4.0.32 reads two statements, and so
+    /// did 0.5.0. A line opening with `(` joins a parenthesised call
+    /// before it on both pins; the command call is what 0.6.0 added.
+    ///
+    /// The correct reading of `check` is lloc 2 and two calls (`foo`,
+    /// `toString`). The clean parse is the premise, and the pinned
+    /// reading follows it, so an upstream fix fails here first.
+    ///
+    /// expected (pinned, wrong): lloc 1, abc branches 3.
+    #[test]
+    fn groovy_line_after_a_command_call_joins_its_last_argument() {
+        let source = "def check(a) {\n    foo 1, 2\n    (a).toString()\n}\n\n\
+                      def foo(Object... xs) { xs }\n";
+        assert!(!has_error(source), "the joined statement parses clean");
+        let root = analyse(source);
+        assert_eq!(
+            shape(&root),
+            [
+                (None, SpaceKind::Unit),
+                (Some("check"), SpaceKind::Function),
+                (Some("foo"), SpaceKind::Function),
+            ]
+        );
+        let check = &root.spaces[0].metrics;
+        assert_eq!(
+            (check.loc.lloc(), check.abc.branches_sum()),
+            (1, 3),
+            "the grammar ends a command call's argument at the newline now: \
+             re-derive `check` (lloc 2, branches 2) and drop the FIXME"
+        );
+    }
+
     /// FIXME(tree-sitter-groovy#73): since dekobon-tree-sitter-groovy
     /// 0.5.0 `trait` and `sealed` are keywords wherever a class member
     /// can start, so a field so named after a modifier — valid Groovy,
