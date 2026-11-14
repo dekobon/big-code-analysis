@@ -4160,7 +4160,6 @@
 234 named visible 'use_no_if_statement'
 235 named visible 'bareword_import'
 236 named visible 'use_no_subs_statement'
-237 named visible 'require_statement'
 239 anon hidden '_if_simple'
 248 named visible 'else_clause'
 250 named visible 'continue'

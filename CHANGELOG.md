@@ -262,6 +262,21 @@ for historical reference.
 
 ### Fixed
 
+- **A Perl `require` under the `if` modifier is a decision** (#1889).
+  `require Foo::Bar if $x;` scored nothing where any other statement
+  under the modifier (`g() if $x;`) scores a branch: `abc.conditions` 0
+  against 1, `cyclomatic` 1 against 2 and `cognitive` 0 against 1.
+  tree-sitter-perl gives every other statement an `if_simple_statement`
+  node for the modifier and writes this one into the
+  `require_statement` itself, which no decision read. The statement now
+  owns the branch where it carries the modifier, so its condition is
+  scored as its twin's is, compound and negated conditions and nesting
+  included, and `mi` moves with `cyclomatic`. A plain
+  `require Foo::Bar;` is unchanged, and so are `halstead`, `loc`,
+  `nexits` and `nargs`. Still not scored: `require Foo unless $x;` and
+  the `while`, `until` and `for` spellings, which the grammar does not
+  parse (#1917).
+
 - **A declaration under a brace-less `for` body counts as a logical
   line in C#, Java and Groovy** (#1887). In C# and Java, a `for` loop
   whose body is a `switch` with no braces around it,

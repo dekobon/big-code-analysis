@@ -212,6 +212,22 @@ exclude_re = [
   # sources, most of them damaged, showed no `parenthesized_argument`
   # with a child under a modifier. The parse table was not read.
   '^src/metrics/abc/perl\.rs:\d+:\d+: delete match arm P::ParenthesizedArgument in perl_wrapper_operand$',
+  # Equivalent while tree-sitter-perl gives the `condition` field to
+  # the thirteen kinds it does at 1.1.2. Both arms read that field and
+  # count nothing when it is absent, and each of the thirteen is taken
+  # by one of the two or by an earlier arm of the same match: the
+  # `elsif` clause and the ternary earlier, a `require_statement` by
+  # the first arm exactly where it has the field (#1889), and the
+  # `when` modifier by the second, whose body is the first's. So the
+  # first mutant takes the `when` modifier early, with the same body,
+  # and every other node either mutant adds to its arm has no
+  # `condition`; an `ERROR` node has no fields. The cost is a field
+  # lookup on every node that reaches the arm.
+  # `every_kind_with_a_condition_field_is_listed_by_a_row` fails when a
+  # grammar bump adds a kind: re-derive then, and when an arm of the
+  # match is reordered or one of these rows gains a gate.
+  '^src/metrics/abc/perl\.rs:\d+:\d+: replace match guard branch::owns_kind\(kind, node, code, ancestors\) \|\| matches!\(.*\) with true in <impl Abc for PerlCode>::compute$',
+  '^src/metrics/abc/perl\.rs:\d+:\d+: replace match guard case_arm::owns_kind\(kind, node, code, ancestors\) with true in <impl Abc for PerlCode>::compute$',
   # Equivalent for every production, not proved for recovery trees.
   # tree-sitter-rust 0.24.2 places a `const_item` or `static_item` only
   # in a `block`, a `declaration_list` or the `source_file`, and only a

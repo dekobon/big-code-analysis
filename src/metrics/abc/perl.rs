@@ -751,7 +751,10 @@ impl Abc for PerlCode {
             // only error recovery reaches it: `when` is never a modifier,
             // and `perl -c` rejects `print 6 when $x;` (grammar-dispatch
             // §6). `_if_simple` (`Perl::IfSimple`) is a hidden rule the
-            // parser inlines and gets no arm (§2).
+            // parser inlines and gets no arm (§2); inlined into a
+            // `require_statement` (`require Foo if $x;`) it leaves the
+            // `condition` on the statement, a `Branch` owner where it
+            // carries one (#1889).
             // Every `Branch` owner, and the `Loop` owners that carry a
             // `condition` slot — `ForStatement2` and `ForSimpleStatement`
             // iterate a list and have none, so the loop half is a subset

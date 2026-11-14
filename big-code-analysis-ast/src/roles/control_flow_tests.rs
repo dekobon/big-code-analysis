@@ -1589,12 +1589,14 @@ mod perl {
     // and leaf agree), and `elsif_clause` — a direct child of the
     // `if_statement`, never a nested `if` — is the `ElseIf` row's one
     // owner, paying for itself. The block forms and the statement-
-    // modifier forms are each one owner. `die` / `exit` are bareword
-    // calls told by text; the auto-quoted key `(die => 1)`, `Carp::croak`
-    // and `$obj->die` are not exits.
+    // modifier forms are each one owner, and a `require_statement` is
+    // one where it carries the `if` modifier the grammar inlines into
+    // it (#1889). `die` / `exit` are bareword calls told by text; the
+    // auto-quoted key `(die => 1)`, `Carp::croak` and `$obj->die` are
+    // not exits.
     #[test]
     fn rows_answer_the_table() {
-        let source = b"sub f { my $a = shift;\n  if ($a == 1) { return 1 } elsif ($a == 2) { return 2 } else { if ($a == 3) { die \"x\" } }\n  unless ($a) { exit 1 }\n  return 4 if $a; return 5 unless $a;\n  while ($a) { last } until ($a) { last }\n  for my $i (1..2) { } for (my $j = 0; $j < 2; $j++) { }\n  $a++ while $a < 3; $a-- until $a < 1; print for 1..2;\n  CORE::die \"y\"; CORE::exit 2; Carp::croak \"z\"; my %h = (die => 1); $obj->die;\n}\n";
+        let source = b"sub f { my $a = shift;\n  if ($a == 1) { return 1 } elsif ($a == 2) { return 2 } else { if ($a == 3) { die \"x\" } }\n  unless ($a) { exit 1 }\n  return 4 if $a; return 5 unless $a;\n  require Foo::Bar if $a; require Foo::Bar;\n  while ($a) { last } until ($a) { last }\n  for my $i (1..2) { } for (my $j = 0; $j < 2; $j++) { }\n  $a++ while $a < 3; $a-- until $a < 1; print for 1..2;\n  CORE::die \"y\"; CORE::exit 2; Carp::croak \"z\"; my %h = (die => 1); $obj->die;\n}\n";
         let (branch, lp, elsif) = (
             at(&[BRANCH, BRANCH_LEAF]),
             at(&[LOOP, LOOP_LEAF]),
@@ -1620,6 +1622,8 @@ mod perl {
             ("if_simple_statement", branch),
             ("return_expression", at(&[EXIT])),
             ("unless_simple_statement", branch),
+            ("require_statement", branch), // require Foo::Bar if $a
+            ("require_statement", NONE),   // require Foo::Bar
             ("while_statement", lp),
             ("until_statement", lp),
             ("for_statement_2", lp),
@@ -1640,6 +1644,35 @@ mod perl {
             &declared!(crate::roles::perl),
             &[],
         );
+    }
+
+    // FIXME(#1917 upstream): `if` is the one modifier the grammar gives
+    // a `require_statement`. The other five spellings are valid Perl
+    // too, and the pin recovers each through an `ERROR` that holds the
+    // keyword as an `identifier`, so the statement carries no
+    // `condition` and no row answers for any node: the decision is
+    // lost. Each is parsed alone, since recovery follows what surrounds
+    // it (grammar-dispatch §6). A pin that parses one of them stops
+    // spelling the `ERROR`, and the rows are then due the kind that
+    // carries the modifier.
+    #[test]
+    fn a_require_under_any_modifier_but_if_is_lost_to_recovery() {
+        use crate::test_support::for_each_node_with_chain_tolerating_errors as walk;
+        let read = answers!(crate::roles::perl);
+        for modifier in ["unless $a", "while $a", "until $a", "for @a", "foreach @a"] {
+            let source = format!("require Foo::Bar {modifier};\n");
+            let (mut kinds, mut answered) = (Vec::new(), Vec::new());
+            walk::<PerlCode>(source.as_bytes(), |node, chain| {
+                if node.is_error() || node.kind_id() == Perl::RequireStatement as u16 {
+                    kinds.push(node.kind());
+                }
+                if read(node, source.as_bytes(), Ancestors::known(chain)) != NONE {
+                    answered.push(node.kind());
+                }
+            });
+            assert_eq!(kinds, ["require_statement", "ERROR"], "{source}");
+            assert_eq!(answered, [] as [&str; 0], "{source}");
+        }
     }
 
     #[test]

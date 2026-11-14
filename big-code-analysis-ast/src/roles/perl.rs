@@ -67,6 +67,14 @@ fn die_or_exit_not_key<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a
     ) && !perl_bareword_is_key(node, ancestors)
 }
 
+/// Whether a `require_statement` carries the `if` modifier: its
+/// `condition` field. The grammar inlines the hidden `_if_simple` rule
+/// into the statement, so `require Foo if $c;` holds the `if` token and
+/// the condition itself, with no `if_simple_statement` between (#1889).
+fn has_condition(node: &Node<'_>, _code: &[u8]) -> bool {
+    node.child_by_field_name("condition").is_some()
+}
+
 role_table! {
     lang: Perl;
     // The grammar spells a call by its argument shape — six
@@ -187,9 +195,21 @@ role_table! {
     // $c;`), each its own kind; the modifier's condition is a real
     // branch even though its body is one expression. The owner is the
     // paying node: Perl's cyclomatic counts statements, not keywords.
-    // The `_if_simple` rule (`IfSimple`) is hidden and never emitted.
+    // The `_if_simple` rule (`IfSimple`) is hidden and never emitted:
+    // `if_simple_statement` wraps it everywhere but in a
+    // `require_statement`, which inlines it, so `require Foo if $c;` is
+    // the one modifier with no kind of its own and the statement owns
+    // the branch where it carries the `condition` (#1889). `if` is the
+    // only modifier the grammar gives `require`.
+    // FIXME(#1917 upstream): `require Foo unless $c;` and the `while` /
+    // `until` / `for` spellings are valid Perl that the pin recovers
+    // from through an `ERROR` whose shape follows the condition, so no
+    // kind owns that decision.
     Branch {
-        owns [IfStatement, UnlessStatement, IfSimpleStatement, UnlessSimpleStatement]
+        owns [
+            IfStatement, UnlessStatement, IfSimpleStatement, UnlessSimpleStatement,
+            RequireStatement(gated_by has_condition no_chain),
+        ]
     }
     // `given` / `when` are not productions of the pinned grammar:
     // `given ($x) { when (1) { … } }` parses as a bareword call
@@ -306,5 +326,50 @@ mod tests {
         });
         assert_eq!(owned, ["my $c = $a xor $b"]);
         assert_eq!(paid, ["xor"]);
+    }
+
+    /// Every kind the grammar's `node-types.json` gives a `condition`
+    /// field, each listed by the row whose consumers read that slot.
+    /// `require_statement` is the one statement-modifier carrier that is
+    /// not a `*_simple_statement`: the grammar inlines the hidden
+    /// `_if_simple` into it, and it scored no decision while no row
+    /// listed it (#1889). A grammar bump that gives another kind the
+    /// field — a modifier inlined into a second statement — must change
+    /// this list and the rows together.
+    // test-lang-gates: hand-written(perl) — reads the grammar crate's
+    //     `NODE_TYPES`, which exists only under the `perl` feature
+    #[cfg(feature = "perl")]
+    #[test]
+    fn every_kind_with_a_condition_field_is_listed_by_a_row() {
+        type ListsKind = fn(u16) -> bool;
+        let node_types: serde_json::Value = serde_json::from_str(tree_sitter_perl::NODE_TYPES)
+            .expect("the grammar crate ships valid node-types.json");
+        let carriers: Vec<&str> = node_types
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|node| node["fields"]["condition"].is_object())
+            .filter_map(|node| node["type"].as_str())
+            .collect();
+        let rows: [(Perl, ListsKind); 13] = [
+            (Perl::ElsifClause, else_if::lists_kind),
+            (Perl::ForStatement1, r#loop::lists_kind),
+            (Perl::IfSimpleStatement, branch::lists_kind),
+            (Perl::IfStatement, branch::lists_kind),
+            (Perl::RequireStatement, branch::lists_kind),
+            (Perl::TernaryExpression, ternary::lists_kind),
+            (Perl::UnlessSimpleStatement, branch::lists_kind),
+            (Perl::UnlessStatement, branch::lists_kind),
+            (Perl::UntilSimpleStatement, r#loop::lists_kind),
+            (Perl::UntilStatement, r#loop::lists_kind),
+            (Perl::WhenSimpleStatement, case_arm::lists_kind),
+            (Perl::WhileSimpleStatement, r#loop::lists_kind),
+            (Perl::WhileStatement, r#loop::lists_kind),
+        ];
+        let names = rows.each_ref().map(|(kind, _)| <&str>::from(kind.clone()));
+        assert_eq!(carriers, names);
+        for (kind, lists) in rows {
+            assert!(lists(kind.clone() as u16), "no row lists {kind:?}");
+        }
     }
 }

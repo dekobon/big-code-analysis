@@ -19459,6 +19459,92 @@ mod perl_statement_modifier_parity {
              policy decision and not a dead arm"
         );
     }
+
+    fn assert_spells_a_require_and_no_modifier_node(source: &str) {
+        assert_perl_fixture_spells(
+            source,
+            &[
+                (Perl::RequireStatement as u16, 1, "require_statement"),
+                (Perl::IfSimpleStatement as u16, 0, "if_simple_statement"),
+            ],
+        );
+    }
+
+    /// A `require` under the `if` modifier has no `if_simple_statement`:
+    /// tree-sitter-perl inlines the modifier into the
+    /// `require_statement`, which carries the `condition` itself, and
+    /// the slot scored nothing while no arm read it there (#1889). It is
+    /// the same slot, so each predicate scores what it does under any
+    /// other statement: the `g()` twin, whose `if_simple_statement` the
+    /// tests above pin against the block form.
+    #[test]
+    fn a_require_under_the_if_modifier_scores_like_any_statement_under_it() {
+        // expected: a scalar, bare or parenthesised, is the slot's one
+        // condition; `!` proves its operand, one; each operand of `&&`
+        // is a slot, two; the `>` pays and its slot adds nothing, one.
+        for (predicate, expected) in [
+            ("$x", 1),
+            ("!$x", 1),
+            ("($x)", 1),
+            ("$x && $x", 2),
+            ("$x > 2", 1),
+        ] {
+            let require = format!("sub f {{ my $x = shift; require Foo::Bar if {predicate}; }}");
+            let twin = format!("sub f {{ my $x = shift; g() if {predicate}; }}");
+            assert_spells_a_require_and_no_modifier_node(&require);
+            assert_eq!(
+                conditions(&require),
+                expected,
+                "`require Foo::Bar if {predicate}`\n  source: {require}"
+            );
+            assert_eq!(
+                conditions(&twin),
+                expected,
+                "`g() if {predicate}`\n  source: {twin}"
+            );
+        }
+    }
+
+    /// A `require` under no modifier is no decision. The walk reads the
+    /// slot by its `condition` field, which a plain `require` does not
+    /// have, so this holds whether or not the `Branch` row gates the
+    /// statement: measured, ungating the owner fails nothing here. The
+    /// gate is pinned where it shows, by the cyclomatic and cognitive
+    /// twins of this test and by the row table.
+    #[test]
+    fn a_plain_require_is_not_a_condition() {
+        let source = "sub f { my $x = shift; require Foo::Bar; }";
+        assert_spells_a_require_and_no_modifier_node(source);
+        let abc = metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default()).abc;
+        // expected: no slot, so no condition; the `=` and the `shift`
+        // call still score, so the fixture parsed.
+        assert_eq!(
+            (
+                abc.assignments_sum(),
+                abc.branches_sum(),
+                abc.conditions_sum()
+            ),
+            (1, 1, 0)
+        );
+    }
+
+    /// FIXME(#1917 upstream): `if` is the one modifier the grammar gives
+    /// a `require_statement`. `unless`, `while` and `until` are valid
+    /// Perl there too, and the pin recovers each through an `ERROR`
+    /// that holds no `condition`, so the slot the `g()` twin pays for
+    /// scores nothing. A pin that parses them moves the zero to one.
+    /// (`for` / `foreach` recover the same way and carry no condition
+    /// in either spelling.)
+    #[test]
+    fn a_require_under_another_modifier_is_lost_to_recovery() {
+        for keyword in ["unless", "while", "until"] {
+            let require = format!("sub f {{ my $x = shift; require Foo::Bar {keyword} $x; }}");
+            let twin = format!("sub f {{ my $x = shift; g() {keyword} $x; }}");
+            assert_spells_a_require_and_no_modifier_node(&require);
+            assert_eq!(conditions(&twin), 1, "`g() {keyword} $x`");
+            assert_eq!(conditions(&require), 0, "`require Foo::Bar {keyword} $x`");
+        }
+    }
 }
 
 /// A non-numeric literal in a boolean operand slot must score like an

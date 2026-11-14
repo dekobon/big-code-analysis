@@ -3435,6 +3435,64 @@ mod tests {
         );
     }
 
+    /// `[standard, modified]` of the one sub of a Perl fixture whose
+    /// body is `body`, anchored on the `require_statement` count the
+    /// fixture must spell.
+    #[cfg(feature = "perl")]
+    fn perl_sub_cyclomatic(body: &str, requires: usize) -> [u64; 2] {
+        use crate::test_support::{assert_perl_fixture_spells, space_verbatim};
+        let source = format!("sub f {{ my ($a, $b) = @_; {body} return 1; }}\n");
+        assert_perl_fixture_spells(
+            &source,
+            &[(Perl::RequireStatement as u16, requires, "require_statement")],
+        );
+        let root = space_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default());
+        let f = &root.spaces[0].metrics.cyclomatic;
+        [f.cyclomatic(), f.cyclomatic_modified()]
+    }
+
+    /// A `require` under the `if` modifier is one decision, as any other
+    /// statement under it is. tree-sitter-perl inlines the modifier into
+    /// the `require_statement` — there is no `if_simple_statement` — so
+    /// the statement pays where it carries the modifier, and it scored
+    /// nothing while the `Branch` row did not own it (#1889). A plain
+    /// `require` stays at the base.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_require_under_the_if_modifier_is_one_decision() {
+        // expected: the sub's base 1, +1 for the modifier, and +1 for
+        // the `&&` inside its condition; +1 for an enclosing `if`.
+        for (template, expected) in [
+            ("{} if $a;", 2),
+            ("{} if !$a;", 2),
+            ("{} if ($a);", 2),
+            ("{} if $a && $b;", 3),
+            ("if ($a) { {} if $b; }", 3),
+            ("{};", 1),
+        ] {
+            let require = template.replace("{}", "require Foo::Bar");
+            let twin = template.replace("{}", "g()");
+            assert_eq!(perl_sub_cyclomatic(&require, 1), [expected; 2], "{require}");
+            assert_eq!(perl_sub_cyclomatic(&twin, 0), [expected; 2], "{twin}");
+        }
+    }
+
+    /// FIXME(#1917 upstream): `if` is the one modifier the grammar gives
+    /// a `require_statement`. The other five spellings are valid Perl
+    /// too, and the pin recovers each through an `ERROR` no row owns, so
+    /// the decision the `g()` twin pays for is lost. A pin that parses
+    /// them moves each `1` here to the twin's `2`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_require_under_another_modifier_is_lost_to_recovery() {
+        for modifier in ["unless $a", "while $a", "until $a", "for @_", "foreach @_"] {
+            let twin = format!("g() {modifier};");
+            let require = format!("require Foo::Bar {modifier};");
+            assert_eq!(perl_sub_cyclomatic(&twin, 0), [2; 2], "{twin}");
+            assert_eq!(perl_sub_cyclomatic(&require, 1), [1; 2], "{require}");
+        }
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_unless_and_until() {

@@ -5523,6 +5523,64 @@ fn ie(x: bool) -> i32 {
         );
     }
 
+    /// The cognitive sum of a Perl sub whose body is `body`, anchored on
+    /// the `require_statement` count the fixture must spell.
+    #[cfg(feature = "perl")]
+    fn perl_sub_cognitive(body: &str, requires: usize) -> u64 {
+        use crate::test_support::{assert_perl_fixture_spells, metrics_verbatim};
+        let source = format!("sub f {{ my ($a, $b) = @_; {body} return 1; }}\n");
+        assert_perl_fixture_spells(
+            &source,
+            &[(Perl::RequireStatement as u16, requires, "require_statement")],
+        );
+        metrics_verbatim(LANG::Perl, source.as_bytes(), MetricsOptions::default())
+            .cognitive
+            .cognitive_sum()
+    }
+
+    /// A `require` under the `if` modifier is a branch, as any other
+    /// statement under it is. tree-sitter-perl inlines the modifier into
+    /// the `require_statement` — there is no `if_simple_statement` — so
+    /// the statement takes the increment and the nesting where it
+    /// carries the modifier, and it scored nothing while the `Branch`
+    /// row did not own it (#1889). A plain `require` adds nothing.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_require_under_the_if_modifier_is_a_branch() {
+        // expected: +1 for the modifier at nesting 0; +1 more for the
+        // `&&` sequence in its condition; under an `if` block, +1 for
+        // the block and +2 for the modifier nested once, and under a
+        // loop in that block +1, +2 and +3.
+        for (template, expected) in [
+            ("{} if $a;", 1),
+            ("{} if $a && $b;", 2),
+            ("if ($a) { {} if $b; }", 3),
+            ("if ($a) { while ($b) { {} if $a; } }", 6),
+            ("{};", 0),
+        ] {
+            let require = template.replace("{}", "require Foo::Bar");
+            let twin = template.replace("{}", "g()");
+            assert_eq!(perl_sub_cognitive(&require, 1), expected, "{require}");
+            assert_eq!(perl_sub_cognitive(&twin, 0), expected, "{twin}");
+        }
+    }
+
+    /// FIXME(#1917 upstream): `if` is the one modifier the grammar gives
+    /// a `require_statement`. The other five spellings are valid Perl
+    /// too, and the pin recovers each through an `ERROR` no row owns, so
+    /// the branch the `g()` twin pays for is lost. A pin that parses
+    /// them moves each `0` here to the twin's `1`.
+    #[cfg(feature = "perl")]
+    #[test]
+    fn perl_require_under_another_modifier_is_lost_to_recovery() {
+        for modifier in ["unless $a", "while $a", "until $a", "for @_", "foreach @_"] {
+            let twin = format!("g() {modifier};");
+            let require = format!("require Foo::Bar {modifier};");
+            assert_eq!(perl_sub_cognitive(&twin, 0), 1, "{twin}");
+            assert_eq!(perl_sub_cognitive(&require, 1), 0, "{require}");
+        }
+    }
+
     #[cfg(feature = "perl")]
     #[test]
     fn perl_if_elsif_else() {
