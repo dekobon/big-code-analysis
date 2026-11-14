@@ -218,11 +218,20 @@ fn cpp_opens_with_standard_noreturn<'a>(declaration: &Node<'a>, code: &'a [u8]) 
 // as two data members).
 fn cpp_is_named_function<'a>(declarator: &Node<'a>, name: DeclaredName, code: &'a [u8]) -> bool {
     name == DeclaredName::Certain
-        && declarator
-            .child_by_field_name("declarator")
-            .is_none_or(|word| {
-                word.kind() != "function_declarator" && !cpp_is_type_word(word.utf8_text(code))
-            })
+        && cpp_is_innermost_level(declarator)
+        && !cpp_is_type_word(
+            declarator
+                .child_by_field_name("declarator")
+                .and_then(|word| word.utf8_text(code)),
+        )
+}
+
+// Whether a `function_declarator` nests no other: the level of a chain
+// that the declaration's first word names.
+fn cpp_is_innermost_level(level: &Node) -> bool {
+    level
+        .child_by_field_name("declarator")
+        .is_none_or(|declarator| declarator.kind() != "function_declarator")
 }
 
 // The words only a fundamental type spells.
@@ -257,6 +266,40 @@ fn cpp_is_type_word(word: Option<&str>) -> bool {
         })
 }
 
+// What a `function_declarator` says. One named through parentheses is
+// asked through them. Any other may be the recovery of a parenthesised
+// member-pointer data member, whose return type became the function's
+// name and whose member pointer became a parameter list: one directly
+// under another for `static constexpr int (S::*fp)(int) = nullptr;`
+// (#1807), or alone, named by the type, for `T (S::*pd);` (#1885). A
+// declarator with no recovered member pointer — every ordinary method —
+// is a function, and so is a comma list with a method among its
+// declarators, whose data declarators are the attribute consumer's
+// through `cpp_recovered_declaration_data_members`. The recovery always
+// leaves an `ERROR` or a MISSING name slot below the declarator, which
+// `has_error` reads off the subtree's cached error cost, so a clean one
+// is answered unwalked. The recovery also takes the member's type for
+// the function's name, so a declarator whose first word is surely a
+// name is none: the grammars read `int (S::*pd);` as a
+// `parenthesized_declarator`, and `int DECL(S::*p);` is a function
+// named `DECL`.
+fn cpp_function_declarator_verdict<'a>(
+    declarator: &Node<'a>,
+    name: DeclaredName,
+    code: &'a [u8],
+) -> Verdict<'a> {
+    match cpp_parenthesized_name(declarator) {
+        Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
+        None if !declarator.has_error() || cpp_is_named_function(declarator, name, code) => {
+            Verdict::Known(true)
+        }
+        None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
+            levels: Box::new(cpp_recovered_member_pointers(declarator)),
+            seen: false,
+        }),
+    }
+}
+
 fn cpp_child_verdict<'a>(
     child: &Node<'a>,
     after_colon: bool,
@@ -267,35 +310,7 @@ fn cpp_child_verdict<'a>(
         return Verdict::Known(true);
     }
     match child.kind() {
-        "function_declarator" => match cpp_parenthesized_name(child) {
-            Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
-            // Any other `function_declarator` may be the recovery of a
-            // parenthesised member-pointer data member, whose return
-            // type became the function's name and whose member pointer
-            // became a parameter list: one directly under another for
-            // `static constexpr int (S::*fp)(int) = nullptr;` (#1807),
-            // or alone, named by the type, for `T (S::*pd);` (#1885).
-            // A declarator with no recovered member pointer — every
-            // ordinary method — is a function, and so is a comma list
-            // with a method among its declarators, whose data
-            // declarators are the attribute consumer's through
-            // `cpp_recovered_declaration_data_members`. The recovery
-            // always leaves an `ERROR` or a MISSING name slot below the
-            // declarator, which `has_error` reads off the subtree's
-            // cached error cost, so a clean one is answered unwalked.
-            // The recovery also takes the member's type for the
-            // function's name, so a declarator whose first word is
-            // surely a name is none: the grammars read `int (S::*pd);`
-            // as a `parenthesized_declarator`, and `int DECL(S::*p);`
-            // is a function named `DECL`.
-            None if !child.has_error() || cpp_is_named_function(child, name, code) => {
-                Verdict::Known(true)
-            }
-            None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
-                levels: Box::new(cpp_recovered_member_pointers(child)),
-                seen: false,
-            }),
-        },
+        "function_declarator" => cpp_function_declarator_verdict(child, name, code),
         "function_definition" | "operator_cast" => Verdict::Known(true),
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
@@ -515,9 +530,7 @@ enum RecoveredLevel<'a> {
 }
 
 fn cpp_recovered_level<'a>(level: &Node<'a>) -> Option<RecoveredLevel<'a>> {
-    let innermost = level
-        .child_by_field_name("declarator")
-        .is_none_or(|declarator| declarator.kind() != "function_declarator");
+    let innermost = cpp_is_innermost_level(level);
     let syntax = cpp_level_syntax(level);
     let list = level.child_by_field_name("parameters")?;
     let pointer = cpp_sole_parameter(&list, innermost).filter(|parameter| {
@@ -849,8 +862,8 @@ fn cpp_innermost_qualified<'a>(qualified: &Node<'a>) -> Node<'a> {
 //   before the return type (`static constexpr int (S::*fp)(int) =
 //   nullptr;`) or a user return type (`T (S::*pd);`) the grammars
 //   recover into a `function_declarator` named by that type instead,
-//   which never reaches here: `cpp_child_verdict` hands that shape to
-//   `cpp_recovered_member_pointers` (#1807, #1885).
+//   which never reaches here: `cpp_function_declarator_verdict` hands
+//   that shape to `cpp_recovered_member_pointers` (#1807, #1885).
 //
 // Hence: every child must still read as a function. An indirection
 // qualifies only when a function sits under it; a bare name, an

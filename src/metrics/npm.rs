@@ -6492,11 +6492,11 @@ class C {
     // a fixture of its reader, for both grammars. By `kind()` name, as
     // the readers match, so a re-aliasing that moves any onto a suffixed
     // id is not a false alarm. The last pins the premise of the
-    // `has_error` gate in `cpp_child_verdict`: every recovered
-    // `function_declarator` holds a parse error, the invented slot of
-    // `T (W::*const pc)` a MISSING one. A grammar that invented it with
-    // no MISSING flag, as some do (lesson 95), would leave it no error,
-    // and the gate would read the data member as a method.
+    // `has_error` gate in `cpp_function_declarator_verdict`: every
+    // recovered `function_declarator` holds a parse error, the invented
+    // slot of `T (W::*const pc)` a MISSING one. A grammar that invented
+    // it with no MISSING flag, as some do (lesson 95), would leave it no
+    // error, and the gate would read the data member as a method.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn member_pointer_recovery_shapes<P: ParserTrait>() {
         let parse =
@@ -6550,7 +6550,7 @@ class C {
             assert!(
                 !declarators.is_empty() && declarators.iter().all(Node::has_error),
                 "a recovered `function_declarator` holds no parse error in {source:?}; \
-                 the `has_error` gate in `cpp_child_verdict` reads it as a method"
+                 the `has_error` gate in `cpp_function_declarator_verdict` reads it as a method"
             );
         }
     }
