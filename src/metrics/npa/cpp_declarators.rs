@@ -93,10 +93,10 @@ fn cpp_error_opens_with(node: &Node, token: &str) -> bool {
 fn cpp_child_declares_function<'a>(
     child: &Node<'a>,
     after_colon: bool,
-    name: DeclaredName,
+    first_word: FirstWord,
     code: &'a [u8],
 ) -> bool {
-    match cpp_child_verdict(child, after_colon, name, code) {
+    match cpp_child_verdict(child, after_colon, first_word, code) {
         Verdict::Known(answer) => answer,
         Verdict::Ask(question) => cpp_answer(question, code),
     }
@@ -122,34 +122,39 @@ fn cpp_is_function_only_specifier(child: &Node) -> bool {
     }
 }
 
-// Whether the word before a member's parameter list is known to be the
-// declarator's own name. The recovery of a parenthesised member pointer
-// reads the member's type as that word, so where the word is surely a
-// name, a declarator that is the word and one parameter list is the
-// function it spells and no recovery: `int DECL(S::*p);` and
-// `[[noreturn]] FAIL(S::*p);` are the methods their macros expand to.
-// Both consumers ask `cpp_is_named_function`, so neither reads such a
-// declarator as data.
+// What the reader takes the word before a member's first parameter list
+// for. The recovery of a parenthesised member pointer reads the
+// member's type as that word, so where the word is taken for the
+// declarator's own name, a declarator that is the word and one
+// parameter list is read as the function it spells and no recovery:
+// `int DECL(S::*p);` and `[[noreturn]] FAIL(S::*p);` are the methods
+// their macros expand to. Both consumers ask `cpp_is_named_function`,
+// so neither reads such a declarator as data. The evidence is strong
+// and no proof: each variant names a spelling it misreads.
 #[derive(Clone, Copy, PartialEq)]
-enum DeclaredName {
-    // The declaration writes a type the grammars read as nothing else
-    // (a keyword type, a qualified or template name, an elaborated or
-    // dependent type, `auto`, `decltype(…)`), or opens with the
-    // standard attribute `[[noreturn]]`.
-    Certain,
-    // No type is written, or a lone identifier, which may be an
-    // annotation macro before the real type: `MOZ_X T (S::*pd);` is a
-    // data member whose type `T` the grammars read as the name. The
-    // macro call `T DECL(S::*p);` is the same tree and reads as that
-    // data member (pinned, FIXME(#1829)).
-    Unknown,
+enum FirstWord {
+    // Taken for the declarator's name. The declaration writes a type
+    // the grammars read as nothing else (a keyword type, a qualified or
+    // template name, an elaborated or dependent type, `auto`,
+    // `decltype(…)`), or opens with the standard attribute
+    // `[[noreturn]]`. An annotation macro between such a type and a
+    // parenthesised pointer to data member is the same tree, and `int
+    // MOZ_X (S::*pd);` reads as a method (pinned, FIXME(#1829)).
+    Name,
+    // Nothing settles it. No type is written, or one identifier that
+    // is no type keyword, which may be an annotation macro before the
+    // real type: `MOZ_X T (S::*pd);` is a data member whose type `T`
+    // the grammars read as the name. The macro call `T DECL(S::*p);` is
+    // the same tree and reads as that data member (pinned,
+    // FIXME(#1829)).
+    Unsettled,
 }
 
-fn cpp_declared_name<'a>(declaration: &Node<'a>, code: &'a [u8]) -> DeclaredName {
+fn cpp_first_word<'a>(declaration: &Node<'a>, code: &'a [u8]) -> FirstWord {
     // Only a recovered declarator asks, and a declaration with no parse
     // error holds none: its type and attributes are then not read.
     if !declaration.has_error() {
-        return DeclaredName::Unknown;
+        return FirstWord::Unsettled;
     }
     let writes_a_type =
         declaration
@@ -167,9 +172,9 @@ fn cpp_declared_name<'a>(declaration: &Node<'a>, code: &'a [u8]) -> DeclaredName
                 _ => true,
             });
     if writes_a_type || cpp_opens_with_standard_noreturn(declaration, code) {
-        DeclaredName::Certain
+        FirstWord::Name
     } else {
-        DeclaredName::Unknown
+        FirstWord::Unsettled
     }
 }
 
@@ -207,17 +212,17 @@ fn cpp_opens_with_standard_noreturn<'a>(declaration: &Node<'a>, code: &'a [u8]) 
         })
 }
 
-// Whether a `function_declarator` with no parenthesised name is the
-// function its first word names: the declaration settles that the word
-// is a name, and the declarator is that word and one parameter list. A
-// declarator that nests another is left to the recovered chain, which
-// read it before the first word settled anything: the second parameter
-// list is a pointee's (`int MOZ_X (S::*pf)(int);`, a pointer to member
-// function after an annotation macro, is data), or the levels are a
-// comma list's (`[[noreturn]] T (S::*pa), (S::*pb);`, which GCC accepts
-// as two data members).
-fn cpp_is_named_function<'a>(declarator: &Node<'a>, name: DeclaredName, code: &'a [u8]) -> bool {
-    name == DeclaredName::Certain
+// Whether a `function_declarator` with no parenthesised name is read as
+// the function its first word names: the word is taken for a name, it
+// is no word of a type (`cpp_is_type_word`), and the declarator is that
+// word and one parameter list. A declarator that nests another is left
+// to the recovered chain, which read it before the first word was
+// asked: the second parameter list is a pointee's (`int MOZ_X
+// (S::*pf)(int);`, a pointer to member function after an annotation
+// macro, is data), or the levels are a comma list's (`[[noreturn]] T
+// (S::*pa), (S::*pb);`, which GCC accepts as two data members).
+fn cpp_is_named_function<'a>(declarator: &Node<'a>, first_word: FirstWord, code: &'a [u8]) -> bool {
+    first_word == FirstWord::Name
         && cpp_is_innermost_level(declarator)
         && !cpp_is_type_word(
             declarator
@@ -279,18 +284,18 @@ fn cpp_is_type_word(word: Option<&str>) -> bool {
 // leaves an `ERROR` or a MISSING name slot below the declarator, which
 // `has_error` reads off the subtree's cached error cost, so a clean one
 // is answered unwalked. The recovery also takes the member's type for
-// the function's name, so a declarator whose first word is surely a
-// name is none: the grammars read `int (S::*pd);` as a
-// `parenthesized_declarator`, and `int DECL(S::*p);` is a function
-// named `DECL`.
+// the function's name, so a declarator whose first word is taken for
+// its own name is read as none (`cpp_is_named_function`): the grammars
+// read `int (S::*pd);` as a `parenthesized_declarator`, and `int
+// DECL(S::*p);` is a function named `DECL`.
 fn cpp_function_declarator_verdict<'a>(
     declarator: &Node<'a>,
-    name: DeclaredName,
+    first_word: FirstWord,
     code: &'a [u8],
 ) -> Verdict<'a> {
     match cpp_parenthesized_name(declarator) {
         Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
-        None if !declarator.has_error() || cpp_is_named_function(declarator, name, code) => {
+        None if !declarator.has_error() || cpp_is_named_function(declarator, first_word, code) => {
             Verdict::Known(true)
         }
         None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
@@ -303,14 +308,14 @@ fn cpp_function_declarator_verdict<'a>(
 fn cpp_child_verdict<'a>(
     child: &Node<'a>,
     after_colon: bool,
-    name: DeclaredName,
+    first_word: FirstWord,
     code: &'a [u8],
 ) -> Verdict<'a> {
     if cpp_is_function_only_specifier(child) {
         return Verdict::Known(true);
     }
     match child.kind() {
-        "function_declarator" => cpp_function_declarator_verdict(child, name, code),
+        "function_declarator" => cpp_function_declarator_verdict(child, first_word, code),
         "function_definition" | "operator_cast" => Verdict::Known(true),
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
@@ -349,7 +354,7 @@ fn cpp_child_verdict<'a>(
             Verdict::Ask(DeclaratorQuestion::AnyChild {
                 children: child.children(),
                 after_colon: false,
-                name,
+                first_word,
             })
         }
         // A member pointer outside parentheses: `template<class T>
@@ -357,7 +362,7 @@ fn cpp_child_verdict<'a>(
         // `template<class T> int (*S::*getPp())(T);` are methods
         // returning one (#1718). Any other qualified name — the `std::`
         // of a field's type among them — declares no function.
-        "qualified_identifier" => cpp_member_pointer_verdict(child, false, name),
+        "qualified_identifier" => cpp_member_pointer_verdict(child, false, first_word),
         // The unparenthesised non-templated member pointer, which the
         // grammars recover as a bit-field (#1807).
         "bitfield_clause" => cpp_recovered_bitfield_verdict(child, after_colon),
@@ -378,21 +383,21 @@ fn cpp_parenthesized_name<'a>(declarator: &Node<'a>) -> Option<Node<'a>> {
 }
 
 // Whether the member pointer a qualified name spells declares a
-// function, and `without_pointer` when it spells none. `name` is what
-// is known of the first word of the declaration the pointer stands
-// directly under: `S::*` is then a wrapper as `*` is, and
+// function, and `without_pointer` when it spells none. `first_word` is
+// that of the declaration the pointer stands directly under: `S::*` is
+// then a wrapper as `*` is, and
 // `template<class U> int S::*DECL(S::*p);` the method `int
 // *DECL(S::*p);` is.
 fn cpp_member_pointer_verdict<'a>(
     qualified: &Node<'a>,
     without_pointer: bool,
-    name: DeclaredName,
+    first_word: FirstWord,
 ) -> Verdict<'a> {
     cpp_member_pointer(qualified).map_or(Verdict::Known(without_pointer), |pointer| {
         Verdict::Ask(DeclaratorQuestion::AnyChild {
             children: pointer.children(),
             after_colon: false,
-            name,
+            first_word,
         })
     })
 }
@@ -425,7 +430,7 @@ fn cpp_recovered_bitfield_verdict<'a>(clause: &Node<'a>, after_colon: bool) -> V
         return Verdict::Known(false);
     };
     if expression.kind() == "qualified_identifier" {
-        return cpp_member_pointer_verdict(&expression, false, DeclaredName::Unknown);
+        return cpp_member_pointer_verdict(&expression, false, FirstWord::Unsettled);
     }
     // role-bypass: allow(Call) — whether the recovered width expression is a
     // call, which is the only thing telling `*getPd()` from `*pd`
@@ -732,14 +737,14 @@ pub(crate) fn cpp_recovered_declaration_data_members<'a>(
     {
         return 0;
     }
-    let name = cpp_declared_name(declaration, code);
+    let first_word = cpp_first_word(declaration, code);
     declaration
         .children()
         .filter(|child| {
             child.kind() == "function_declarator"
                 && child.has_error()
                 && cpp_parenthesized_name(child).is_none()
-                && !cpp_is_named_function(child, name, code)
+                && !cpp_is_named_function(child, first_word, code)
         })
         .flat_map(|declarator| cpp_recovered_member_pointers(&declarator))
         .filter(|level| match level {
@@ -760,7 +765,7 @@ pub(crate) fn cpp_recovered_declaration_data_members<'a>(
 // `cpp_declares_function` — one method however many declarators spell
 // one — and the recovered-`:` flag is tracked here exactly as there.
 pub(crate) fn cpp_field_data_members<'a>(field: &Node<'a>, code: &'a [u8]) -> usize {
-    let name = cpp_declared_name(field, code);
+    let first_word = cpp_first_word(field, code);
     let mut total = 0;
     let mut segment = DeclaratorSegment::default();
     for child in field.children() {
@@ -775,7 +780,7 @@ pub(crate) fn cpp_field_data_members<'a>(field: &Node<'a>, code: &'a [u8]) -> us
             continue;
         }
         segment.declares_function |=
-            cpp_child_declares_function(&child, segment.after_colon, name, code);
+            cpp_child_declares_function(&child, segment.after_colon, first_word, code);
         if !segment.declares_function {
             segment.names += cpp_declarator_names(&child);
         }
@@ -878,7 +883,7 @@ fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>) -> Verdict<'a> {
         "parenthesized_declarator" => {
             Verdict::Ask(DeclaratorQuestion::Parenthesized(child.children()))
         }
-        "qualified_identifier" => cpp_member_pointer_verdict(child, true, DeclaredName::Unknown),
+        "qualified_identifier" => cpp_member_pointer_verdict(child, true, FirstWord::Unsettled),
         _ => Verdict::Known(true),
     }
 }
@@ -894,7 +899,7 @@ enum DeclaratorQuestion<'a> {
     AnyChild {
         children: Children<'a>,
         after_colon: bool,
-        name: DeclaredName,
+        first_word: FirstWord,
     },
     // Whether every child of a `parenthesized_declarator` still reads as
     // a function.
@@ -918,13 +923,16 @@ enum Verdict<'a> {
 }
 
 impl<'a> DeclaratorQuestion<'a> {
-    // The question for a node inside parentheses or a recovered member
-    // pointer, where the declaration's first word settles nothing.
+    // The question for a node inside a declarator's parentheses or
+    // under a recovered member pointer, asked with the first word
+    // unsettled. Inside parentheses that is a guess: no data member was
+    // found that needs it, and a typed macro call there stays data
+    // (`void (*GET(S::*p))(int);`, pinned FIXME(#1829)).
     fn any_child(node: &Node<'a>) -> Self {
         Self::AnyChild {
             children: node.children(),
             after_colon: false,
-            name: DeclaredName::Unknown,
+            first_word: FirstWord::Unsettled,
         }
     }
 
@@ -933,7 +941,7 @@ impl<'a> DeclaratorQuestion<'a> {
         Self::AnyChild {
             children: declaration.children(),
             after_colon: false,
-            name: cpp_declared_name(declaration, code),
+            first_word: cpp_first_word(declaration, code),
         }
     }
 
@@ -963,12 +971,12 @@ impl<'a> DeclaratorQuestion<'a> {
             Self::AnyChild {
                 children,
                 after_colon,
-                name,
+                first_word,
             } => {
                 // role-bypass: allow(Comment) — stepping over a comment between
                 // two declarator parts; not whether the node is one
                 let child = children.find(|child| child.kind() != "comment")?;
-                let verdict = cpp_child_verdict(&child, *after_colon, *name, code);
+                let verdict = cpp_child_verdict(&child, *after_colon, *first_word, code);
                 *after_colon = cpp_is_recovered_colon(&child);
                 Some(verdict)
             }
