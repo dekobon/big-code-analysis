@@ -429,6 +429,15 @@ for historical reference.
   that counts the member's names recursed once per level. It keeps its
   own stack now, as the declarator classifier does since #1885.
 
+- **`abc` no longer overflows the stack on deeply nested assignments
+  in a condition slot** (#1896). Whether a negated argument or a
+  condition already scores as one was asked with one call per nested
+  assignment, so `foo('x', !(a = (a = (… b))))` some 14,000 levels deep
+  aborted the process in Java, Groovy and C#. Since the Groovy 0.6.0
+  grammar parses a parenthesis-free call's arguments, `foo 'x', !(…)`
+  reached the same recursion and aborted where the 0.5.0 pin answered.
+  The three checks step through the assignments in a loop.
+
 - **`npm` and `npa` read the visibility of interface members** (#1880).
   An interface member used to count as public whatever it declared;
   only a C# interface field already read `private` and `protected`.

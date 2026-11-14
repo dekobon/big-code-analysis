@@ -3417,6 +3417,93 @@ mod tests {
         });
     }
 
+    // Levels of `(a = …)` in the nests below, well past where one call
+    // per level overflowed the small stack they run on.
+    #[cfg(any(feature = "groovy", feature = "java", feature = "csharp"))]
+    const NESTED_ASSIGNMENTS: usize = 20_000;
+
+    #[cfg(any(feature = "groovy", feature = "java", feature = "csharp"))]
+    fn nested_assignments() -> String {
+        format!(
+            "{}b{}",
+            "(a = ".repeat(NESTED_ASSIGNMENTS),
+            ")".repeat(NESTED_ASSIGNMENTS)
+        )
+    }
+
+    /// Whether a negated argument's operand already scores as a condition
+    /// is asked through each assignment it nests, and the
+    /// `*_condition_scores_itself` of Java, Groovy and C# step through
+    /// them in a loop: one call per level overflowed a 2 MiB stack at
+    /// some 14,000 levels in a release build. Each source is one call
+    /// with one negated argument, read on a small stack.
+    ///
+    /// expected: one call, one condition (the negation's slot: the
+    /// innermost value `b` proves nothing boolean) and one assignment per
+    /// level.
+    #[cfg(any(feature = "groovy", feature = "java", feature = "csharp"))]
+    fn assert_nested_assignments_under_a_negation_are_read<P: crate::MetricSuite + 'static>(
+        filename: &'static str,
+        sources: Vec<String>,
+    ) {
+        // A deliberately small test-thread stack.
+        std::thread::Builder::new()
+            .stack_size(512 * 1_024)
+            .spawn(move || {
+                for source in &sources {
+                    check_metrics::<P>(source, filename, |metric| {
+                        assert_eq!(metric.abc.branches_sum(), 1);
+                        assert_eq!(metric.abc.conditions_sum(), 1);
+                        assert_eq!(metric.abc.assignments_sum(), NESTED_ASSIGNMENTS as u64);
+                    });
+                }
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("a nested assignment must not overflow a 512 KiB stack");
+    }
+
+    /// The parenthesised call reached the recursion before; the
+    /// parenthesis-free one reaches it since dekobon-tree-sitter-groovy
+    /// 0.6.0 parses its arguments, and aborted where `origin/main`
+    /// answered (lesson 81). Both spellings.
+    #[cfg(feature = "groovy")]
+    #[test]
+    fn groovy_deeply_nested_assignment_under_a_negation_does_not_overflow_the_stack() {
+        let nest = nested_assignments();
+        assert_nested_assignments_under_a_negation_are_read::<GroovyParser>(
+            "foo.groovy",
+            vec![
+                format!("def m(a, b) {{\n    foo 'x', !{nest}\n}}\n"),
+                format!("def m(a, b) {{\n    foo('x', !{nest})\n}}\n"),
+            ],
+        );
+    }
+
+    #[cfg(feature = "java")]
+    #[test]
+    fn java_deeply_nested_assignment_under_a_negation_does_not_overflow_the_stack() {
+        let nest = nested_assignments();
+        assert_nested_assignments_under_a_negation_are_read::<JavaParser>(
+            "foo.java",
+            vec![format!(
+                "class C {{ void m(boolean a, boolean b) {{ foo('x', !{nest}); }} }}\n"
+            )],
+        );
+    }
+
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_deeply_nested_assignment_under_a_negation_does_not_overflow_the_stack() {
+        let nest = nested_assignments();
+        assert_nested_assignments_under_a_negation_are_read::<CsharpParser>(
+            "foo.cs",
+            vec![format!(
+                "class C {{ void M(bool a, bool b) {{ Foo('x', !{nest}); }} }}\n"
+            )],
+        );
+    }
+
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_return_with_conditions() {

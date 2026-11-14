@@ -97,19 +97,34 @@ fn groovy_is_elvis(expr: &Node, code: &[u8]) -> bool {
     null_safe::owns_via(Groovy::QMARKCOLON as u16, expr, code, Ancestors::unknown())
 }
 
+// A loop over the assignments, not a call per one: `!(a = (a = (… b)))`
+// nests an assignment per level, as deep as the source writes, and a
+// call per level overflowed the stack at some 14,000 of them. A
+// parenthesis-free call's arguments reach this since
+// dekobon-tree-sitter-groovy 0.6.0 parses them (#1896).
 fn groovy_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    // The elvis owner is the one `NullSafe` owner that is a boolean
-    // test; the three safe navigations never reach a slot as a value
-    // that proves boolean, and score nothing if one does.
-    rows_own!(expr, code; comparison, short_circuit, ternary)
-        || groovy_is_elvis(expr, code)
-        || match expr.kind_id().into() {
-            groovy_assignment_kinds!() => expr.child_by_field_name("right").is_some_and(|right| {
-                let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
-                proves_boolean || groovy_condition_scores_itself(&value, code)
-            }),
-            _ => false,
+    let mut expr = *expr;
+    loop {
+        // The elvis owner is the one `NullSafe` owner that is a boolean
+        // test; the three safe navigations never reach a slot as a value
+        // that proves boolean, and score nothing if one does.
+        if rows_own!(&expr, code; comparison, short_circuit, ternary)
+            || groovy_is_elvis(&expr, code)
+        {
+            return true;
         }
+        if !matches!(expr.kind_id().into(), groovy_assignment_kinds!()) {
+            return false;
+        }
+        let Some(right) = expr.child_by_field_name("right") else {
+            return false;
+        };
+        let (value, proves_boolean) = peel(&right, groovy_wrapper_operand);
+        if proves_boolean {
+            return true;
+        }
+        expr = value;
+    }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do-while` / `for`

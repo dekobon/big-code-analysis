@@ -119,21 +119,32 @@ fn csharp_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // An assignment is not peeled, because the `AssignmentExpression` arm
 // already scores its right-hand side as a negated operand: peeling
 // `if (y = !b)` down to `b` would pay the slot for the negation that arm
-// counts. It scores itself exactly when its value does, as Java's does.
+// counts. It scores itself exactly when its value does, as Java's does,
+// and steps through nested assignments in a loop for the same reason.
 fn csharp_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
     use Csharp::*;
 
-    // role-bypass: allow(NullSafe) — which of the row's owners this consumer scores itself
-    // by, told by the projected token: the coalescing, not the access
-    rows_own!(expr, code; comparison, short_circuit, ternary)
-        || null_safe::owns_via(QMARKQMARK as u16, expr, code, Ancestors::unknown())
-        || match expr.kind_id().into() {
-            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
-                let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
-                proves_boolean || csharp_condition_scores_itself(&value, code)
-            }),
-            _ => false,
+    let mut expr = *expr;
+    loop {
+        // role-bypass: allow(NullSafe) — which of the row's owners this consumer scores itself
+        // by, told by the projected token: the coalescing, not the access
+        if rows_own!(&expr, code; comparison, short_circuit, ternary)
+            || null_safe::owns_via(QMARKQMARK as u16, &expr, code, Ancestors::unknown())
+        {
+            return true;
         }
+        if expr.kind_id() != AssignmentExpression {
+            return false;
+        }
+        let Some(right) = expr.child_by_field_name("right") else {
+            return false;
+        };
+        let (value, proves_boolean) = peel(&right, csharp_wrapper_operand);
+        if proves_boolean {
+            return true;
+        }
+        expr = value;
+    }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,

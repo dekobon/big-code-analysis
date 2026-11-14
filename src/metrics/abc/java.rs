@@ -61,17 +61,28 @@ fn java_wrapper_operand<'a>(node: &Node<'a>) -> Option<(Node<'a>, bool)> {
 // counts. So it scores itself exactly when its value does — through that
 // arm, or through its own operator's arm (`if (y = x > 1)`) — and a bare
 // `if ((y = b))` pays through the slot.
+//
+// A loop over the assignments, not a call per one: `(a = (a = (… b)))`
+// nests an assignment per level, as deep as the source writes, and a
+// call per level overflowed the stack.
 fn java_condition_scores_itself(expr: &Node, code: &[u8]) -> bool {
-    use Java::*;
-
-    rows_own!(expr, code; comparison, short_circuit, ternary)
-        || match expr.kind_id().into() {
-            AssignmentExpression => expr.child_by_field_name("right").is_some_and(|right| {
-                let (value, proves_boolean) = peel(&right, java_wrapper_operand);
-                proves_boolean || java_condition_scores_itself(&value, code)
-            }),
-            _ => false,
+    let mut expr = *expr;
+    loop {
+        if rows_own!(&expr, code; comparison, short_circuit, ternary) {
+            return true;
         }
+        if expr.kind_id() != Java::AssignmentExpression {
+            return false;
+        }
+        let Some(right) = expr.child_by_field_name("right") else {
+            return false;
+        };
+        let (value, proves_boolean) = peel(&right, java_wrapper_operand);
+        if proves_boolean {
+            return true;
+        }
+        expr = value;
+    }
 }
 
 // Scores one boolean slot — an `if` / `while` / `do` / `for` condition,
