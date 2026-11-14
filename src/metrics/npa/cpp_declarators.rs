@@ -342,7 +342,7 @@ fn cpp_child_verdict<'a>(
         // `template<class T> int (*S::*getPp())(T);` are methods
         // returning one (#1718). Any other qualified name — the `std::`
         // of a field's type among them — declares no function.
-        "qualified_identifier" => cpp_member_pointer_verdict(child, false),
+        "qualified_identifier" => cpp_member_pointer_verdict(child, false, name),
         // The unparenthesised non-templated member pointer, which the
         // grammars recover as a bit-field (#1807).
         "bitfield_clause" => cpp_recovered_bitfield_verdict(child, after_colon),
@@ -363,10 +363,22 @@ fn cpp_parenthesized_name<'a>(declarator: &Node<'a>) -> Option<Node<'a>> {
 }
 
 // Whether the member pointer a qualified name spells declares a
-// function, and `without_pointer` when it spells none.
-fn cpp_member_pointer_verdict<'a>(qualified: &Node<'a>, without_pointer: bool) -> Verdict<'a> {
+// function, and `without_pointer` when it spells none. `name` is what
+// is known of the first word of the declaration the pointer stands
+// directly under: `S::*` is then a wrapper as `*` is, and
+// `template<class U> int S::*DECL(S::*p);` the method `int
+// *DECL(S::*p);` is.
+fn cpp_member_pointer_verdict<'a>(
+    qualified: &Node<'a>,
+    without_pointer: bool,
+    name: DeclaredName,
+) -> Verdict<'a> {
     cpp_member_pointer(qualified).map_or(Verdict::Known(without_pointer), |pointer| {
-        Verdict::Ask(DeclaratorQuestion::any_child(&pointer))
+        Verdict::Ask(DeclaratorQuestion::AnyChild {
+            children: pointer.children(),
+            after_colon: false,
+            name,
+        })
     })
 }
 
@@ -398,7 +410,7 @@ fn cpp_recovered_bitfield_verdict<'a>(clause: &Node<'a>, after_colon: bool) -> V
         return Verdict::Known(false);
     };
     if expression.kind() == "qualified_identifier" {
-        return cpp_member_pointer_verdict(&expression, false);
+        return cpp_member_pointer_verdict(&expression, false, DeclaredName::Unknown);
     }
     // role-bypass: allow(Call) — whether the recovered width expression is a
     // call, which is the only thing telling `*getPd()` from `*pd`
@@ -853,7 +865,7 @@ fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>) -> Verdict<'a> {
         "parenthesized_declarator" => {
             Verdict::Ask(DeclaratorQuestion::Parenthesized(child.children()))
         }
-        "qualified_identifier" => cpp_member_pointer_verdict(child, true),
+        "qualified_identifier" => cpp_member_pointer_verdict(child, true, DeclaredName::Unknown),
         _ => Verdict::Known(true),
     }
 }

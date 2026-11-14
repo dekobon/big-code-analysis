@@ -1245,6 +1245,12 @@ value = 524.0
 
 [[entry]]
 path = "src/metrics/npa/cpp_declarators.rs"
+qualified = "<file>"
+metric = "loc.ploc"
+value = 528.0
+
+[[entry]]
+path = "src/metrics/npa/cpp_declarators.rs"
 qualified = "cpp_child_verdict"
 metric = "cyclomatic"
 value = 15.0

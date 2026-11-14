@@ -6945,16 +6945,17 @@ class C {
     // stands before its type (`MOZ_X T (S::*pd);`). A type the grammars
     // read as nothing else settles it. The recovery takes the member's
     // type for the function's name, so a declaration that still writes
-    // one is no recovery: under a pointer or a reference (`I`, `J`),
-    // under a template header (`K`, `L`) and at the head of a comma list
-    // (`M`, `O`) too. A dependent type is such a type (`P`). A keyword
+    // one is no recovery: under a pointer, a reference or a member
+    // pointer (`I`, `J`, `R`), under a template header (`K`, `L`) and at
+    // the head of a comma list (`M`, `O`) too. A dependent type is such
+    // a type (`P`). A keyword
     // type is told by its word and not by its node kind: tree-sitter-cpp
     // reads `wchar_t` as a `type_identifier` and the Mozcpp fork as a
     // `primitive_type` (`Q`). A reader that asked only the member
-    // pointer read every call as data (na 19 / nm 0), where each read
+    // pointer read every call as data (na 20 / nm 0), where each read
     // right before #1885. Valid C++20.
     //
-    // expected: one method per class `A` to `Q`, nm 16; `S`'s `m`, `M`'s
+    // expected: one method per class `A` to `R`, nm 17; `S`'s `m`, `M`'s
     // `x` and `O`'s `q`, na 3.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
@@ -6977,7 +6978,8 @@ class C {
          struct M { int DECL(S::*p), x; };\n\
          struct O { int DECL(S::*p), (S::*q); };\n\
          struct P { typename V<int>::Y DECL(S::*p); };\n\
-         struct Q { wchar_t DECL(S::*p); };\n";
+         struct Q { wchar_t DECL(S::*p); };\n\
+         struct R { template<class U> int S::*DECL(S::*p); };\n";
 
     // A class-scope macro call under the standard attribute
     // `[[noreturn]]`, which a function's declaration alone takes
@@ -7144,7 +7146,7 @@ class C {
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3);
-                assert_eq!(metric.npm.class_nm_sum(), 16);
+                assert_eq!(metric.npm.class_nm_sum(), 17);
             },
         );
         check_metrics_with_npa::<P>(
