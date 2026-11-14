@@ -421,10 +421,16 @@ for historical reference.
   spellings are still misread, among them `T (S::*pd) = 0;`,
   `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;`, a comma list after one
   (`T (S::*pd), f();`), and the macro calls `int DECL(S::*p);` and
-  `[[noreturn]] FOO(S::*x);`, which count as attributes. On the Mozcpp
+  `[[noreturn]] FOO(S::*x);`, which count as attributes. A comma list
+  loses a declarator that is no lone member pointer, where each
+  counted as an attribute before: the method a macro call heading the
+  list expands to (`GET(S::*p) const, (S::*q);`), and a data member
+  with a GNU attribute inside its parentheses
+  (`T (S::* __attribute__((unused)) p), (S::*q);`). On the Mozcpp
   grammar a member pointer under an annotation a function takes too
-  (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as a method.
-  #1829 tracks them.
+  (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as a method,
+  and an annotation after a later declarator of a comma list loses that
+  declarator. #1829 tracks them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 2,000 declarator

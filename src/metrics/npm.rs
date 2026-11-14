@@ -7033,6 +7033,24 @@ class C {
     // tells the two apart, so the member stays the method `origin/main`
     // read (truth na 3 / nm 0, reads na 2 / nm 1). The upstream grammar
     // leaves the annotation in an `ERROR` and reads the member right.
+    //
+    // A comma list loses a declarator that is no lone member pointer.
+    // The recovery nests one `function_declarator` level per declarator,
+    // and the reader skips a level it does not read as a lone recovered
+    // pointer, where `origin/main` counted every level as data. The
+    // method a macro call heading the list expands to is dropped (`GET(
+    // S::*p) const, (S::*q);` is `int get() const, (S::*q);`: truth
+    // na 1 / nm 1, reads na 1 / nm 0), and so is a data member with a
+    // GNU attribute inside its parentheses, first in the list or later
+    // (truth na 2 / nm 0, reads na 1 / nm 0 each; `origin/main` read
+    // both right). Reading the skipped first level as a function fixes
+    // the macro call and turns the attributed data member into a
+    // method, so it is not done. On the Mozcpp grammar an annotation
+    // after a later declarator drops that one too: the data member `q`
+    // of `T (S::*p), (S::*q) MOZ_MAYBE_UNUSED;` and the method `get` of
+    // `T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT;` (truth na 2 / nm 0
+    // and na 1 / nm 1, each reads na 1 / nm 0), which the upstream
+    // grammar and `origin/main` read right.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
@@ -7057,6 +7075,18 @@ class C {
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
         "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const COMMA_LISTS_THAT_LOSE_A_DECLARATOR: &str = "#define GET(ignored) int get()\n\
+         struct T {};\nstruct S { int m; };\n\
+         struct A { GET(S::*p) const, (S::*q); };\n\
+         struct U { T (S::* __attribute__((unused)) p), (S::*q); };\n\
+         struct W { T (S::*p), (S::* __attribute__((unused)) q); };\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_LATER_DECLARATORS: &str = "#define MOZ_MAYBE_UNUSED\n\
+         #define MOZ_CAN_RUN_SCRIPT\n\
+         struct T {};\nstruct S { int m; };\n\
+         struct E { T (S::*p), (S::*q) MOZ_MAYBE_UNUSED; };\n\
+         struct I { T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT; };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER: &str = "#define MOZ_MAYBE_UNUSED\n\
          struct T {};\nstruct S {\n  T t0;\n  \
@@ -7116,13 +7146,19 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
+        // `m`, and one declarator of `A`, `U` and `W` each: truth na 6 /
+        // nm 1.
+        check_metrics_with_npa::<P>(COMMA_LISTS_THAT_LOSE_A_DECLARATOR, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 4);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
     }
 
     #[cfg(feature = "cpp")]
     #[test]
     fn cpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<CppParser>();
-        // The control of the Mozcpp-only misreading: read right here.
+        // The controls of the Mozcpp-only misreadings: read right here.
         check_metrics_with_npa::<CppParser>(
             AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER,
             "foo.cpp",
@@ -7131,6 +7167,10 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
+        check_metrics_with_npa::<CppParser>(ANNOTATED_LATER_DECLARATORS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 4);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
     }
 
     #[cfg(feature = "mozcpp")]
@@ -7145,6 +7185,11 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 1);
             },
         );
+        // `m`, and `p` of `E` and of `I`: truth na 4 / nm 1.
+        check_metrics_with_npa::<MozcppParser>(ANNOTATED_LATER_DECLARATORS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
     }
 
     #[cfg(feature = "cpp")]
