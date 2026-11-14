@@ -146,6 +146,11 @@ enum DeclaredName {
 }
 
 fn cpp_declared_name<'a>(declaration: &Node<'a>, code: &'a [u8]) -> DeclaredName {
+    // Only a recovered declarator asks, and a declaration with no parse
+    // error holds none: its type and attributes are then not read.
+    if !declaration.has_error() {
+        return DeclaredName::Unknown;
+    }
     let writes_a_type =
         declaration
             .child_by_field_name("type")
