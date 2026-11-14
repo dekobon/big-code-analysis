@@ -816,13 +816,17 @@ fn cpp_level_takes_function_syntax(level: &Node) -> bool {
     })
 }
 
-// The parameter of a list that holds exactly one.
+// The parameter of a list that holds exactly one. The Mozcpp fork reads
+// an annotation macro after the declarator (`T (S::*pc)
+// MOZ_INIT_OUTSIDE_CTOR = nullptr;`) as a `macro_annotation` inside the
+// list, after its `)`; it is no parameter, and is stepped over as a
+// comment is.
 fn cpp_sole_parameter<'a>(list: &Node<'a>) -> Option<Node<'a>> {
     // role-bypass: allow(Comment) — stepping over a comment between two
     // parameters; not whether the node is one
-    let mut parameters = list
-        .children()
-        .filter(|child| child.is_named() && child.kind() != "comment");
+    let mut parameters = list.children().filter(|child| {
+        child.is_named() && !matches!(child.kind(), "comment" | "macro_annotation")
+    });
     let sole = parameters.next()?;
     parameters.next().is_none().then_some(sole)
 }

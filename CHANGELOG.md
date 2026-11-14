@@ -373,7 +373,9 @@ for historical reference.
   named after the member's type, so `npm` counted a method and `npa`
   missed the attribute. A user type does it alone (`T`, `N::Q`,
   `V<int>`), and so do two specifiers before a primitive
-  (`static inline int (U::*pe) = nullptr;`). Each such member now moves
+  (`static inline int (U::*pe) = nullptr;`). An annotation macro after
+  the declarator (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`) does
+  not change that on either grammar. Each such member now moves
   from `npm` to `npa`: `class_methods` falls and `class_attributes`
   rises by one, as do the public counts where the member is public,
   with the `total`, `coa` and `cda` values that follow. A macro call

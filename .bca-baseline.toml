@@ -1265,7 +1265,7 @@ value = 615.0
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1346.0
+value = 1350.0
 
 [[entry]]
 path = "src/metrics/npm/csharp.rs"

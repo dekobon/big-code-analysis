@@ -6745,6 +6745,27 @@ class C {
     const THROW_SPECIFIED_MACRO_CALL: &str =
         "#define FOO(ignored) void foo()\nstruct P { FOO(N::*x) throw(); };\n";
 
+    // An annotation macro after the declarator, as Mozilla's headers
+    // write `MOZ_INIT_OUTSIDE_CTOR` and its like (each defined empty
+    // here, so the fixture is valid C++20). The upstream grammar leaves
+    // the macro in an `ERROR` beside the declarator; the Mozcpp fork
+    // knows these names and reads a `macro_annotation` inside the
+    // recovered parameter list, after its `)`, where a reader that
+    // counted it as a second parameter kept both members methods
+    // (na 1 / nm 2 on that grammar alone).
+    //
+    // expected: `pc`, `pd` and `z9` are data on both grammars, na 3 /
+    // nm 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_MEMBER_POINTERS: &str = "#define MOZ_INIT_OUTSIDE_CTOR\n\
+         #define MOZ_MAYBE_UNUSED\n\
+         struct T {};\n\
+         struct S {\n\
+             T (S::*const pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;\n\
+             static inline int (S::*pd) MOZ_MAYBE_UNUSED = nullptr;\n\
+             int z9;\n\
+         };\n";
+
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
     // the method consumer reads through `cpp_parenthesized_child_verdict`
@@ -6781,6 +6802,10 @@ class C {
         check_metrics_with_npa::<P>(THROW_SPECIFIED_MACRO_CALL, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 0);
             assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
+        check_metrics_with_npa::<P>(ANNOTATED_MEMBER_POINTERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
