@@ -384,9 +384,14 @@ macro_rules! impl_npa_java_like {
     };
 }
 
+mod cpp_declarators;
 mod ruby_body;
 mod ruby_ledger;
 mod shared;
+pub(crate) use cpp_declarators::{
+    cpp_declares_function, cpp_field_data_members, cpp_recovered_declaration_data_members,
+    cpp_template_declares_data_member,
+};
 pub(crate) use python::python_unwrap_function;
 pub(crate) use ruby_body::{RubyBodyConsumer, RubyBodyShape, RubyBodyState, RubyOpenCall};
 pub(crate) use ruby_ledger::{RubyLedger, ruby_is_auto_private, ruby_leave_visibility_call};
@@ -798,7 +803,7 @@ mod tests {
             .map(|declaration| {
                 declaration
                     .children()
-                    .map(|child| shared::cpp_declarator_names(&child))
+                    .map(|child| cpp_declarators::cpp_declarator_names(&child))
                     .sum()
             })
             .collect();

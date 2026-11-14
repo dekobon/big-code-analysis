@@ -1256,18 +1256,6 @@ metric = "halstead.effort"
 value = 67953.64906173921
 
 [[entry]]
-path = "src/metrics/npa/shared.rs"
-qualified = "<file>"
-metric = "loc.ploc"
-value = 618.0
-
-[[entry]]
-path = "src/metrics/npa/shared.rs"
-qualified = "<file>"
-metric = "loc.sloc"
-value = 1351.0
-
-[[entry]]
 path = "src/metrics/npm/csharp.rs"
 qualified = "CsharpCode::compute"
 metric = "halstead.effort"
