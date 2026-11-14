@@ -2278,6 +2278,43 @@ mod tests {
         });
     }
 
+    /// An unmodified `partial` method is the third interface member that
+    /// is a method and not public (#1880): it is private unless it says
+    /// `public` (C# standard §15.6.9), in its declaring part and in its
+    /// implementing part alike. `A` is the public control, `C` the
+    /// `public partial` one, and the partial property `P` is public as
+    /// any other property is. Not compiled here (no C# compiler); the
+    /// rule is the standard's and Roslyn's
+    /// `ModifierUtils.AdjustModifiersForAnInterfaceMember`.
+    ///
+    /// expected: the declaring part holds `A`, `B`, `C` and `P`'s getter,
+    /// 4 methods, 3 public; the implementing part holds `B`, `C` and the
+    /// getter, 3 methods, 2 public.
+    #[cfg(feature = "csharp")]
+    #[test]
+    fn csharp_partial_interface_method_is_not_public() {
+        let source = "partial interface I {
+                 void A();
+                 partial void B();
+                 public partial void C();
+                 partial int P { get; }
+             }
+             partial interface I {
+                 partial void B() { }
+                 public partial void C() { }
+                 partial int P { get => 0; }
+             }";
+        assert_parses_cleanly::<CsharpParser>(source, "members.cs");
+        check_func_space::<CsharpParser, _>(source, "members.cs", |space| {
+            let rows: Vec<_> = space
+                .spaces
+                .iter()
+                .map(|s| (s.metrics.npm.interface_nm(), s.metrics.npm.interface_npm()))
+                .collect();
+            assert_eq!(rows, [(4, 3), (3, 2)]);
+        });
+    }
+
     /// `internal` narrows a class property's accessor as `private` and
     /// `protected` do (`csharp_narrowed_accessor_visibility`, #1880):
     /// `X`'s setter is assembly-wide, and `Y` is its unmodified twin.

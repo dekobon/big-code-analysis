@@ -408,8 +408,9 @@ for historical reference.
   property; a Groovy `private` or `protected` member of an interface,
   trait or annotation type, member records included; and a C# interface
   member marked `private`, `protected` or `internal` (alone or paired).
-  A C# interface's static constructor and its explicit implementations
-  of another interface's members are not public either. C# `internal` now
+  A C# interface's static constructor, its explicit implementations of
+  another interface's members and its `partial` methods that do not say
+  `public` are not public either. C# `internal` now
   also narrows a class accessor (`public int X { get; internal set; }`
   has one public method) and an interface field. Values only fall. In
   `npm`, `interface_npm_sum`, `interface_coa`, `total` and `coa` drop

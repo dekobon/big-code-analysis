@@ -61,15 +61,27 @@ fn csharp_member_public_method_count(member: &Node, total: usize) -> usize {
     total.saturating_sub(narrowed)
 }
 
+// Whether a member carries the `partial` modifier.
+fn csharp_is_partial(member: &Node) -> bool {
+    member.children().any(|child| {
+        // role-bypass: allow(Modifier) — which modifier, not whether the node is one
+        matches!(child.kind_id().into(), Csharp::Modifier)
+            && child.first_child(|id| id == Csharp::Partial).is_some()
+    })
+}
+
 // Counts the public methods an interface member contributes. A C# 8+
-// interface member is public unless it narrows its access, and two
+// interface member is public unless it narrows its access, and three
 // unmodified members are not public either: the static constructor,
-// which only the runtime calls (an interface has no other constructor),
-// and an explicit implementation of a base interface's member
-// (`void IA.M() { }`), reachable only through that interface. `total`
-// is the member's `csharp_count_member`; a child worth no method — a
-// field, a comment, a brace — has no public one, so its modifiers are
-// not read.
+// which only the runtime calls (an interface has no other constructor);
+// an explicit implementation of a base interface's member
+// (`void IA.M() { }`), reachable only through that interface; and a
+// `partial` method, which is private unless it says `public` (C#
+// standard §15.6.9, kept for interfaces by Roslyn's
+// `ModifierUtils.AdjustModifiersForAnInterfaceMember`, which makes a
+// partial property public as any other member is). `total` is the
+// member's `csharp_count_member`; a child worth no method — a field, a
+// comment, a brace — has no public one, so its modifiers are not read.
 fn csharp_interface_member_public_method_count(member: &Node, total: usize) -> usize {
     use Csharp::*;
     if total == 0 {
@@ -80,7 +92,10 @@ fn csharp_interface_member_public_method_count(member: &Node, total: usize) -> u
     let hidden = member.kind_id() == ConstructorDeclaration
         || member
             .first_child(|id| id == ExplicitInterfaceSpecifier)
-            .is_some();
+            .is_some()
+        || (member.kind_id() == MethodDeclaration
+            && csharp_is_partial(member)
+            && !super::npa::csharp_is_explicit_public(member));
     if hidden || !super::npa::csharp_interface_member_is_public(member) {
         return 0;
     }
