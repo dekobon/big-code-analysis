@@ -1244,6 +1244,12 @@ metric = "loc.ploc"
 value = 524.0
 
 [[entry]]
+path = "src/metrics/npa/cpp_declarators.rs"
+qualified = "cpp_child_verdict"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
 path = "src/metrics/npa/groovy.rs"
 qualified = "GroovyCode::compute"
 metric = "cognitive"

@@ -6937,6 +6937,126 @@ class C {
          struct G { GET(S::*p) MOZ_CAN_RUN_SCRIPT, (S::*q); };\n\
          struct I { T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT; };\n";
 
+    // A class-scope macro call after a written type: the macro expands
+    // to a method's name and parameter list, so `int DECL(S::*p);` is
+    // `int method(int S::*p);`. The grammars read the call as a function
+    // named `DECL` whose parameter is the recovered member pointer, the
+    // tree a data member's recovery leaves when an annotation macro
+    // stands before its type (`MOZ_X T (S::*pd);`). A type the grammars
+    // read as nothing else settles it. The recovery takes the member's
+    // type for the function's name, so a declaration that still writes
+    // one is no recovery: under a pointer or a reference (`I`, `J`),
+    // under a template header (`K`, `L`) and at the head of a comma list
+    // (`M`, `O`) too. A reader that asked only the member pointer read
+    // every call as data (na 17 / nm 0), where each read right before
+    // #1885. Valid C++20.
+    //
+    // expected: one method per class `A` to `O`, nm 14; `S`'s `m`, `M`'s
+    // `x` and `O`'s `q`, na 3.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
+         namespace N { struct Q {}; }\n\
+         template<class X> struct V {};\n\
+         struct T {};\n\
+         struct S { int m; };\n\
+         struct A { int DECL(S::*p); };\n\
+         struct B { unsigned DECL(S::*p); };\n\
+         struct C { static const unsigned long DECL(S::*p); };\n\
+         struct D { N::Q DECL(S::*p); };\n\
+         struct E { V<int> DECL(S::*p); };\n\
+         struct F { struct T DECL(S::*p); };\n\
+         struct G { auto DECL(S::*p); };\n\
+         struct H { decltype(0) DECL(S::*p); };\n\
+         struct I { int *DECL(S::*p); };\n\
+         struct J { int &DECL(S::*p); };\n\
+         struct K { template<class U> int *DECL(S::*p); };\n\
+         struct L { template<class U> int *DECL(S::*p) = delete; };\n\
+         struct M { int DECL(S::*p), x; };\n\
+         struct O { int DECL(S::*p), (S::*q); };\n";
+
+    // A class-scope macro call under the standard attribute
+    // `[[noreturn]]`, which a function's declaration alone takes
+    // ([dcl.attr.noreturn]): `[[noreturn]] FAIL(S::*p);` is `[[noreturn]]
+    // void fail();`. The call's tree is that of `[[maybe_unused]] T
+    // (S::*pd);` but for the attribute's name, so the name settles that
+    // the first word is the function's: beside another attribute in its
+    // list (`B`), in a second list after a comment (`C`), before a
+    // specifier (`D`) and before a type written as a lone identifier,
+    // which settles nothing by itself (`E`). A reader that asked only
+    // the member pointer read every call as data (na 6 / nm 0), where
+    // each read right before #1885. Valid C++20.
+    //
+    // expected: one method per class `A` to `E`, nm 5; `S`'s `m`, na 1.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define FAIL(ignored) void fail()\n\
+         #define DECL(P) method(int P)\n\
+         struct T {};\n\
+         struct S { int m; };\n\
+         struct A { [[noreturn]] FAIL(S::*p); };\n\
+         struct B { [[maybe_unused, noreturn]] FAIL(S::*p); };\n\
+         struct C { [[maybe_unused]] /* c */ [[noreturn]] FAIL(S::*p); };\n\
+         struct D { [[noreturn]] static FAIL(S::*p); };\n\
+         struct E { [[noreturn]] T DECL(S::*p); };\n";
+
+    // The data members the two fixtures above must not take with them.
+    // An attribute that is not `noreturn` settles nothing (`pa`), nor
+    // does the word in an attribute's argument (`pb`), nor `noreturn`
+    // under a namespace, which both compilers accept on a member pointer
+    // (`pn`, `pm`; GCC warns that it ignores it, and clang too on `pn`).
+    // A lone identifier before the type is an annotation macro as easily
+    // as a type, so the member under one stays data whether its own type
+    // is a name or a keyword (`pd`, `pe`). After a written type, a second
+    // parameter list is a pointee's and the member a pointer to member
+    // function, with an initialiser or a pointee's `const` as without
+    // (`pf`, `pg`, `ph`): a reader that took every declarator after a
+    // written type for the function its first word names read the three
+    // as methods, where each read as data before and after #1885. The
+    // macro call `int NAME(S::*x)(int);`, with `NAME` expanding to a
+    // function's name, is `pf`'s tree and reads as data, as it always
+    // has. Valid C++20 with the macro defined as here.
+    //
+    // expected: `pa`, `pb`, `pn`, `pm`, `pd`, `pe`, `pf`, `pg`, `ph` and
+    // `z9` are data, na 10 / nm 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBER_POINTERS_NO_FIRST_WORD_SETTLES: &str = "#define MOZ_X\n\
+         struct T {};\n\
+         struct S {\n\
+             [[maybe_unused]] T (S::*pa);\n\
+             [[deprecated(\"noreturn\")]] T (S::*pb);\n\
+             [[gnu::noreturn]] T (S::*pn);\n\
+             [[gnu::noreturn]] T (S::*pm)(int);\n\
+             MOZ_X T (S::*pd);\n\
+             MOZ_X int (S::*pe);\n\
+             int MOZ_X (S::*pf)(int);\n\
+             static inline int MOZ_X (S::*pg)(int) = nullptr;\n\
+             int MOZ_X (S::*ph)(int) const;\n\
+             int z9;\n\
+         };\n";
+
+    // `[[noreturn]]` settles what the first word of a one-level
+    // recovered declarator is, at the head of the declaration, and
+    // nothing more. GCC accepts the attribute on a pointer to function,
+    // a data member the grammars parse with no recovery (`fail`), and
+    // ignores it with a warning on a pointer to member function (`pm`),
+    // on a comma list of member pointers (`pa`, `pb`) and after a
+    // specifier (`ps`). Clang rejects all four lines, so this is not
+    // standard C++, and no reading is claimed right: the control is that
+    // the attribute makes no method of whatever follows it, that a
+    // declarator of more than one level reads as it did, and that only
+    // a leading list is read.
+    //
+    // expected (unchanged): `fail`, `pm`, `pa`, `pb`, `ps` and `z9` are
+    // data, na 6 / nm 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const NORETURN_THAT_SETTLES_NOTHING: &str = "struct T {};\n\
+         struct S {\n\
+             [[noreturn]] void (*fail)(int);\n\
+             [[noreturn]] T (S::*pm)(int);\n\
+             [[noreturn]] T (S::*pa), (S::*pb);\n\
+             static [[noreturn]] T (S::*ps);\n\
+             int z9;\n\
+         };\n";
+
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
     // the method consumer reads through `cpp_parenthesized_child_verdict`
@@ -6989,6 +7109,30 @@ class C {
         check_metrics_with_npa::<P>(TRAILING_ALIGNAS, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 2);
             assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
+        check_metrics_with_npa::<P>(
+            TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 14);
+            },
+        );
+        check_metrics_with_npa::<P>(
+            NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+            },
+        );
+        check_metrics_with_npa::<P>(MEMBER_POINTERS_NO_FIRST_WORD_SETTLES, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 10);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(NORETURN_THAT_SETTLES_NOTHING, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 6);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
@@ -7114,15 +7258,24 @@ class C {
     // `declaration`.
     //
     // Three more read as data because nothing these readers match tells
-    // them from a data member. A macro call under an attribute only a
-    // function takes, `[[noreturn]] NR(S::*p);`, differs from `T
-    // (S::*pd);` by the attribute's name alone (truth na 2 / nm 1, reads
-    // na 3 / nm 0; `origin/main` read it right). A macro call after a
-    // written type, `int DECL(S::*p);`, is the tree of the annotated data
-    // member `MOZ_X T (S::*pd);` with a keyword for its first word (the
-    // same truth and reading). The type alias `T typedef (R::*pm_t);`
-    // has its `typedef` read as the declared name (truth na 2 / nm 0,
-    // reads na 3; `origin/main` read a method).
+    // them from a data member. A macro call after a type written as a
+    // lone identifier, `T DECL(S::*p);`, is token for token the
+    // annotated data member `MOZ_X T (S::*pd);` (truth na 2 / nm 1,
+    // reads na 3 / nm 0; before #1885 it read right and the data member
+    // wrong). A macro call under `noreturn` in a spelling a pointer to
+    // member function takes too, `__attribute__((noreturn)) NR(S::*p);`
+    // and `[[gnu::noreturn]] NR(R::*p);`, is `T (S::*pd);` under that
+    // attribute (truth na 2 / nm 2 over the two classes, reads na 4 /
+    // nm 0; before #1885 both read right). The type alias `T typedef
+    // (R::*pm_t);` has its `typedef` read as the declared name (truth
+    // na 2 / nm 0, reads na 3; `origin/main` read a method).
+    //
+    // One reads as a method and is data: an annotation macro between a
+    // written type and the parentheses of a pointer to data member,
+    // `int MOZ_X (S::*pd);`, is the tree of the macro call `int
+    // DECL(S::*p);`, which the written type settles as a method
+    // (`TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS`). Truth na 3 / nm 0,
+    // reads na 2 / nm 1, as it did before #1885.
     //
     // One is misread on the Mozcpp grammar alone: a data member under an
     // annotation a function takes too, `static inline int (S::*pd)
@@ -7169,11 +7322,16 @@ class C {
     const TYPE_NAMED_MEMBER_POINTER_BEFORE_DATA: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pf), y;\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const ATTRIBUTED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define NR(ignored) void nr()\n\
-         struct T {};\nstruct S {\n  T t0;\n  [[noreturn]] NR(S::*p);\n  int z9;\n};\n";
+    const IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define DECL(P) method(int P)\n\
+         struct T {};\nstruct S {\n  T t0;\n  T DECL(S::*p);\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define DECL(P) method(int P)\n\
-         struct T {};\nstruct S {\n  T t0;\n  int DECL(S::*p);\n  int z9;\n};\n";
+    const VENDOR_NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define NR(ignored) void nr()\n\
+         struct T {};\n\
+         struct S {\n  T t0;\n  __attribute__((noreturn)) NR(S::*p);\n  int z9;\n};\n\
+         struct R {\n  [[gnu::noreturn]] NR(R::*p);\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATION_BETWEEN_TYPE_AND_MEMBER_POINTER: &str = "#define MOZ_X\n\
+         struct T {};\nstruct S {\n  T t0;\n  int MOZ_X (S::*pd);\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
         "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
@@ -7224,17 +7382,29 @@ class C {
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(
-            ATTRIBUTED_MACRO_CALL_WITH_MEMBER_POINTER,
+            IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER,
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3);
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
-        check_metrics_with_npa::<P>(TYPED_MACRO_CALL_WITH_MEMBER_POINTER, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 3);
-            assert_eq!(metric.npm.class_nm_sum(), 0);
-        });
+        check_metrics_with_npa::<P>(
+            VENDOR_NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
+        check_metrics_with_npa::<P>(
+            ANNOTATION_BETWEEN_TYPE_AND_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
         check_metrics_with_npa::<P>(
             MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF,
             "foo.cpp",

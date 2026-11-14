@@ -70,7 +70,7 @@ macro_rules! cpp_family_npa {
                         // member through the predicate `Npm` counts with.
                         // role-bypass: allow(DocTarget) — the template wrapper descended
                         // for a data member; not whether it takes a doc comment
-                        TemplateDeclaration if cpp_template_declares_data_member(&child) => {
+                        TemplateDeclaration if cpp_template_declares_data_member(&child, code) => {
                             add_attributes(stats, 1, current_is_public);
                         }
                         // A class-scope `declaration` is a constructor,
@@ -88,7 +88,7 @@ macro_rules! cpp_family_npa {
                         Declaration | Declaration2 | Declaration3 | Declaration4 => {
                             add_attributes(
                                 stats,
-                                cpp_recovered_declaration_data_members(&child),
+                                cpp_recovered_declaration_data_members(&child, code),
                                 current_is_public,
                             );
                         }
@@ -110,7 +110,7 @@ macro_rules! cpp_family_npa {
                             // field rather than its kind alone.
                             add_attributes(
                                 stats,
-                                cpp_field_data_members(&child),
+                                cpp_field_data_members(&child, code),
                                 current_is_public,
                             );
                         }
