@@ -769,8 +769,9 @@ mod tests {
         });
     }
 
-    // `cpp_count_field_identifiers`'s member-pointer arm (#1718), asked
-    // directly. Its one caller hands it a `field_declaration`, and no
+    // `cpp_declarator_names`'s member-pointer arm (#1718), asked directly
+    // of each child of a templated payload. Production reaches the walk
+    // through `cpp_field_data_members`, from a `field_declaration`, and no
     // field spelling reaches the arm under the pinned grammars — the
     // parenthesised one recovers into an `ERROR` over `S::` beside a
     // `pointer_declarator`, the unparenthesised one into a
@@ -794,7 +795,12 @@ mod tests {
             .root_node()
             .descendants_by_kind(&["declaration"])
             .iter()
-            .map(cpp_count_field_identifiers)
+            .map(|declaration| {
+                declaration
+                    .children()
+                    .map(|child| shared::cpp_declarator_names(&child))
+                    .sum()
+            })
             .collect();
         assert_eq!(counts, [1, 1, 0]);
     }

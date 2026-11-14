@@ -1085,7 +1085,10 @@ impl<'a> DeclaratorQuestion<'a> {
     // questions asking whether any child holds a function, `false` for
     // the one asking whether every child still reads as one.
     fn decisive(&self) -> bool {
-        !matches!(self, Self::Parenthesized(_))
+        match self {
+            Self::AnyChild { .. } | Self::RecoveredChain { .. } | Self::RecoveredPointer(_) => true,
+            Self::Parenthesized(_) => false,
+        }
     }
 
     // The answer once every child is read and none was decisive.
@@ -1159,15 +1162,6 @@ fn cpp_answer(question: DeclaratorQuestion<'_>) -> bool {
     }
 }
 
-// The names a whole declaration's declarators declare, for the tests
-// that pin them per declaration.
-#[cfg(test)]
-pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
-    node.children()
-        .map(|child| cpp_declarator_names(&child))
-        .sum()
-}
-
 // The names one child of a declarator subtree declares. Matches on
 // node-kind NAMES, not one grammar's enum discriminants, so it is correct
 // for every C-family grammar: upstream `Cpp` and the Mozilla `Mozcpp` fork
@@ -1180,7 +1174,7 @@ pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
 // `*` the source writes, and the recursion this replaced overflowed the
 // consumer thread's stack on a function-pointer member some 1,200 levels
 // deep that every other metric reads (#1829).
-fn cpp_declarator_names(child: &Node) -> usize {
+pub(super) fn cpp_declarator_names(child: &Node) -> usize {
     let mut names = 0;
     let mut pending = Vec::new();
     let mut next = Some(*child);

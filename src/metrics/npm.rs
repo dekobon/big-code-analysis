@@ -5969,7 +5969,7 @@ class C {
     // Every member is load-bearing:
     // - `plainData` is the control for the unwrapped path.
     // - `fps[4]` puts an `array_declarator` under the parenthesis,
-    //   which the widened `cpp_count_field_identifiers` must compose
+    //   which the widened `cpp_declarator_names` must compose
     //   with rather than stop at.
     // - `operator->()` reaches its `function_declarator` through a
     //   `pointer_declarator`; a gate that declined on any nesting at

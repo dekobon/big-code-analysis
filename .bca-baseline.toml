@@ -1259,7 +1259,7 @@ value = 67953.64906173921
 path = "src/metrics/npa/shared.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 615.0
+value = 618.0
 
 [[entry]]
 path = "src/metrics/npa/shared.rs"
