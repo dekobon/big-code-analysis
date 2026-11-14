@@ -140,7 +140,7 @@ fn cpp_child_verdict<'a>(child: &Node<'a>, after_colon: bool) -> Verdict<'a> {
             // cached error cost, so a clean one is answered unwalked.
             None if !child.has_error() => Verdict::Known(true),
             None => Verdict::Ask(DeclaratorQuestion::RecoveredChain {
-                pointers: Box::new(cpp_recovered_member_pointers(child)),
+                levels: Box::new(cpp_recovered_member_pointers(child)),
                 seen: false,
             }),
         },
@@ -304,89 +304,174 @@ fn cpp_recovered_member_pointer_in_bitfield<'a>(
 // `*_member_pointer_recovery_shapes_are_still_emitted` in `npm`'s tests
 // names the day it stops.
 //
-// This yields the recovered member pointers among the parameters of a
-// `function_declarator` and of each one nested in its `declarator`
-// field, outermost first. The chain is walked by an iterator so a long
-// comma list cannot deepen the stack.
+// This yields what the levels of a recovered chain declare: a
+// `function_declarator` and each one nested in its `declarator` field,
+// outermost first. The chain is walked by an iterator so a long comma
+// list cannot deepen the stack.
 //
 // The recovery puts each member pointer alone in its level's parameter
 // list (a comma list nests one level per declarator) and puts nothing a
 // function declarator alone takes on that level: `int (S::*fc)() const`
-// puts the `const` on the outer level. A recovered pointer beside a
-// second parameter or on a qualified level is a class-scope macro
-// call's argument (`DEFINE_GETTER(int, S::*x);`, `FOO(N::*x) override;`),
-// and the call stays the method it reads as.
-fn cpp_recovered_member_pointers<'a>(outer: &Node<'a>) -> impl Iterator<Item = Node<'a>> + use<'a> {
+// puts the `const` on the outer level, a pointee's parameter list that
+// yields nothing. A recovered pointer beside a second parameter or on a
+// qualified level is a class-scope macro call's argument
+// (`DEFINE_GETTER(int, S::*x);`, `FOO(N::*x) override;`), and the call
+// stays the method it reads as. Only the innermost level, the one the
+// declaration's first word names, can be that call, and it yields the
+// call when its list shows one, so the method is kept at the head of a
+// comma list too (`GET(S::*p) const, (S::*q);` is a method and the data
+// member `q`). A level that shows neither yields nothing.
+fn cpp_recovered_member_pointers<'a>(
+    outer: &Node<'a>,
+) -> impl Iterator<Item = RecoveredLevel<'a>> + use<'a> {
     std::iter::successors(Some(*outer), |level| {
         level.child_by_field_name("declarator")
     })
     .take_while(|level| level.kind() == "function_declarator")
-    .filter(|level| !cpp_level_takes_function_syntax(level))
-    .filter_map(|level| level.child_by_field_name("parameters"))
-    .filter_map(|list| cpp_sole_parameter(&list))
-    .filter(|parameter| {
-        parameter.kind() == "parameter_declaration" && cpp_is_recovered_member_pointer(parameter)
-    })
+    .filter_map(|level| cpp_recovered_level(&level))
 }
 
-// Whether a `function_declarator` carries a child only a function's
-// declarator takes (`node-types.json` lists these beside the
-// attributes and the GNU asm label, which a variable takes too), or is
-// named by a destructor, which no member's type spells: `~DTOR(S::*x);`
-// is the destructor the macro expands to.
-fn cpp_level_takes_function_syntax(level: &Node) -> bool {
-    level.children().any(|child| {
-        matches!(
-            child.kind(),
-            "destructor_name"
-                | "type_qualifier"
-                | "ref_qualifier"
-                | "virtual_specifier"
-                | "noexcept"
-                | "throw_specifier"
-                | "trailing_return_type"
-                | "requires_clause"
-        )
-    })
+// What one level of a recovered chain declares.
+enum RecoveredLevel<'a> {
+    // A member pointer alone on its level: data, or the function it
+    // returns (`(S::*get())`), which
+    // `DeclaratorQuestion::RecoveredPointer` tells apart.
+    Pointer(Node<'a>),
+    // The innermost level, read as the class-scope macro call it is:
+    // a method.
+    MacroCall,
 }
 
-// The parameter of a list that holds exactly one. The Mozcpp fork reads
-// an annotation macro after the declarator as a `macro_annotation`
-// inside the list, after its `)`. One that only a variable takes
-// (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`) is no parameter and is
-// stepped over as a comment is. Any other stays counted, as every one
-// was before the recovery was read: `FOO(S::*p) MOZ_CAN_RUN_SCRIPT;` is
-// then no lone member pointer, and the call stays the method it reads
-// as.
-fn cpp_sole_parameter<'a>(list: &Node<'a>) -> Option<Node<'a>> {
-    // role-bypass: allow(Comment) — stepping over a comment between two
-    // parameters; not whether the node is one
-    let mut parameters = list.children().filter(|child| {
-        child.is_named() && child.kind() != "comment" && !cpp_is_variable_only_annotation(child)
+fn cpp_recovered_level<'a>(level: &Node<'a>) -> Option<RecoveredLevel<'a>> {
+    let innermost = level
+        .child_by_field_name("declarator")
+        .is_none_or(|declarator| declarator.kind() != "function_declarator");
+    let syntax = cpp_level_syntax(level);
+    let list = level.child_by_field_name("parameters")?;
+    let pointer = cpp_sole_parameter(&list, innermost).filter(|parameter| {
+        syntax == LevelSyntax::Plain
+            && parameter.kind() == "parameter_declaration"
+            && cpp_is_recovered_member_pointer(parameter)
     });
+    match pointer {
+        Some(pointer) => Some(RecoveredLevel::Pointer(pointer)),
+        None => (innermost && (syntax == LevelSyntax::Function || cpp_list_is_a_calls(&list)))
+            .then_some(RecoveredLevel::MacroCall),
+    }
+}
+
+// Whether the innermost level's parameter list can only be a call's
+// argument list: it holds two or more arguments, an annotation a
+// function takes beside one, or a sole argument that is no plain
+// parameter (`FOO(N::*x = 3)`). An `ERROR` in the list is no argument.
+// `T (S::* [[maybe_unused]] p)` leaves its scope in one beside the
+// parameter: a data member this reader does not recover, and no call.
+fn cpp_list_is_a_calls(list: &Node) -> bool {
+    let mut arguments = cpp_parameters(list, true).filter(|child| !child.is_error());
+    match (arguments.next(), arguments.next()) {
+        (Some(_), Some(_)) => true,
+        (Some(sole), None) => sole.kind() != "parameter_declaration",
+        (None, _) => false,
+    }
+}
+
+// What a `function_declarator` carries beside its name and its
+// parameter list.
+#[derive(PartialEq)]
+enum LevelSyntax {
+    // Nothing that tells: a lone member pointer's level.
+    Plain,
+    // `alignas(…)` and nothing else that tells. The grammars read it as
+    // the `type_qualifier` a trailing `const` is. GCC accepts it after a
+    // data member's declarator and after a method's alike (`T (S::*pa)
+    // alignas(16);`, `FOO(S::*p) alignas(16);`) and the standard after
+    // neither, so it shows no call and leaves no lone member pointer.
+    Alignas,
+    // A child only a function's declarator takes (`node-types.json`
+    // lists these beside the attributes and the GNU asm label, which a
+    // variable takes too), or a destructor's name, which no member's
+    // type spells: `~DTOR(S::*x);` is the destructor the macro expands
+    // to.
+    Function,
+}
+
+fn cpp_level_syntax(level: &Node) -> LevelSyntax {
+    let mut syntax = LevelSyntax::Plain;
+    for child in level.children() {
+        match child.kind() {
+            // role-bypass: allow(Modifier) — which qualifier a variable's
+            // declarator takes too; not whether the node is a modifier
+            "type_qualifier"
+                if child
+                    .children()
+                    .any(|qualifier| qualifier.kind() == "alignas_qualifier") =>
+            {
+                syntax = LevelSyntax::Alignas;
+            }
+            "type_qualifier"
+            | "destructor_name"
+            | "ref_qualifier"
+            | "virtual_specifier"
+            | "noexcept"
+            | "throw_specifier"
+            | "trailing_return_type"
+            | "requires_clause" => return LevelSyntax::Function,
+            _ => {}
+        }
+    }
+    syntax
+}
+
+// The parameter of a list that holds exactly one.
+fn cpp_sole_parameter<'a>(list: &Node<'a>, innermost: bool) -> Option<Node<'a>> {
+    let mut parameters = cpp_parameters(list, innermost);
     let sole = parameters.next()?;
     parameters.next().is_none().then_some(sole)
 }
 
-// A Mozcpp `macro_annotation` that only a variable takes, told by its
+// What a level's parameter list holds between its parentheses and
+// after them, without the comments and the annotations that decide
+// nothing.
+fn cpp_parameters<'a>(list: &Node<'a>, innermost: bool) -> impl Iterator<Item = Node<'a>> {
+    // role-bypass: allow(Comment) — stepping over a comment between two
+    // parameters; not whether the node is one
+    list.children().filter(move |child| {
+        child.is_named()
+            && child.kind() != "comment"
+            && !cpp_annotation_decides_nothing(child, innermost)
+    })
+}
+
+// Whether a Mozcpp `macro_annotation` in a level's parameter list is
+// stepped over as a comment is. The fork reads an annotation macro
+// after a declarator as a `macro_annotation` inside the list, after its
+// `)`. Only the innermost level can be a macro call, so on any other
+// level the annotation is a later declarator's or a pointee's and
+// decides nothing. On the innermost one, an annotation that only a
+// variable takes decides nothing either
+// (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;` is data), told by its
 // one token: the fork gives each annotation macro a token of its own.
 // Mozilla's `mfbt/Attributes.h` documents these three for a class
-// member or a pointer declaration and for nothing else. Two more that a
-// variable can carry are left out, because a function carries them too
-// and they prove nothing: `MOZ_MAYBE_UNUSED`, documented for a
-// function, and `MOZ_NORETURN_PTR`, the `noreturn` of a function
-// pointer. A data member under either still reads as a method on this
-// grammar (pinned, FIXME(#1829)). `MOZ_UNSAFE_REF(…)` is a pointer's
-// too, but takes an argument: the grammars recover a member under it
-// in other shapes, which this does not read.
-fn cpp_is_variable_only_annotation(node: &Node) -> bool {
+// member or a pointer declaration and for nothing else. Any other stays
+// counted there, as every one was before the recovery was read:
+// `FOO(S::*p) MOZ_CAN_RUN_SCRIPT;` is then no lone member pointer, and
+// the call stays the method it reads as. That includes two a variable
+// can carry, because a function carries them too and they prove
+// nothing: `MOZ_MAYBE_UNUSED`, documented for a function, and
+// `MOZ_NORETURN_PTR`, the `noreturn` of a function pointer. A data
+// member under either still reads as a method on this grammar (pinned,
+// FIXME(#1829)). `MOZ_UNSAFE_REF(…)` is a pointer's too, but takes an
+// argument: the grammars recover a member under it in other shapes,
+// which this does not read.
+fn cpp_annotation_decides_nothing(node: &Node, innermost: bool) -> bool {
     node.kind() == "macro_annotation"
-        && node.children().next().is_some_and(|name| {
-            matches!(
-                name.kind(),
-                "MOZ_INIT_OUTSIDE_CTOR" | "MOZ_NON_OWNING_REF" | "MOZ_OWNING_REF"
-            )
-        })
+        && (!innermost
+            || node.children().next().is_some_and(|name| {
+                matches!(
+                    name.kind(),
+                    "MOZ_INIT_OUTSIDE_CTOR" | "MOZ_NON_OWNING_REF" | "MOZ_OWNING_REF"
+                )
+            }))
 }
 
 // Whether a parameter is a recovered member pointer that names a
@@ -467,7 +552,12 @@ pub(crate) fn cpp_recovered_declaration_data_members(declaration: &Node) -> usiz
                 && cpp_parenthesized_name(child).is_none()
         })
         .flat_map(|declarator| cpp_recovered_member_pointers(&declarator))
-        .filter(|pointer| !cpp_answer(DeclaratorQuestion::RecoveredPointer(pointer.children())))
+        .filter(|level| match level {
+            RecoveredLevel::Pointer(pointer) => {
+                !cpp_answer(DeclaratorQuestion::RecoveredPointer(pointer.children()))
+            }
+            RecoveredLevel::MacroCall => false,
+        })
         .count()
 }
 
@@ -613,11 +703,11 @@ enum DeclaratorQuestion<'a> {
     // Whether every child of a `parenthesized_declarator` still reads as
     // a function.
     Parenthesized(Children<'a>),
-    // Whether a `function_declarator` is a function: it is unless it
-    // holds recovered member pointers and every one is data. `seen`
-    // records whether it holds any.
+    // Whether a `function_declarator` declares a function: it does
+    // unless its chain yields levels and every one is a member pointer
+    // that is data. `seen` records whether it yields any.
     RecoveredChain {
-        pointers: Box<dyn Iterator<Item = Node<'a>> + 'a>,
+        levels: Box<dyn Iterator<Item = RecoveredLevel<'a>> + 'a>,
         seen: bool,
     },
     // Whether a function sits under one recovered member pointer.
@@ -653,7 +743,7 @@ impl<'a> DeclaratorQuestion<'a> {
     fn undecided(&self) -> bool {
         match self {
             Self::Parenthesized(_) => true,
-            // No recovered member pointer: an ordinary method.
+            // No level yielded anything: an ordinary method.
             Self::RecoveredChain { seen, .. } => !seen,
             Self::AnyChild { .. } | Self::RecoveredPointer(_) => false,
         }
@@ -676,10 +766,15 @@ impl<'a> DeclaratorQuestion<'a> {
             Self::Parenthesized(children) => children
                 .next()
                 .map(|child| cpp_parenthesized_child_verdict(&child)),
-            Self::RecoveredChain { pointers, seen } => {
-                let pointer = pointers.next()?;
+            Self::RecoveredChain { levels, seen } => {
+                let level = levels.next()?;
                 *seen = true;
-                Some(Verdict::Ask(Self::RecoveredPointer(pointer.children())))
+                Some(match level {
+                    RecoveredLevel::Pointer(pointer) => {
+                        Verdict::Ask(Self::RecoveredPointer(pointer.children()))
+                    }
+                    RecoveredLevel::MacroCall => Verdict::Known(true),
+                })
             }
             Self::RecoveredPointer(children) => children.next().map(|child| match child.kind() {
                 "abstract_function_declarator" => Verdict::Known(true),

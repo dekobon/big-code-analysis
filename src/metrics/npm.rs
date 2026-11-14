@@ -6848,6 +6848,95 @@ class C {
          struct B { FOO(B::*p) MOZ_MAYBE_UNUSED; };\n\
          struct C { FOO(C::*p) MOZ_NORETURN_PTR; };\n";
 
+    // A comma list headed by a macro call that stays a method, with
+    // member pointers after it. Each macro expands to a method's
+    // declarator, so the list declares that method and the data members
+    // after it: `int get() const, (S::*q);` is `get` and `q`. The call's
+    // level is the innermost of the recovered chain, and the chain
+    // declares a function when that level shows a call: function-only
+    // syntax on it (`A`, `B`), a second argument (`C`), or an argument
+    // that is no plain parameter (`O`, with a default). A reader that
+    // asked only whether the chain's member pointers are all data
+    // dropped the method (nm 0), and `origin/main` read no method
+    // either (na 9 / nm 0: it took each call but `O`'s for data). Valid
+    // C++20.
+    //
+    // expected: one method per class `A` to `O`, nm 4; `S`'s `m`, `q`
+    // four times and `B`'s `r`, na 6.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MACRO_CALL_BEFORE_MEMBER_POINTERS: &str = "#define GET(ignored) int get()\n\
+         #define GET2(type, ignored) type get2()\n\
+         struct S { int m; };\n\
+         struct A { GET(S::*p) const, (S::*q); };\n\
+         struct B { GET(S::*p) noexcept, (S::*q), (S::*r); };\n\
+         struct C { GET2(int, S::*p), (S::*q); };\n\
+         struct O { GET(S::*p = 3), (S::*q); };\n";
+
+    // A pointer to member function whose pointee carries what a macro
+    // call's level would: a trailing `const`, and two parameters with
+    // `noexcept`. The recovery puts the pointee's parameter list and its
+    // qualifiers on the level outside the pointer's, and only the
+    // innermost level can be a macro call, so both stay data. A reader
+    // that took a call on any level read both as methods. Valid C++20.
+    //
+    // expected: `fc`, `fn` and `z9` are data, na 3 / nm 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const QUALIFIED_POINTEE_MEMBER_POINTERS: &str = "struct S {\n\
+             static constexpr int (S::*fc)() const = nullptr;\n\
+             static inline int (S::*fn)(int, int) noexcept = nullptr;\n\
+             int z9;\n\
+         };\n";
+
+    // `alignas` after the declarator shows no call. The grammars read it
+    // as the `type_qualifier` a trailing `const` is, but GCC accepts it
+    // after a data member's declarator and after a method's alike, and
+    // the standard after neither (clang rejects both lines below), so
+    // it is not the function-only syntax that makes a macro call of the
+    // first declarator. Not standard C++, and no reading is claimed
+    // right: the control is that the comma list gains no method, and
+    // that both lines read as they did before a chain yielded calls
+    // (`pb` and the call's argument unread, `pc` data, `FOO`'s line the
+    // method `origin/main` read).
+    //
+    // expected (unchanged): `pc` and `z9`, na 2; `FOO`'s line, nm 1.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const TRAILING_ALIGNAS: &str = "#define FOO(ignored) int f()\n\
+         struct T {};\n\
+         struct S {\n\
+             T (S::*pb) alignas(16), (S::*pc);\n\
+             FOO(S::*p) alignas(16);\n\
+             int z9;\n\
+         };\n";
+
+    // Comma lists with a Mozilla annotation, which the Mozcpp fork reads
+    // inside a level's parameter list. Only the innermost level can be a
+    // macro call, so an annotation on a later declarator decides
+    // nothing, whichever it is: `E`'s `q` is data and `I`'s `get` the
+    // method it is. On the first declarator one only a variable takes
+    // leaves `F`'s `p` data, and one a function takes keeps `G`'s call
+    // the method heading its list. Before this an annotation that was
+    // not stepped over made its level no member pointer, and a level
+    // that was none was skipped, which dropped a declarator from each
+    // class but `F` (na 6 / nm 0); `origin/main` dropped none (na 8 /
+    // nm 1, `G`'s call read as data). Valid C++20 with the macros
+    // defined as here.
+    //
+    // expected (Mozcpp): `m`, `E`'s `p` and `q`, `F`'s `p` and `q`,
+    // `G`'s `q` and `I`'s `p`, na 7; `G`'s call and `I`'s `get`, nm 2.
+    // The upstream grammar leaves each annotation in an `ERROR` and
+    // reads `G`'s call as data, as `origin/main` did; not pinned.
+    #[cfg(feature = "mozcpp")]
+    const ANNOTATED_COMMA_LISTS: &str = "#define GET(ignored) int get()\n\
+         #define MOZ_MAYBE_UNUSED\n\
+         #define MOZ_OWNING_REF\n\
+         #define MOZ_CAN_RUN_SCRIPT\n\
+         struct T {};\n\
+         struct S { int m; };\n\
+         struct E { T (S::*p), (S::*q) MOZ_MAYBE_UNUSED; };\n\
+         struct F { T (S::*p) MOZ_OWNING_REF, (S::*q); };\n\
+         struct G { GET(S::*p) MOZ_CAN_RUN_SCRIPT, (S::*q); };\n\
+         struct I { T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT; };\n";
+
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
     // the method consumer reads through `cpp_parenthesized_child_verdict`
@@ -6889,6 +6978,18 @@ class C {
             assert_eq!(metric.npa.class_na_sum(), 4);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
+        check_metrics_with_npa::<P>(MACRO_CALL_BEFORE_MEMBER_POINTERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 6);
+            assert_eq!(metric.npm.class_nm_sum(), 4);
+        });
+        check_metrics_with_npa::<P>(QUALIFIED_POINTEE_MEMBER_POINTERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(TRAILING_ALIGNAS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 1);
+        });
         check_metrics_with_npa::<P>(
             PARENTHESISED_NAME_BESIDE_MEMBER_POINTER,
             "foo.cpp",
@@ -6917,6 +7018,10 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 3);
             },
         );
+        check_metrics_with_npa::<MozcppParser>(ANNOTATED_COMMA_LISTS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 7);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+        });
     }
 
     // The readers of #1885's recovery follow the declarator nesting the
@@ -7026,26 +7131,28 @@ class C {
     // `FOO(S::*p) MOZ_MAYBE_UNUSED;`, which must stay a method
     // (`FUNCTION_ANNOTATED_MACRO_CALLS`). Nothing the reader matches
     // tells the two apart, so the member stays the method `origin/main`
-    // read (truth na 3 / nm 0, reads na 2 / nm 1). The upstream grammar
-    // leaves the annotation in an `ERROR` and reads the member right.
+    // read (truth na 3 / nm 0, reads na 2 / nm 1). At the head of a
+    // comma list, `T (R::*p) MOZ_MAYBE_UNUSED, (R::*q);`, it reads as a
+    // method too, with `q` as data (truth na 2 / nm 0, reads na 1 /
+    // nm 1; `origin/main` read both as data). The upstream grammar
+    // leaves the annotation in an `ERROR` and reads each member right.
     //
-    // A comma list loses a declarator that is no lone member pointer.
-    // The recovery nests one `function_declarator` level per declarator,
-    // and the reader skips a level it does not read as a lone recovered
-    // pointer, where `origin/main` counted every level as data. The
-    // method a macro call heading the list expands to is dropped (`GET(
-    // S::*p) const, (S::*q);` is `int get() const, (S::*q);`: truth
-    // na 1 / nm 1, reads na 1 / nm 0), and so is a data member with a
-    // GNU attribute inside its parentheses, first in the list or later
-    // (truth na 2 / nm 0, reads na 1 / nm 0 each; `origin/main` read
-    // both right). Reading the skipped first level as a function fixes
-    // the macro call and turns the attributed data member into a
-    // method, so it is not done. On the Mozcpp grammar an annotation
-    // after a later declarator drops that one too: the data member `q`
-    // of `T (S::*p), (S::*q) MOZ_MAYBE_UNUSED;` and the method `get` of
-    // `T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT;` (truth na 2 / nm 0
-    // and na 1 / nm 1, each reads na 1 / nm 0), which the upstream
-    // grammar and `origin/main` read right.
+    // A comma list still loses a declarator that is neither a lone
+    // member pointer nor shown to be a macro call. The recovery nests
+    // one `function_declarator` level per declarator, and the reader
+    // skips a level it reads as neither, where `origin/main` counted
+    // every level as data. So a data member with a GNU attribute inside
+    // its parentheses is dropped, first in the list or later (`U`, `W`:
+    // truth na 2 / nm 0, reads na 1 / nm 0 each; `origin/main` read both
+    // right), and so is the method of a macro call whose one argument
+    // names nothing (`D`: `DECL_METHOD(S::*), (S::*q);` is `int S::*
+    // getp(), (S::*q);`, truth na 1 / nm 1, reads na 1 / nm 0). The
+    // reader does not yet tell `D`'s call from `U`'s unread data member.
+    // Their trees differ (`U`'s parameter holds the attribute, and its
+    // list an `ERROR` with the name), but reading every first level
+    // that is no lone pointer as a function turned `U`'s `p` into a
+    // method, so neither is read until a rule for `D`'s shape is shown
+    // safe.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
@@ -7071,21 +7178,16 @@ class C {
     const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
         "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const COMMA_LISTS_THAT_LOSE_A_DECLARATOR: &str = "#define GET(ignored) int get()\n\
+    const COMMA_LISTS_THAT_LOSE_A_DECLARATOR: &str = "#define DECL_METHOD(scope_pointer) int scope_pointer getp()\n\
          struct T {};\nstruct S { int m; };\n\
-         struct A { GET(S::*p) const, (S::*q); };\n\
+         struct D { DECL_METHOD(S::*), (S::*q); };\n\
          struct U { T (S::* __attribute__((unused)) p), (S::*q); };\n\
          struct W { T (S::*p), (S::* __attribute__((unused)) q); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const ANNOTATED_LATER_DECLARATORS: &str = "#define MOZ_MAYBE_UNUSED\n\
-         #define MOZ_CAN_RUN_SCRIPT\n\
-         struct T {};\nstruct S { int m; };\n\
-         struct E { T (S::*p), (S::*q) MOZ_MAYBE_UNUSED; };\n\
-         struct I { T (S::*p), (S::*get()) MOZ_CAN_RUN_SCRIPT; };\n";
-    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER: &str = "#define MOZ_MAYBE_UNUSED\n\
+    const AMBIGUOUSLY_ANNOTATED_MEMBER_POINTERS: &str = "#define MOZ_MAYBE_UNUSED\n\
          struct T {};\nstruct S {\n  T t0;\n  \
-         static inline int (S::*pd) MOZ_MAYBE_UNUSED = nullptr;\n  int z9;\n};\n";
+         static inline int (S::*pd) MOZ_MAYBE_UNUSED = nullptr;\n  int z9;\n};\n\
+         struct R { T (R::*p) MOZ_MAYBE_UNUSED, (R::*q); };\n";
 
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_type_named_member_pointers_still_misread<P: crate::MetricSuite>() {
@@ -7141,7 +7243,7 @@ class C {
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
-        // `m`, and one declarator of `A`, `U` and `W` each: truth na 6 /
+        // `m`, and one declarator of `D`, `U` and `W` each: truth na 6 /
         // nm 1.
         check_metrics_with_npa::<P>(COMMA_LISTS_THAT_LOSE_A_DECLARATOR, "foo.cpp", |metric| {
             assert_eq!(metric.npa.class_na_sum(), 4);
@@ -7153,19 +7255,15 @@ class C {
     #[test]
     fn cpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<CppParser>();
-        // The controls of the Mozcpp-only misreadings: read right here.
+        // The control of the Mozcpp-only misreadings: read right here.
         check_metrics_with_npa::<CppParser>(
-            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER,
+            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTERS,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 5);
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
-        check_metrics_with_npa::<CppParser>(ANNOTATED_LATER_DECLARATORS, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 4);
-            assert_eq!(metric.npm.class_nm_sum(), 1);
-        });
     }
 
     #[cfg(feature = "mozcpp")]
@@ -7173,18 +7271,13 @@ class C {
     fn mozcpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<MozcppParser>();
         check_metrics_with_npa::<MozcppParser>(
-            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER,
+            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTERS,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2);
-                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
-        // `m`, and `p` of `E` and of `I`: truth na 4 / nm 1.
-        check_metrics_with_npa::<MozcppParser>(ANNOTATED_LATER_DECLARATORS, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 3);
-            assert_eq!(metric.npm.class_nm_sum(), 0);
-        });
     }
 
     #[cfg(feature = "cpp")]

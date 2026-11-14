@@ -415,22 +415,25 @@ for historical reference.
   has a second argument beside it (`DEFINE_GETTER(int, S::*x);`) or
   anything only a function takes with it: `virtual`, `explicit` or
   `consteval` before it, a destructor's `~`, or `override`, `const`,
-  `&`, `noexcept`, a return type or `requires` after it. One macro
+  `&`, `noexcept`, a return type or `requires` after it. A call shown
+  by its level's syntax or by a second argument is a method at the
+  head of a comma list too, where it counted as an attribute:
+  `GET(S::*p) const, (S::*q);` is one method and the attribute `q`.
+  One macro
   call cannot be told from the data member: `FOO(S::*x);` is token for
   token `T (S::*pd);`, and now counts as an attribute too. Some
   spellings are still misread, among them `T (S::*pd) = 0;`,
   `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;`, a comma list after one
   (`T (S::*pd), f();`), and the macro calls `int DECL(S::*p);` and
   `[[noreturn]] FOO(S::*x);`, which count as attributes. A comma list
-  loses a declarator that is no lone member pointer, where each
-  counted as an attribute before: the method a macro call heading the
-  list expands to (`GET(S::*p) const, (S::*q);`), and a data member
-  with a GNU attribute inside its parentheses
-  (`T (S::* __attribute__((unused)) p), (S::*q);`). On the Mozcpp
-  grammar a member pointer under an annotation a function takes too
-  (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as a method,
-  and an annotation after a later declarator of a comma list loses that
-  declarator. #1829 tracks them.
+  loses a declarator that is neither a lone member pointer nor shown to
+  be a macro call, where each counted as an attribute before: a data
+  member with a GNU attribute inside its parentheses
+  (`T (S::* __attribute__((unused)) p), (S::*q);`), and the method of a
+  call whose one argument names nothing (`DECL_METHOD(S::*), (S::*q);`).
+  On the Mozcpp grammar a member pointer under an annotation a function
+  takes too (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as
+  a method. #1829 tracks them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 2,000 declarator
