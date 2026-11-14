@@ -189,6 +189,10 @@ fn cpp_opens_with_standard_noreturn<'a>(declaration: &Node<'a>, code: &'a [u8]) 
         // attribute lists; not whether the node is one
         .filter(|child| child.kind() != "comment")
         .take_while(|child| child.kind() == "attribute_declaration")
+        // A list the grammars could not read says nothing: they leave
+        // the `using gnu:` of `[[using gnu: unused, noreturn]]` in an
+        // `ERROR` and its attributes with no namespace.
+        .filter(|attributes| !attributes.has_error())
         .flat_map(|attributes| attributes.children())
         .any(|attribute| {
             attribute.child_by_field_name("prefix").is_none()

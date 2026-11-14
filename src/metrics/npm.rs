@@ -7006,6 +7006,9 @@ class C {
     // does the word in an attribute's argument (`pb`), nor `noreturn`
     // under a namespace, which both compilers accept on a member pointer
     // (`pn`, `pm`; GCC warns that it ignores it, and clang too on `pn`).
+    // The namespace may stand once before the list, `[[using gnu: …]]`,
+    // which the grammars leave in an `ERROR` with the attributes after
+    // it bare: a reader that read such a list took `pu` for a method.
     // A lone identifier before the type is an annotation macro as easily
     // as a type, so the member under one stays data whether its own type
     // is a name or a keyword (`pd`, `pe`). After a written type, a second
@@ -7032,8 +7035,8 @@ class C {
     //
     // Valid C++20 with the macros defined as here, but for `pk` and `pl`.
     //
-    // expected: `pa`, `pb`, `pn`, `pm`, `pd`, `pe`, `pf`, `pg`, `ph`,
-    // `pi`, `pj`, `pk`, `pl`, `pw` and `z9` are data, na 15 / nm 0.
+    // expected: `pa`, `pb`, `pn`, `pu`, `pm`, `pd`, `pe`, `pf`, `pg`,
+    // `ph`, `pi`, `pj`, `pk`, `pl`, `pw` and `z9` are data, na 16 / nm 0.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTERS_NO_FIRST_WORD_SETTLES: &str = "#define MOZ_X\n\
          #define APIENTRY\n\
@@ -7042,6 +7045,7 @@ class C {
              [[maybe_unused]] T (S::*pa);\n\
              [[deprecated(\"noreturn\")]] T (S::*pb);\n\
              [[gnu::noreturn]] T (S::*pn);\n\
+             [[using gnu: unused, noreturn]] T (S::*pu);\n\
              [[gnu::noreturn]] T (S::*pm)(int);\n\
              MOZ_X T (S::*pd);\n\
              MOZ_X int (S::*pe);\n\
@@ -7150,7 +7154,7 @@ class C {
             },
         );
         check_metrics_with_npa::<P>(MEMBER_POINTERS_NO_FIRST_WORD_SETTLES, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 15);
+            assert_eq!(metric.npa.class_na_sum(), 16);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(NORETURN_THAT_SETTLES_NOTHING, "foo.cpp", |metric| {
