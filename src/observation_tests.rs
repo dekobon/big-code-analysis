@@ -469,10 +469,10 @@ fn every_seam_folds_the_js_binding_question() {
     let readings: Vec<_> = seams
         .iter()
         .map(|&(name, _, run)| {
-            let before = (fold_steps::observed(), fold_slot_probes::observed());
+            let (steps, probes) = (fold_steps::observed(), fold_slot_probes::observed());
             run(&ast);
-            let folded = fold_steps::observed() - before.0;
-            (name, folded, fold_slot_probes::observed() - before.1)
+            let folded = fold_steps::observed() - steps;
+            (name, folded, fold_slot_probes::observed() - probes)
         })
         .collect();
     let expected: Vec<_> = seams

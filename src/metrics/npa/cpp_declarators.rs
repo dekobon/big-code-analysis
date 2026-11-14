@@ -266,14 +266,13 @@ fn cpp_recovered_member_pointer_in_bitfield<'a>(
     let payload = clause
         .children()
         .find(|child| child.is_named() && child.kind() != "comment")?;
-    let expression = if after_colon || cpp_is_recovered_colon(&payload) {
-        if payload.is_error() {
-            payload.children().find(Node::is_named)?
-        } else {
-            payload
-        }
-    } else {
+    if !after_colon && !cpp_is_recovered_colon(&payload) {
         return None;
+    }
+    let expression = if payload.is_error() {
+        payload.children().find(Node::is_named)?
+    } else {
+        payload
     };
     if expression.kind() == "assignment_expression" {
         return expression.child_by_field_name("left");

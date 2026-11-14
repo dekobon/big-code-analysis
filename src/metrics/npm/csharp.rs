@@ -93,9 +93,7 @@ fn csharp_interface_member_public_method_count(member: &Node, total: usize) -> u
     // role-bypass: allow(FuncOpener) — which callable is hidden from the
     // public surface, not whether the member is one
     let hidden = member.kind_id() == ConstructorDeclaration
-        || member
-            .first_child(|id| id == ExplicitInterfaceSpecifier)
-            .is_some()
+        || member.is_child(ExplicitInterfaceSpecifier as u16)
         || (member.kind_id() == MethodDeclaration
             && csharp_is_partial(member)
             && !super::npa::csharp_is_explicit_public(member));

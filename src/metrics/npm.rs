@@ -2102,12 +2102,7 @@ mod tests {
              }
              @interface An { record Q(int a) { } }
              trait T { static record S(int a) { } }";
-        let parser = GroovyParser::new(
-            source.as_bytes().to_vec(),
-            std::path::Path::new("members.groovy"),
-            None,
-        );
-        assert!(!parser.root().has_error(), "every member record parses");
+        assert_parses_cleanly::<GroovyParser>(source, "members.groovy");
         assert_fixture_spells::<GroovyParser>(
             source,
             "members.groovy",
