@@ -4796,7 +4796,8 @@ record A(int x) {}",
 
     /// A `def` component and a `def` or untyped constructor parameter
     /// declare the same type, so `R(def a)` and `S(a)` are the canonical
-    /// constructors and close their headers. dekobon-tree-sitter-groovy
+    /// constructors and close their headers, and `var` is `def`'s twin
+    /// (`V`, `W`; groovyc 4.0.32 compiles all four). dekobon-tree-sitter-groovy
     /// 0.6.0 reads a parameter's `def` as a keyword outside its `type`
     /// field, where the component's is still its `type_identifier`;
     /// comparing those spellings opened `R`'s header beside its own
@@ -4810,7 +4811,8 @@ record A(int x) {}",
     #[test]
     fn groovy_def_component_matches_a_def_or_untyped_parameter() {
         check_spaces::<GroovyParser, _>(
-            "record R(def a) { R(def a) { } }\nrecord S(def a) { S(a) { } }\n",
+            "record R(def a) { R(def a) { } }\nrecord S(def a) { S(a) { } }\n\
+             record V(var a) { V(var a) { } }\nrecord W(var a) { W(a) { } }\n",
             "r.groovy",
             |space| {
                 assert_eq!(
@@ -4820,9 +4822,13 @@ record A(int x) {}",
                         row("R", SpaceKind::Function, 1),
                         row("S", SpaceKind::Class, 0),
                         row("S", SpaceKind::Function, 1),
+                        row("V", SpaceKind::Class, 0),
+                        row("V", SpaceKind::Function, 1),
+                        row("W", SpaceKind::Class, 0),
+                        row("W", SpaceKind::Function, 1),
                     ]
                 );
-                assert_eq!(space.metrics.nargs.function_args_sum(), 2);
+                assert_eq!(space.metrics.nargs.function_args_sum(), 4);
             },
         );
     }

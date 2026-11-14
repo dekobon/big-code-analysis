@@ -2023,7 +2023,10 @@ mod tests {
     /// pinned grammar recovers it through an `ERROR` and opens no space
     /// for it, so `An` has no child row: the gap is pinned so a grammar
     /// bump that parses it moves this test to the `(1, 1)` the arm
-    /// already answers.
+    /// already answers. The arm asks the interface body's own rule
+    /// (`interface_member_is_public`), whose one non-public case, a
+    /// `private` member record, javac rejects: no valid fixture tells
+    /// that call from a constant `true`, so nothing here pins it.
     #[cfg(feature = "java")]
     #[test]
     fn java_interface_member_record_constructor_is_public() {
@@ -2065,7 +2068,10 @@ mod tests {
     /// makes every such constructor public: a header counts as public
     /// on the record's own `public` in a class, and in an interface, a
     /// trait or an annotation type unless the record is `private` or
-    /// `protected`, the rule every member there reads (`V`, #1880).
+    /// `protected`, the rule every member there reads (`V` and `W`,
+    /// #1880; groovyc 4.0.32 compiles both, where it rejects a
+    /// `protected` method or field, so `W` is the valid program that
+    /// reaches the rule's `protected` half).
     /// `private` and `protected` are not `public` in a class either
     /// (`E`, `F`), and the body asked is the record's own: a record in a
     /// class nested in an interface is in a class (`M`). Unlike Java's
@@ -2073,7 +2079,7 @@ mod tests {
     /// row.
     ///
     /// expected: one method each, the header; public for `R`, `P`, `O`,
-    /// `G`, `Q` and `S`, not for `V`, `M`, `D`, `E` and `F`.
+    /// `G`, `Q` and `S`, not for `V`, `W`, `M`, `D`, `E` and `F`.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_interface_member_record_constructor_is_public() {
@@ -2081,6 +2087,7 @@ mod tests {
                  record R(int a) { }
                  public record P(int a) { }
                  private record V(int a) { }
+                 protected record W(int a) { }
                  class N { record M(int a) { } public record O(int a) { } }
              }
              class C {
@@ -2101,7 +2108,7 @@ mod tests {
             source,
             "members.groovy",
             &[
-                (Groovy::RecordDeclaration as u16, 11, "member records"),
+                (Groovy::RecordDeclaration as u16, 12, "member records"),
                 (
                     Groovy::MethodDeclaration as u16,
                     0,
@@ -2126,7 +2133,13 @@ mod tests {
             let interface = child_space(&space, "I");
             assert_eq!(
                 rows(interface),
-                [("R", 1, 1), ("P", 1, 1), ("V", 1, 0), ("N", 0, 0)]
+                [
+                    ("R", 1, 1),
+                    ("P", 1, 1),
+                    ("V", 1, 0),
+                    ("W", 1, 0),
+                    ("N", 0, 0)
+                ]
             );
             assert_eq!(
                 rows(child_space(interface, "N")),

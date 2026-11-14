@@ -5960,6 +5960,65 @@ mod tests {
         }
     }
 
+    /// `npa/python-nested-self-targets` and its control are one nest: a
+    /// clean parse with one `tuple_pattern` per level at every rung, and
+    /// two renders that differ in the receiver and the innermost name
+    /// alone. The probe binds a distinct `self` attribute at each level
+    /// and the innermost, the control only its innermost `self.z`, so
+    /// the control prices the same target walk with nothing for the
+    /// attribute count to collect (#1867). A control given the probe's
+    /// receiver, or a probe whose names repeat and are absorbed by the
+    /// count's dedup, reads differently here and nowhere else.
+    ///
+    /// expected: `size + 1` attributes on the probe and 1 on the control,
+    /// at a small size and at the first rung.
+    #[test]
+    fn python_nested_target_probes_share_a_nest_and_differ_in_the_receiver() {
+        let [probe, control] = [
+            "npa/python-nested-self-targets",
+            "npa/python-nested-foreign-targets",
+        ]
+        .map(|name| {
+            PROBES
+                .iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{name} is a probe"))
+        });
+        assert_eq!(probe.sizes, control.sizes, "one ladder");
+        assert_eq!(
+            (probe.render)(3)
+                .replace("self.a", "db.a")
+                .replace("db.a00003", "self.z"),
+            (control.render)(3),
+            "the control is the probe's nest with a foreign receiver and its own innermost name"
+        );
+        for row in [probe, control] {
+            for size in row.sizes {
+                let ast = parse(row, size);
+                assert!(
+                    !ast.as_tree_sitter().root_node().has_error(),
+                    "{}: the shape parses cleanly at {size}",
+                    row.name
+                );
+                assert_eq!(
+                    count_kind(&ast, "tuple_pattern"),
+                    size,
+                    "{}: one pattern per level at {size}",
+                    row.name
+                );
+            }
+        }
+        for size in [3, probe.sizes[0]] {
+            let read = |row: &Probe| {
+                row.workload
+                    .walk(&parse(row, size), row.workload.options())
+                    .expect("metrics walk")
+            };
+            assert_eq!(read(probe), size as u64 + 1, "the probe at {size}");
+            assert_eq!(read(control), 1, "the control at {size}");
+        }
+    }
+
     /// `cognitive/python-wide-if-siblings`: every `if` is a direct child of
     /// the function's block (one `block` wider than `WIDE_PARENT`), none
     /// is under an `else_clause`, and the reading is exactly `width` —

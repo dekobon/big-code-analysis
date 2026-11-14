@@ -2846,8 +2846,9 @@ mod tests {
     }
 
     // `no_chain` in every position the attribute list can put it
-    // (#1793), every row reading `false`: the `Member` row is the one
-    // shape a `holds_payer` gate takes the modifier in, `Exit` the
+    // (#1793), every row reading `false`: the `Member` and
+    // `ShortCircuit` rows are the shape a `holds_payer` gate takes the
+    // modifier in, under each keyword, `Exit` the
     // plain gate alone and before `pays_itself`, `Catch` the text gate
     // alone, `Container` the two-fn owner with both fns marked in both
     // orders, `FuncOpener` the text gate after the fold has consumed an
@@ -2876,6 +2877,7 @@ mod tests {
                 owns [LambdaExpression(opens Function callable text_gated_by always_text_no_chain no_chain)]
             }
             Member { owns [FieldDeclaration(holds_payer text_gated_by always_text_no_chain no_chain)] pays [EQEQ] }
+            ShortCircuit { owns [BinaryExpression(holds_payer gated_by always_no_chain no_chain)] pays [AMPAMP] }
             Exit {
                 owns [ReturnStatement(gated_by always_no_chain no_chain), ThrowStatement(gated_by always_no_chain no_chain pays_itself)]
                 pays [Return]
@@ -4103,10 +4105,23 @@ mod tests {
     /// before `holds_payer` — the scan's twin arms, which no production
     /// row spells — in each keyword and chain shape, read by the three
     /// flags; and a payer's `text_gated_by`, which hands its gate the
-    /// bytes and leaves `TEXT_GATED`, an owner flag, false.
+    /// bytes and leaves `TEXT_GATED`, an owner flag, false. The gate
+    /// written after `holds_payer` keeps them too: the text one is read
+    /// by the tables above, and the plain one marked `no_chain`, the
+    /// arm no other row spells, by `dsl_no_chain`'s `ShortCircuit`,
+    /// whose one-argument fn builds only if the slot stays plain.
     #[test]
     fn a_gate_before_holds_payer_keeps_its_tag_and_modifier() {
         use dsl_gate_then_holds_payer::{call, comparison, member, short_circuit};
+        assert_eq!(
+            (
+                dsl_no_chain::short_circuit::TEXT_GATED,
+                dsl_no_chain::short_circuit::CHAIN_GATED,
+                dsl_no_chain::short_circuit::HOLDS_PAYER,
+            ),
+            (false, false, &[Java::BinaryExpression as u16][..]),
+            "holds_payer gated_by … no_chain"
+        );
         assert_eq!(
             [
                 (comparison::TEXT_GATED, comparison::CHAIN_GATED),

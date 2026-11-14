@@ -508,10 +508,14 @@ fn groovy_rows_feed_each_abc_path_independently() {
     );
     // Java's twin: an `instanceof` keyword error recovery strands under
     // an `ERROR` (the type lost at end of input) pays for no type test,
-    // since the payer is gated to its owner. Ungated, it paid one.
+    // since the payer is gated to its owner. Ungated, it paid one. `!in`,
+    // a token of its own since dekobon-tree-sitter-groovy 0.6.0, strands
+    // the same way and is gated the same way.
     let options = MetricsOptions::default().with_only(&[Metric::Abc]);
-    let root = space_verbatim(LANG::Groovy, b"def f(o) { o instanceof }\n", options);
-    assert_eq!(root.metrics.abc.conditions_sum(), 0);
+    for stranded in ["def f(o) { o instanceof }\n", "def f(a) { a !in }\n"] {
+        let root = space_verbatim(LANG::Groovy, stranded.as_bytes(), options);
+        assert_eq!(root.metrics.abc.conditions_sum(), 0, "{stranded:?}");
+    }
 }
 
 #[test]

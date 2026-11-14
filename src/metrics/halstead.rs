@@ -494,7 +494,9 @@ mod tests {
     use std::collections::{BTreeSet, HashSet};
     use std::path::PathBuf;
 
-    use crate::test_support::{ast_has_kind_id, check_metrics_only_shim, for_each_node_with_chain};
+    use crate::test_support::{
+        assert_parses_cleanly, ast_has_kind_id, check_metrics_only_shim, for_each_node_with_chain,
+    };
 
     use super::*;
 
@@ -7322,6 +7324,39 @@ end",
             under_error, 1,
             "`static var x` no longer recovers into an `ERROR` holding a `var` type_identifier"
         );
+        // The premise of the rows that read the keyword leaf since 0.6.0:
+        // each parses with no error and holds its `var` under the node
+        // named. Up to 0.5.0 the closure parameter and the `final` local
+        // read the same counts through an `ERROR`, so those two rows
+        // alone would stay green on a grammar that went back.
+        for (source, parent) in [
+            ("def m(var x) { x }\n", Groovy::FormalParameter),
+            ("class D { D(var a) { } }\n", Groovy::FormalParameter),
+            ("def c = { var x -> x }\n", Groovy::ClosureParameter),
+            ("def f() { try (var r = open()) { } }\n", Groovy::Resource),
+            (
+                "def f() { try { } catch (var e) { } }\n",
+                Groovy::CatchFormalParameter,
+            ),
+            (
+                "def f() { final var q = 5 }\n",
+                Groovy::LocalVariableDeclaration,
+            ),
+        ] {
+            assert_parses_cleanly::<GroovyParser>(source, "foo.groovy");
+            let parser = GroovyParser::new(
+                source.as_bytes().to_vec(),
+                &PathBuf::from("foo.groovy"),
+                None,
+            );
+            let parents: Vec<u16> = parser
+                .root()
+                .preorder()
+                .filter(|node| node.kind_id() == Groovy::Var as u16)
+                .filter_map(|node| node.parent().map(|parent| parent.kind_id()))
+                .collect();
+            assert_eq!(parents, [parent as u16], "{source:?}");
+        }
         assert_operator_rows::<GroovyParser>("foo.groovy", OPERATOR_ROWS);
         assert_operand_rows::<GroovyParser>("foo.groovy", OPERAND_ROWS);
         assert_operator_rows::<GroovyParser>("foo.groovy", TYPE_POSITION_ROWS);
@@ -8586,6 +8621,21 @@ end",
             ("<>", "List<String> l = null\n"),
         ];
         assert_spellings_bill_as_operators::<GroovyParser>("foo.groovy", ROWS);
+        // The premise of the stranded `!in` row, the one row that reaches
+        // the token outside a `membership_expression`: it sits directly
+        // under an `ERROR`.
+        let parser = GroovyParser::new(
+            b"def f(a) { a !in }\n".to_vec(),
+            &PathBuf::from("foo.groovy"),
+            None,
+        );
+        let stranded: Vec<bool> = parser
+            .root()
+            .preorder()
+            .filter(|node| node.kind_id() == Groovy::BANGin as u16)
+            .map(|node| node.parent().is_some_and(|parent| parent.is_error()))
+            .collect();
+        assert_eq!(stranded, [true], "`a !in` no longer strands its token");
         // The tokenless negated form pays the counting consumers at the
         // node, which is no token: the vocabulary is exactly the
         // declaration's, as before the rows.

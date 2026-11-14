@@ -743,7 +743,7 @@ mod tests {
     #[cfg(feature = "csharp")]
     use crate::test_support::assert_csharp_fixture_spells;
     use crate::test_support::{
-        assert_fixture_spells, ast_has_kind_id, check_func_space_only_shim,
+        assert_fixture_spells, assert_parses_cleanly, ast_has_kind_id, check_func_space_only_shim,
         check_metrics_only_shim, child_space, metrics_verbatim,
     };
     // Hand-written, not derived. A trait is used through its methods, so
@@ -3640,14 +3640,15 @@ mod tests {
         //
         // expected: 1, the `x = 1`; the three `final` initializers are
         // skipped, as a `final` field's is.
+        //
+        // Not pinned: where the search for `final` stops. It ends at the
+        // first declarator or `=`, and the grammar puts `final` before
+        // both, so the bound is an early exit no fixture can observe;
+        // moving it to the id the parser no longer reports changes no
+        // answer.
         let source =
             "class K { int x; def m() { final int a = 0; final b = 1; final def c = 2; x = 1 } }";
-        let parser = GroovyParser::new(
-            source.as_bytes().to_vec(),
-            &std::path::PathBuf::from("foo.groovy"),
-            None,
-        );
-        assert!(!parser.root().has_error(), "a `final` local parses clean");
+        assert_parses_cleanly::<GroovyParser>(source, "foo.groovy");
         check_metrics::<GroovyParser>(source, "foo.groovy", |metric| {
             assert_eq!(metric.abc.assignments_sum(), 1);
         });
@@ -3662,14 +3663,35 @@ mod tests {
     /// With the unsuffixed ids every field read zero attributes and no
     /// declarator or assignment value was a boolean slot.
     ///
-    /// expected: three declarators (a field, a `def` local, a script
-    /// local) and two assignments (in a method and at script level),
-    /// each reported as the `2` id only.
+    /// The fixture spells each position that reaches either rule. The
+    /// first line is the one production the unsuffixed declarator id
+    /// belongs to, the placeholder `_` a Jenkinsfile hangs `@Library`
+    /// on, whose `_` is itself a second `identifier` id. After it: two
+    /// declarators of one field, a `final` field, `def`, `final` and
+    /// `var` locals, a multiple assignment, a `for` initialiser and a
+    /// script local; and an assignment as a statement (the aliased
+    /// production), compound, to a property, chained, as an argument,
+    /// and in both clauses of a `for` header. groovyc 4.0.32 compiles
+    /// all but the first line, which needs Jenkins' annotation.
+    ///
+    /// expected: 11 declarators and 9 assignments, each reported as the
+    /// `2` id only, and every `identifier` as `Identifier`.
     #[cfg(feature = "groovy")]
     #[test]
     fn groovy_declarators_and_assignments_reach_kind_id_as_the_alias() {
+        let source = "@Library('shared') _\n\
+             class A { int f = 1, g = 2\n\
+             \x20 final h = 3\n\
+             \x20 def m() { def x = 1; final z = 2; var q = 3; def (a, b) = [1, 2]\n\
+             \x20   x = 2; x += 1; this.f = 3; x = q = 4; n(x = 5)\n\
+             \x20   for (def i = 0; i < 2; i++) { }\n\
+             \x20   for (j = 0; j < 2; j += 1) { }\n\
+             \x20 } }\n\
+             def y = 3\n\
+             y = 4\n";
+        assert_parses_cleanly::<GroovyParser>(source, "foo.groovy");
         let parser = GroovyParser::new(
-            b"class A { int f = 1\n  def m() { def x = 1; x = 2 } }\ndef y = 3\ny = 4\n".to_vec(),
+            source.as_bytes().to_vec(),
             &std::path::PathBuf::from("foo.groovy"),
             None,
         );
@@ -3683,12 +3705,13 @@ mod tests {
         };
         assert_eq!(
             ids("variable_declarator"),
-            [Groovy::VariableDeclarator2 as u16; 3]
+            [Groovy::VariableDeclarator2 as u16; 11]
         );
         assert_eq!(
             ids("assignment_expression"),
-            [Groovy::AssignmentExpression2 as u16; 2]
+            [Groovy::AssignmentExpression2 as u16; 9]
         );
+        assert_eq!(ids("identifier"), [Groovy::Identifier as u16; 28]);
     }
 
     #[cfg(feature = "csharp")]
