@@ -352,18 +352,42 @@ fn cpp_level_takes_function_syntax(level: &Node) -> bool {
 }
 
 // The parameter of a list that holds exactly one. The Mozcpp fork reads
-// an annotation macro after the declarator (`T (S::*pc)
-// MOZ_INIT_OUTSIDE_CTOR = nullptr;`) as a `macro_annotation` inside the
-// list, after its `)`; it is no parameter, and is stepped over as a
-// comment is.
+// an annotation macro after the declarator as a `macro_annotation`
+// inside the list, after its `)`. One that only a variable takes
+// (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`) is no parameter and is
+// stepped over as a comment is. Any other stays counted, as every one
+// was before the recovery was read: `FOO(S::*p) MOZ_CAN_RUN_SCRIPT;` is
+// then no lone member pointer, and the call stays the method it reads
+// as.
 fn cpp_sole_parameter<'a>(list: &Node<'a>) -> Option<Node<'a>> {
     // role-bypass: allow(Comment) — stepping over a comment between two
     // parameters; not whether the node is one
     let mut parameters = list.children().filter(|child| {
-        child.is_named() && !matches!(child.kind(), "comment" | "macro_annotation")
+        child.is_named() && child.kind() != "comment" && !cpp_is_variable_only_annotation(child)
     });
     let sole = parameters.next()?;
     parameters.next().is_none().then_some(sole)
+}
+
+// A Mozcpp `macro_annotation` that only a variable takes, told by its
+// one token: the fork gives each annotation macro a token of its own.
+// Mozilla's `mfbt/Attributes.h` documents these three for a class
+// member or a pointer declaration and for nothing else. Two more that a
+// variable can carry are left out, because a function carries them too
+// and they prove nothing: `MOZ_MAYBE_UNUSED`, documented for a
+// function, and `MOZ_NORETURN_PTR`, the `noreturn` of a function
+// pointer. A data member under either still reads as a method on this
+// grammar (pinned, FIXME(#1829)). `MOZ_UNSAFE_REF(…)` is a pointer's
+// too, but takes an argument: the grammars recover a member under it
+// in other shapes, which this does not read.
+fn cpp_is_variable_only_annotation(node: &Node) -> bool {
+    node.kind() == "macro_annotation"
+        && node.children().next().is_some_and(|name| {
+            matches!(
+                name.kind(),
+                "MOZ_INIT_OUTSIDE_CTOR" | "MOZ_NON_OWNING_REF" | "MOZ_OWNING_REF"
+            )
+        })
 }
 
 // Whether a parameter is a recovered member pointer that names a

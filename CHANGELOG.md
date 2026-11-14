@@ -402,9 +402,10 @@ for historical reference.
   named after the member's type, so `npm` counted a method and `npa`
   missed the attribute. A user type does it alone (`T`, `N::Q`,
   `V<int>`), and so do two specifiers before a primitive
-  (`static inline int (U::*pe) = nullptr;`). An annotation macro after
-  the declarator (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`) does
-  not change that on either grammar. Each such member now moves
+  (`static inline int (U::*pe) = nullptr;`). An annotation macro that
+  only a variable takes, written after the declarator
+  (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`), does not change that
+  on either grammar. Each such member now moves
   from `npm` to `npa`: `class_methods` falls and `class_attributes`
   rises by one, as do the public counts where the member is public,
   with the `total`, `coa` and `cda` values that follow. A macro call
@@ -420,8 +421,10 @@ for historical reference.
   spellings are still misread, among them `T (S::*pd) = 0;`,
   `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;`, a comma list after one
   (`T (S::*pd), f();`), and the macro calls `int DECL(S::*p);` and
-  `[[noreturn]] FOO(S::*x);`, which count as attributes; #1829 tracks
-  them.
+  `[[noreturn]] FOO(S::*x);`, which count as attributes. On the Mozcpp
+  grammar a member pointer under an annotation a function takes too
+  (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as a method.
+  #1829 tracks them.
 
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 2,000 declarator

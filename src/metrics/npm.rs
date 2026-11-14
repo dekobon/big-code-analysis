@@ -6808,20 +6808,50 @@ class C {
     // the macro in an `ERROR` beside the declarator; the Mozcpp fork
     // knows these names and reads a `macro_annotation` inside the
     // recovered parameter list, after its `)`, where a reader that
-    // counted it as a second parameter kept both members methods
-    // (na 1 / nm 2 on that grammar alone).
+    // counted it as a second parameter kept every such member a method
+    // (na 1 / nm 3 on that grammar alone). The three here are the
+    // annotations `mfbt/Attributes.h` documents for a class member or a
+    // pointer declaration and for nothing else, one member each.
     //
-    // expected: `pc`, `pd` and `z9` are data on both grammars, na 3 /
-    // nm 0.
+    // expected: `pc`, `pd`, `po` and `z9` are data on both grammars,
+    // na 4 / nm 0.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ANNOTATED_MEMBER_POINTERS: &str = "#define MOZ_INIT_OUTSIDE_CTOR\n\
-         #define MOZ_MAYBE_UNUSED\n\
+         #define MOZ_NON_OWNING_REF\n\
+         #define MOZ_OWNING_REF\n\
          struct T {};\n\
          struct S {\n\
              T (S::*const pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;\n\
-             static inline int (S::*pd) MOZ_MAYBE_UNUSED = nullptr;\n\
+             static inline int (S::*pd) MOZ_NON_OWNING_REF = nullptr;\n\
+             T (S::*po) MOZ_OWNING_REF = nullptr;\n\
              int z9;\n\
          };\n";
+
+    // The same position holding an annotation a function takes: the
+    // macro call it follows is the method it expands to, and on the
+    // Mozcpp grammar the annotation is what keeps it one, as `override`
+    // or a trailing `const` does on both. `A`'s is documented for a
+    // function alone. `B`'s and `C`'s a variable can carry too
+    // (`MOZ_MAYBE_UNUSED` is documented for a function,
+    // `MOZ_NORETURN_PTR` for a function pointer, and its `noreturn` a
+    // function takes as well), so they prove nothing, and the call
+    // keeps the reading `origin/main` gave it. Stepping over every
+    // annotation read all three calls as data, and stepping over the
+    // two ambiguous ones read `B` and `C` so (na 2 / nm 1). Valid C++20
+    // with the macros defined as here.
+    //
+    // expected (Mozcpp): nm 3, na 0. The upstream grammar reads none of
+    // the three: each macro call sits in a class-level `ERROR`, and the
+    // annotation after it parses as a `field_declaration` that holds a
+    // type and declares nothing (na 0 / nm 0), which is not pinned.
+    #[cfg(feature = "mozcpp")]
+    const FUNCTION_ANNOTATED_MACRO_CALLS: &str = "#define FOO(ignored) void foo()\n\
+         #define MOZ_CAN_RUN_SCRIPT\n\
+         #define MOZ_MAYBE_UNUSED\n\
+         #define MOZ_NORETURN_PTR\n\
+         struct A { FOO(A::*p) MOZ_CAN_RUN_SCRIPT; };\n\
+         struct B { FOO(B::*p) MOZ_MAYBE_UNUSED; };\n\
+         struct C { FOO(C::*p) MOZ_NORETURN_PTR; };\n";
 
     // Not C++ — the parameter has no type — but the one spelling that
     // puts a recovered member pointer beside a parenthesised name, which
@@ -6861,7 +6891,7 @@ class C {
             assert_eq!(metric.npm.class_nm_sum(), 1);
         });
         check_metrics_with_npa::<P>(ANNOTATED_MEMBER_POINTERS, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 3);
+            assert_eq!(metric.npa.class_na_sum(), 4);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(
@@ -6884,6 +6914,14 @@ class C {
     #[test]
     fn mozcpp_type_named_member_pointers_are_attributes() {
         assert_type_named_member_pointers_are_attributes::<MozcppParser>();
+        check_metrics_with_npa::<MozcppParser>(
+            FUNCTION_ANNOTATED_MACRO_CALLS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+            },
+        );
     }
 
     // The readers of #1885's recovery follow the declarator nesting the
@@ -6985,6 +7023,16 @@ class C {
     // same truth and reading). The type alias `T typedef (R::*pm_t);`
     // has its `typedef` read as the declared name (truth na 2 / nm 0,
     // reads na 3; `origin/main` read a method).
+    //
+    // One is misread on the Mozcpp grammar alone: a data member under an
+    // annotation a function takes too, `static inline int (S::*pd)
+    // MOZ_MAYBE_UNUSED = nullptr;`. The fork reads the annotation inside
+    // the recovered parameter list, as it does for the macro call
+    // `FOO(S::*p) MOZ_MAYBE_UNUSED;`, which must stay a method
+    // (`FUNCTION_ANNOTATED_MACRO_CALLS`). Nothing the reader matches
+    // tells the two apart, so the member stays the method `origin/main`
+    // read (truth na 3 / nm 0, reads na 2 / nm 1). The upstream grammar
+    // leaves the annotation in an `ERROR` and reads the member right.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ZERO_INITIALISED_TYPE_NAMED_MEMBER_POINTER: &str =
         "struct T {};\nstruct S {\n  T t0;\n  T (S::*pd) = 0;\n  int z9;\n};\n";
@@ -7009,6 +7057,10 @@ class C {
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTER_ALIAS_WITH_TRAILING_TYPEDEF: &str =
         "struct T {};\nstruct R {\n  T t0;\n  T typedef (R::*pm_t);\n  int z9;\n};\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER: &str = "#define MOZ_MAYBE_UNUSED\n\
+         struct T {};\nstruct S {\n  T t0;\n  \
+         static inline int (S::*pd) MOZ_MAYBE_UNUSED = nullptr;\n  int z9;\n};\n";
 
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_type_named_member_pointers_still_misread<P: crate::MetricSuite>() {
@@ -7070,12 +7122,29 @@ class C {
     #[test]
     fn cpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<CppParser>();
+        // The control of the Mozcpp-only misreading: read right here.
+        check_metrics_with_npa::<CppParser>(
+            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
     }
 
     #[cfg(feature = "mozcpp")]
     #[test]
     fn mozcpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<MozcppParser>();
+        check_metrics_with_npa::<MozcppParser>(
+            AMBIGUOUSLY_ANNOTATED_MEMBER_POINTER,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+            },
+        );
     }
 
     #[cfg(feature = "cpp")]
