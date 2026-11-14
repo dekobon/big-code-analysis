@@ -187,7 +187,10 @@ fn cpp_first_word<'a>(declaration: &Node<'a>, code: &'a [u8]) -> FirstWord {
 // attribute does not make every declaration under it a function: GCC
 // accepts it on a pointer to function, which is data (`[[noreturn]]
 // void (*fail)(int);`; clang rejects that), so it settles only what the
-// first word of a recovered declarator is. Under a namespace it settles
+// first word of a recovered declarator is. There it takes one spelling
+// only GCC accepts with the call: `[[noreturn]] T (S::*pd);`, a data
+// member under an attribute GCC warns that it ignores, reads as a
+// method (pinned, FIXME(#1829)). Under a namespace it settles
 // nothing: GCC and clang accept `[[gnu::noreturn]] T (S::*pm)(int);`, a
 // data member. The GNU and Microsoft spellings
 // (`__attribute__((noreturn))`, `__declspec(noreturn)`) are other node
@@ -720,12 +723,13 @@ fn cpp_is_recovered_member_pointer(parameter: &Node) -> bool {
 // counts nothing here. The method consumer reads the same declarators
 // through `cpp_declares_function`. The two share the pointers
 // (`cpp_recovered_member_pointers`), the verdict on each
-// (`DeclaratorQuestion::RecoveredPointer`) and the function-only
-// specifier test, and each gates and sums them itself, so a test added
-// to one side is added to the other;
-// `assert_no_declarator_is_claimed_twice` holds them together. A
-// declaration with no parse error holds no recovery, and its children
-// are not read.
+// (`DeclaratorQuestion::RecoveredPointer`), the function-only specifier
+// test and the first-word test (`cpp_is_named_function`), and each
+// gates and sums them itself, so a test added to one side is added to
+// the other. `npm`'s tests assert both counts on each fixture of the
+// recovery (`check_metrics_with_npa`), which is what holds the two
+// together. A declaration with no parse error holds no recovery, and
+// its children are not read.
 pub(crate) fn cpp_recovered_declaration_data_members<'a>(
     declaration: &Node<'a>,
     code: &'a [u8],

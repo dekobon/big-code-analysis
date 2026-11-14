@@ -422,20 +422,23 @@ for historical reference.
   by its level's syntax or by a second argument is a method at the
   head of a comma list too, where it counted as an attribute:
   `GET(S::*p) const, (S::*q);` is one method and the attribute `q`.
-  One macro call cannot be told from the data member: `FOO(S::*x);` is
-  token for token `T (S::*pd);`, and now counts as an attribute too.
-  Some spellings are still misread, among them `T (S::*pd) = 0;`,
-  `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;`, a comma list after one
-  (`T (S::*pd), f();`), and two macro calls that count as attributes:
-  one after a type written as a lone identifier (`T DECL(S::*p);`),
-  and one under `noreturn` in a GNU spelling
-  (`__attribute__((noreturn)) FOO(S::*x);`, `[[gnu::noreturn]]`). A
-  pointer to data member with an annotation macro between a written
-  type and its parentheses (`int MOZ_X (S::*pd);`) still counts as a
-  method. A comma list loses a declarator that is neither a lone member
-  pointer nor shown to be a macro call, where each counted as an
-  attribute before: a data member with a GNU attribute inside its
-  parentheses
+  Other macro calls cannot be told from the data member, and now count
+  as attributes where each counted as a method. `FOO(S::*x);` is token
+  for token `T (S::*pd);`. So is a call after a type written as one
+  identifier, a typedef name included (`T DECL(S::*p);`,
+  `DWORD DECL(S::*p);`), a call under `noreturn` in a GNU spelling
+  (`__attribute__((noreturn)) FOO(S::*x);`, `[[gnu::noreturn]]`), a
+  call inside a declarator's parentheses
+  (`void (*GET(S::*p))(int);`), and a call named by a reserved
+  identifier (`int __DECL(S::*p);`). Some spellings are still misread,
+  among them `T (S::*pd) = 0;`, `T (S::*arr)[2];`,
+  `T (S::*pe) = &S::t0;` and a comma list after one
+  (`T (S::*pd), f();`). A pointer to data member with an annotation
+  macro between a type the grammars read as nothing else and its
+  parentheses (`int MOZ_X (S::*pd);`) still counts as a method. A comma
+  list loses a declarator that is neither a lone member pointer nor
+  shown to be a macro call, where each counted as an attribute before:
+  a data member with a GNU attribute inside its parentheses
   (`T (S::* __attribute__((unused)) p), (S::*q);`), and the method of a
   call whose one argument names nothing (`DECL_METHOD(S::*), (S::*q);`).
   On the Mozcpp grammar a member pointer under an annotation a function

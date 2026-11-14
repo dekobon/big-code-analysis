@@ -6731,9 +6731,9 @@ class C {
     // `QQ`), a default argument, which makes the parameter an
     // `optional_parameter_declaration` (`OP`), `explicit` before a
     // constructor and before a conversion function (`EC`, `XC`),
-    // `consteval` (`CE`), and a destructor's name (`DT`). `origin/main`
-    // read all of these as methods; the first #1885 reader read the last
-    // four as data.
+    // `consteval` (`CE`), and a destructor's name (`DT`). The reader
+    // before #1885 read all of these as methods; the first #1885 reader
+    // read the last four as data.
     //
     // `BM` is the spelling no reader can decide: `FOO(BM::*x);` is token
     // for token the data member `T (S::*pd);`, and is read as one. The
@@ -6830,7 +6830,7 @@ class C {
     // (`MOZ_MAYBE_UNUSED` is documented for a function,
     // `MOZ_NORETURN_PTR` for a function pointer, and its `noreturn` a
     // function takes as well), so they prove nothing, and the call
-    // keeps the reading `origin/main` gave it. Stepping over every
+    // keeps the reading it had before #1885. Stepping over every
     // annotation read all three calls as data, and stepping over the
     // two ambiguous ones read `B` and `C` so (na 2 / nm 1). Valid C++20
     // with the macros defined as here.
@@ -6857,9 +6857,9 @@ class C {
     // syntax on it (`A`, `B`), a second argument (`C`), or an argument
     // that is no plain parameter (`O`, with a default). A reader that
     // asked only whether the chain's member pointers are all data
-    // dropped the method (nm 0), and `origin/main` read no method
-    // either (na 9 / nm 0: it took each call but `O`'s for data). Valid
-    // C++20.
+    // dropped the method (nm 0), and the reader before #1885 read no
+    // method either (na 9 / nm 0: it took each call but `O`'s for data).
+    // Valid C++20.
     //
     // expected: one method per class `A` to `O`, nm 4; `S`'s `m`, `q`
     // four times and `B`'s `r`, na 6.
@@ -6896,7 +6896,7 @@ class C {
     // right: the control is that the comma list gains no method, and
     // that both lines read as they did before a chain yielded calls
     // (`pb` and the call's argument unread, `pc` data, `FOO`'s line the
-    // method `origin/main` read).
+    // method it read before #1885).
     //
     // expected (unchanged): `pc` and `z9`, na 2; `FOO`'s line, nm 1.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
@@ -6917,14 +6917,14 @@ class C {
     // the method heading its list. Before this an annotation that was
     // not stepped over made its level no member pointer, and a level
     // that was none was skipped, which dropped a declarator from each
-    // class but `F` (na 6 / nm 0); `origin/main` dropped none (na 8 /
-    // nm 1, `G`'s call read as data). Valid C++20 with the macros
-    // defined as here.
+    // class but `F` (na 6 / nm 0); the reader before #1885 dropped none
+    // (na 8 / nm 1, `G`'s call read as data). Valid C++20 with the
+    // macros defined as here.
     //
     // expected (Mozcpp): `m`, `E`'s `p` and `q`, `F`'s `p` and `q`,
     // `G`'s `q` and `I`'s `p`, na 7; `G`'s call and `I`'s `get`, nm 2.
     // The upstream grammar leaves each annotation in an `ERROR` and
-    // reads `G`'s call as data, as `origin/main` did; not pinned.
+    // reads `G`'s call as data, as it did before #1885; not pinned.
     #[cfg(feature = "mozcpp")]
     const ANNOTATED_COMMA_LISTS: &str = "#define GET(ignored) int get()\n\
          #define MOZ_MAYBE_UNUSED\n\
@@ -7072,9 +7072,10 @@ class C {
     // on a comma list of member pointers (`pa`, `pb`) and after a
     // specifier (`ps`). Clang rejects all four lines, so this is not
     // standard C++, and no reading is claimed right: the control is that
-    // the attribute makes no method of whatever follows it, that a
-    // declarator of more than one level reads as it did, and that only
-    // a leading list is read.
+    // the attribute makes a method of nothing but a one-level recovered
+    // declarator (`NORETURN_MEMBER_POINTER_ONLY_GCC_ACCEPTS` pins that
+    // one), that a declarator of more than one level reads as it did,
+    // and that only a leading list is read.
     //
     // expected (unchanged): `fail`, `pm`, `pa`, `pb`, `ps` and `z9` are
     // data, na 6 / nm 0.
@@ -7297,15 +7298,15 @@ class C {
     // grammar gives it: the Mozcpp fork lists `DWORD` as a
     // `primitive_type`, and `DWORD DECL(R::*p);` reads as data on both
     // grammars (truth na 0 / nm 1, reads na 1 / nm 0). A macro call
-    // under `noreturn` in a spelling a pointer to
-    // member function takes too, `__attribute__((noreturn)) NR(S::*p);`
-    // and `[[gnu::noreturn]] NR(R::*p);`, is `T (S::*pd);` under that
-    // attribute (truth na 2 / nm 2 over the two classes, reads na 4 /
-    // nm 0; before #1885 both read right). The type alias `T typedef
-    // (R::*pm_t);` has its `typedef` read as the declared name, and so
-    // has `int typedef (Q::*pm_t);`, whose written type settles nothing
-    // because `typedef` names no function (truth na 2 / nm 0 over the
-    // two classes, reads na 4; before #1885 each read as a method).
+    // under `noreturn` in a spelling a pointer to member function takes
+    // too, `__attribute__((noreturn)) NR(S::*p);` and `[[gnu::noreturn]]
+    // NR(R::*p);`, is `T (S::*pd);` under that attribute (truth na 2 /
+    // nm 2 over the two classes, reads na 4 / nm 0; before #1885 both
+    // read right). The type alias `T typedef (R::*pm_t);` has its
+    // `typedef` read as the declared name, and so has `int typedef
+    // (Q::*pm_t);`, whose written type settles nothing because `typedef`
+    // names no function (truth na 2 / nm 0 over the two classes, reads
+    // na 4; before #1885 each read as a method).
     //
     // A typed macro call inside parentheses reads as data too. `void
     // (*GETTER(S::*p))(int);` is a method returning a pointer to
@@ -7343,24 +7344,25 @@ class C {
     // the recovered parameter list, as it does for the macro call
     // `FOO(S::*p) MOZ_MAYBE_UNUSED;`, which must stay a method
     // (`FUNCTION_ANNOTATED_MACRO_CALLS`). Nothing the reader matches
-    // tells the two apart, so the member stays the method `origin/main`
-    // read (truth na 3 / nm 0, reads na 2 / nm 1). At the head of a
-    // comma list, `T (R::*p) MOZ_MAYBE_UNUSED, (R::*q);`, it reads as a
-    // method too, with `q` as data (truth na 2 / nm 0, reads na 1 /
-    // nm 1; `origin/main` read both as data). The upstream grammar
+    // tells the two apart, so the member stays the method it read
+    // before #1885 (truth na 3 / nm 0, reads na 2 / nm 1). At the head
+    // of a comma list, `T (R::*p) MOZ_MAYBE_UNUSED, (R::*q);`, it reads
+    // as a method too, with `q` as data (truth na 2 / nm 0, reads na 1 /
+    // nm 1; before #1885 both read as data). The upstream grammar
     // leaves the annotation in an `ERROR` and reads each member right.
     //
     // A comma list still loses a declarator that is neither a lone
     // member pointer nor shown to be a macro call. The recovery nests
     // one `function_declarator` level per declarator, and the reader
-    // skips a level it reads as neither, where `origin/main` counted
-    // every level as data. So a data member with a GNU attribute inside
-    // its parentheses is dropped, first in the list or later (`U`, `W`:
-    // truth na 2 / nm 0, reads na 1 / nm 0 each; `origin/main` read both
-    // right), and so is the method of a macro call whose one argument
-    // names nothing (`D`: `DECL_METHOD(S::*), (S::*q);` is `int S::*
-    // getp(), (S::*q);`, truth na 1 / nm 1, reads na 1 / nm 0). The
-    // reader does not yet tell `D`'s call from `U`'s unread data member.
+    // skips a level it reads as neither, where the reader before #1885
+    // counted every level as data. So a data member with a GNU
+    // attribute inside its parentheses is dropped, first in the list or
+    // later (`U`, `W`: truth na 2 / nm 0, reads na 1 / nm 0 each; before
+    // #1885 both read right), and so is the method of a macro call
+    // whose one argument names nothing (`D`: `DECL_METHOD(S::*),
+    // (S::*q);` is `int S::* getp(), (S::*q);`, truth na 1 / nm 1, reads
+    // na 1 / nm 0). The reader does not yet tell `D`'s call from `U`'s
+    // unread data member.
     // Their trees differ (`U`'s parameter holds the attribute, and its
     // list an `ERROR` with the name), but reading every first level
     // that is no lone pointer as a function turned `U`'s `p` into a
