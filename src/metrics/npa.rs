@@ -385,6 +385,7 @@ macro_rules! impl_npa_java_like {
 }
 
 mod cpp_declarators;
+mod cpp_first_word;
 mod ruby_body;
 mod ruby_ledger;
 mod shared;
