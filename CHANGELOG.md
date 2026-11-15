@@ -405,51 +405,55 @@ for historical reference.
   (`static inline int (U::*pe) = nullptr;`). An annotation macro that
   only a variable takes, written after the declarator
   (`T (S::*pc) MOZ_INIT_OUTSIDE_CTOR = nullptr;`), does not change that
-  on either grammar. Each such member now moves
-  from `npm` to `npa`: `class_methods` falls and `class_attributes`
-  rises by one, as do the public counts where the member is public,
-  with the `total`, `coa` and `cda` values that follow. A macro call
-  whose argument is a bare member-pointer type (`DECL_METHOD(S::*);`,
-  `FOO(N::&);`) or a scope followed by a `~` or `&` (`R(S::~S);`,
-  `FOO(N::&x);`) is still a method, and so is one whose member pointer
-  has a second argument beside it (`DEFINE_GETTER(int, S::*x);`) or
-  anything only a function takes with it: `virtual`, `explicit` or
-  `consteval` before it, a destructor's `~`, or `override`, `const`,
-  `&`, `noexcept`, a return type or `requires` after it. A call after a
-  type the grammars read as nothing else (`int DECL(S::*p);`,
-  `N::Q DECL(S::*p);`), after `size_t`, `ssize_t`, `ptrdiff_t`,
-  `nullptr_t`, `max_align_t` or an exact-width, pointer-width or
-  greatest-width integer typedef of `<cstdint>`
-  (`size_t DECL(S::*p);`, `uint32_t DECL(S::*p);`), or under the
-  standard attribute `[[noreturn]]` (`[[noreturn]] FAIL(S::*x);`) is a
-  method as well. A call shown by its level's syntax or by a second
-  argument is a method at the head of a comma list too, where it
-  counted as an attribute:
+  on either grammar. Each such member now moves from `npm` to `npa`:
+  `class_methods` falls and `class_attributes` rises by one, as do the
+  public counts where the member is public, with the `total`, `coa` and
+  `cda` values that follow. A macro call whose argument is a bare
+  member-pointer type (`DECL_METHOD(S::*);`, `FOO(N::&);`) or a scope
+  followed by a `~` or `&` (`R(S::~S);`, `FOO(N::&x);`) is still a
+  method, and so is one whose member pointer has a second argument
+  beside it (`DEFINE_GETTER(int, S::*x);`) or anything only a function
+  takes with it: `virtual`, `explicit` or `consteval` before it, a
+  destructor's `~`, or `override`, `const`, `&`, `noexcept`, a return
+  type or `requires` after it. A call after a type the grammars read as
+  nothing else (`int DECL(S::*p);`, `N::Q DECL(S::*p);`), after
+  `size_t`, `ssize_t`, `ptrdiff_t`, `nullptr_t`, `max_align_t` or an
+  exact-width, pointer-width or greatest-width integer typedef of
+  `<cstdint>` (`size_t DECL(S::*p);`, `uint32_t DECL(S::*p);`), or under
+  the standard attribute `[[noreturn]]` (`[[noreturn]] FAIL(S::*x);`) is
+  a method as well, inside a declarator's parentheses too
+  (`void (*GET(S::*p))(int);`, a method returning a pointer to
+  function). Behind a member pointer inside parentheses
+  (`intmax_t (S::*GET(S::*p))(int);`), a call after `intmax_t`,
+  `uintmax_t` or `nullptr_t` is a method only on the grammar that reads
+  the name as a type, which is Mozcpp for the first two and Cpp for the
+  third; the other grammar counts an attribute, as each did before. A
+  call shown by its level's syntax or by a second argument is a method
+  at the head of a comma list too, where it counted as an attribute:
   `GET(S::*p) const, (S::*q);` is one method and the attribute `q`.
   Other macro calls cannot be told from the data member, and now count
   as attributes where each counted as a method. `FOO(S::*x);` is token
   for token `T (S::*pd);`. So is a call after a type written as any
   other single identifier, a project's typedef name included
-  (`T DECL(S::*p);`, `DWORD DECL(S::*p);`), a call under `noreturn` in
-  a GNU spelling
-  (`__attribute__((noreturn)) FOO(S::*x);`, `[[gnu::noreturn]]`), a
-  call inside a declarator's parentheses
-  (`void (*GET(S::*p))(int);`), and a call named by a reserved
-  identifier (`int __DECL(S::*p);`). Some spellings are still misread,
-  among them `T (S::*pd) = 0;`, `T (S::*arr)[2];`,
-  `T (S::*pe) = &S::t0;` and a comma list after one
-  (`T (S::*pd), f();`). A pointer to data member with an annotation
-  macro between a type that settles a call and its parentheses
-  (`int MOZ_X (S::*pd);`, `size_t MOZ_X (S::*pd);`) still counts as a
-  method. A comma list loses a declarator that is neither a lone member
-  pointer nor shown to be a macro call, where each counted as an
-  attribute before:
-  a data member with a GNU attribute inside its parentheses
+  (`T DECL(S::*p);`, `DWORD DECL(S::*p);`), a call under `noreturn` in a
+  GNU spelling (`__attribute__((noreturn)) FOO(S::*x);`,
+  `[[gnu::noreturn]]`), and a call named by a reserved identifier
+  (`int __DECL(S::*p);`). Some spellings are still misread, among them
+  `T (S::*pd) = 0;`, `T (S::*arr)[2];`, `T (S::*pe) = &S::t0;` and a
+  comma list after one (`T (S::*pd), f();`). A pointer to data member
+  with an annotation macro between a type that settles a call and its
+  parentheses (`int MOZ_X (S::*pd);`, `size_t MOZ_X (S::*pd);`) still
+  counts as a method, and so does one with the macro inside the
+  parentheses of a pointer or a member pointer
+  (`int (* MOZ_X (S::*pd))(int);`, `int (S::* MOZ_X (S::*pd))(int);`). A
+  comma list loses a declarator that is neither a lone member pointer
+  nor shown to be a macro call, where each counted as an attribute
+  before: a data member with a GNU attribute inside its parentheses
   (`T (S::* __attribute__((unused)) p), (S::*q);`), and the method of a
   call whose one argument names nothing (`DECL_METHOD(S::*), (S::*q);`).
   On the Mozcpp grammar a member pointer under an annotation a function
-  takes too (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as
-  a method. #1829 tracks them.
+  takes too (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as a
+  method. #1829 tracks them.
 
 - **C++ `npa` no longer counts the first half of a split `virtual`
   method as an attribute** (#1885, #1929). A word neither grammar knows

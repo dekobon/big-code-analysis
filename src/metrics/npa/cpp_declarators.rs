@@ -227,7 +227,10 @@ fn cpp_function_declarator_verdict<'a>(
     code: &'a [u8],
 ) -> Verdict<'a> {
     match cpp_parenthesized_name(declarator) {
-        Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized(inner.children())),
+        Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized {
+            children: inner.children(),
+            first_word,
+        }),
         None if !declarator.has_error() || cpp_is_named_function(declarator, first_word, code) => {
             Verdict::Known(true)
         }
@@ -804,20 +807,27 @@ fn cpp_innermost_qualified<'a>(qualified: &Node<'a>) -> Node<'a> {
 //   which never reaches here: `cpp_function_declarator_verdict` hands
 //   that shape to `cpp_recovered_member_pointers` (#1807, #1885).
 //
+// `first_word` is that of the declaration the parentheses stand in. A
+// recovered `function_declarator` under an indirection is read with
+// it, as one outside parentheses is: after a written type `void
+// (*GET(S::*p))(int);` is the method the macro call expands to, a
+// function returning a pointer to function (#1829).
+//
 // Hence: every child must still read as a function. An indirection
 // qualifies only when a function sits under it; a bare name, an
 // `operator_name`, a qualified name with no member pointer, or an
 // `ms_call_modifier` (`int (__cdecl *f)(int)`) never disqualifies on
 // its own.
-fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>) -> Verdict<'a> {
+fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>, first_word: FirstWord) -> Verdict<'a> {
     match child.kind() {
         "pointer_declarator" | "reference_declarator" => {
-            Verdict::Ask(DeclaratorQuestion::any_child(child))
+            Verdict::Ask(DeclaratorQuestion::any_child(child, first_word))
         }
-        "parenthesized_declarator" => {
-            Verdict::Ask(DeclaratorQuestion::Parenthesized(child.children()))
-        }
-        "qualified_identifier" => cpp_member_pointer_verdict(child, true, FirstWord::Unsettled),
+        "parenthesized_declarator" => Verdict::Ask(DeclaratorQuestion::Parenthesized {
+            children: child.children(),
+            first_word,
+        }),
+        "qualified_identifier" => cpp_member_pointer_verdict(child, true, first_word),
         _ => Verdict::Known(true),
     }
 }
@@ -836,8 +846,12 @@ enum DeclaratorQuestion<'a> {
         first_word: FirstWord,
     },
     // Whether every child of a `parenthesized_declarator` still reads as
-    // a function.
-    Parenthesized(Children<'a>),
+    // a function, with what is known of the first word of the
+    // declaration the parentheses stand in.
+    Parenthesized {
+        children: Children<'a>,
+        first_word: FirstWord,
+    },
     // Whether a `function_declarator` declares a function: it does
     // unless its chain yields levels and every one is a member pointer
     // that is data. `seen` records whether it yields any.
@@ -857,16 +871,19 @@ enum Verdict<'a> {
 }
 
 impl<'a> DeclaratorQuestion<'a> {
-    // The question for a node inside a declarator's parentheses or
-    // under a recovered member pointer, asked with the first word
-    // unsettled. Inside parentheses that is a guess: no data member was
-    // found that needs it, and a typed macro call there stays data
-    // (`void (*GET(S::*p))(int);`, pinned FIXME(#1829)).
-    fn any_child(node: &Node<'a>) -> Self {
+    // The question for a pointer or reference inside a declarator's
+    // parentheses, which keeps the first word of the declaration (`void
+    // (*GET(S::*p))(int);` is a method, as `void *GET(S::*p);` is), or
+    // under a recovered member pointer, where no first word is settled.
+    // Inside parentheses the reading takes one data member with it: an
+    // annotation macro there before a parenthesised member pointer,
+    // `int (* MOZ_X (S::*pd))(int);`, is the tree of the call and reads
+    // as a method (pinned, FIXME(#1829)).
+    fn any_child(node: &Node<'a>, first_word: FirstWord) -> Self {
         Self::AnyChild {
             children: node.children(),
             after_colon: false,
-            first_word: FirstWord::Unsettled,
+            first_word,
         }
     }
 
@@ -885,14 +902,14 @@ impl<'a> DeclaratorQuestion<'a> {
     fn decisive(&self) -> bool {
         match self {
             Self::AnyChild { .. } | Self::RecoveredChain { .. } | Self::RecoveredPointer(_) => true,
-            Self::Parenthesized(_) => false,
+            Self::Parenthesized { .. } => false,
         }
     }
 
     // The answer once every child is read and none was decisive.
     fn undecided(&self) -> bool {
         match self {
-            Self::Parenthesized(_) => true,
+            Self::Parenthesized { .. } => true,
             // No level yielded anything: an ordinary method.
             Self::RecoveredChain { seen, .. } => !seen,
             Self::AnyChild { .. } | Self::RecoveredPointer(_) => false,
@@ -914,9 +931,12 @@ impl<'a> DeclaratorQuestion<'a> {
                 *after_colon = cpp_is_recovered_colon(&child);
                 Some(verdict)
             }
-            Self::Parenthesized(children) => children
+            Self::Parenthesized {
+                children,
+                first_word,
+            } => children
                 .next()
-                .map(|child| cpp_parenthesized_child_verdict(&child)),
+                .map(|child| cpp_parenthesized_child_verdict(&child, *first_word)),
             Self::RecoveredChain { levels, seen } => {
                 let level = levels.next()?;
                 *seen = true;
@@ -929,7 +949,7 @@ impl<'a> DeclaratorQuestion<'a> {
             }
             Self::RecoveredPointer(children) => children.next().map(|child| match child.kind() {
                 "abstract_function_declarator" => Verdict::Known(true),
-                "pointer_declarator" => Verdict::Ask(Self::any_child(&child)),
+                "pointer_declarator" => Verdict::Ask(Self::any_child(&child, FirstWord::Unsettled)),
                 _ => Verdict::Known(false),
             }),
         }

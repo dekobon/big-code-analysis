@@ -7018,6 +7018,55 @@ class C {
              size_t MOZ_X (S::*pd)(int);\n\
          };\n";
 
+    // A class-scope macro call inside a declarator's parentheses, after a
+    // written type: the macro expands to the name and parameter list of a
+    // method that returns a pointer to function (`A`), a reference to one
+    // (`M`), a pointer to member function (`B`) or a pointer to a
+    // function returning one (`J`). `void (*DECL(S::*p))(int);` is
+    // `void (*method(int S::*p))(int);`. The written type settles the
+    // first word inside the parentheses as it does outside them: under a
+    // template header (`C`), under `[[noreturn]]` (`D`), through a second
+    // pair of parentheses (`F`), after specifiers (`G`), after a standard
+    // typedef name (`H`) and under a pointer before the parentheses
+    // (`I`). Under a template header the grammars read the member pointer
+    // of `B`'s return type as a `qualified_identifier` and not as an
+    // `ERROR` beside a pointer, and the first word passes through that
+    // too (`L`). A reader that asked what stands inside parentheses with
+    // no first word settled read the eleven calls as data (na 17 / nm 0),
+    // where each read right before #1885. The members that are data stay
+    // data: a pointer to function, a pointer to member function, a member
+    // pointer to a pointer to function, a pointer to member function
+    // returning a pointer to function, and a pointer to data member under
+    // an annotation macro inside the parentheses (`K`). Valid C++20 with
+    // the macros defined as here.
+    //
+    // expected: one method per class `A` to `J`, `L` and `M`, nm 11;
+    // `S`'s `m` and `K`'s five members, na 6.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const PARENTHESISED_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
+         #define FAILP(ignored) failp()\n\
+         #define MOZ_X\n\
+         typedef unsigned long size_t;\n\
+         struct S { int m; };\n\
+         struct A { void (*DECL(S::*p))(int); };\n\
+         struct B { int (S::*DECL(S::*p))(int); };\n\
+         struct C { template<class U> int (*DECL(S::*p))(U); };\n\
+         struct D { [[noreturn]] void (*FAILP(S::*p))(int); };\n\
+         struct F { int ((*DECL(S::*p)))(int); };\n\
+         struct G { static const unsigned long (*DECL(S::*p))(int); };\n\
+         struct H { size_t (*DECL(S::*p))(int); };\n\
+         struct I { int *(*DECL(S::*p))(int); };\n\
+         struct J { int (*(*DECL(S::*p))(int))(long); };\n\
+         struct K {\n\
+             int (*fp)(int);\n\
+             int (S::*pm)(int);\n\
+             int (*(S::*pn))(int);\n\
+             int (*(S::*pq)(int))(int);\n\
+             int (* MOZ_X (S::*pr));\n\
+         };\n\
+         struct L { template<class U> int (S::*DECL(S::*p))(U); };\n\
+         struct M { void (&DECL(S::*p))(int); };\n";
+
     // A class-scope macro call under the standard attribute
     // `[[noreturn]]`, which a function's declaration alone takes
     // ([dcl.attr.noreturn]): `[[noreturn]] FAIL(S::*p);` is `[[noreturn]]
@@ -7200,6 +7249,14 @@ class C {
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 5);
                 assert_eq!(metric.npm.class_nm_sum(), 5);
+            },
+        );
+        check_metrics_with_npa::<P>(
+            PARENTHESISED_MACRO_CALLS_WITH_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 6);
+                assert_eq!(metric.npm.class_nm_sum(), 11);
             },
         );
         check_metrics_with_npa::<P>(
@@ -7667,13 +7724,32 @@ class C {
     // (truth na 2 / nm 0 over the two classes, reads na 4; before #1885
     // each read as a method).
     //
-    // A typed macro call inside parentheses reads as data too. `void
-    // (*GETTER(S::*p))(int);` is a method returning a pointer to
-    // function, but what stands inside the parentheses of a declarator
-    // is asked with no first word settled, so the call's recovered
-    // member pointer reads as the data member it would be alone (truth
-    // na 2 / nm 1, reads na 3 / nm 0; before #1885 it read right). No
-    // data member was found that needs it so; the choice is a guess.
+    // A macro call inside a declarator's parentheses reads as data too
+    // when the type before it is a lone identifier, as outside them:
+    // `T (*DECL(Q::*p))(int);` (truth na 0 / nm 1, reads na 1 / nm 0).
+    // After a written type the call is a method
+    // (`PARENTHESISED_MACRO_CALLS_WITH_MEMBER_POINTERS`), and that
+    // reading takes a data member with it: an annotation macro inside
+    // the parentheses of a pointer to function or to member function,
+    // before a parenthesised member pointer, is the tree of the call.
+    // `int (* MOZ_X (S::*pd))(int);` reads as a method (truth na 3 /
+    // nm 0, reads na 2 / nm 1) and so does `int (R::* MOZ_X
+    // (R::*pd))(int);` (truth na 1 / nm 0, reads na 0 / nm 1), each as
+    // it did before #1885.
+    //
+    // Behind a member pointer inside parentheses the two grammars part
+    // on three of the standard typedef names. Where a grammar reads the
+    // name as an identifier (`intmax_t` and `uintmax_t` on
+    // tree-sitter-cpp, `nullptr_t` on the Mozcpp fork), it recovers
+    // `intmax_t (S::*DECL(S::*p))(int);` as a declaration with no type,
+    // which no first word settles, and the call and the annotated data
+    // member `intmax_t (S::* MOZ_X (S::*pd))(int);` both read as data.
+    // Where it reads the name as a `primitive_type`, both read as
+    // methods. Truth for each name: `S`'s `m` and the data member, na 2;
+    // the call, nm 1. One grammar reads na 3 / nm 0 and the other na 1 /
+    // nm 2, each as it did before #1885; in between both read na 3 /
+    // nm 0 (`INTMAX_T_BEFORE_PARENTHESISED_MEMBER_POINTERS`,
+    // `NULLPTR_T_BEFORE_PARENTHESISED_MEMBER_POINTERS`).
     //
     // So does a typed macro call whose name is a reserved identifier.
     // The reader takes such a word for part of the type, which is what
@@ -7750,15 +7826,31 @@ class C {
     const IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define DECL(P) method(int P)\n\
          typedef unsigned long DWORD;\n\
          struct T {};\nstruct S {\n  T t0;\n  T DECL(S::*p);\n  int z9;\n};\n\
-         struct R { DWORD DECL(R::*p); };\n";
+         struct R { DWORD DECL(R::*p); };\n\
+         struct Q { T (*DECL(Q::*p))(int); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const VENDOR_NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define NR(ignored) void nr()\n\
          struct T {};\n\
          struct S {\n  T t0;\n  __attribute__((noreturn)) NR(S::*p);\n  int z9;\n};\n\
          struct R {\n  [[gnu::noreturn]] NR(R::*p);\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
-    const PARENTHESISED_TYPED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define GETTER(P) get(int P)\n\
-         struct T {};\nstruct S {\n  T t0;\n  void (*GETTER(S::*p))(int);\n  int z9;\n};\n";
+    const ANNOTATION_INSIDE_PARENTHESES_BEFORE_MEMBER_POINTER: &str = "#define MOZ_X\n\
+         struct T {};\nstruct S {\n  T t0;\n  int (* MOZ_X (S::*pd))(int);\n  int z9;\n};\n\
+         struct R { int (R::* MOZ_X (R::*pd))(int); };\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const INTMAX_T_BEFORE_PARENTHESISED_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
+         #define MOZ_X\n\
+         typedef long intmax_t;\n\
+         struct S { int m; };\n\
+         struct A { intmax_t (S::*DECL(S::*p))(int); };\n\
+         struct B { intmax_t (S::* MOZ_X (S::*pd))(int); };\n";
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const NULLPTR_T_BEFORE_PARENTHESISED_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
+         #define MOZ_X\n\
+         typedef decltype(nullptr) nullptr_t;\n\
+         struct S { int m; };\n\
+         struct A { nullptr_t (S::*DECL(S::*p))(int); };\n\
+         struct B { nullptr_t (S::* MOZ_X (S::*pd))(int); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const RESERVED_NAMED_MACRO_CALL_WITH_MEMBER_POINTER: &str = "#define __DECL(P) method(int P)\n\
          struct T {};\nstruct S {\n  T t0;\n  int __DECL(S::*p);\n  int z9;\n};\n";
@@ -7823,7 +7915,7 @@ class C {
             IDENTIFIER_TYPED_MACRO_CALL_WITH_MEMBER_POINTER,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 5);
                 assert_eq!(metric.npm.class_nm_sum(), 0);
             },
         );
@@ -7836,11 +7928,11 @@ class C {
             },
         );
         check_metrics_with_npa::<P>(
-            PARENTHESISED_TYPED_MACRO_CALL_WITH_MEMBER_POINTER,
+            ANNOTATION_INSIDE_PARENTHESES_BEFORE_MEMBER_POINTER,
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3);
-                assert_eq!(metric.npm.class_nm_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
         check_metrics_with_npa::<P>(
@@ -7887,6 +7979,24 @@ class C {
     #[test]
     fn cpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<CppParser>();
+        // `intmax_t` is an identifier here and `nullptr_t` a
+        // `primitive_type`; the Mozcpp fork has them the other way.
+        check_metrics_with_npa::<CppParser>(
+            INTMAX_T_BEFORE_PARENTHESISED_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
+        check_metrics_with_npa::<CppParser>(
+            NULLPTR_T_BEFORE_PARENTHESISED_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
         // The control of the Mozcpp-only misreadings: read right here.
         check_metrics_with_npa::<CppParser>(
             AMBIGUOUSLY_ANNOTATED_MEMBER_POINTERS,
@@ -7902,6 +8012,22 @@ class C {
     #[test]
     fn mozcpp_type_named_member_pointers_still_misread() {
         assert_type_named_member_pointers_still_misread::<MozcppParser>();
+        check_metrics_with_npa::<MozcppParser>(
+            INTMAX_T_BEFORE_PARENTHESISED_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
+        check_metrics_with_npa::<MozcppParser>(
+            NULLPTR_T_BEFORE_PARENTHESISED_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
         check_metrics_with_npa::<MozcppParser>(
             AMBIGUOUSLY_ANNOTATED_MEMBER_POINTERS,
             "foo.cpp",
