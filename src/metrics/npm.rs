@@ -6981,6 +6981,43 @@ class C {
          struct Q { wchar_t DECL(S::*p); };\n\
          struct R { template<class U> int S::*DECL(S::*p); };\n";
 
+    // A class-scope macro call after one of the seventeen typedef names
+    // the reader takes for a type (`CPP_STANDARD_TYPEDEF_NAMES`).
+    // No keyword, but the name of nothing else in practice: `size_t
+    // DECL(S::*p);` is `size_t method(int S::*p);` as `int DECL(S::*p);`
+    // is its `int` twin, alone (`A`, `B`), under specifiers and a
+    // pointer (`C`) and under a template header and a reference (`E`).
+    // Such a name is told by its word, as a keyword is: tree-sitter-cpp
+    // reads `intmax_t` as a `type_identifier` and the Mozcpp fork as a
+    // `primitive_type` (`D`). A reader that took only a keyword for a
+    // type read the five calls as data (na 10 / nm 0), where each read
+    // right before #1885. The name settles no more than a keyword does:
+    // it is the member's own type before the parentheses (`pa`), a lone
+    // identifier before it is still an annotation macro as easily as a
+    // type (`pb`, `pc`), and a second parameter list is still a
+    // pointee's (`pd`). Valid C++20.
+    //
+    // expected: one method per class `A` to `E`, nm 5; `S`'s `m` and
+    // `F`'s `pa`, `pb`, `pc` and `pd`, na 5.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const STANDARD_TYPEDEF_MACRO_CALLS_WITH_MEMBER_POINTERS: &str = "#define DECL(P) method(int P)\n\
+         #define MOZ_X\n\
+         typedef unsigned long size_t;\n\
+         typedef unsigned int uint32_t;\n\
+         typedef long intmax_t;\n\
+         struct S { int m; };\n\
+         struct A { size_t DECL(S::*p); };\n\
+         struct B { uint32_t DECL(S::*p); };\n\
+         struct C { static const size_t *DECL(S::*p); };\n\
+         struct D { intmax_t DECL(S::*p); };\n\
+         struct E { template<class U> uint32_t &DECL(S::*p); };\n\
+         struct F {\n\
+             size_t (S::*pa);\n\
+             MOZ_X size_t (S::*pb);\n\
+             MOZ_X intmax_t (S::*pc);\n\
+             size_t MOZ_X (S::*pd)(int);\n\
+         };\n";
+
     // A class-scope macro call under the standard attribute
     // `[[noreturn]]`, which a function's declaration alone takes
     // ([dcl.attr.noreturn]): `[[noreturn]] FAIL(S::*p);` is `[[noreturn]]
@@ -7158,6 +7195,14 @@ class C {
             },
         );
         check_metrics_with_npa::<P>(
+            STANDARD_TYPEDEF_MACRO_CALLS_WITH_MEMBER_POINTERS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+            },
+        );
+        check_metrics_with_npa::<P>(
             NORETURN_MACRO_CALLS_WITH_MEMBER_POINTERS,
             "foo.cpp",
             |metric| {
@@ -7181,6 +7226,77 @@ class C {
                 assert!(claims <= 1, "one declarator claimed {claims} times");
             },
         );
+    }
+
+    // Every typedef name the reader takes for a type, each before the
+    // macro call of `STANDARD_TYPEDEF_MACRO_CALLS_WITH_MEMBER_POINTERS`,
+    // and beside them two names it does not take: `time_t`, which
+    // neither grammar lists as a `primitive_type`, and `charptr_t`,
+    // which both do and no header declares. Written out here and not
+    // read from the reader's list, so a name dropped from that list or
+    // added to it moves a count.
+    //
+    // expected: `S`'s `m` and one method per standard name, na 1 /
+    // nm 17; `m` and the two other calls read as data, na 3 / nm 0 (each
+    // call is a method: pinned, FIXME(#1829)).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_each_standard_typedef_name_is_a_type<P: crate::MetricSuite>() {
+        const STANDARD: [&str; 17] = [
+            "size_t",
+            "ssize_t",
+            "ptrdiff_t",
+            "nullptr_t",
+            "max_align_t",
+            "intptr_t",
+            "uintptr_t",
+            "intmax_t",
+            "uintmax_t",
+            "int8_t",
+            "int16_t",
+            "int32_t",
+            "int64_t",
+            "uint8_t",
+            "uint16_t",
+            "uint32_t",
+            "uint64_t",
+        ];
+        let calls_after = |names: &[&str]| {
+            let classes: Vec<String> = names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    format!("typedef int {name};\nstruct A{index} {{ {name} DECL(S::*p); }};\n")
+                })
+                .collect();
+            format!(
+                "#define DECL(P) method(int P)\nstruct S {{ int m; }};\n{}",
+                classes.concat()
+            )
+        };
+        check_metrics_with_npa::<P>(&calls_after(&STANDARD), "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 17);
+        });
+        check_metrics_with_npa::<P>(
+            &calls_after(&["time_t", "charptr_t"]),
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
+            },
+        );
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_each_standard_typedef_name_is_a_type() {
+        assert_each_standard_typedef_name_is_a_type::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_each_standard_typedef_name_is_a_type() {
+        assert_each_standard_typedef_name_is_a_type::<MozcppParser>();
     }
 
     #[cfg(feature = "cpp")]
@@ -7297,23 +7413,23 @@ class C {
     // `declaration`.
     //
     // Three more read as data because nothing these readers match tells
-    // them from a data member. A macro call after a type written as a
-    // lone identifier, `T DECL(S::*p);`, is token for token the
-    // annotated data member `MOZ_X T (S::*pd);` (truth na 2 / nm 1,
-    // reads na 3 / nm 0; before #1885 it read right and the data member
-    // wrong). A typedef name is such an identifier whichever kind a
+    // them from a data member. A macro call after a type written as a lone
+    // identifier, `T DECL(S::*p);`, is token for token the annotated data
+    // member `MOZ_X T (S::*pd);` (truth na 2 / nm 1, reads na 3 / nm 0;
+    // before #1885 it read right and the data member wrong). A typedef name
+    // the reader does not list is such an identifier whichever kind a
     // grammar gives it: the Mozcpp fork lists `DWORD` as a
     // `primitive_type`, and `DWORD DECL(R::*p);` reads as data on both
-    // grammars (truth na 0 / nm 1, reads na 1 / nm 0). A macro call
-    // under `noreturn` in a spelling a pointer to member function takes
-    // too, `__attribute__((noreturn)) NR(S::*p);` and `[[gnu::noreturn]]
-    // NR(R::*p);`, is `T (S::*pd);` under that attribute (truth na 2 /
-    // nm 2 over the two classes, reads na 4 / nm 0; before #1885 both
-    // read right). The type alias `T typedef (R::*pm_t);` has its
-    // `typedef` read as the declared name, and so has `int typedef
-    // (Q::*pm_t);`, whose written type settles nothing because `typedef`
-    // names no function (truth na 2 / nm 0 over the two classes, reads
-    // na 4; before #1885 each read as a method).
+    // grammars (truth na 0 / nm 1, reads na 1 / nm 0). A macro call under
+    // `noreturn` in a spelling a pointer to member function takes too,
+    // `__attribute__((noreturn)) NR(S::*p);` and `[[gnu::noreturn]]
+    // NR(R::*p);`, is `T (S::*pd);` under that attribute (truth na 2 / nm 2
+    // over the two classes, reads na 4 / nm 0; before #1885 both read
+    // right). The type alias `T typedef (R::*pm_t);` has its `typedef` read
+    // as the declared name, and so has `int typedef (Q::*pm_t);`, whose
+    // written type settles nothing because `typedef` names no function
+    // (truth na 2 / nm 0 over the two classes, reads na 4; before #1885
+    // each read as a method).
     //
     // A typed macro call inside parentheses reads as data too. `void
     // (*GETTER(S::*p))(int);` is a method returning a pointer to
@@ -7335,7 +7451,11 @@ class C {
     // `int MOZ_X (S::*pd);`, is the tree of the macro call `int
     // DECL(S::*p);`, which the written type settles as a method
     // (`TYPED_MACRO_CALLS_WITH_MEMBER_POINTERS`). Truth na 3 / nm 0,
-    // reads na 2 / nm 1, as it did before #1885.
+    // reads na 2 / nm 1, as it did before #1885. A standard typedef
+    // name settles the same and costs the same: `size_t MOZ_X
+    // (R::*pd);` is the tree of `size_t DECL(S::*p);`
+    // (`STANDARD_TYPEDEF_MACRO_CALLS_WITH_MEMBER_POINTERS`; truth na 1 /
+    // nm 0, reads na 0 / nm 1, as it did before #1885).
     //
     // One spelling only GCC accepts reads as a method. `[[noreturn]] T
     // (S::*pd);` is the tree of the macro call `[[noreturn]]
@@ -7408,7 +7528,9 @@ class C {
          struct T {};\nstruct S {\n  T t0;\n  int __DECL(S::*p);\n  int z9;\n};\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const ANNOTATION_BETWEEN_TYPE_AND_MEMBER_POINTER: &str = "#define MOZ_X\n\
-         struct T {};\nstruct S {\n  T t0;\n  int MOZ_X (S::*pd);\n  int z9;\n};\n";
+         typedef unsigned long size_t;\n\
+         struct T {};\nstruct S {\n  T t0;\n  int MOZ_X (S::*pd);\n  int z9;\n};\n\
+         struct R { size_t MOZ_X (R::*pd); };\n";
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const NORETURN_MEMBER_POINTER_ONLY_GCC_ACCEPTS: &str =
         "struct T {};\nstruct S {\n  T t0;\n  [[noreturn]] T (S::*pd);\n  int z9;\n};\n";
@@ -7498,7 +7620,7 @@ class C {
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 2);
-                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
         check_metrics_with_npa::<P>(

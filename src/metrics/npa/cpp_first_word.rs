@@ -22,19 +22,20 @@ use crate::node::Node;
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum FirstWord {
     // Taken for the declarator's name. The declaration writes a type
-    // the grammars read as nothing else (a keyword type, a qualified or
-    // template name, an elaborated or dependent type, `auto`,
-    // `decltype(…)`), or opens with the standard attribute
-    // `[[noreturn]]`. An annotation macro between such a type and a
-    // parenthesised pointer to data member is the same tree, and `int
-    // MOZ_X (S::*pd);` reads as a method (pinned, FIXME(#1829)).
+    // the reader takes for nothing else (a keyword type, a standard
+    // typedef name such as `size_t`, a qualified or template name, an
+    // elaborated or dependent type, `auto`, `decltype(…)`), or opens
+    // with the standard attribute `[[noreturn]]`. An annotation macro
+    // between such a type and a parenthesised pointer to data member is
+    // the same tree, and `int MOZ_X (S::*pd);` reads as a method
+    // (pinned, FIXME(#1829)).
     Name,
     // Nothing settles it. No type is written, or one identifier that
-    // is no type keyword, which may be an annotation macro before the
-    // real type: `MOZ_X T (S::*pd);` is a data member whose type `T`
-    // the grammars read as the name. The macro call `T DECL(S::*p);` is
-    // the same tree and reads as that data member (pinned,
-    // FIXME(#1829)).
+    // is neither a type keyword nor a standard typedef name, which may
+    // be an annotation macro before the real type: `MOZ_X T (S::*pd);`
+    // is a data member whose type `T` the grammars read as the name.
+    // The macro call `T DECL(S::*p);` is the same tree and reads as
+    // that data member (pinned, FIXME(#1829)).
     Unsettled,
 }
 
@@ -48,14 +49,16 @@ pub(super) fn cpp_first_word<'a>(declaration: &Node<'a>, code: &'a [u8]) -> Firs
         declaration
             .child_by_field_name("type")
             .is_some_and(|written| match written.kind() {
-                // One word: a type only when the word is a keyword. The kind
-                // does not say. The Mozcpp fork lists typedef names (`size_t`,
-                // `DWORD`) and the macro `APIENTRY` as `primitive_type`, and
-                // tree-sitter-cpp reads `wchar_t` as a `type_identifier`.
+                // One word: a type only when the word is a keyword or a
+                // standard typedef name. The kind does not say. The Mozcpp
+                // fork lists the Windows typedef names (`DWORD`) and the
+                // macro `APIENTRY` as `primitive_type`, and tree-sitter-cpp
+                // reads `wchar_t` and `intmax_t` as a `type_identifier`.
                 // role-bypass: allow(DeclKeyword, Primitive) — the one word in a
                 // C++ type slot, which Groovy's rows claim by the same spelling
                 "type_identifier" | "primitive_type" => {
-                    cpp_is_type_keyword(written.utf8_text(code))
+                    let word = written.utf8_text(code);
+                    cpp_is_type_keyword(word) || cpp_is_standard_typedef_name(word)
                 }
                 _ => true,
             });
@@ -141,6 +144,39 @@ const CPP_TYPE_KEYWORDS: [&str; 14] = [
 // it.
 fn cpp_is_type_keyword(word: Option<&str>) -> bool {
     word.is_some_and(|word| CPP_TYPE_KEYWORDS.contains(&word))
+}
+
+// Seventeen typedef names the standard library declares: those of
+// `<cstddef>`, the exact-width, pointer-width and greatest-width
+// integers of `<cstdint>` (its `least` and `fast` families are not
+// listed), and POSIX `ssize_t`. None is a keyword, so the spelling is
+// evidence and no proof: a program that defines one as an annotation
+// macro has `size_t T (S::*pd);` read as a method. Asked of the type
+// slot only. `cpp_is_type_word` does not list them: no data member was
+// found that needs one read as a type's last word, and before a
+// parameter list such a word can be a macro's name.
+const CPP_STANDARD_TYPEDEF_NAMES: [&str; 17] = [
+    "size_t",
+    "ssize_t",
+    "ptrdiff_t",
+    "nullptr_t",
+    "max_align_t",
+    "intptr_t",
+    "uintptr_t",
+    "intmax_t",
+    "uintmax_t",
+    "int8_t",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+    "uint8_t",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+];
+
+fn cpp_is_standard_typedef_name(word: Option<&str>) -> bool {
+    word.is_some_and(|word| CPP_STANDARD_TYPEDEF_NAMES.contains(&word))
 }
 
 // A word that is part of a declaration's type and so names no function:
