@@ -451,6 +451,36 @@ for historical reference.
   takes too (`… (S::*pd) MOZ_MAYBE_UNUSED = nullptr;`) still counts as
   a method. #1829 tracks them.
 
+- **C++ `npa` no longer counts the first half of a split `virtual`
+  method as an attribute** (#1885, #1929). A word neither grammar knows
+  between a function's specifiers and its name ends the declaration
+  early: `virtual HRESULT STDMETHODCALLTYPE f(long* n);`, a COM method
+  with its calling convention, parses as the declaration
+  `virtual HRESULT STDMETHODCALLTYPE` followed by `f(long* n);`. `npm`
+  counted the method once, for its second half, and `npa` counted the
+  first half as a data member. `virtual` and `consteval` precede a
+  function alone, so the first half is now read as part of the method:
+  `class_attributes` falls by one for each such method, as does the
+  public count where the method is public, with the `total` and `cda`
+  values that follow. `npm` still counts the method once; builds
+  between #1885 and #1929, none of them released, counted it twice. A
+  method split the same way with no such specifier
+  (`HRESULT STDMETHODCALLTYPE f(long* n);`) still counts as an
+  attribute and a method, because its tree is also that of a data
+  member before an annotation the grammars read as a function
+  (`Mutex other_mutex_instance_ GUARDED_BY(mu_);`). So does a
+  `virtual` method the grammars cut off twice, as two annotation macros
+  beside its return type and calling convention do
+  (`virtual MOZ_A MOZ_B HRESULT STDMETHODCALLTYPE f();`).
+  One spelling still counts one method for two: where a macro among
+  the words after `virtual` expands to a function's name and parameter
+  list (`virtual HRESULT WHOLE ~C();` with `#define WHOLE f();`), the
+  method directly after it is read as that function's second half. And
+  one now counts two methods for one: an annotation macro after
+  `virtual` whose argument looks like a call
+  (`virtual ANN(foo()) int f();`), which is the tree of a method with
+  a parenthesised name before another member. Cpp and Mozcpp alike.
+
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 2,000 declarator
   levels deep, such as #1829's function-pointer tower

@@ -390,8 +390,8 @@ mod ruby_body;
 mod ruby_ledger;
 mod shared;
 pub(crate) use cpp_declarators::{
-    cpp_declares_function, cpp_field_data_members, cpp_recovered_declaration_data_members,
-    cpp_template_declares_data_member,
+    cpp_declares_function, cpp_field_data_members, cpp_is_cut_off, cpp_is_split_function_head,
+    cpp_recovered_declaration_data_members, cpp_template_declares_data_member,
 };
 pub(crate) use python::python_unwrap_function;
 pub(crate) use ruby_body::{RubyBodyConsumer, RubyBodyShape, RubyBodyState, RubyOpenCall};

@@ -42,8 +42,14 @@ macro_rules! cpp_family_npm {
 
                 let under = ancestors.of_children(node);
                 let members = under.get();
+                // Whether the member before this one belongs to a method
+                // the grammars split: its first half, or a further piece
+                // they cut off before the method's name. The first half
+                // counted for the method, so the piece that holds the
+                // name does not (#1929).
+                let mut after_split_head = false;
                 for child in node.children() {
-                    match child.kind_id().into() {
+                    let declares_method = match child.kind_id().into() {
                         AccessSpecifier => {
                             // role-bypass: allow(Modifier) — which access label, not
                             // whether the token is a modifier
@@ -54,6 +60,7 @@ macro_rules! cpp_family_npm {
                                         || id == $lang::Private
                                 })
                                 .is_some_and(|tok| tok.kind_id() == $lang::Public);
+                            false
                         }
                         // Inline-defined member function (with a body): the
                         // `FuncOpener` row's callables — regular methods,
@@ -61,12 +68,7 @@ macro_rules! cpp_family_npm {
                         // conversion operators all share the aliased
                         // `function_definition` kind-ids; asked under its own
                         // chain, the list's plus the list.
-                        _ if func_opener::is_callable(&child, code, members) => {
-                            stats.class_nm += 1;
-                            if current_is_public {
-                                stats.class_npm += 1;
-                            }
-                        }
+                        _ if func_opener::is_callable(&child, code, members) => true,
                         // Member function reached through a wrapper node
                         // rather than surfacing as a `function_definition`
                         // directly. The wrapper varies by shape:
@@ -114,12 +116,22 @@ macro_rules! cpp_family_npm {
                         | Declaration4 | TemplateDeclaration
                             if super::npa::cpp_declares_function(&child, code) =>
                         {
-                            stats.class_nm += 1;
-                            if current_is_public {
-                                stats.class_npm += 1;
-                            }
+                            true
                         }
-                        _ => {}
+                        _ => false,
+                    };
+                    let split_goes_on = if declares_method {
+                        super::npa::cpp_is_split_function_head(&child)
+                    } else {
+                        after_split_head && super::npa::cpp_is_cut_off(&child)
+                    };
+                    let follows_split_head =
+                        std::mem::replace(&mut after_split_head, split_goes_on);
+                    if declares_method && !follows_split_head {
+                        stats.class_nm += 1;
+                        if current_is_public {
+                            stats.class_npm += 1;
+                        }
                     }
                 }
             }

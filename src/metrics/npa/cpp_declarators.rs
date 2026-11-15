@@ -1,5 +1,7 @@
 //! The C++ family's reading of a class member's declarators: whether a
-//! member declares a function (`cpp_declares_function`, asked by `Npm`)
+//! member declares a function (`cpp_declares_function`, asked by `Npm`,
+//! with `cpp_is_split_function_head` and `cpp_is_cut_off` for one the
+//! grammars split in two)
 //! and how many data members it declares (`cpp_field_data_members`,
 //! `cpp_recovered_declaration_data_members` and
 //! `cpp_template_declares_data_member`, asked by `Npa`), including what
@@ -123,6 +125,75 @@ fn cpp_is_function_only_specifier(child: &Node) -> bool {
             .any(|token| token.kind() == "consteval"),
         _ => false,
     }
+}
+
+// Whether a member `cpp_declares_function` took for a function is the
+// first half of one the grammars split in two (#1929). A word they do
+// not know between a function's specifiers and its name ends the
+// `field_declaration` there, with a `;` they invent, and the name and
+// parameter list follow as a member of their own: `virtual HRESULT
+// STDMETHODCALLTYPE f(long*);`, a COM method with its calling
+// convention, and `MOZ_X virtual RefPtr<T> g();`. Two things tell the
+// first half. It ends in the invented `;`: a macro that expands to a
+// whole declarator ends in its own (`virtual DECLARE_FOO;`). And
+// nothing in it takes parameters, so it is a function by a specifier
+// only a function takes: a method with a parameter list of its own is
+// whole, and what follows it is another member (`virtual int f()
+// END_DECL C();`, where `END_DECL` expands to the `;`). The declarator
+// reader is not asked for that, because it takes two such lists for
+// data: a macro call's (`virtual VGET(S::*x) END_DECL C();`) and one
+// inside parentheses (`virtual int (*f()) END_DECL C();`, #1891). A
+// cut-off member with no such specifier is no function to
+// `cpp_declares_function` and is not asked. It is as easily data:
+// `Mutex other_mutex_instance_ GUARDED_BY(mu_);` and `HRESULT
+// STDMETHODCALLTYPE f();` are one tree. The method consumer counts the
+// halves once.
+pub(crate) fn cpp_is_split_function_head(method: &Node) -> bool {
+    cpp_is_cut_off(method) && !cpp_holds_parameter_list(method)
+}
+
+// Whether a member's own declarator takes parameters, as far as the
+// tree shows: it is a `function_declarator`, alone or under the five
+// wrappers a declarator nests in, the `operator_cast` of a conversion
+// function, or the `bitfield_clause` the grammars recover the method
+// `int S::*get();` into. Only the wrappers are looked into. A parameter
+// list inside the member's type is another function's:
+// `RefPtr<void(int cb())>` holds a `function_declarator`, and so does a
+// lambda under `decltype`. One list found here is no method's. An
+// annotation macro's argument that looks like a call, `virtual
+// ANN(foo()) int f();`, is the tree of the whole method `virtual T
+// (f()) END_DECL int g();`, so the first half is taken for whole and
+// the method counts twice (pinned, FIXME(#1929)). Walked with a stack
+// of its own, since the wrappers nest as deep as the source writes
+// them.
+fn cpp_holds_parameter_list(member: &Node) -> bool {
+    let mut pending: Vec<_> = member.children().collect();
+    while let Some(node) = pending.pop() {
+        match node.kind() {
+            "function_declarator" | "operator_cast" | "bitfield_clause" => return true,
+            "pointer_declarator"
+            | "reference_declarator"
+            | "parenthesized_declarator"
+            | "array_declarator"
+            | "attributed_declarator" => pending.extend(node.children()),
+            _ => {}
+        }
+    }
+    false
+}
+
+// Whether a member ends in a `;` the grammars invented, which is zero
+// bytes wide: they could not go on with the word after it. Two
+// annotation macros beside a return type and a calling convention cut
+// a method's declaration off twice, and the method consumer reads a
+// cut-off member after a first half as more of that half (`virtual
+// MOZ_A MOZ_B HRESULT STDMETHODCALLTYPE f();`).
+pub(crate) fn cpp_is_cut_off(member: &Node) -> bool {
+    member.has_error()
+        && member
+            .children()
+            .last()
+            .is_some_and(|last| last.kind() == ";" && last.start_byte() == last.end_byte())
 }
 
 // Whether a `function_declarator` nests no other: the level of a chain

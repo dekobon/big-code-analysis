@@ -7323,6 +7323,242 @@ class C {
         });
     }
 
+    // A member function the grammars split in two (#1929). A word they
+    // do not know between a function's specifiers and its name ends the
+    // `field_declaration` there, with a `;` they invent, and the name
+    // and parameter list follow as a member with no type of its own:
+    // `virtual HRESULT STDMETHODCALLTYPE f(long* n);`, a COM method with
+    // its calling convention, is `field_declaration(virtual, HRESULT,
+    // STDMETHODCALLTYPE, ";")` beside `declaration(f(long* n))`.
+    // `virtual` precedes a function alone, so the first half is a
+    // function to both consumers, and the method consumer counted it
+    // beside the second (na 0 / nm 32 here). The second half is a
+    // declaration (`A`), a pure virtual or a definition (`B`, `C`), or,
+    // where a second unknown word stands before the name, a declaration
+    // that takes that word for its type (`F`, `G`). The first half ends
+    // in a name, a pointer to one (`D`) or a template-id (`H`, `I`: an
+    // annotation macro before `virtual` and a template return type,
+    // which read right before #1885), holds comments (`E`) or an
+    // attribute list (`K`), and is told by `consteval` as by `virtual`
+    // (`J`). A parameter list inside the first half's type is not the
+    // method's own: a function type with a named parameter as a
+    // template argument (`L`, `M`) and a declaration in a lambda under
+    // `decltype` (`N`) leave it a first half, where a reader that looked
+    // for a `function_declarator` anywhere in it counted both halves.
+    // The second half may bring a specifier of its own: `explicit` on a
+    // `virtual` conversion function (`O`) and `consteval` on a `virtual`
+    // method (`P`) stand after the two macros that end the first half,
+    // and a reader that took a specified member for another method
+    // counted both. Valid C++20 with the macros defined as here.
+    //
+    // expected: one method per class `A` to `P`, na 0 / nm 16.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const VIRTUAL_METHODS_SPLIT_IN_TWO: &str = "#define STDMETHODCALLTYPE\n\
+         #define MOZ_A\n\
+         #define MOZ_B\n\
+         typedef long HRESULT;\n\
+         template<class X> struct RefPtr {};\n\
+         struct A { virtual HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct B { virtual HRESULT STDMETHODCALLTYPE f(long* n) = 0; };\n\
+         struct C { virtual HRESULT STDMETHODCALLTYPE f(long* n) { return 0; } };\n\
+         struct D { virtual void* STDMETHODCALLTYPE f(long* n); };\n\
+         struct E { virtual /* c */ HRESULT STDMETHODCALLTYPE /* d */ f(long* n); };\n\
+         struct F { MOZ_A virtual HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct G { virtual MOZ_A HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct H { MOZ_A virtual RefPtr<int> g(int a); };\n\
+         struct I { MOZ_A virtual RefPtr<int> g(int a) { return {}; } };\n\
+         struct J { consteval HRESULT STDMETHODCALLTYPE f(long* n) { return 0; } };\n\
+         struct K { [[nodiscard]] virtual HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct L { MOZ_A virtual RefPtr<void(int cb())> g(int a); };\n\
+         struct M { virtual RefPtr<void(int cb())> STDMETHODCALLTYPE f(long* n); };\n\
+         struct N {\n\
+             virtual decltype([] { int nested(); return 1; }()) STDMETHODCALLTYPE f(long* n);\n\
+         };\n\
+         struct O { virtual MOZ_A MOZ_B explicit operator bool(); };\n\
+         struct P { virtual MOZ_A MOZ_B consteval HRESULT f() { return 0; } };\n";
+
+    // Split methods among other members. Each second half is skipped
+    // and nothing after it: the method `k` and the data members keep
+    // their counts, and each half-pair counts under the access its
+    // first half stands under.
+    //
+    // expected: `x` and `y` are data, `y` public (na 2 / npa 1); `f`,
+    // `g`, `h` and `k` are methods, all but `f` public (nm 4 / npm 3).
+    // Counting both halves read nm 7 / npm 5.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const SPLIT_VIRTUAL_METHODS_AMONG_MEMBERS: &str = "#define STDMETHODCALLTYPE\n\
+         typedef long HRESULT;\n\
+         class P {\n\
+             int x;\n\
+             virtual HRESULT STDMETHODCALLTYPE f(long* n);\n\
+           public:\n\
+             virtual HRESULT STDMETHODCALLTYPE g(long* n);\n\
+             virtual HRESULT STDMETHODCALLTYPE h(long* n);\n\
+             int k();\n\
+             int y;\n\
+         };\n";
+
+    // The members a first half must not be taken for, each with the `;`
+    // the grammars invent. A `virtual` method with a parameter list of
+    // its own is whole, and what follows it is another member: `Q`'s `f`
+    // before the constructor, where `END_DECL` expands to the `;`. The
+    // list may stand under a reference (`QR`), inside parentheses (`QP`,
+    // a method returning a pointer), under an array bound as well
+    // (`QA`, one returning a pointer to an array) or before an attribute
+    // list (`QT`), be a macro call's,
+    // which the declarator reader takes for a data member's recovery
+    // (`QC`), be a conversion function's, which is no
+    // `function_declarator` (`QO`), or have been recovered as a
+    // bit-field (`QB`, a method returning a member pointer). A reader
+    // that asked only for the specifier and the invented `;` skipped the
+    // member after each (nm 1 for nm 2), one that asked the declarator
+    // reader for a function skipped it after `QP`, `QA` and `QC`, and
+    // one that looked for a `function_declarator` alone skipped it after
+    // `QO` and `QB`. A macro that expands to a whole declarator leaves
+    // nothing that takes parameters either, but the member it ends is
+    // whole, with a `;` of its own, and the method after it is another
+    // (`Y`; a reader that did not ask for the invented `;` skipped `g`,
+    // nm 1). A first half whose second half reads as no method ends
+    // there too: `V`'s is a macro call with a member-pointer argument,
+    // the tree of the data member `T (S::*pd);`, which counts as an
+    // attribute (truth na 0 / nm 2, reads na 1 / nm 2; FIXME(#1829)),
+    // and the method after it is another (a reader that waited for the
+    // next method skipped `g`, nm 1). Without a specifier only a
+    // function takes, a cut-off member is as easily data: `R`'s method
+    // after a calling convention and `U`'s data member before a
+    // thread-safety annotation are one tree, and both keep the reading
+    // they had (`R`: truth na 0 / nm 1, reads na 1 / nm 1, FIXME(#1929);
+    // `U`: truth na 2 / nm 0, reads na 2 / nm 1, FIXME(#1904)). Valid
+    // C++20 with the macros defined as here.
+    //
+    // expected (unchanged): na 0 / nm 2 for each of `Q`, `QR`, `QP`,
+    // `QA`, `QT`, `QC`, `QO`, `QB` and `Y`; `V` na 1 / nm 2, `R` na 1 /
+    // nm 1, `U` na 2 / nm 1, and `S`'s `m`; na 5 / nm 22.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const CUT_OFF_MEMBERS_THAT_OPEN_NO_SPLIT_METHOD: &str = "#define STDMETHODCALLTYPE\n\
+         #define END_DECL ;\n\
+         #define GUARDED_BY(x)\n\
+         #define VGET(ignored) int vget()\n\
+         #define DECLARE_FOO int foo()\n\
+         #define DECL(P) method(int P)\n\
+         typedef long HRESULT;\n\
+         struct Mutex {};\n\
+         struct S { int m; };\n\
+         struct Q { virtual int f() END_DECL Q(); };\n\
+         struct QR { virtual int &f() END_DECL QR(); };\n\
+         struct QP { virtual int (*f()) END_DECL QP(); };\n\
+         struct QA { virtual int (*f())[2] END_DECL QA(); };\n\
+         struct QT { virtual int (f() [[vendor::attr]]) END_DECL QT(); };\n\
+         struct QC { virtual VGET(S::*x) END_DECL QC(); };\n\
+         struct QO { virtual operator int() END_DECL QO(); };\n\
+         struct QB { virtual int S::*getPd() const END_DECL int g(); };\n\
+         struct Y { virtual DECLARE_FOO; int g(); };\n\
+         struct V { virtual HRESULT STDMETHODCALLTYPE DECL(S::*p); int g(); };\n\
+         struct R { HRESULT STDMETHODCALLTYPE plain(long* n); };\n\
+         struct U { Mutex mu_; Mutex other_mutex_instance_ GUARDED_BY(mu_); };\n";
+
+    // One tree, two truths, twice. Two unknown words between `virtual`
+    // and a destructor are two annotation macros (`DN`, one method) or
+    // a type and a macro that expands to a method's name, parameter
+    // list and `;` (`DM`, two methods). The reader takes the first
+    // reading, so `DM` reads one method for its two, as it did before
+    // #1885, and so does a method directly after any parameter list a
+    // macro hides (FIXME(#1929)). A parameter list in parentheses after
+    // `virtual` and one word is a whole method's (`DW`, two methods) or
+    // the argument of an annotation macro before the method's type
+    // (`DA`, one method). The reader takes the first reading, so `DA`
+    // reads two methods for its one, where it read one before #1885
+    // (FIXME(#1929)). Valid C++20 with the macros defined as here.
+    //
+    // expected: `DN` nm 1 and `DW` nm 2; `DM` reads nm 1 where the truth
+    // is nm 2, and `DA` reads nm 2 where the truth is nm 1; na 0 / nm 6.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const SPLIT_HALVES_OF_ONE_TREE_AND_TWO_TRUTHS: &str = "#define MOZ_A\n\
+         #define MOZ_B\n\
+         #define WHOLE f();\n\
+         #define END_DECL ;\n\
+         #define ANN(x)\n\
+         typedef long HRESULT;\n\
+         struct Ret {};\n\
+         struct DN { virtual MOZ_A MOZ_B ~DN(); };\n\
+         struct DM { virtual HRESULT WHOLE ~DM(); };\n\
+         struct DW { virtual Ret (f()) END_DECL int g(); };\n\
+         struct DA { virtual ANN(foo()) int f(); };\n";
+
+    // A method the grammars cut off twice before its name, which two
+    // annotation macros beside a return type and a calling convention
+    // bring about. After `virtual` (`T`) the return type and the calling
+    // convention are a cut-off member of their own between the first
+    // half and the name, and the method consumer reads it as more of
+    // the first half; counting it apart read `T` as two methods. Before
+    // `virtual` (`W`) the two macros are cut off ahead of the first
+    // half. In both, the cut-off member no specifier marks still counts
+    // as an attribute, as `R`'s does above (FIXME(#1929)). Where the
+    // member between holds a specifier of its own (`X`, `consteval`
+    // after the two macros), it is a first half itself and no
+    // attribute, and it carries the split on to the definition: a
+    // reader that counted it apart read `X` as two methods. Valid C++20
+    // with the macros defined as here.
+    //
+    // expected: one method each, nm 3; `T` and `W` read na 2 where the
+    // truth is na 0.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const VIRTUAL_METHODS_CUT_OFF_TWICE: &str = "#define STDMETHODCALLTYPE\n\
+         #define MOZ_A\n\
+         #define MOZ_B\n\
+         typedef long HRESULT;\n\
+         struct T { virtual MOZ_A MOZ_B HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct W { MOZ_A MOZ_B virtual HRESULT STDMETHODCALLTYPE f(long* n); };\n\
+         struct X {\n\
+             virtual MOZ_A MOZ_B consteval HRESULT STDMETHODCALLTYPE f() { return 0; }\n\
+         };\n";
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_split_virtual_methods_count_once<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(VIRTUAL_METHODS_SPLIT_IN_TWO, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 16);
+        });
+        check_metrics_with_npa::<P>(SPLIT_VIRTUAL_METHODS_AMONG_MEMBERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npm.class_nm_sum(), 4);
+            assert_eq!(metric.npm.class_npm_sum(), 3);
+        });
+        check_metrics_with_npa::<P>(
+            CUT_OFF_MEMBERS_THAT_OPEN_NO_SPLIT_METHOD,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npm.class_nm_sum(), 22);
+            },
+        );
+        check_metrics_with_npa::<P>(
+            SPLIT_HALVES_OF_ONE_TREE_AND_TWO_TRUTHS,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 6);
+            },
+        );
+        check_metrics_with_npa::<P>(VIRTUAL_METHODS_CUT_OFF_TWICE, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npm.class_nm_sum(), 3);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_split_virtual_methods_count_once() {
+        assert_split_virtual_methods_count_once::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_split_virtual_methods_count_once() {
+        assert_split_virtual_methods_count_once::<MozcppParser>();
+    }
+
     // The readers of #1885's recovery follow the declarator nesting the
     // source writes, one level per parenthesis, and `cpp_answer` keeps
     // their open questions on the heap so that nesting costs no call
