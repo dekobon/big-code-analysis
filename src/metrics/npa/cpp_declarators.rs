@@ -223,10 +223,15 @@ fn cpp_opens_with_standard_noreturn<'a>(declaration: &Node<'a>, code: &'a [u8]) 
 // asked: the second parameter list is a pointee's (`int MOZ_X
 // (S::*pf)(int);`, a pointer to member function after an annotation
 // macro, is data), or the levels are a comma list's (`[[noreturn]] T
-// (S::*pa), (S::*pb);`, which GCC accepts as two data members).
+// (S::*pa), (S::*pb);`, which GCC accepts as two data members). So is
+// one with an `ERROR` of its own: nothing stands between a function's
+// name and its parameter list, and `int MOZ_X long (S::*pq);` leaves
+// the `long` of its type there, stranded after the macro the grammars
+// took for the name.
 fn cpp_is_named_function<'a>(declarator: &Node<'a>, first_word: FirstWord, code: &'a [u8]) -> bool {
     first_word == FirstWord::Name
         && cpp_is_innermost_level(declarator)
+        && declarator.children().all(|part| !part.is_error())
         && !cpp_is_type_word(
             declarator
                 .child_by_field_name("declarator")

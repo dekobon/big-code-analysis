@@ -1247,7 +1247,7 @@ value = 524.0
 path = "src/metrics/npa/cpp_declarators.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 539.0
+value = 540.0
 
 [[entry]]
 path = "src/metrics/npa/groovy.rs"

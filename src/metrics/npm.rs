@@ -7032,7 +7032,12 @@ class C {
     // one they do not know (`pk`, `pl`, whose `__int128` and `_Complex`
     // are extensions GCC and clang accept). A reader that took the word
     // for a function's name read the four as methods, where #1885 had
-    // made each data. A word the Mozcpp fork lists as a `primitive_type`
+    // made each data. When the type's first word is a keyword and a
+    // macro splits it, the grammars take the macro for the name and
+    // strand the last word in an `ERROR` after it (`pq`): a declarator
+    // with an `ERROR` of its own is no named function either, and a
+    // reader that did not look read `pq` as a method. A word the Mozcpp
+    // fork lists as a `primitive_type`
     // is no keyword type either when it is a macro: `APIENTRY`, the
     // calling convention, is there beside the Windows typedef names, and
     // `pw` read as a method on that grammar alone.
@@ -7040,7 +7045,8 @@ class C {
     // Valid C++20 with the macros defined as here, but for `pk` and `pl`.
     //
     // expected: `pa`, `pb`, `pn`, `pu`, `pm`, `pd`, `pe`, `pf`, `pg`,
-    // `ph`, `pi`, `pj`, `pk`, `pl`, `pw` and `z9` are data, na 16 / nm 0.
+    // `ph`, `pi`, `pj`, `pk`, `pl`, `pq`, `pw` and `z9` are data, na 17 /
+    // nm 0.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const MEMBER_POINTERS_NO_FIRST_WORD_SETTLES: &str = "#define MOZ_X\n\
          #define APIENTRY\n\
@@ -7060,6 +7066,7 @@ class C {
              MOZ_X unsigned int (S::*pj);\n\
              unsigned __int128 (S::*pk);\n\
              double _Complex (S::*pl);\n\
+             int MOZ_X long (S::*pq);\n\
              APIENTRY T (S::*pw);\n\
              int z9;\n\
          };\n";
@@ -7159,7 +7166,7 @@ class C {
             },
         );
         check_metrics_with_npa::<P>(MEMBER_POINTERS_NO_FIRST_WORD_SETTLES, "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 16);
+            assert_eq!(metric.npa.class_na_sum(), 17);
             assert_eq!(metric.npm.class_nm_sum(), 0);
         });
         check_metrics_with_npa::<P>(NORETURN_THAT_SETTLES_NOTHING, "foo.cpp", |metric| {
