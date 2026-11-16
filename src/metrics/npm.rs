@@ -7483,14 +7483,16 @@ class C {
     // next method skipped `g`, nm 1). Without a specifier only a
     // function takes, a cut-off member is as easily data: `R`'s method
     // after a calling convention and `U`'s data member before a
-    // thread-safety annotation are one tree, and both keep the reading
-    // they had (`R`: truth na 0 / nm 1, reads na 1 / nm 1, FIXME(#1929);
-    // `U`: truth na 2 / nm 0, reads na 2 / nm 1, FIXME(#1904)). Valid
-    // C++20 with the macros defined as here.
+    // thread-safety annotation are one tree, and both count as an
+    // attribute. What follows tells them apart only by its name: `R`'s
+    // second half counts as the method (truth na 0 / nm 1, reads na 1 /
+    // nm 1, FIXME(#1929)), and `U`'s annotation as nothing, where it
+    // counted as a method (#1904). Valid C++20 with the macros defined
+    // as here.
     //
-    // expected (unchanged): na 0 / nm 2 for each of `Q`, `QR`, `QP`,
-    // `QA`, `QT`, `QC`, `QO`, `QB` and `Y`; `V` na 1 / nm 2, `R` na 1 /
-    // nm 1, `U` na 2 / nm 1, and `S`'s `m`; na 5 / nm 22.
+    // expected: na 0 / nm 2 for each of `Q`, `QR`, `QP`, `QA`, `QT`,
+    // `QC`, `QO`, `QB` and `Y`; `V` na 1 / nm 2, `R` na 1 / nm 1, `U`
+    // na 2 / nm 0, and `S`'s `m`; na 5 / nm 21.
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     const CUT_OFF_MEMBERS_THAT_OPEN_NO_SPLIT_METHOD: &str = "#define STDMETHODCALLTYPE\n\
          #define END_DECL ;\n\
@@ -7587,7 +7589,7 @@ class C {
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 5);
-                assert_eq!(metric.npm.class_nm_sum(), 22);
+                assert_eq!(metric.npm.class_nm_sum(), 21);
             },
         );
         check_metrics_with_npa::<P>(
@@ -7614,6 +7616,550 @@ class C {
     #[test]
     fn mozcpp_split_virtual_methods_count_once() {
         assert_split_virtual_methods_count_once::<MozcppParser>();
+    }
+
+    // Thread-safety annotations after a data member's declarator
+    // (#1904), which expand to an attribute or to nothing. Both grammars
+    // read each as a function's name and parameter list and leave the
+    // member's own declarator in an `ERROR` before it, so each member
+    // here counted as a method and no attribute. The name stands alone
+    // (`DA`), under a pointer or a reference, where the `ERROR` is
+    // inside that declarator (`DB`, `DC`), with an array bound (`DP`),
+    // or was read into the type after `long` or `unsigned` (`DH`, `DI`,
+    // `DK`), which leaves no `ERROR` at all. After the annotation comes
+    // an initialiser (`DD`, `DE`, `DF`, `DK`), a comma list's next
+    // declarator with an annotation of its own (`DN`, `DO`), or a
+    // second annotation, which puts the first in the `ERROR` beside the
+    // name (`DR`, `DS`). The argument is a qualified name, a call or a
+    // member access (`DU`, `DV`, `DW`), a comment stands before the
+    // annotation (`DT`), and the member is a template (`DX`). A pointer
+    // to function leaves a `function_declarator` in the `ERROR` as a
+    // method does, and is data by the `*` in its parentheses, under a
+    // function's annotation too (`EA`, `EB`); a second annotation after
+    // it or after an array puts the first beside that declarator (`EC`,
+    // `ED`). A method after an annotated member is still one, in a
+    // declaration of its own (`DZ`) and in the member's comma list
+    // (`EE`), and a comma keeps two longer names in one declaration
+    // (`EF`). Valid C++20 with the macros defined as here.
+    //
+    // expected: `mu` and one more data member in each of the 32
+    // classes, a third in `DN`, `DO`, `DW` and `EF` and two more in
+    // `DY` (na 64 + 4 + 2 = 70); `f` in `DZ` and in `EE` (nm 2). Each
+    // annotated declaration counted as one method and no attribute:
+    // na 34 / nm 34 on Cpp, and na 35 / nm 33 on Mozcpp, which reads
+    // `EC` as the pointer to function.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_DATA_MEMBERS: &str = "#define GUARDED_BY(x)\n\
+         #define PT_GUARDED_BY(x)\n\
+         #define ACQUIRED_AFTER(x)\n\
+         #define ABSL_GUARDED_BY(x)\n\
+         #define ABSL_PT_GUARDED_BY(x)\n\
+         #define MOZ_GUARDED_BY(x)\n\
+         #define REQUIRES(...)\n\
+         template<class X> struct RefPtr {};\n\
+         struct Mutex {};\n\
+         struct Thread {};\n\
+         struct DA { Mutex mu; bool mDone MOZ_GUARDED_BY(mu); };\n\
+         struct DB { Mutex mu; int* data_ ABSL_PT_GUARDED_BY(mu); };\n\
+         struct DC { Mutex mu; int& mRef GUARDED_BY(mu); };\n\
+         struct DD { Mutex mu; int hits_ GUARDED_BY(mu) = 0; };\n\
+         struct DE { Mutex mu; int mX GUARDED_BY(mu) {0}; };\n\
+         struct DF { Mutex mu; Thread mFoo GUARDED_BY(mu) {}; };\n\
+         struct DG { Mutex mu; RefPtr<Thread> mResource MOZ_GUARDED_BY(mu); };\n\
+         struct DH { Mutex mu; long mSize MOZ_GUARDED_BY(mu); };\n\
+         struct DI { Mutex mu; unsigned mPos GUARDED_BY(mu); };\n\
+         struct DJ { Mutex mu; unsigned int mPos MOZ_GUARDED_BY(mu); };\n\
+         struct DK { Mutex mu; const long mSize GUARDED_BY(mu) = 0; };\n\
+         struct DL { Mutex mu; static int sCount GUARDED_BY(mu); };\n\
+         struct DM { Mutex mu; mutable int mHits GUARDED_BY(mu); };\n\
+         struct DN { Mutex mu; int mA GUARDED_BY(mu), mB GUARDED_BY(mu); };\n\
+         struct DO { Mutex mu; int x GUARDED_BY(mu) = 0, y GUARDED_BY(mu) = 1; };\n\
+         struct DP { Mutex mu; int mArr[4] GUARDED_BY(mu); };\n\
+         struct DQ { Mutex mu; Mutex mu2 ACQUIRED_AFTER(mu); };\n\
+         struct DR { Mutex mu; int x GUARDED_BY(mu) ACQUIRED_AFTER(mu); };\n\
+         struct DS { Mutex mu; Thread* mShortP PT_GUARDED_BY(mu) GUARDED_BY(mu); };\n\
+         struct DT { Mutex mu; bool mDone /* c */ MOZ_GUARDED_BY(mu); };\n\
+         struct DU { Mutex mu; static int sCount GUARDED_BY(S::sMutex); };\n\
+         struct DV { Mutex mu; int x_ GUARDED_BY(GetMutex()); };\n\
+         struct DW { Mutex mu; Thread* mThread; bool mDone MOZ_GUARDED_BY(mThread->mMutex); };\n\
+         struct DX { Mutex mu; template<class U> static U sVal GUARDED_BY(mu); };\n\
+         struct DY { Mutex mu; bool mIsReading MOZ_GUARDED_BY(mu); bool mIsWriting MOZ_GUARDED_BY(mu); int z; };\n\
+         struct DZ { Mutex mu; int mA GUARDED_BY(mu); void f(); };\n\
+         struct EA { Mutex mu; void (*f)(int) GUARDED_BY(mu); };\n\
+         struct EB { Mutex mu; int (*f)(int) REQUIRES(mu) = nullptr; };\n\
+         struct EC { Mutex mu; int (*f)() GUARDED_BY(mu) ACQUIRED_AFTER(mu); };\n\
+         struct ED { Mutex mu; int a[4] GUARDED_BY(mu) ACQUIRED_AFTER(mu); };\n\
+         struct EE { Mutex mu; int x GUARDED_BY(mu), f(); };\n\
+         struct EF { Mutex mu; int mLongNameA GUARDED_BY(mu), mLongNameB GUARDED_BY(mu); };\n";
+
+    // The same annotations where the grammars cannot join one to the
+    // declarator before it: they end that member with a `;` they
+    // invent, and the annotation follows as a member of its own
+    // (#1904). After a longer name it is a constructor's declaration by
+    // its tree and counted as a method: after a plain name (`SA`, `SB`,
+    // `SC`, `SU`), a pointer (`SM`), an array (`SN`), a comment (`SO`,
+    // `SP`) and a pointer to function, which takes a function's
+    // annotation too (`SQ`, `SR`). With an empty brace initialiser it
+    // is a function's definition (`SG`). With any other initialiser
+    // (`SD`, `SE`, `SF`, `SH`) or an argument that is no plain name
+    // (`SI`, `SJ`, `SK`, `SL`) it is a data member whose type is the
+    // annotation's name and whose name is the argument, and counted as
+    // an attribute; a second annotation after it changes nothing
+    // (`SS`). `ST` holds two such members in a row. Valid C++20 with
+    // the macros defined as here.
+    //
+    // expected: `mu` and one more data member in each of the 21
+    // classes, a third in `SI`, `SJ`, `SL`, `SO` and `SP` and two more
+    // in `ST` (na 42 + 5 + 2 = 49), and no method. Counting each
+    // annotation as a member read na 57 / nm 14.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_DATA_MEMBERS_CUT_OFF: &str = "#define GUARDED_BY(x)\n\
+         #define PT_GUARDED_BY(x)\n\
+         #define ACQUIRED_AFTER(x)\n\
+         #define REQUIRES(...)\n\
+         #define MOZ_GUARDED_BY(x)\n\
+         #define RTC_GUARDED_BY(x)\n\
+         template<class X> struct RefPtr {};\n\
+         template<class X> struct nsTArray {};\n\
+         namespace std { template<class X> struct deque {}; }\n\
+         struct Mutex {};\n\
+         struct Thread {};\n\
+         struct SA { Mutex mu; bool mIsWriteScheduled MOZ_GUARDED_BY(mu); };\n\
+         struct SB { Mutex mu; nsTArray<RefPtr<Thread> > mBlockChanges MOZ_GUARDED_BY(mu); };\n\
+         struct SC { Mutex mu; std::deque<int> mChangeIndexList MOZ_GUARDED_BY(mu); };\n\
+         struct SD { Mutex mu; bool mInitialized MOZ_GUARDED_BY(mu) = false; };\n\
+         struct SE { Mutex mu; Thread mLongStructMember MOZ_GUARDED_BY(mu) = {}; };\n\
+         struct SF { Mutex mu; bool mIsWriteScheduled MOZ_GUARDED_BY(mu){false}; };\n\
+         struct SG { Mutex mu; Thread mLongStructMemberName GUARDED_BY(mu) {}; };\n\
+         struct SH { Mutex mu; static constexpr int kLongConstantName MOZ_GUARDED_BY(mu) = 3; };\n\
+         struct SI { Mutex mu; Mutex* mMon; bool mIsWriteScheduled MOZ_GUARDED_BY(*mMon); };\n\
+         struct SJ { Mutex mu; Mutex* mMon; bool mDone MOZ_GUARDED_BY(*mMon); };\n\
+         struct SK { Mutex mu; int x_ RTC_GUARDED_BY(&mu); };\n\
+         struct SL { Mutex mu; Thread* mThread; bool mIsWriteScheduled MOZ_GUARDED_BY(mThread->mMutex); };\n\
+         struct SM { Mutex mu; int* mPtrWithALongName PT_GUARDED_BY(mu); };\n\
+         struct SN { Mutex mu; int mArrayWithLongName[4] GUARDED_BY(mu); };\n\
+         struct SO { Mutex mu; bool mIsWriteScheduled /* c */ MOZ_GUARDED_BY(mu); int z; };\n\
+         struct SP { Mutex mu; bool mIsWriteScheduled\n\
+           // why\n\
+           MOZ_GUARDED_BY(mu); int z; };\n\
+         struct SQ { Mutex mu; void (*mCb)(int) GUARDED_BY(mu); };\n\
+         struct SR { Mutex mu; void (*mCb)(int) REQUIRES(mu); };\n\
+         struct SS { Mutex mu; Mutex mLongMutexName GUARDED_BY(mu) ACQUIRED_AFTER(mu); };\n\
+         struct ST { Mutex mu; bool mIsWriteScheduled MOZ_GUARDED_BY(mu); bool mIsReadScheduled MOZ_GUARDED_BY(mu); int z; };\n\
+         struct SU { Mutex mu; int mLongNameForField GUARDED_BY(GetMutex()); };\n";
+
+    // Annotations after a method's declarator (#1932) that the Cpp
+    // grammar keeps in the method's own declaration: the method's
+    // `function_declarator` is in the `ERROR` before the annotation's,
+    // and the member counted as one method before the annotations were
+    // read and still does. Mozcpp ends the declaration before the
+    // annotation in all but `MG`, `MI`, `MO` and `MU` and counted the
+    // annotation as a second method, a `friend`'s as a first (`MS`).
+    // The method is a declaration (`MA`, `MB`, `MD`), a definition
+    // (`MC`), pure, deleted or defaulted (`ME`, `ML`, `MP`), static, a
+    // template or a constructor (`MH`, `MI`, `MO`), returns a pointer,
+    // a `long` or a trailing type (`MJ`, `MK`, `MM`), is followed by
+    // `override` (`MN`) or a second annotation (`MG`), or stands after
+    // an annotation macro of another kind (`MR`). The argument list is
+    // empty (`MF`) or holds two arguments (`MQ`). A method that is
+    // itself named as an annotation is stays the method: nothing
+    // stands before its name in the `ERROR` (`MT`). A comma after the
+    // annotation keeps the method in the `ERROR` on Mozcpp too, and the
+    // data member after it counts (`MU`). Valid C++20 with the macros
+    // defined as here.
+    //
+    // expected: `mu` in each of the 21 classes, `z` in `MD` and `MN` and
+    // `y` in `MU` (na 24); `Base`'s `Loop`, one method in each of the 21
+    // classes, two in `MB` and none in `MS` (nm 1 + 21 = 22). Mozcpp
+    // read nm 40.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_METHODS: &str = "#define REQUIRES(...)\n\
+         #define EXCLUSIVE_LOCKS_REQUIRED(...)\n\
+         #define MOZ_REQUIRES(...)\n\
+         #define MOZ_EXCLUDES(...)\n\
+         #define MOZ_CAPABILITY_ACQUIRE(...)\n\
+         #define MOZ_TRY_ACQUIRE(...)\n\
+         #define MOZ_CAN_RUN_SCRIPT\n\
+         struct Mutex {};\n\
+         struct Base { virtual void Loop(); };\n\
+         struct MA { Mutex mu; void Loop() MOZ_REQUIRES(mu); };\n\
+         struct MB { Mutex mu; void Loop() MOZ_REQUIRES(mu); void Other() MOZ_REQUIRES(mu); };\n\
+         struct MC { Mutex mu; void Loop() MOZ_REQUIRES(mu) {} };\n\
+         struct MD { Mutex mu; int Count() EXCLUSIVE_LOCKS_REQUIRED(mu); int z; };\n\
+         struct ME { Mutex mu; virtual void Loop() MOZ_REQUIRES(mu) = 0; };\n\
+         struct MF { Mutex mu; void Lock() MOZ_CAPABILITY_ACQUIRE(); };\n\
+         struct MG { Mutex mu; void Loop() MOZ_REQUIRES(mu) MOZ_EXCLUDES(mu); };\n\
+         struct MH { Mutex mu; static void Loop() MOZ_REQUIRES(mu); };\n\
+         struct MI { Mutex mu; template<class U> void Loop(U) MOZ_REQUIRES(mu); };\n\
+         struct MJ { Mutex mu; int* Get() MOZ_REQUIRES(mu); };\n\
+         struct MK { Mutex mu; long Count() REQUIRES(mu); };\n\
+         struct ML { Mutex mu; void Loop() MOZ_REQUIRES(mu) = delete; };\n\
+         struct MM { Mutex mu; auto Loop() MOZ_REQUIRES(mu) -> int; };\n\
+         struct MN : Base { Mutex mu; void Loop() MOZ_REQUIRES(mu) override; int z; };\n\
+         struct MO { Mutex mu; explicit MO(int a) MOZ_REQUIRES(mu); };\n\
+         struct MP { Mutex mu; virtual ~MP() MOZ_REQUIRES(mu) = default; };\n\
+         struct MQ { Mutex mu; bool TryLock() MOZ_TRY_ACQUIRE(true, mu); };\n\
+         struct MR { Mutex mu; MOZ_CAN_RUN_SCRIPT void Loop() MOZ_REQUIRES(mu); };\n\
+         struct MS { Mutex mu; friend void Loop() MOZ_REQUIRES(mu); };\n\
+         struct MT { Mutex mu; void RELEASE() MOZ_REQUIRES(mu); };\n\
+         struct MU { Mutex mu; int f() const REQUIRES(mu), y; };\n";
+
+    // Annotations after a method's declarator where both grammars end
+    // the declaration before the annotation, which then follows as a
+    // member of its own and counted as a second method (#1932): after
+    // `const`, `noexcept` or `override` (`CA`, `CF`, `CK`), a
+    // constructor, a destructor or a conversion function (`CB`, `CC`,
+    // `CD`), an operator (`CE`, `CR`), a method the grammars had
+    // already split at its calling convention (`CJ`), a parameter list
+    // on several lines (`CN`), and inside the declaration a template or
+    // a `friend` wraps (`CQ`, `CT`, `CU`). The annotation carries what
+    // follows it: a body (`CL`), a member initialiser list (`CM`,
+    // `CP`), `= 0`, `= delete`, a trailing return type (`CV`, `CW`,
+    // `CX`). An argument that is no plain name makes it a data member
+    // whose type is the annotation's name, which counted as an
+    // attribute (`CG`, `CO`, `CP`, `CV`, `CX`, `CY`), and a second
+    // annotation is read with the first (`CI`) or follows as a third
+    // member (`CO`). The method before the annotation may itself be
+    // named as one is (`CZ`). Valid C++20 with the macros defined as
+    // here.
+    //
+    // expected: `mu` in each of the 26 classes, `mv` in `CH` and `z` in
+    // `CM`, `CN`, `CP`, `CV`, `CW`, `CX` and `CY` (na 34); `Base`'s
+    // `Loop` and one method in each class but `CT` and `CU`, whose
+    // `friend` is no member (nm 1 + 24 = 25). Counting each annotation
+    // as a member read na 39 / nm 47 on Cpp and na 37 / nm 47 on Mozcpp.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_METHODS_CUT_OFF: &str = "#define MOZ_REQUIRES(...)\n\
+         #define MOZ_EXCLUDES(...)\n\
+         #define MOZ_ASSERT_CAPABILITY(x)\n\
+         #define STDMETHODCALLTYPE\n\
+         typedef long HRESULT;\n\
+         struct Mutex {};\n\
+         struct Base { virtual void Loop(); };\n\
+         struct CA { Mutex mu; void Loop() const MOZ_REQUIRES(mu); };\n\
+         struct CB { Mutex mu; CB() MOZ_REQUIRES(mu); };\n\
+         struct CC { Mutex mu; ~CC() MOZ_REQUIRES(mu); };\n\
+         struct CD { Mutex mu; operator bool() const MOZ_REQUIRES(mu); };\n\
+         struct CE { Mutex mu; int operator+(int) MOZ_REQUIRES(mu); };\n\
+         struct CF { Mutex mu; void Loop() noexcept MOZ_REQUIRES(mu); };\n\
+         struct CG { Mutex mu; void LoopForever() MOZ_REQUIRES(!mu); };\n\
+         struct CH { Mutex mu; Mutex mv; void LoopForever() MOZ_REQUIRES(mu, mv); };\n\
+         struct CI { Mutex mu; void LoopForever() const MOZ_REQUIRES(mu) MOZ_EXCLUDES(mu); };\n\
+         struct CJ { Mutex mu; virtual HRESULT STDMETHODCALLTYPE f(long* n) MOZ_REQUIRES(mu); };\n\
+         struct CK : Base { Mutex mu; void Loop() override MOZ_REQUIRES(mu); };\n\
+         struct CL { Mutex mu; void Loop() const MOZ_REQUIRES(mu) { } };\n\
+         struct CM { Mutex mu; CM() MOZ_REQUIRES(mu) : z(0) {} int z; };\n\
+         struct CN { Mutex mu; void ScheduleSegmentParserLoop(int a,\n\
+               int b)\n\
+               MOZ_REQUIRES(mu); int z; };\n\
+         struct CO { Mutex mu; void AssertSame(int a) MOZ_REQUIRES(*mu) MOZ_ASSERT_CAPABILITY(*mu) { } };\n\
+         struct CP { Mutex mu; CP(int a) MOZ_REQUIRES(*mu) : z(a) {} int z; };\n\
+         struct CQ { Mutex mu; template <class U> void LongTemplateName(U u) const MOZ_REQUIRES(mu); };\n\
+         struct CR { Mutex mu; bool operator==(const CR& o) const MOZ_REQUIRES(mu); };\n\
+         struct CS { Mutex mu; void AssertHeld() const MOZ_ASSERT_CAPABILITY(this); };\n\
+         struct CT { Mutex mu; friend void LoopForeverLongName(int a) MOZ_REQUIRES(mu); };\n\
+         struct CU { Mutex mu; template <class U> friend void LongFriendName(U u) MOZ_REQUIRES(mu); };\n\
+         struct CV { Mutex mu; virtual void LoopForeverLongName() MOZ_REQUIRES(*mu) = 0; int z; };\n\
+         struct CW { Mutex mu; void LoopForeverLongName() MOZ_REQUIRES(*mu) = delete; int z; };\n\
+         struct CX { Mutex mu; auto LoopForeverLongName() MOZ_REQUIRES(*mu) -> int; int z; };\n\
+         struct CY { Mutex mu; void LoopForeverLongName() noexcept MOZ_REQUIRES(*mu); int z; };\n\
+         struct CZ { Mutex mu; void REQUIRES(Mutex& m) MOZ_EXCLUDES(mu); };\n";
+
+    // Annotated members under access labels: an annotation the grammars
+    // split from its member counted under the label the member stands
+    // under, and each annotated member counts there once.
+    //
+    // expected: `mu`, `mIsWriteScheduled`, `mIsReadScheduled`, `mShort`
+    // and `z` are data, the last three public (na 5 / npa 3); `Lock`,
+    // `LoopForeverLongName` and `Loop` are methods, `Loop` public
+    // (nm 3 / npm 1). Before, na 5 / npa 2 / nm 8 / npm 4: `mShort`
+    // counted as a method, the argument of `MOZ_REQUIRES(*mu)` as a
+    // private attribute, and four more annotations as methods.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_MEMBERS_UNDER_ACCESS_LABELS: &str = "#define GUARDED_BY(x)\n\
+         #define MOZ_GUARDED_BY(x)\n\
+         #define MOZ_REQUIRES(...)\n\
+         struct Mutex {};\n\
+         class P {\n\
+             Mutex mu;\n\
+             bool mIsWriteScheduled MOZ_GUARDED_BY(mu);\n\
+             void Lock() const MOZ_REQUIRES(mu);\n\
+             void LoopForeverLongName() MOZ_REQUIRES(*mu);\n\
+           public:\n\
+             bool mIsReadScheduled MOZ_GUARDED_BY(mu);\n\
+             int mShort GUARDED_BY(mu);\n\
+             void Loop() const MOZ_REQUIRES(mu);\n\
+             int z;\n\
+         };\n";
+
+    // Methods named as an annotation is, with no macro of that name:
+    // the name alone decides nothing. A method with its type before it
+    // and nothing stranded is a method (`KA`, `KB`, `KC`), also after
+    // `long`, which took no name (`KD`), and after an annotation macro
+    // that split off a type keyword (`KE`) or that the grammars read
+    // into a type that opens with `long` or `unsigned` (`KG`, `KH`).
+    // One the grammars split at its calling convention is read as an
+    // annotation of its first half, which `virtual` had already counted
+    // as the method (`KF`). Valid C++20 with the macros defined as here.
+    //
+    // expected (unchanged): `mu` in each of the 8 classes and `z` in
+    // `KB` (na 9); one method in each and two in `KC` (nm 9).
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBERS_NAMED_LIKE_ANNOTATIONS: &str = "#define MOZ_X\n\
+         #define STDMETHODCALLTYPE\n\
+         typedef long HRESULT;\n\
+         struct Mutex {};\n\
+         struct KA { Mutex mu; int GUARDED_BY(int x); };\n\
+         struct KB { Mutex mu; int REQUIRES(int x); int z; };\n\
+         struct KC { Mutex mu; void REQUIRES(Mutex& m); void EXCLUDES(Mutex& m); };\n\
+         struct KD { Mutex mu; long REQUIRES(int x); };\n\
+         struct KE { Mutex mu; MOZ_X void RELEASE(int a); };\n\
+         struct KF { Mutex mu; virtual HRESULT STDMETHODCALLTYPE RELEASE(); };\n\
+         struct KG { Mutex mu; MOZ_X long RELEASE(); };\n\
+         struct KH { Mutex mu; MOZ_X unsigned ACQUIRE(int a); };\n";
+
+    // Macros beside a member that the annotation readers leave alone.
+    // A macro call with a member-pointer argument is a method (`NA`).
+    // An annotation that takes no argument is no function to the
+    // grammars and never added a method (`NB`, `NC`, `ND`). An
+    // annotated bit-field is one data member (`NE`). A macro call named
+    // as an annotation is that follows a whole member, with the `;` the
+    // source writes, is no annotation of it: it keeps the reading of
+    // any other macro call at class scope, a data member named by its
+    // argument (`NF`: truth na 2 / nm 2, reads na 3 / nm 1) or one
+    // member with the macro call before it (`NG`: truth na 2 / nm 3,
+    // reads na 2 / nm 1). A method with another name leaves the trees
+    // an annotated data member leaves, after an annotation macro and a
+    // type that is no keyword (`NH`) and after `long` and such a macro
+    // (`NI`), and is a method by its name. Valid C++20 with the macros
+    // defined as here.
+    //
+    // expected (unchanged): `NA` na 1 / nm 1, `NB` na 3 / nm 0, `NC`
+    // na 1 / nm 1, `ND` na 2 / nm 1, `NE` na 2 / nm 0, `NF` na 3 /
+    // nm 1, `NG` na 2 / nm 1, `NH` and `NI` na 1 / nm 1 each; na 16 /
+    // nm 7.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MACROS_NO_ANNOTATION_NAME_CLAIMS: &str = "#define GUARDED_BY(x)\n\
+         #define MOZ_UNANNOTATED\n\
+         #define NO_THREAD_SAFETY_ANALYSIS\n\
+         #define MOZ_NO_THREAD_SAFETY_ANALYSIS\n\
+         #define DECL(P) method(int P)\n\
+         #define X_RELEASE(C) int Release();\n\
+         #define NS_INLINE_DECL_REFCOUNTING(C) int AddRef();\n\
+         #define MOZ_X\n\
+         struct Mutex {};\n\
+         struct S {};\n\
+         struct T {};\n\
+         struct NA { Mutex mu; int DECL(S::*p); };\n\
+         struct NB { Mutex mu; Mutex mMon MOZ_UNANNOTATED; bool mUse; };\n\
+         struct NC { Mutex mu; void unsafeIncrement() NO_THREAD_SAFETY_ANALYSIS; };\n\
+         struct ND { Mutex mu; void unsafeIncrementLongName() MOZ_NO_THREAD_SAFETY_ANALYSIS; int z; };\n\
+         struct NE { Mutex mu; int mBits : 3 GUARDED_BY(mu); };\n\
+         struct NF { Mutex mu; int f(); X_RELEASE(NF) int z; };\n\
+         struct NG { Mutex mu; int f(); NS_INLINE_DECL_REFCOUNTING(NG) X_RELEASE(NG)\n\
+           int z; };\n\
+         struct NH { Mutex mu; MOZ_X T SetText(int a); };\n\
+         struct NI { Mutex mu; long MOZ_X SetSize(int a); };\n";
+
+    // FIXME(#1904): one tree, two truths. Each member here is named as
+    // an annotation is and leaves the tree an annotation leaves, so it
+    // is read as one. A method after an annotation macro and a type
+    // that is no keyword is the tree of the data member `T mDone
+    // REQUIRES(mu);` and reads as that data member (`LA`: truth na 1 /
+    // nm 1, which it read before). A method the grammars split at its
+    // calling convention, with no specifier that marks the first half
+    // as a function, is the tree of `Mutex mLongName GUARDED_BY(mu);`
+    // and loses its method (`LB`: truth na 1 / nm 1, read na 2 / nm 1).
+    // A macro call after two macros that take no argument reads as a
+    // data member where it read as one method (`LC`: truth na 2 / nm 3,
+    // read na 2 / nm 1). Valid C++20 with the macros defined as here.
+    //
+    // expected: `LA` na 2 / nm 0, `LB` na 2 / nm 0, `LC` na 3 / nm 0;
+    // na 7 / nm 0, where the truth is na 4 / nm 5.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const MEMBERS_AN_ANNOTATION_NAME_MISLEADS: &str = "#define MOZ_X\n\
+         #define STDMETHODCALLTYPE\n\
+         #define NS_DECL_A int a1();\n\
+         #define NS_DECL_B int b1();\n\
+         #define X_RELEASE(C) int Release()\n\
+         typedef long HRESULT;\n\
+         struct Mutex {};\n\
+         struct T {};\n\
+         struct LA { Mutex mu; MOZ_X T REQUIRES(int a); };\n\
+         struct LB { Mutex mu; HRESULT STDMETHODCALLTYPE RELEASE(); };\n\
+         struct LC { Mutex mu; NS_DECL_A NS_DECL_B X_RELEASE(LC); int z; };\n";
+
+    // FIXME(#1904): annotations the readers do not reach. A templated data
+    // member with a longer name is recovered as a function whose qualified
+    // name the annotation ends (`RA`), and an unparenthesised pointer to
+    // member as a bit-field whose width is the annotation's call (`RB`).
+    // An annotation before the member's name, or before its type, trails
+    // no declarator: it reads as the method (`RC`) or as a data member
+    // named by its argument (`RD`). After an annotation macro that takes
+    // no argument, the annotation neither opens the member the grammars
+    // split off nor follows a stranded declarator, and still counts as a
+    // method (`RG`). So it does where a macro the grammars do not know
+    // opens the declaration: they end a member at the type, which counts
+    // as an attribute for the data member, and the member's name is the
+    // type of the annotation's own declaration (`RH`). After `unsigned
+    // long` that name is read into `long`, the annotation says nothing,
+    // and the member counts twice, as it does with no annotation (`RI`,
+    // which read na 2 / nm 1). In each of these the truth is na 2 / nm 0.
+    // An annotation the grammars split from its member takes the rest of
+    // the member's comma list with it, and the declarators after the comma
+    // are lost with it (`RF`: truth na 3 / nm 0, read na 5 / nm 0). A
+    // constructor with an annotation, a member initialiser list and a body
+    // on several lines ends the class at the body's `}` on both grammars,
+    // so `RE` holds its `mChan` and the constructor and loses the
+    // destructor and `mLevel` after it (truth na 2 / nm 2, which it read
+    // before by counting the initialiser list as a method and its argument
+    // as an attribute). `RE` stands last for that reason. Valid C++20 with
+    // the macros defined as here.
+    //
+    // expected: `RA`, `RB` and `RC` na 1 / nm 1 each, `RD` na 3 / nm 0,
+    // `RG` and `RH` na 2 / nm 1 each, `RI` na 3 / nm 0, `RF` na 2 /
+    // nm 0, `RE` na 1 / nm 1; na 16 / nm 6, where the truth is na 19 /
+    // nm 2.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATIONS_THE_READERS_MISS: &str = "#define GUARDED_BY(x)\n\
+         #define MOZ_GUARDED_BY(x)\n\
+         #define MOZ_REQUIRES(...)\n\
+         #define MOZ_NON_OWNING_REF\n\
+         #define MOZ_X\n\
+         struct Mutex {};\n\
+         struct Chan {};\n\
+         struct S {};\n\
+         struct RA { Mutex mu; template<class U> static U sValueWithLongName GUARDED_BY(mu); };\n\
+         struct RB { Mutex mu; int S::*mPm GUARDED_BY(mu); };\n\
+         struct RC { Mutex mu; S MOZ_GUARDED_BY(mu) mParams; };\n\
+         struct RD { Mutex mu; GUARDED_BY(GetMutex()) S results; };\n\
+         struct RG { Mutex mu; int* mPtr MOZ_NON_OWNING_REF MOZ_GUARDED_BY(mu); };\n\
+         struct RH { Mutex mu; MOZ_X static Mutex other_ GUARDED_BY(mu); };\n\
+         struct RI { Mutex mu; MOZ_X static unsigned long count_ GUARDED_BY(mu); };\n\
+         struct RF { Mutex mu; int mLongNameA GUARDED_BY(*mu), mLongNameB GUARDED_BY(*mu); };\n\
+         struct RE { Chan* mChan; explicit RE(Chan* aChan, int aLevel) MOZ_REQUIRES(*aChan->mMonitor)\n\
+               : mChan(aChan), mLevel(aLevel) {\n\
+             mLevel = 1;\n\
+           }\n\
+           ~RE() {}\n\
+           int mLevel; };\n";
+
+    // `override` after an annotation whose argument is no plain name.
+    // Cpp ends the method before the annotation, which follows as a
+    // data member named `override` and counted as an attribute (#1904).
+    // Mozcpp reads the annotation, the `override` and the member after
+    // them into the method's parameter list, and loses that member
+    // (FIXME(#1904)). Valid C++20 with the macro defined as here.
+    //
+    // expected: `Base`'s method and `OV`'s (nm 2) on both grammars;
+    // `mu` and `z` (na 2) on Cpp, which read na 3, and `mu` alone
+    // (na 1) on Mozcpp.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const ANNOTATED_OVERRIDE_AFTER_A_LONG_NAME: &str = "#define MOZ_REQUIRES(...)\n\
+         struct Mutex {};\n\
+         struct Base { virtual void LoopForeverLongName(); };\n\
+         struct OV : Base { Mutex mu; void LoopForeverLongName() MOZ_REQUIRES(*mu) override; int z; };\n";
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_thread_safety_annotations_are_no_members<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(ANNOTATED_DATA_MEMBERS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 70);
+            assert_eq!(metric.npm.class_nm_sum(), 2);
+        });
+        check_metrics_with_npa::<P>(ANNOTATED_DATA_MEMBERS_CUT_OFF, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 49);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(ANNOTATED_METHODS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 24);
+            assert_eq!(metric.npm.class_nm_sum(), 22);
+        });
+        check_metrics_with_npa::<P>(ANNOTATED_METHODS_CUT_OFF, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 34);
+            assert_eq!(metric.npm.class_nm_sum(), 25);
+        });
+        check_metrics_with_npa::<P>(ANNOTATED_MEMBERS_UNDER_ACCESS_LABELS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 5);
+            assert_eq!(metric.npa.class_npa_sum(), 3);
+            assert_eq!(metric.npm.class_nm_sum(), 3);
+            assert_eq!(metric.npm.class_npm_sum(), 1);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_thread_safety_annotations_are_no_members() {
+        assert_thread_safety_annotations_are_no_members::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_thread_safety_annotations_are_no_members() {
+        assert_thread_safety_annotations_are_no_members::<MozcppParser>();
+    }
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_annotation_names_alone_claim_no_member<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(MEMBERS_NAMED_LIKE_ANNOTATIONS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 9);
+            assert_eq!(metric.npm.class_nm_sum(), 9);
+        });
+        check_metrics_with_npa::<P>(MACROS_NO_ANNOTATION_NAME_CLAIMS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 16);
+            assert_eq!(metric.npm.class_nm_sum(), 7);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_annotation_names_alone_claim_no_member() {
+        assert_annotation_names_alone_claim_no_member::<CppParser>();
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_annotation_names_alone_claim_no_member() {
+        assert_annotation_names_alone_claim_no_member::<MozcppParser>();
+    }
+
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    fn assert_misread_annotations_are_pinned<P: crate::MetricSuite>() {
+        check_metrics_with_npa::<P>(MEMBERS_AN_ANNOTATION_NAME_MISLEADS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 7);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+        });
+        check_metrics_with_npa::<P>(ANNOTATIONS_THE_READERS_MISS, "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 16);
+            assert_eq!(metric.npm.class_nm_sum(), 6);
+        });
+    }
+
+    #[cfg(feature = "cpp")]
+    #[test]
+    fn cpp_misread_annotations_are_pinned() {
+        assert_misread_annotations_are_pinned::<CppParser>();
+        check_metrics_with_npa::<CppParser>(
+            ANNOTATED_OVERRIDE_AFTER_A_LONG_NAME,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
+    }
+
+    #[cfg(feature = "mozcpp")]
+    #[test]
+    fn mozcpp_misread_annotations_are_pinned() {
+        assert_misread_annotations_are_pinned::<MozcppParser>();
+        check_metrics_with_npa::<MozcppParser>(
+            ANNOTATED_OVERRIDE_AFTER_A_LONG_NAME,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+            },
+        );
     }
 
     // The readers of #1885's recovery follow the declarator nesting the

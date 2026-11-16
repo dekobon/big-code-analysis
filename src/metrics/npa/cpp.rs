@@ -42,7 +42,14 @@ macro_rules! cpp_family_npa {
 
                 let under = ancestors.of_children(node);
                 let members = under.get();
+                let mut annotations = CppTrailingAnnotations::default();
                 for child in node.children() {
+                    // A thread-safety annotation the grammars split from
+                    // the member before it declares nothing, whatever
+                    // its argument reads as (#1904, #1932).
+                    if annotations.claims(&child, code) {
+                        continue;
+                    }
                     match child.kind_id().into() {
                         AccessSpecifier => {
                             // Update the current visibility to the access

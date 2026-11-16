@@ -11,9 +11,11 @@
 //! other. Every helper matches on node-kind names, so it serves the
 //! upstream `Cpp` grammar and the Mozilla `Mozcpp` fork alike. What
 //! settles the first word of a recovered declarator is in
-//! `cpp_first_word`.
+//! `cpp_first_word`, and what a thread-safety annotation after a
+//! declarator is taken for in `cpp_annotations`.
 #![allow(clippy::wildcard_imports)]
 
+use super::cpp_annotations::{Annotated, cpp_annotated};
 use super::cpp_first_word::{FirstWord, cpp_first_word, cpp_is_named_function};
 use super::*;
 use crate::node::Children;
@@ -61,14 +63,16 @@ use crate::node::Children;
 //
 // Two of the arms read what the grammars' error recovery makes of a
 // non-templated member pointer at class scope (#1807, #1885), shapes the
-// `cpp_recovered_*` helpers below describe. The child walk tracks
-// whether the previous non-comment sibling was the recovered `:` — an
-// `ERROR` spelling that one token — which is what tells the recovered
-// `bitfield_clause` of `int S::*getPd();` from a genuine bit-field's.
-// The flag belongs to `node`'s own child list: a nested question walks
-// a child's list and starts its own, and a `bitfield_clause` is only
-// ever a `field_declaration`'s direct child, so no nested question can
-// meet one.
+// `cpp_recovered_*` helpers below describe. The child walk tracks the
+// previous non-comment sibling. Whether that was the recovered `:` — an
+// `ERROR` spelling that one token — is what tells the recovered
+// `bitfield_clause` of `int S::*getPd();` from a genuine bit-field's,
+// and what it holds tells a thread-safety annotation after a declarator
+// from a function's own declarator (#1904). The sibling belongs to
+// `node`'s own child list: a nested question walks a child's list and
+// starts its own, and a `bitfield_clause` is only ever a
+// `field_declaration`'s direct child, so no nested question can meet
+// one.
 //
 // Every arm that looks below its child asks a further question rather
 // than calling back in, and `cpp_answer` keeps the open questions on a
@@ -97,11 +101,11 @@ fn cpp_error_opens_with(node: &Node, token: &str) -> bool {
 
 fn cpp_child_declares_function<'a>(
     child: &Node<'a>,
-    after_colon: bool,
+    previous: Option<&Node<'a>>,
     first_word: FirstWord,
     code: &'a [u8],
 ) -> bool {
-    match cpp_child_verdict(child, after_colon, first_word, code) {
+    match cpp_child_verdict(child, previous, first_word, code) {
         Verdict::Known(answer) => answer,
         Verdict::Ask(question) => cpp_answer(question, code),
     }
@@ -221,11 +225,25 @@ pub(super) fn cpp_is_innermost_level(level: &Node) -> bool {
 // its own name is read as none (`cpp_is_named_function`): the grammars
 // read `int (S::*pd);` as a `parenthesized_declarator`, and `int
 // DECL(S::*p);` is a function named `DECL`.
+//
+// Before any of that, a declarator that is a thread-safety annotation
+// after the member's own declarator says nothing itself (#1904, #1932,
+// `cpp_annotated`): the member is what the declarator stranded before
+// it is, whose children are asked in its place, and data where there is
+// none to ask. `previous` is the sibling before the declarator.
 fn cpp_function_declarator_verdict<'a>(
     declarator: &Node<'a>,
+    previous: Option<&Node<'a>>,
     first_word: FirstWord,
     code: &'a [u8],
 ) -> Verdict<'a> {
+    match cpp_annotated(declarator, previous, code) {
+        Some(Annotated::Stranded(stranded)) => {
+            return Verdict::Ask(DeclaratorQuestion::any_child(&stranded, first_word));
+        }
+        Some(Annotated::Elsewhere) => return Verdict::Known(false),
+        None => {}
+    }
     match cpp_parenthesized_name(declarator) {
         Some(inner) => Verdict::Ask(DeclaratorQuestion::Parenthesized {
             children: inner.children(),
@@ -243,7 +261,7 @@ fn cpp_function_declarator_verdict<'a>(
 
 fn cpp_child_verdict<'a>(
     child: &Node<'a>,
-    after_colon: bool,
+    previous: Option<&Node<'a>>,
     first_word: FirstWord,
     code: &'a [u8],
 ) -> Verdict<'a> {
@@ -251,7 +269,7 @@ fn cpp_child_verdict<'a>(
         return Verdict::Known(true);
     }
     match child.kind() {
-        "function_declarator" => cpp_function_declarator_verdict(child, first_word, code),
+        "function_declarator" => cpp_function_declarator_verdict(child, previous, first_word, code),
         "function_definition" | "operator_cast" => Verdict::Known(true),
         // A parenthesised value is a member function template's parameter
         // list, read by the grammar as an expression list when every
@@ -287,11 +305,7 @@ fn cpp_child_verdict<'a>(
         // (`int *DECL(S::*p);`).
         "declaration" => Verdict::Ask(DeclaratorQuestion::member(child, code)),
         "pointer_declarator" | "reference_declarator" | "init_declarator" => {
-            Verdict::Ask(DeclaratorQuestion::AnyChild {
-                children: child.children(),
-                after_colon: false,
-                first_word,
-            })
+            Verdict::Ask(DeclaratorQuestion::any_child(child, first_word))
         }
         // A member pointer outside parentheses: `template<class T>
         // static int S::*getPd();` and, under a `pointer_declarator`,
@@ -301,7 +315,9 @@ fn cpp_child_verdict<'a>(
         "qualified_identifier" => cpp_member_pointer_verdict(child, false, first_word),
         // The unparenthesised non-templated member pointer, which the
         // grammars recover as a bit-field (#1807).
-        "bitfield_clause" => cpp_recovered_bitfield_verdict(child, after_colon),
+        "bitfield_clause" => {
+            cpp_recovered_bitfield_verdict(child, previous.is_some_and(cpp_is_recovered_colon))
+        }
         _ => Verdict::Known(false),
     }
 }
@@ -330,11 +346,7 @@ fn cpp_member_pointer_verdict<'a>(
     first_word: FirstWord,
 ) -> Verdict<'a> {
     cpp_member_pointer(qualified).map_or(Verdict::Known(without_pointer), |pointer| {
-        Verdict::Ask(DeclaratorQuestion::AnyChild {
-            children: pointer.children(),
-            after_colon: false,
-            first_word,
-        })
+        Verdict::Ask(DeclaratorQuestion::any_child(&pointer, first_word))
     })
 }
 
@@ -700,7 +712,8 @@ pub(crate) fn cpp_recovered_declaration_data_members<'a>(
 // one method and one attribute rather than a method alone (#1807). The
 // method consumer reads the same declaration through
 // `cpp_declares_function` — one method however many declarators spell
-// one — and the recovered-`:` flag is tracked here exactly as there.
+// one — and the sibling before each child is tracked here exactly as
+// there.
 pub(crate) fn cpp_field_data_members<'a>(field: &Node<'a>, code: &'a [u8]) -> usize {
     let first_word = cpp_first_word(field, code);
     let mut total = 0;
@@ -717,26 +730,26 @@ pub(crate) fn cpp_field_data_members<'a>(field: &Node<'a>, code: &'a [u8]) -> us
             continue;
         }
         segment.declares_function |=
-            cpp_child_declares_function(&child, segment.after_colon, first_word, code);
+            cpp_child_declares_function(&child, segment.previous.as_ref(), first_word, code);
         if !segment.declares_function {
             segment.names += cpp_declarator_names(&child);
         }
-        segment.after_colon = cpp_is_recovered_colon(&child);
+        segment.previous = Some(child);
     }
     total + segment.data_members()
 }
 
 // One comma-separated declarator of a `field_declaration`, read child
 // by child: whether it spells a function, how many names it declares,
-// and whether the last child read was the recovered `:`.
+// and the last child read, comments left out.
 #[derive(Default)]
-struct DeclaratorSegment {
+struct DeclaratorSegment<'a> {
     declares_function: bool,
     names: usize,
-    after_colon: bool,
+    previous: Option<Node<'a>>,
 }
 
-impl DeclaratorSegment {
+impl DeclaratorSegment<'_> {
     fn data_members(&self) -> usize {
         if self.declares_function {
             0
@@ -837,12 +850,13 @@ fn cpp_parenthesized_child_verdict<'a>(child: &Node<'a>, first_word: FirstWord) 
 // `Verdict`.
 enum DeclaratorQuestion<'a> {
     // Whether any child declares a function — `cpp_declares_function` —
-    // with whether the last non-comment child read was the recovered `:`
-    // and what is known of the first word of the declaration the
-    // children belong to.
+    // with the last non-comment child read, which tells a recovered `:`
+    // and the declarator a trailing annotation follows, and what is
+    // known of the first word of the declaration the children belong
+    // to.
     AnyChild {
         children: Children<'a>,
-        after_colon: bool,
+        previous: Option<Node<'a>>,
         first_word: FirstWord,
     },
     // Whether every child of a `parenthesized_declarator` still reads as
@@ -871,18 +885,21 @@ enum Verdict<'a> {
 }
 
 impl<'a> DeclaratorQuestion<'a> {
-    // The question for a pointer or reference inside a declarator's
-    // parentheses, which keeps the first word of the declaration (`void
-    // (*GET(S::*p))(int);` is a method, as `void *GET(S::*p);` is), or
-    // under a recovered member pointer, where no first word is settled.
-    // Inside parentheses the reading takes one data member with it: an
-    // annotation macro there before a parenthesised member pointer,
-    // `int (* MOZ_X (S::*pd))(int);`, is the tree of the call and reads
-    // as a method (pinned, FIXME(#1829)).
+    // The question for the children of a node inside a declaration: a
+    // declarator wrapper, the `ERROR` a trailing annotation strands the
+    // member's declarator in, or a pointer or reference inside a
+    // declarator's parentheses or under a recovered member pointer.
+    // Each keeps the first word of the declaration (`void
+    // (*GET(S::*p))(int);` is a method, as `void *GET(S::*p);` is),
+    // except under a recovered member pointer, where no first word is
+    // settled. Inside parentheses the reading takes one data member
+    // with it: an annotation macro there before a parenthesised member
+    // pointer, `int (* MOZ_X (S::*pd))(int);`, is the tree of the call
+    // and reads as a method (pinned, FIXME(#1829)).
     fn any_child(node: &Node<'a>, first_word: FirstWord) -> Self {
         Self::AnyChild {
             children: node.children(),
-            after_colon: false,
+            previous: None,
             first_word,
         }
     }
@@ -891,7 +908,7 @@ impl<'a> DeclaratorQuestion<'a> {
     fn member(declaration: &Node<'a>, code: &'a [u8]) -> Self {
         Self::AnyChild {
             children: declaration.children(),
-            after_colon: false,
+            previous: None,
             first_word: cpp_first_word(declaration, code),
         }
     }
@@ -921,14 +938,14 @@ impl<'a> DeclaratorQuestion<'a> {
         match self {
             Self::AnyChild {
                 children,
-                after_colon,
+                previous,
                 first_word,
             } => {
                 // role-bypass: allow(Comment) — stepping over a comment between
                 // two declarator parts; not whether the node is one
                 let child = children.find(|child| child.kind() != "comment")?;
-                let verdict = cpp_child_verdict(&child, *after_colon, *first_word, code);
-                *after_colon = cpp_is_recovered_colon(&child);
+                let verdict = cpp_child_verdict(&child, previous.as_ref(), *first_word, code);
+                *previous = Some(child);
                 Some(verdict)
             }
             Self::Parenthesized {
@@ -1019,7 +1036,11 @@ pub(super) fn cpp_declarator_names(child: &Node) -> usize {
             // where the name counted stands for the one they declare
             // (`MOZ_X T (S::*pd);`, an annotated data member, and also the
             // macro call `T DECL(S::*p);`, which is the same tree and
-            // is pinned as misread, FIXME(#1829)).
+            // is pinned as misread, FIXME(#1829)), or when it is a
+            // thread-safety annotation after a data member's stranded
+            // declarator, where the annotation's name is the one
+            // `field_identifier` the grammars leave and is counted for
+            // the member's (`bool mDone MOZ_GUARDED_BY(mu);`, #1904).
             // One spelling still breaks this: a method whose whole
             // declarator is parenthesised (`int (*get());`) reads as no
             // function, because `cpp_child_verdict` does not look inside a

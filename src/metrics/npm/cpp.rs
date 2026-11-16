@@ -48,7 +48,9 @@ macro_rules! cpp_family_npm {
                 // counted for the method, so the piece that holds the
                 // name does not (#1929).
                 let mut after_split_head = false;
+                let mut annotations = super::npa::CppTrailingAnnotations::default();
                 for child in node.children() {
+                    let annotates = annotations.claims(&child, code);
                     let declares_method = match child.kind_id().into() {
                         AccessSpecifier => {
                             // role-bypass: allow(Modifier) — which access label, not
@@ -62,6 +64,11 @@ macro_rules! cpp_family_npm {
                                 .is_some_and(|tok| tok.kind_id() == $lang::Public);
                             false
                         }
+                        // A thread-safety annotation the grammars split
+                        // from the member before it, which that member
+                        // counted for: no method, whatever it reads as
+                        // (#1904, #1932).
+                        _ if annotates => false,
                         // Inline-defined member function (with a body): the
                         // `FuncOpener` row's callables — regular methods,
                         // constructors, destructors, operator overloads and

@@ -384,11 +384,13 @@ macro_rules! impl_npa_java_like {
     };
 }
 
+mod cpp_annotations;
 mod cpp_declarators;
 mod cpp_first_word;
 mod ruby_body;
 mod ruby_ledger;
 mod shared;
+pub(crate) use cpp_annotations::CppTrailingAnnotations;
 pub(crate) use cpp_declarators::{
     cpp_declares_function, cpp_field_data_members, cpp_is_cut_off, cpp_is_split_function_head,
     cpp_recovered_declaration_data_members, cpp_template_declares_data_member,

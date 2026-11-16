@@ -485,6 +485,56 @@ for historical reference.
   (`virtual ANN(foo()) int f();`), which is the tree of a method with
   a parenthesised name before another member. Cpp and Mozcpp alike.
 
+- **C++ `npa` and `npm` no longer count a thread-safety annotation as
+  a class member** (#1904, #1932). The macros of Clang's
+  [Thread Safety Analysis](https://clang.llvm.org/docs/ThreadSafetyAnalysis.html)
+  that follow a member's declarator, as in `int count_ GUARDED_BY(mu_);`
+  and `void Loop() const REQUIRES(mu_);`, expand to an attribute or to
+  nothing. tree-sitter-cpp 0.23.4 and the Mozcpp fork read each as a
+  function's name and parameter list. A data member with a short name
+  counted as a method and no attribute. After a longer name, `const`,
+  `noexcept`, `override` or a constructor, and on Mozcpp after nearly
+  any method, the grammars end the member before the annotation, which
+  then counted as a method of its own; with an initialiser or an
+  argument that is no plain name (`MOZ_GUARDED_BY(*mMonitor)`) it
+  counted as an attribute named by its argument. Such an annotation now
+  counts as nothing and its member once: `class_methods` falls, and
+  `class_attributes` rises for each data member that was missing and
+  falls for each argument that was counted, as do the public counts,
+  with the `total`, `coa` and `cda` values that follow. The annotation
+  is told by its name and by the tree it leaves. The names are the 28
+  the page documents for a member, its previous spellings included
+  (`GUARDED_BY`, `PT_GUARDED_BY`, `REQUIRES`, `EXCLUDES`, `ACQUIRE`,
+  `RELEASE`, `EXCLUSIVE_LOCKS_REQUIRED`, `LOCKS_EXCLUDED`, …), alone or
+  under a library's prefix that ends in `_` (`ABSL_GUARDED_BY`,
+  `MOZ_REQUIRES`, `RTC_GUARDED_BY`). A method that is merely named so
+  (`int REQUIRES(int x);`) is still a method. Three spellings that
+  leave an annotation's tree are now misread: a method named as an
+  annotation is, after an annotation macro and a type that is no keyword
+  (`MOZ_X T REQUIRES(int a);`), counts as an attribute; one the
+  grammars split at a calling convention, with no `virtual` before it
+  (`HRESULT STDMETHODCALLTYPE RELEASE();`), counts no method; and a
+  macro call named so after two macros that take no argument
+  (`NS_DECL_A NS_DECL_B X_RELEASE(C);`) counts as an attribute where it
+  counted as a method. Some annotations are still counted as before:
+  one written before the member's name or type
+  (`T GUARDED_BY(mu_) x;`, `GUARDED_BY(mu_) T x;`), one after another
+  annotation macro that takes no argument
+  (`int* p MOZ_NON_OWNING_REF MOZ_GUARDED_BY(mu_);`), one in a
+  declaration that opens with a macro the grammar does not know
+  (`ABSL_CONST_INIT static T x GUARDED_BY(mu_);`), one after a
+  templated static data member with a longer name, one after an
+  unparenthesised pointer to member (`int S::*p GUARDED_BY(mu_);`), and
+  a library's spelling that ends in no documented name (googletest's
+  `GTEST_LOCK_EXCLUDED_`, Chromium's `GUARDED_BY_CONTEXT`). Where the
+  grammars end a member before an annotation whose argument is no plain
+  name, the declarators after a comma are no longer counted
+  (`int a_long_name GUARDED_BY(*mu_), b;` loses `b`). A constructor with
+  an annotation, a member initialiser list and a body on several lines
+  still ends its class early on both grammars, and on Mozcpp an
+  `override` after such an annotation still hides the member after it.
+  Cpp and Mozcpp alike otherwise.
+
 - **C++ `npa` no longer overflows the stack on a deeply nested field
   declarator** (#1829). A data member nested some 2,000 declarator
   levels deep, such as #1829's function-pointer tower

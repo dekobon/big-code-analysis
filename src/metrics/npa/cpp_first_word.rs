@@ -187,7 +187,7 @@ fn cpp_is_standard_typedef_name(word: Option<&str>) -> bool {
 // word to the declarator when a qualifier, a specifier or a word they
 // do not know splits it from the first: `unsigned const int (S::*pd);`
 // is a `function_declarator` named `int` after the type `unsigned`.
-fn cpp_is_type_word(word: Option<&str>) -> bool {
+pub(super) fn cpp_is_type_word(word: Option<&str>) -> bool {
     cpp_is_type_keyword(word)
         || word.is_some_and(|word| {
             word == "typedef"
