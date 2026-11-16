@@ -7572,6 +7572,31 @@ class C {
              virtual MOZ_A MOZ_B consteval HRESULT STDMETHODCALLTYPE f() { return 0; }\n\
          };\n";
 
+    // FIXME(#1929): a preprocessor line between the halves of a split
+    // method. The method consumer pairs a first half with the member
+    // directly after it, and the line is that member, so the second
+    // half counts as a method of its own (`NA`). Before #1885 the first
+    // half counted as an attribute and the method once. A line after
+    // the second half stands between two whole members and changes
+    // nothing (`NB`). Valid C++20 with the macro defined as here.
+    //
+    // expected: `f` and `g` in each class, nm 4; `NA` reads nm 3 where
+    // the truth is nm 2, so na 0 / nm 5.
+    #[cfg(any(feature = "cpp", feature = "mozcpp"))]
+    const SPLIT_VIRTUAL_METHODS_BESIDE_PREPROCESSOR_LINES: &str = "#define STDMETHODCALLTYPE\n\
+         typedef long HRESULT;\n\
+         struct NA {\n\
+             virtual HRESULT STDMETHODCALLTYPE\n\
+         #define BETWEEN 1\n\
+             f(long* n);\n\
+             int g();\n\
+         };\n\
+         struct NB {\n\
+             virtual HRESULT STDMETHODCALLTYPE f(long* n);\n\
+         #define AFTER 1\n\
+             int g();\n\
+         };\n";
+
     #[cfg(any(feature = "cpp", feature = "mozcpp"))]
     fn assert_split_virtual_methods_count_once<P: crate::MetricSuite>() {
         check_metrics_with_npa::<P>(VIRTUAL_METHODS_SPLIT_IN_TWO, "foo.cpp", |metric| {
@@ -7604,6 +7629,14 @@ class C {
             assert_eq!(metric.npa.class_na_sum(), 2);
             assert_eq!(metric.npm.class_nm_sum(), 3);
         });
+        check_metrics_with_npa::<P>(
+            SPLIT_VIRTUAL_METHODS_BESIDE_PREPROCESSOR_LINES,
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+            },
+        );
     }
 
     #[cfg(feature = "cpp")]
