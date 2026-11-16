@@ -105,19 +105,26 @@ fn count_defstruct_fields(call: &Node) -> usize {
 fn count_field_entries(node: &Node) -> usize {
     use Elixir as E;
 
-    node.children()
-        .map(|child| match child.kind_id().into() {
+    // The wrappers nest as deep as the source brackets them, so they are
+    // opened from an explicit stack: a recursion per level overflowed the
+    // stack on deeply nested lists. Only the total is kept, so the order
+    // the stack visits them in does not matter.
+    let mut fields = 0;
+    let mut pending: Vec<Node> = node.children().collect();
+    while let Some(child) = pending.pop() {
+        match child.kind_id().into() {
             // Bare-list form (`defstruct [:a, :b]`): each atom is a
             // field. Keyword form (`defstruct a: 1, b: 2`): each
             // `Pair` is a field.
             // role-bypass: allow(StringLit) — the field *name* a quoted atom spells,
             // as a bare one does, not whether it is a literal
-            E::Atom | E::QuotedAtom | E::Atom2 | E::Pair => 1,
+            E::Atom | E::QuotedAtom | E::Atom2 | E::Pair => fields += 1,
             // A `List` or `Keywords` may wrap the entries one level
             // deeper (`defstruct [a: 1, b: 2]` puts a `List` inside
             // `Arguments`, which then contains a `Keywords`).
-            E::List | E::Keywords => count_field_entries(&child),
-            _ => 0,
-        })
-        .sum()
+            E::List | E::Keywords => pending.extend(child.children()),
+            _ => {}
+        }
+    }
+    fields
 }

@@ -948,6 +948,30 @@ for historical reference.
   deliberate #709 accessor split); and `Comments` said "lines that are
   entirely comment" while `cloc()` counts trailing comments too.
 
+### Security
+
+- Closed two remotely-triggerable process aborts in `npa` (#1934).
+  A Python class-level chained assignment `a = a = … = 1` a few
+  thousand links long, or an Elixir `defstruct` list nested about ten
+  thousand brackets deep, overflowed the thread stack: the Python reader
+  recursed once per link, and the Elixir field count once per bracket.
+  The depth that aborts varies with the build and with the stack of the
+  thread running the analysis. Release builds of the code just before
+  the fix aborted from about 5,600 links and 9,900 levels on x86_64
+  Linux, and from about 6,400 and 9,200 on aarch64 Linux.
+
+  Every interface that computes `npa` was affected: the Rust API
+  (`analyze`, or `Ast::metrics` with `npa` selected), the Python
+  bindings, `bca metrics`, `bca check` with an `npa` threshold,
+  `bca report`, and `POST /v1/metrics`. A stack overflow is not a
+  catchable panic: the Rust binaries abort with `SIGABRT`, and the
+  Python interpreter dies of a segmentation fault. So one
+  `POST /v1/metrics` under 30 KB, far inside the 4 MiB body cap, took
+  `bca-web` down with every request in flight. The Elixir count has
+  recursed since 1.0.0, the Python reader since 2.0.0. The Python reader
+  now steps along the chain in a loop and the Elixir count keeps its
+  own stack; a test runs each at 20,000 levels on a 512 KiB stack.
+
 ## [2.5.1] - 2026-11-06
 
 2.5.0 reached PyPI only: its release run failed a Windows smoke test

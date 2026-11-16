@@ -165,27 +165,27 @@ fn python_collect_bound_names_from_target<'a>(
     code: &'a [u8],
     seen: &mut std::collections::HashSet<&'a [u8]>,
 ) {
-    let Some(target) = assignment.child(0) else {
-        return;
-    };
-    // Every simple-name binding contributes one attribute, including names
-    // nested inside an unpacking pattern. An attribute target (`obj.x = …`)
-    // at class level is not a simple name binding and is ignored (the
-    // self/cls instance-attribute pass handles those).
-    python_walk_target_elements(&target, &mut |element| {
-        if element.kind_id() == Python::Identifier
-            && let Some(name) = code.get(element.start_byte()..element.end_byte())
-        {
-            seen.insert(name);
-        }
-    });
     // Chained `a = b = 3`: the right operand is itself a nested
-    // `Assignment`, whose own target binds another name. Recurse so
-    // every link in the chain is counted.
-    if let Some(value) = assignment.child(assignment.child_count().saturating_sub(1))
-        && value.kind_id() == Python::Assignment
-    {
-        python_collect_bound_names_from_target(&value, code, seen);
+    // `Assignment`, whose own target binds another name. The chain is as
+    // long as the source makes it, so its links are iterated, not recursed
+    // into: one frame per link overflowed a worker's stack within a few
+    // thousand links.
+    let chain = std::iter::successors(Some(*assignment), |link| {
+        link.child(link.child_count().saturating_sub(1))
+            .filter(|value| value.kind_id() == Python::Assignment)
+    });
+    for target in chain.filter_map(|link| link.child(0)) {
+        // Every simple-name binding contributes one attribute, including
+        // names nested inside an unpacking pattern. An attribute target
+        // (`obj.x = …`) at class level is not a simple name binding and is
+        // ignored (the self/cls instance-attribute pass handles those).
+        python_walk_target_elements(&target, &mut |element| {
+            if element.kind_id() == Python::Identifier
+                && let Some(name) = code.get(element.start_byte()..element.end_byte())
+            {
+                seen.insert(name);
+            }
+        });
     }
 }
 

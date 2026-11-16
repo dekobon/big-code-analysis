@@ -4779,6 +4779,44 @@ mod tests {
             .expect("the target walk must not overflow a 512 KiB stack");
     }
 
+    // A class-level chain `a0 = a1 = … = 1` nests one `Assignment` per
+    // link, and the reader took one frame per link until it was made a
+    // loop: a few thousand links aborted a release `bca` (the depth varies
+    // with the build). Run on a small stack so a reintroduced recursion
+    // aborts here. Measured with the recursion restored, in the dev
+    // profile the tests build: it overflows at about 2,220 links on this
+    // 512 KiB stack, so `DEPTH` is ~9x past it. Each link names a
+    // distinct attribute so `seen` cannot absorb one a walk stopped short
+    // of.
+    //
+    // expected: one attribute per link — na = npa = DEPTH.
+    #[cfg(feature = "python")]
+    #[test]
+    fn python_long_chained_class_assignment_does_not_overflow_the_stack() {
+        use std::fmt::Write as _;
+        // Links in the chain, far past what the stack below holds at one
+        // frame per link.
+        const DEPTH: u64 = 20_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        let mut source = String::from("class C:\n    ");
+        for i in 0..DEPTH {
+            write!(source, "a{i} = ").expect("a String takes any write");
+        }
+        source.push_str("1\n");
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(move || {
+                check_metrics::<PythonParser>(&source, "foo.py", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), DEPTH);
+                    assert_eq!(metric.npa.class_npa_sum(), DEPTH);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the chained-assignment walk must not overflow a 512 KiB stack");
+    }
+
     /// A nested target binding a distinct attribute at every level
     /// counts each one (#1867). The name differs per level so `seen`
     /// cannot absorb a level: one name repeated would read 1 whatever
@@ -5410,6 +5448,42 @@ mod tests {
                 assert_eq!(metric.npa.class_npa_sum(), 0);
             },
         );
+    }
+
+    // `defstruct [[[ … :a … ]]]` nests one `List` per bracket, and the
+    // field count took one frame per level until it was given an explicit
+    // stack: about ten thousand levels aborted a release `bca` (the depth
+    // varies with the build). Run on a small stack so a reintroduced
+    // recursion aborts here. Measured with the recursion restored, in the
+    // dev profile the tests build: it overflows at about 940 levels on
+    // this 512 KiB stack, so `DEPTH` is ~21x past it. The one atom sits
+    // innermost, so a walk that stopped short of it reads 0.
+    //
+    // expected: the innermost atom is the one field — na = npa = 1.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_deeply_nested_defstruct_list_does_not_overflow_the_stack() {
+        // Bracket levels around the atom, far past what the stack below
+        // holds at one frame per level.
+        const DEPTH: usize = 20_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        let source = format!(
+            "defmodule M do\n  defstruct {}:a{}\nend\n",
+            "[".repeat(DEPTH),
+            "]".repeat(DEPTH)
+        );
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(move || {
+                check_metrics::<ElixirParser>(&source, "foo.ex", |metric| {
+                    assert_eq!(metric.npa.class_na_sum(), 1);
+                    assert_eq!(metric.npa.class_npa_sum(), 1);
+                });
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the defstruct field walk must not overflow a 512 KiB stack");
     }
 
     /// The `Npa` half of the #1088 simplification: a `defmodule` inside
