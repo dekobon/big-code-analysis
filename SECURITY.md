@@ -37,7 +37,9 @@ We follow **coordinated disclosure**. Once a fix is available:
    crates.io publication gate described in
    [`RELEASING.md`](RELEASING.md)).
 2. We will publish a [RustSec advisory](https://rustsec.org/) with a
-   CVE identifier where appropriate.
+   CVE identifier where appropriate, and a GitHub advisory that names
+   every affected package, PyPI ones included (see
+   [`RELEASING.md`](RELEASING.md#security-advisories)).
 3. We will credit the reporter in the advisory unless they prefer
    to remain anonymous.
 

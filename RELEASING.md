@@ -216,6 +216,51 @@ category of
 to the new version, with the `BCA_SHA256` values taken from the
 release's `SHA256SUMS` asset.
 
+### Advisories for a security release {#security-advisories}
+
+A release whose `CHANGELOG.md` section has a `### Security` entry for
+a vulnerability in this project's own code also owes the advisories
+that [`SECURITY.md`](SECURITY.md) promises. File them only after
+crates.io and PyPI both carry the release: an advisory tells its
+readers which version to install, so that version must resolve.
+
+Each vulnerability gets its own advisories, and the packages they name
+depend on where the vulnerable code lives:
+
+- In the library (a metric, the parser, an output writer): the
+  `big-code-analysis` crate and both PyPI packages, `big-code-analysis`
+  and `big-code-analysis-cli`, which ship it.
+- In `bca-web` alone (request handling, timeouts): the
+  `big-code-analysis-web` crate. Neither wheel ships the server.
+
+Give each package the first version that shipped the defect. The
+release archives also carry `bca` and `bca-web` binaries, which no
+advisory ecosystem covers; name them in the advisory text.
+
+1. **Draft a GitHub advisory.** Under **Security → Advisories → New
+   draft security advisory**, list the affected packages, `Rust` for a
+   crate and `pip` for a PyPI package. RustSec reaches only Rust
+   dependants; Dependabot reads the
+   [GitHub Advisory Database](https://github.com/advisories) for the
+   Python ones. A draft can request a CVE from GitHub; do that where
+   `SECURITY.md`'s "where appropriate" applies.
+2. **File the RustSec advisory.** For each affected crate, open a pull
+   request against
+   [rustsec/advisory-db](https://github.com/rustsec/advisory-db) that
+   adds `crates/<crate>/RUSTSEC-0000-0000.md`, filled in from the TOML
+   template in that repository's README; the RustSec maintainers assign
+   the number. Set `patched` to the release (`[">= X.Y.Z"]`),
+   `unaffected` to the versions before the defect shipped, and
+   `aliases` to the GHSA (and CVE) id from step 1. A crash or a stall
+   that crafted input triggers takes the `denial-of-service` category.
+   This is the advisory `cargo audit` and `cargo deny check advisories`
+   report to dependants.
+3. **Publish the GitHub advisory**, which adds it to the database.
+
+A dependency advisory that a lockfile bump clears, such as the
+`RUSTSEC-…` entries in earlier `### Security` sections, needs neither
+step: the upstream advisory already exists.
+
 ## Bumping the version
 
 The release pipeline is strict about version parity: the preflight job
