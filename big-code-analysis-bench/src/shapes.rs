@@ -1736,6 +1736,18 @@ pub fn tcl_nested_eval(depth: usize) -> String {
     format!("{}puts hi{}\n", "eval {".repeat(depth), "}".repeat(depth))
 }
 
+/// Tcl: `expr {((…(1)…))}`, `width` parentheses deep inside one `expr`.
+///
+/// The grammar folds each parenthesised level into a hidden rule, so the
+/// visible tree is flat: one `expr` node with `2 * width + 3` children,
+/// nested `width` hidden levels deep, and no field on any of them. That
+/// is the shape whose field lookup climbed the hidden levels per child
+/// (#1938).
+#[must_use]
+pub fn tcl_expr_parens(width: usize) -> String {
+    format!("expr {{{}1{}}}\n", "(".repeat(width), ")".repeat(width))
+}
+
 /// Tcl: `x {{…{a b}…}}`, `depth` braces deep on one row.
 ///
 /// #1416's fixture: one `braced_word` per level, two AST levels apart
@@ -2078,6 +2090,17 @@ const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 /// a `--gate` run the space-merge probes pay.
 const SLOT_SCAN_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
 
+/// Parenthesis counts for `dump/tcl-expr-parens`.
+///
+/// Set by measurement. On [`LINEAR_WIDTHS`] the climb is still small
+/// beside the export's own cost per node: the export that climbed for
+/// every child fitted 0.82 there, its 500-wide cell reading slower than
+/// its 1 000-wide one. On this ladder it fits 1.95 (41, 150 and 623 ms)
+/// and the export that asks first 0.50 (4.9, 4.5 and 9.9 ms, the same
+/// inversion again at the bottom). A climbing 16 000-wide cell stays far
+/// inside `scaling::MAX_CELL_WALK`.
+const FIELD_CLIMB_WIDTHS: [usize; 3] = SPACE_MERGE_WIDTHS;
+
 /// Sibling counts for the two `perl-commented-*-list` probes, the ladder
 /// of [`SPACE_MERGE_WIDTHS`]. With its sibling read put back on a pass
 /// from the list's first child the plain list read 2.08 here, 0.9 s at
@@ -2344,6 +2367,24 @@ pub const PROBES: &[Probe] = &[
                     through the `FoldCache` the export lends. Dropping that \
                     cache from `Export::finish` scans the list once per \
                     word, quadratic in the line's width (#1686).",
+    },
+    Probe {
+        name: "dump/tcl-expr-parens",
+        lang: LANG::Tcl,
+        axis: Axis::Width,
+        workload: Workload::Dump {
+            span: true,
+            comment: false,
+        },
+        render: tcl_expr_parens,
+        sizes: FIELD_CLIMB_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "A cursor reads a child's field by climbing every hidden \
+                    level between it and the visible parent, and each \
+                    parenthesis of a Tcl `expr` adds one, so asking it of \
+                    every child of the flat `expr` is quadratic. The export \
+                    asks only under a wide parent whose production maps a \
+                    field (#1938).",
     },
     Probe {
         name: "halstead/tcl-wide-erroring-eval",

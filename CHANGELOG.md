@@ -592,6 +592,22 @@ for historical reference.
   climb checked, so it is no longer asked. At 16,000 levels a release
   build goes from 0.92 s to 0.10 s. Values are unchanged.
 
+- **The AST export is linear in a Tcl `expr`'s nested parentheses**
+  (#1938). `Ast::dump`, `POST /v1/ast` and the Python `Ast.dump` read
+  each child's grammar field through a cursor, which climbs every hidden
+  grammar level between the child and its visible parent. Tcl and
+  iRules fold each parenthesis of `expr {((…(1)…))}` into one more
+  hidden level under a single flat node, so the export took time
+  quadratic in the nesting: 0.6 s at 16,000 levels, and about 40 s for a
+  200 KB request. A node 32 or more children wide is now first asked
+  whether any child has a field, which its grammar answers without
+  visiting the children. At 16,000 levels the export goes from 623 ms
+  to 10 ms. The exported tree is unchanged, which a comparison of 46,215
+  exports over the test corpora confirms. An `ERROR` node has no
+  production to answer from, so every child's field is still read
+  there, and the same `expr` with its closing brace missing still
+  exports in quadratic time (#1942).
+
 - **`cognitive::Stats` and `nexits::Stats` print a well-formed
   `Display` line** (#1736). The cognitive line printed the space's own
   score under `sum`, where the JSON `sum` field and every sibling

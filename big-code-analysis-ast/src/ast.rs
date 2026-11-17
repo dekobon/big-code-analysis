@@ -278,15 +278,54 @@ struct Frame<'a> {
     field: Option<&'static str>,
     children: Vec<AstNode>,
     next_child: usize,
+    /// Whether a child of `node` may carry a field, so that reading
+    /// each child's is worth its cost.
+    fields: bool,
+}
+
+/// Child count from which a frame asks [`has_field_child`] before its
+/// children's fields are read one by one.
+///
+/// A child's field read climbs the hidden grammar levels between it and
+/// its visible parent, and every hidden level consumes input that lands
+/// among that parent's children, so a narrow node bounds the climb. A
+/// wide one need not: each parenthesis of a Tcl `expr` adds a hidden
+/// level under one flat node, which made reading every child's field
+/// quadratic in the count (#1938). Below this width the probe's scan of
+/// the grammar's field ids would cost more than it saves.
+const FIELD_PROBE_WIDTH: usize = 32;
+
+/// Whether some child of `node` carries a field name, through any hidden
+/// grammar levels between them.
+///
+/// `ts_node_child_by_field_id` reads the node's own production field
+/// map, which lists a hidden child's fields as inherited entries, and
+/// returns as soon as the sorted map shows it lacks the id. So this costs
+/// one scan of that small map per field the grammar names, however wide
+/// the node is.
+///
+/// An `ERROR` node has no production of its own, so its map is empty even
+/// where a hidden subtree recovery parked under it hands its visible
+/// children a field (a cursor reads `operators` on a Python `==` there).
+/// It always answers `true`.
+fn has_field_child(node: &crate::Node<'_>) -> bool {
+    if node.is_error() {
+        return true;
+    }
+    (1..=node.as_tree_sitter().language().field_count())
+        .filter_map(|id| u16::try_from(id).ok())
+        .any(|id| node.child_by_field_id(id).is_some())
 }
 
 impl<'a> Frame<'a> {
     fn new(node: crate::Node<'a>, field: Option<&'static str>) -> Self {
+        let width = node.child_count();
         Self {
             node,
             field,
-            children: Vec::with_capacity(node.child_count()),
+            children: Vec::with_capacity(width),
             next_child: 0,
+            fields: width < FIELD_PROBE_WIDTH || has_field_child(&node),
         }
     }
 }
@@ -355,6 +394,23 @@ impl<'a, 'code> Export<'a, 'code> {
         self.chain.push(child);
     }
 
+    /// Whether the node on top of the stack may have a child with a
+    /// field, so that a child's field is worth reading.
+    fn children_may_have_fields(&self) -> bool {
+        self.stack.last().is_some_and(|parent| parent.fields)
+    }
+
+    /// Descends into the node `cursor` sits on, reading its field only
+    /// where its parent's children may carry one.
+    fn enter_at(&mut self, cursor: &crate::node::Cursor<'a>) {
+        let field = if self.children_may_have_fields() {
+            cursor.field_name()
+        } else {
+            None
+        };
+        self.enter(cursor.node(), field);
+    }
+
     /// Exports the node on top of the stack — every child of it has
     /// been exported by now — and attaches it to its parent's frame.
     /// Breaks with the export once the node finished was the root.
@@ -392,7 +448,12 @@ impl<'a, 'code> Export<'a, 'code> {
 /// node and its visible parent: `O(log n)` under a balanced `repeat()`,
 /// `O(1)` under a flat node. The enumeration is therefore `O(n log n)`
 /// over a wide balanced list and `O(n)` over a flat one, never
-/// quadratic. Indexing the children instead is quadratic on a flat node
+/// quadratic. The field read is not that cheap everywhere: under a flat
+/// node whose children sit in *nested* hidden rules, such as a Tcl
+/// `expr`'s parentheses, it climbs one more level per child, so a wide
+/// node is first asked whether any child has a field at all
+/// ([`FIELD_PROBE_WIDTH`], #1938; `dump/tcl-expr-parens` prices it).
+/// Indexing the children instead is quadratic on a flat node
 /// — see [`build_indexed`] — and that difference is the whole reason
 /// there are two builders (#1684). What the alterator does per node is
 /// priced separately: `keeps_children` reads the ancestor chain, which
@@ -414,14 +475,14 @@ fn build_cursor<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option
     let mut cursor = root.cursor();
     loop {
         while cursor.goto_first_child() {
-            export.enter(cursor.node(), cursor.field_name());
+            export.enter_at(&cursor);
         }
         loop {
             if let ControlFlow::Break(root) = export.finish::<T>() {
                 return root;
             }
             if cursor.goto_next_sibling() {
-                export.enter(cursor.node(), cursor.field_name());
+                export.enter_at(&cursor);
                 break;
             }
             // The root frame is finished above before this can fail,
@@ -463,9 +524,14 @@ fn build_indexed<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Optio
                 .node
                 .child(idx)
                 .expect("stack invariant: idx < child_count so the child exists");
-            let field = frame.node.field_name_for_child(
-                u32::try_from(idx).expect("invariant: tree-sitter caps child indices at u32::MAX"),
-            );
+            let field = if frame.fields {
+                frame.node.field_name_for_child(
+                    u32::try_from(idx)
+                        .expect("invariant: tree-sitter caps child indices at u32::MAX"),
+                )
+            } else {
+                None
+            };
             export.enter(child, field);
         } else if let ControlFlow::Break(root) = export.finish::<T>() {
             return root;
@@ -628,6 +694,88 @@ mod tests {
     #[cfg(any(feature = "cpp", feature = "rust"))]
     fn find_child<'a>(parent: &'a AstNode, field: &str) -> Option<&'a AstNode> {
         parent.children.iter().find(|c| c.field_name == Some(field))
+    }
+
+    /// A node `FIELD_PROBE_WIDTH` children wide or more is asked whether
+    /// any child has a field before its children's fields are read, and
+    /// one whose children do must still report each (#1938). A tuple
+    /// struct's `ordered_field_declaration_list` names every element type
+    /// `type`. expected: 40 `primitive_type` children with field `type`,
+    /// and none of the 41 punctuation children with a field.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_wide_node_with_fields_keeps_them() {
+        const ELEMENTS: usize = 40;
+        const {
+            assert!(
+                2 * ELEMENTS + 1 >= FIELD_PROBE_WIDTH,
+                "the list must be wide enough to probe"
+            );
+        }
+        let code = format!("struct T({});\n", vec!["i32"; ELEMENTS].join(", "));
+        for_each_strategy::<crate::RustParser>(code.as_bytes(), "test.rs", false, |name, root| {
+            let list =
+                find_first(root, "ordered_field_declaration_list").expect("a tuple struct body");
+            let typed = list
+                .children
+                .iter()
+                .filter(|c| c.field_name == Some("type"))
+                .count();
+            assert_eq!(typed, ELEMENTS, "{name}");
+            assert!(
+                list.children
+                    .iter()
+                    .all(|c| (c.r#type == "primitive_type") == (c.field_name == Some("type"))),
+                "{name}"
+            );
+        });
+    }
+
+    /// An `ERROR` node has no production of its own, so the field probe
+    /// finds nothing on it, yet the hidden subtrees recovery leaves under
+    /// it still give its children fields (#1938). An unfinished tuple
+    /// struct recovers into one `ERROR` node whose element types keep
+    /// their `type` field; the export must keep every one whichever side
+    /// of the probe width the node falls. expected: the counts
+    /// `field_name_for_child` reads off the raw node, one per element but
+    /// the first, which recovery leaves without a field.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_wide_error_node_keeps_its_childrens_fields() {
+        for (elements, typed) in [(10, 9), (20, 19)] {
+            let code = format!("struct T({}", "i32, ".repeat(elements));
+            let path = PathBuf::from("test.rs");
+            let parser = crate::RustParser::new(code.as_bytes().to_vec(), &path, None);
+            let error = parser
+                .root()
+                .preorder()
+                .find(crate::Node::is_error)
+                .expect("an unfinished tuple struct recovers into an ERROR");
+            let raw = (0..error.child_count())
+                .filter_map(|i| u32::try_from(i).ok())
+                .filter(|&i| error.field_name_for_child(i) == Some("type"))
+                .count();
+            assert_eq!(raw, typed, "raw at {elements}");
+            assert_eq!(
+                error.child_count() >= FIELD_PROBE_WIDTH,
+                elements == 20,
+                "the two inputs must straddle the probe width"
+            );
+            for_each_strategy::<crate::RustParser>(
+                code.as_bytes(),
+                "test.rs",
+                false,
+                |name, root| {
+                    let error = find_first(root, "ERROR").expect("the exported ERROR");
+                    let exported = error
+                        .children
+                        .iter()
+                        .filter(|c| c.field_name == Some("type"))
+                        .count();
+                    assert_eq!(exported, typed, "{name} at {elements}");
+                },
+            );
+        }
     }
 
     #[cfg(feature = "rust")]

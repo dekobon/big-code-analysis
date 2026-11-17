@@ -251,6 +251,7 @@ Read it as follows.
 | `dump/wide-distinct-fns` | Rust | width | shape control for the row above: a balanced `repeat()` list | linear |
 | `dump/tcl-nested-eval` | Tcl | depth | the export's ancestor chain under `keeps_children` (#1381, #1684) | linear |
 | `dump/tcl-wide-erroring-eval` | Tcl | width | the argument-list readability scan under `keeps_children`, memoised through the cache the export lends (#1686) | linear |
+| `dump/tcl-expr-parens` | Tcl | width | the export's field read under a flat `expr` whose children sit in nested hidden rules, asked only where a wide node maps a field (#1938) | linear |
 | `count/tcl-nested-braces` | Tcl | depth | walk control for the row below: the same filter with nothing rendered | linear |
 | `find/tcl-nested-braces` | Tcl | depth | the renderer `bca find` prints through: each match's connector decided without `Node::parent`, and past 64 nested levels a match's text printed once (#1416) | linear |
 | `find/tcl-wide-braces-past-the-limit` | Tcl | width | the same renderer's step from one elided match to the next through `next_outside`; re-walking the siblings for each is quadratic in a level's width (#1416) | linear |
@@ -837,6 +838,7 @@ larger share everywhere, 20-30 %:
 | `ops_inner` lends no `FoldCache` | `ops/tcl-wide-erroring-eval` | 0.99-1.01 | 2.01-2.22 | 10.3-10.4 ms clean against 7.8-16.2 s |
 | `AncestorIter` drops the cache | `halstead/tcl-wide-erroring-eval` | (same) | 2.03-2.05 | 7.6-8.9 s; the dump and count rows stay at 1.0, since neither reaches the question through an ancestor |
 | `act_on_node` lends no `FoldCache` | `count/tcl-wide-erroring-eval` | 0.98-1.03 | 2.01-2.05 | 6.9-7.7 ms clean against 8.1-8.8 s |
+| the export reads every child's field (#1938) | `dump/tcl-expr-parens` | 0.50 | 1.95 | 16 000 parentheses; 9.9 ms against 623 ms, one run |
 
 Each band is three runs at the top rung; the regressed spreads are
 wide because a 9 s cell shares the host with whatever else is running.
