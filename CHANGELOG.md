@@ -1034,6 +1034,19 @@ for historical reference.
   parse are not interrupted: they are linear, which `make bench-scaling`
   gates.
 
+- Cleared RUSTSEC-2026-0552, -0553 and -0554 (`actix-http` 3.21.0: a
+  bare LF in chunked trailers could consume pipelined requests or stall
+  body decoding; malformed quoted chunk extensions could end an HTTP/1.1
+  request body early; partial requests on a keep-alive connection could
+  bypass the request header timeout) by moving `actix-http` 3.21.0 →
+  3.22.0. All three reach `bca-web` only. No other package version or
+  checksum moved; five entries (`errno`, `rustix`,
+  `rustls-platform-verifier`, `tempfile`, `winapi-util`) had a
+  dependency edge re-pointed between
+  two `windows-sys` / `getrandom` versions the lockfile already
+  carried. `utils/check-deny-manifests.sh` passes all four checks on all
+  eight lockfiles.
+
 ## [2.5.1] - 2026-11-06
 
 2.5.0 reached PyPI only: its release run failed a Windows smoke test
