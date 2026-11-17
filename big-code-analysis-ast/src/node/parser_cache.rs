@@ -23,8 +23,9 @@
 //! misparse a file buys nothing.
 
 use std::cell::Cell;
+use std::ops::ControlFlow;
 
-use tree_sitter::{Language, Parser, Tree};
+use tree_sitter::{Language, ParseOptions, ParseState, Parser, Tree};
 
 thread_local! {
     /// The parser this thread reuses across the files it analyzes.
@@ -54,10 +55,14 @@ crate::observation::counter!(parsers_built);
 /// them through a pool of its own (`ts_tree_delete`). It outlives both
 /// the cached parser and the thread that built it.
 ///
-/// The `parse` invariant below holds only because nothing in this crate
-/// sets a timeout, a cancellation flag, or included ranges: unlike the
-/// parse state, `set_language` does not clear those, so anything that
-/// starts setting one must clear it before the parser goes back.
+/// Under a cancelled [`crate::cancel::ParseCancel`] the parse stops and
+/// this returns the tree of an empty input instead (#1939). The stop is a
+/// per-call progress callback, not parser state; the parser is reset
+/// after it, because a stopped parser resumes where it left off on the
+/// next call. Nothing in this crate sets a timeout, a cancellation flag,
+/// or included ranges, which *are* parser state: `set_language` does not
+/// clear those, so anything that starts setting one must clear it before
+/// the parser goes back.
 pub fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree {
     let mut parser = SCRATCH_PARSER
         .try_with(Cell::take)
@@ -69,12 +74,34 @@ pub fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree {
     parser
         .set_language(language)
         .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
-    let tree = parser
-        .parse(code, None)
-        .expect("invariant: parser has a language set and no cancellation flag");
+    let tree = parse_unless_cancelled(&mut parser, code).unwrap_or_else(|| {
+        parser.reset();
+        parser
+            .parse(b"", None)
+            .expect("invariant: parser has a language set and nothing stops this parse")
+    });
     // Dropped rather than cached when the slot is already gone.
     let _ = SCRATCH_PARSER.try_with(|slot| slot.set(Some(parser)));
     tree
+}
+
+/// Parses `code`, or answers `None` once the [`crate::cancel`] flag
+/// installed on this thread is cancelled. The runtime reads the callback
+/// every hundred parse operations.
+fn parse_unless_cancelled(parser: &mut Parser, code: &[u8]) -> Option<Tree> {
+    let mut stop_if_cancelled = |_: &ParseState| {
+        if crate::cancel::requested() {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    let options = ParseOptions::new().progress_callback(&mut stop_if_cancelled);
+    parser.parse_with_options(
+        &mut |offset, _| code.get(offset..).unwrap_or_default(),
+        None,
+        Some(options),
+    )
 }
 
 fn build_parser() -> Parser {
@@ -135,6 +162,49 @@ mod tests {
         })
         .join()
         .expect("parsing thread must not panic");
+    }
+
+    /// A cancelled flag stops the parse, which then yields the tree of an
+    /// empty input, and the next parse on the thread reads its own input
+    /// in full (#1939). The input is long enough that the runtime asks its
+    /// progress callback — every hundred parse operations — before the
+    /// parse could finish, so the stop lands mid-parse. That is what makes
+    /// the reset observable: without it the empty-input parse resumes the
+    /// abandoned one and does not answer `0..0`.
+    #[test]
+    fn a_cancelled_parse_yields_an_empty_tree_and_a_clean_parser() {
+        std::thread::spawn(|| {
+            let language = rust_language();
+            let long = "fn f() { let x = 1; }\n".repeat(200);
+            let cancel = crate::cancel::ParseCancel::new();
+            cancel.cancel();
+            let stopped = cancel.run(|| parse_on_scratch_parser(&language, long.as_bytes()));
+            assert_eq!(stopped.root_node().byte_range(), 0..0);
+            assert_eq!(stopped.root_node().child_count(), 0);
+
+            let code = b"fn g() { let y = 2; }";
+            let next = parse_on_scratch_parser(&language, code);
+            let mut fresh = Parser::new();
+            fresh
+                .set_language(&language)
+                .expect("the pinned grammar loads");
+            let expected = fresh.parse(code, None).expect("an uncancelled parse");
+            assert_eq!(next.root_node().byte_range(), 0..code.len());
+            assert_eq!(next.root_node().to_sexp(), expected.root_node().to_sexp());
+        })
+        .join()
+        .expect("parsing thread must not panic");
+    }
+
+    /// An installed flag nobody cancels changes nothing.
+    #[test]
+    fn an_uncancelled_flag_parses_in_full() {
+        let language = rust_language();
+        let code = "fn f() { let x = 1; }\n".repeat(200);
+        let tree = crate::cancel::ParseCancel::new()
+            .run(|| parse_on_scratch_parser(&language, code.as_bytes()));
+        assert_eq!(tree.root_node().byte_range(), 0..code.len());
+        assert!(!tree.root_node().has_error());
     }
 
     /// Each thread carries its own parser: one thread's cache must not

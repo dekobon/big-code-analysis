@@ -923,7 +923,7 @@ value = 48620.735506493904
 path = "big-code-analysis-web/src/web/server.rs"
 qualified = "run_parse"
 metric = "halstead.effort"
-value = 84151.62410156948
+value = 87801.57184376812
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"

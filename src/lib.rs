@@ -302,6 +302,10 @@ pub use crate::output::{
 // for the CLI and the scaling bench (#1416).
 #[doc(hidden)]
 pub use crate::output::{dump_found_with_color, write_found};
+// The flag `bca-web` stops a timed-out request's parse and AST export
+// with; hidden because it exists for that crate (#1939).
+#[doc(hidden)]
+pub use big_code_analysis_ast::cancel::ParseCancel;
 
 // --- AST plumbing (Node) ---
 pub use big_code_analysis_ast::Node;

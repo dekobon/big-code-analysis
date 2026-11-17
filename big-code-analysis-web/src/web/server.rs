@@ -92,6 +92,24 @@ async fn run_parse_fallible<T: Send + 'static>(
         .map_err(|err| ParseError::from_metrics(payload_id, err))
 }
 
+/// Cancels the parse it holds when dropped: by then nobody awaits the
+/// task's result, whether `run_parse` returned or its future was dropped.
+///
+/// actix drops a handler's future when a read from its connection fails,
+/// as one does once the connection is reset (RST). A client that closes
+/// its sending side (FIN) does not end it: HTTP/1 lets a client half-close
+/// and still read the response, so actix reads nothing more from that
+/// connection (`read_available` in actix-http's h1 dispatcher), not even
+/// a reset that follows, and the handler runs on until it answers or its
+/// deadline, if any.
+struct CancelOnDrop(big_code_analysis::ParseCancel);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 /// Runs `f` on the blocking pool under the timeout / orphan-pool policy.
 ///
 /// `payload_id` is the client-supplied request id from the JSON payload
@@ -140,7 +158,16 @@ async fn run_parse<T: Send + 'static>(
         });
     }
 
-    let mut handle = tokio::task::spawn_blocking(f);
+    // A blocking task nobody waits for any more cannot be interrupted, so
+    // it is asked to stop instead: the parse and the AST export read this
+    // flag and give up, which ends the orphan soon after the deadline
+    // rather than after however long they would have taken (#1939). The
+    // flag is set on drop, so a handler actix drops before the deadline,
+    // as it does when the connection is reset before the client closes its
+    // sending side, stops its work too.
+    let cancel = CancelOnDrop(big_code_analysis::ParseCancel::new());
+    let task_cancel = cancel.0.clone();
+    let mut handle = tokio::task::spawn_blocking(move || task_cancel.run(f));
 
     let result = if let Some(deadline) = config.timeout {
         match tokio::time::timeout(deadline, &mut handle).await {
@@ -154,10 +181,12 @@ async fn run_parse<T: Send + 'static>(
                 })
             }
             Err(_) => {
-                // A timeout orphans the blocking task until it finishes on
-                // its own. Log it (`warn`, not `error`: it is a deadline /
-                // load condition, not an internal fault) so ops can correlate
-                // which request timed out and track orphan-pool pressure.
+                // A timeout orphans the blocking task until it finishes,
+                // which `cancel` makes prompt for the parse once this
+                // returns. Log it (`warn`, not `error`: it is a deadline /
+                // load condition, not an internal fault) so ops can
+                // correlate which request timed out and track orphan-pool
+                // pressure.
                 tracing::warn!(
                     payload_id = %payload_id,
                     timeout_secs = deadline.as_secs(),
@@ -241,10 +270,12 @@ pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()>
 ///
 /// ## Orphaned-task admission control
 ///
-/// When a parse times out, its blocking thread keeps running on tokio's
-/// blocking pool until the work itself completes. To prevent unbounded
-/// growth from sustained pathological inputs, new requests are rejected
-/// with `503` once the orphan count reaches a soft cap. The cap defaults
+/// When a request times out, its blocking task on tokio's pool is asked
+/// to stop: the parse and the AST export check for that as they run,
+/// while other work already under way, such as a `/vcs` history walk,
+/// runs to completion. Until it ends the task counts as orphaned. To prevent unbounded growth from sustained
+/// pathological inputs, new requests are rejected with `503` once the
+/// orphan count reaches a soft cap. The cap defaults
 /// to `max(n_threads * 2, 4)` and can be overridden by the
 /// `BCA_MAX_ORPHANED_TASKS` environment variable (parsed as `usize`;
 /// invalid or zero values fall back to the default). A `parse_timeout_secs`
@@ -277,7 +308,37 @@ pub async fn run_with_timeout(
         max_orphaned_tasks,
         max_body_size: MAX_BODY_SIZE,
     });
+    serve(Listen::Addr(host, port), n_threads, config, cors)?.await
+}
 
+/// Where [`serve`] accepts connections.
+enum Listen<'a> {
+    /// Bind `host:port`, as `bca-web` does.
+    Addr(&'a str, u16),
+    /// A socket the caller bound, so a test can serve on an ephemeral port
+    /// with production's middleware, routes and HTTP settings. OS signal
+    /// handling is left off: actix would install process-wide SIGINT /
+    /// SIGTERM handlers that outlive the test.
+    #[cfg(test)]
+    Socket(std::net::TcpListener),
+}
+
+/// Builds the HTTP server `run_with_timeout` runs: its middleware, routes
+/// and connection settings, one place for production and the transport
+/// tests to share.
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::needless_pass_by_value,
+        reason = "only the test-only `Listen::Socket` is consumed"
+    )
+)]
+fn serve(
+    listen: Listen<'_>,
+    n_threads: usize,
+    config: web::Data<ParseConfig>,
+    cors: CorsPolicy,
+) -> std::io::Result<actix_web::dev::Server> {
     // CORS is off by default (#694): the `from_fn` layer is wrapped only
     // when `--cors` is enabled (`Condition::new`), so the default request
     // path carries no extra middleware. The policy is registered as app
@@ -285,7 +346,7 @@ pub async fn run_with_timeout(
     let cors_enabled = cors != CorsPolicy::Disabled;
     let cors = web::Data::new(cors);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .wrap(Condition::new(
                 cors_enabled,
@@ -299,10 +360,13 @@ pub async fn run_with_timeout(
             // integration tests share them (#639).
             .configure(configure_routes)
     })
-    .workers(n_threads)
-    .bind((host, port))?
-    .run()
-    .await
+    .workers(n_threads);
+    let server = match listen {
+        Listen::Addr(host, port) => server.bind((host, port))?,
+        #[cfg(test)]
+        Listen::Socket(listener) => server.listen(listener)?.disable_signals(),
+    };
+    Ok(server.run())
 }
 
 // curl --header "Content-Type: application/json" --request POST --data '{"id": "1234", "file_name": "prova.cpp", "code": "int x = 1;", "comment": true, "span": true}' http://127.0.0.1:8081/ast

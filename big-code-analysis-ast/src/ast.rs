@@ -413,8 +413,16 @@ impl<'a, 'code> Export<'a, 'code> {
 
     /// Exports the node on top of the stack — every child of it has
     /// been exported by now — and attaches it to its parent's frame.
-    /// Breaks with the export once the node finished was the root.
+    /// Breaks with the export once the node finished was the root, and
+    /// with no tree once the [`ParseCancel`](crate::cancel::ParseCancel)
+    /// installed on this thread is cancelled: a wide `ERROR` node still
+    /// has every child's field read, which is quadratic over deep hidden
+    /// nesting (#1942), and a `bca-web` request past its deadline must
+    /// not keep its thread for that long.
     fn finish<T: ParserTrait>(&mut self) -> ControlFlow<Option<AstNode>> {
+        if crate::cancel::requested() {
+            return ControlFlow::Break(None);
+        }
         let frame = self
             .stack
             .pop()
@@ -775,6 +783,30 @@ mod tests {
                     assert_eq!(exported, typed, "{name} at {elements}");
                 },
             );
+        }
+    }
+
+    /// A cancelled flag stops the export as it stops the parse: a wide
+    /// `ERROR` node can make the export quadratic (#1942), and a
+    /// `bca-web` request past its deadline must not keep its thread for
+    /// that. The parse runs before the flag is installed, so only the
+    /// export sees it. expected: the full tree under a live flag, no tree
+    /// once it is cancelled, from both strategies.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn a_cancelled_export_yields_no_tree() {
+        let path = PathBuf::from("test.rs");
+        let parser = crate::RustParser::new(b"fn f() {}\n".to_vec(), &path, None);
+        let cancel = crate::cancel::ParseCancel::new();
+        let export = |dump: Dump<crate::RustParser>| {
+            cancel.run(|| dump(&parser, cfg_with(false, false)).root)
+        };
+        for (name, dump) in strategies::<crate::RustParser>() {
+            assert!(export(dump).is_some(), "{name} under a live flag");
+        }
+        cancel.cancel();
+        for (name, dump) in strategies::<crate::RustParser>() {
+            assert!(export(dump).is_none(), "{name} under a cancelled flag");
         }
     }
 

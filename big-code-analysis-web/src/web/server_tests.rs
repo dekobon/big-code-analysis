@@ -1231,6 +1231,309 @@ async fn test_run_parse_timeout_increments_orphan_counter_and_decrements_on_comp
     assert_eq!(orphaned.load(Ordering::Acquire), 0);
 }
 
+/// `-and => ` pairs in [`slow_perl`].
+const SLOW_PAIRS: usize = 8_000;
+
+/// `$x = ` and [`SLOW_PAIRS`] `-and => ` pairs, which the pinned Perl
+/// grammar parses in quadratic time (#1940): about 80 s in a release
+/// build, where 4,000 pairs take 19 s, so far past every bound in these
+/// tests. Each test cancels its parse, so a passing run pays nothing for
+/// the size.
+fn slow_perl() -> String {
+    format!("$x = {}1;\n", "-and => ".repeat(SLOW_PAIRS))
+}
+
+/// A timed-out request's parse is asked to stop, so its orphan ends soon
+/// after the deadline rather than whenever the parse would have finished
+/// (#1939). The parse of [`slow_perl`] runs far past the bound below, so
+/// an orphan that outlived it still had its parse running.
+#[actix_rt::test]
+async fn test_run_parse_timeout_stops_the_orphaned_parse() {
+    // How long the orphan may outlive the deadline. A cancelled parse
+    // checks the flag every hundred parse operations and ends far sooner.
+    const ORPHAN_BOUND: Duration = Duration::from_secs(10);
+
+    let orphaned = Arc::new(AtomicUsize::new(0));
+    let config = web::Data::new(ParseConfig {
+        timeout: Some(Duration::from_millis(200)),
+        semaphore: Arc::new(Semaphore::new(4)),
+        orphaned_tasks: Arc::clone(&orphaned),
+        max_orphaned_tasks: 64,
+        max_body_size: TEST_MAX_BODY_SIZE,
+    });
+    let code = slow_perl();
+    let err = run_parse(&config, "req-stop", move || {
+        big_code_analysis::Ast::parse(big_code_analysis::Source::new(
+            big_code_analysis::LANG::Perl,
+            code.as_bytes(),
+        ))
+        .is_ok()
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(err.error_response().status(), StatusCode::GATEWAY_TIMEOUT);
+
+    let started = std::time::Instant::now();
+    while orphaned.load(Ordering::Acquire) != 0 && started.elapsed() < ORPHAN_BOUND {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        orphaned.load(Ordering::Acquire),
+        0,
+        "the orphaned parse must stop within {ORPHAN_BOUND:?} of the deadline"
+    );
+}
+
+/// A `run_parse` future dropped before its deadline cancels its parse, as
+/// a timed-out one does (#1939). This drops the future by hand and says
+/// nothing about sockets: which disconnects make actix drop a handler is
+/// what `test_live_server_reset_drops_the_handler` and
+/// `test_live_server_half_closed_client_gets_its_response` show. No
+/// timeout is configured, so only the drop can stop the parse. expected:
+/// the parse yields the empty tree, whose root ends at byte 0, inside the
+/// bound; without the guard it is still running there.
+#[actix_rt::test]
+async fn test_run_parse_dropped_future_stops_its_parse() {
+    // How long the future is polled before it is dropped.
+    const POLLED_FOR: Duration = Duration::from_millis(200);
+    // How long the parse may outlive its dropped future.
+    const PARSE_BOUND: Duration = Duration::from_secs(10);
+
+    let config = web::Data::new(ParseConfig {
+        timeout: None,
+        semaphore: Arc::new(Semaphore::new(4)),
+        orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+        max_orphaned_tasks: 64,
+        max_body_size: TEST_MAX_BODY_SIZE,
+    });
+    let code = slow_perl();
+    let (parsed, parsed_end) = std::sync::mpsc::channel::<usize>();
+    let request = run_parse(&config, "req-dropped", move || {
+        let ast = big_code_analysis::Ast::parse(big_code_analysis::Source::new(
+            big_code_analysis::LANG::Perl,
+            code.as_bytes(),
+        ));
+        let end = ast.map_or(usize::MAX, |ast| ast.root_node().end_byte());
+        let _ = parsed.send(end);
+    });
+    assert!(
+        tokio::time::timeout(POLLED_FOR, request).await.is_err(),
+        "the parse must still be running when its future is dropped"
+    );
+    let end = tokio::task::spawn_blocking(move || parsed_end.recv_timeout(PARSE_BOUND))
+        .await
+        .expect("the waiting task must not panic")
+        .expect("the parse must stop within the bound once its future is dropped");
+    assert_eq!(
+        end, 0,
+        "the dropped future's parse must have been cancelled"
+    );
+}
+
+/// How long a sent request may take to be admitted, or a dropped handler
+/// to return its permit.
+const LIVE_BOUND: Duration = Duration::from_secs(10);
+
+/// A `bca-web` server on an ephemeral loopback port, built by the
+/// production [`serve`]: its middleware, routes and HTTP settings, HTTP/1
+/// half-close included, on a socket the test binds itself and without OS
+/// signal handling. It has one parse permit the test watches: a request's
+/// handler holds it from admission until the handler returns or is
+/// dropped. Dropping this asks the server to stop.
+struct LiveServer {
+    addr: std::net::SocketAddr,
+    permits: Arc<Semaphore>,
+    handle: actix_web::dev::ServerHandle,
+}
+
+impl LiveServer {
+    fn start(deadline: Duration) -> Self {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral loopback port");
+        let addr = listener
+            .local_addr()
+            .expect("a bound listener has an address");
+        let permits = Arc::new(Semaphore::new(1));
+        let config = web::Data::new(ParseConfig {
+            timeout: Some(deadline),
+            semaphore: Arc::clone(&permits),
+            orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+            max_orphaned_tasks: 64,
+            max_body_size: TEST_MAX_BODY_SIZE,
+        });
+        let server = serve(Listen::Socket(listener), 1, config, CorsPolicy::Disabled)
+            .expect("the test server starts");
+        let handle = server.handle();
+        actix_rt::spawn(server);
+        Self {
+            addr,
+            permits,
+            handle,
+        }
+    }
+
+    /// Sends [`slow_perl`] as a whole `POST /v1/metrics` and returns once
+    /// its handler holds the permit, so the request was admitted and its
+    /// parse spawned before the caller disconnects.
+    async fn send_slow_request(&self) -> tokio::net::TcpStream {
+        use tokio::io::AsyncWriteExt as _;
+
+        let code = slow_perl();
+        let body = json!({ "file_name": "slow.pl", "code": code }).to_string();
+        let request = format!(
+            "POST /v1/metrics HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\n\
+             Content-Length: {}\r\n\r\n{body}",
+            self.addr,
+            body.len()
+        );
+        let mut stream = tokio::net::TcpStream::connect(self.addr)
+            .await
+            .expect("connect to the test server");
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("send the request");
+        assert!(
+            self.permits_reach(0).await,
+            "the request must be admitted within {LIVE_BOUND:?}"
+        );
+        stream
+    }
+
+    /// Whether the free permits reach `count` within [`LIVE_BOUND`].
+    async fn permits_reach(&self, count: usize) -> bool {
+        let started = std::time::Instant::now();
+        while self.permits.available_permits() != count {
+            if started.elapsed() > LIVE_BOUND {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        true
+    }
+
+    async fn stop(self) {
+        self.handle.stop(false).await;
+    }
+}
+
+impl Drop for LiveServer {
+    fn drop(&mut self) {
+        // `stop` sends its command before it returns the future, so a test
+        // that panics before its own `stop` still asks the server to end.
+        drop(self.handle.stop(false));
+    }
+}
+
+/// A connection reset before the client closes its sending side drops
+/// its handler, which returns the parse permit. This reads only the
+/// permit: that a dropped handler also cancels its parse, through
+/// `CancelOnDrop`, is what `test_run_parse_dropped_future_stops_its_parse`
+/// pins, since the server shows no trace of a parse left running on its
+/// blocking pool. The parse and the deadline both run far past the bound,
+/// so only the reset can end the handler in time. expected: the permit is
+/// back within the bound. An ordinary close in place of the reset keeps
+/// the handler until its deadline and fails.
+#[actix_rt::test]
+async fn test_live_server_reset_drops_the_handler() {
+    // Far past `LIVE_BOUND`, so the deadline cannot be what ends it.
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    let server = LiveServer::start(DEADLINE);
+    let stream = server.send_slow_request().await;
+    stream
+        .set_zero_linger()
+        .expect("SO_LINGER 0 makes the close a reset");
+    drop(stream);
+    assert!(
+        server.permits_reach(1).await,
+        "a reset connection must drop its handler within {LIVE_BOUND:?}"
+    );
+    server.stop().await;
+}
+
+/// HTTP/1 lets a client close its sending side (FIN) once its request is
+/// out and still read the response, so a FIN does not end the handler:
+/// it runs to its deadline, whose `504` the half-closed client receives,
+/// and only then does `CancelOnDrop` stop the parse. A client that closes
+/// both sides sends the same FIN, so its request also runs to the
+/// deadline. expected: a `504` response, read after the FIN.
+#[actix_rt::test]
+async fn test_live_server_half_closed_client_gets_its_response() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    // Short, since the handler runs until it.
+    const DEADLINE: Duration = Duration::from_secs(2);
+
+    let server = LiveServer::start(DEADLINE);
+    let mut stream = server.send_slow_request().await;
+    stream.shutdown().await.expect("half-close the connection");
+    let mut response = Vec::new();
+    tokio::time::timeout(LIVE_BOUND, stream.read_to_end(&mut response))
+        .await
+        .expect("the response must arrive within the bound")
+        .expect("read the response");
+    let response = String::from_utf8_lossy(&response);
+    assert!(
+        response.starts_with("HTTP/1.1 504"),
+        "a half-closed client must get the deadline's 504, got: {response}"
+    );
+    server.stop().await;
+}
+
+/// A timed-out request's AST export stops as its parse does. An unclosed
+/// nested Tcl `expr` parses at once but recovers into one `ERROR` node
+/// whose every child's field is read, which is quadratic in the nesting
+/// (#1942), so the export, not the parse, outlives the deadline.
+/// expected: the parse finished whole, and the export, cancelled at the
+/// deadline, yields no tree well inside the bound; the uncancelled export
+/// ran for 24 s in a debug build.
+#[actix_rt::test]
+async fn test_run_parse_timeout_stops_the_orphaned_export() {
+    // Parentheses of the unclosed `expr`, far more than export inside the
+    // bound below.
+    const DEPTH: usize = 100_000;
+    // How long the orphaned export may outlive the deadline.
+    const ORPHAN_BOUND: Duration = Duration::from_secs(10);
+
+    let config = web::Data::new(ParseConfig {
+        timeout: Some(Duration::from_millis(500)),
+        semaphore: Arc::new(Semaphore::new(4)),
+        orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+        max_orphaned_tasks: 64,
+        max_body_size: TEST_MAX_BODY_SIZE,
+    });
+    let code = format!("expr {{{}1{}\n", "(".repeat(DEPTH), ")".repeat(DEPTH));
+    let (exported, export_end) = std::sync::mpsc::channel::<(bool, bool)>();
+    let err = run_parse(&config, "req-export", move || {
+        let ast = big_code_analysis::Ast::parse(big_code_analysis::Source::new(
+            big_code_analysis::LANG::Tcl,
+            code.as_bytes(),
+        ))
+        .expect("the tcl feature is enabled");
+        // A cancelled parse yields the empty tree, which ends at byte 0.
+        let parsed = ast.root_node().end_byte() != 0;
+        let tree = ast.dump(AstCfg {
+            id: String::new(),
+            language: String::new(),
+            comment: false,
+            span: false,
+        });
+        let _ = exported.send((parsed, tree.root.is_none()));
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(err.error_response().status(), StatusCode::GATEWAY_TIMEOUT);
+
+    let (parsed, cancelled) =
+        tokio::task::spawn_blocking(move || export_end.recv_timeout(ORPHAN_BOUND))
+            .await
+            .expect("the waiting task must not panic")
+            .expect("the orphaned export must stop within the bound");
+    assert!(parsed, "the parse must finish inside the deadline");
+    assert!(cancelled, "the orphaned export must have been cancelled");
+}
+
 #[actix_rt::test]
 async fn test_run_parse_rejects_with_503_when_orphan_threshold_exceeded() {
     // Pre-fill the counter to the threshold.

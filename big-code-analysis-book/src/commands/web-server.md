@@ -113,17 +113,27 @@ than 4 MiB with `413 Payload Too Large`. The limit applies uniformly
 to the JSON and raw-octet-stream content types, so both reject
 oversized bodies at the same threshold.
 
-**Orphaned-task admission control.** When a parse exceeds
-`--parse-timeout-secs`, the request returns `504`, but the blocking
-thread keeps running on the pool until the parse finishes on its own,
-because tree-sitter cannot be interrupted mid-parse. To stop sustained
-pathological input from piling up unbounded background work, new
-requests are rejected with `503 Service Unavailable` once the count of
-orphaned tasks reaches a soft cap. The cap defaults to
+**Orphaned-task admission control.** When a request exceeds
+`--parse-timeout-secs`, it returns `504` and its blocking task is asked
+to stop. The parse and the AST export check for that as they run, so
+they end soon after the deadline; other analysis already under way,
+such as a `/vcs` history walk, runs to completion. Until the task ends
+it counts as orphaned. To stop
+sustained pathological input from piling up unbounded background work,
+new requests are rejected with `503 Service Unavailable` once the count
+of orphaned tasks reaches a soft cap. The cap defaults to
 `max(num_jobs * 2, 4)`; `BCA_MAX_ORPHANED_TASKS` overrides it (parsed
 as an unsigned integer; an invalid or zero value falls back to the
 default). Setting `--parse-timeout-secs 0` disables this mechanism
 entirely, since with no deadline no task is ever orphaned.
+
+A request's work is also asked to stop when its connection is reset
+before the client has closed its sending side. An ordinary close is
+different: HTTP/1 lets a client close its sending side and still read
+the response, so the server reads nothing more from that connection,
+not even a reset that follows, and keeps working on the request until
+it answers or the deadline passes. With `--parse-timeout-secs 0` there
+is no deadline, so that work runs to completion.
 
 ## Security and trust boundaries
 

@@ -64,6 +64,9 @@ pretty_assertions = "^1.3"
 # `POST /vcs` route tests build a throwaway git working tree on disk
 # (issue #328); the history walk has no in-request representation.
 tempfile.workspace = true
+# The live-server tests drive raw HTTP/1 connections; `set_zero_linger`
+# (1.50) makes a close a reset.
+tokio = { version = "^1.50", features = ["io-util", "net"] }
 tracing-test = "^0.2"
 
 # Debian/Ubuntu packaging — consumed by `cargo deb` in release CI.

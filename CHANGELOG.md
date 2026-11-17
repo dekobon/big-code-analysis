@@ -997,6 +997,31 @@ for historical reference.
   now steps along the chain in a loop and the Elixir count keeps its
   own stack; a test runs each at 20,000 levels on a 512 KiB stack.
 
+- **A timed-out `bca-web` request no longer holds a server thread
+  until its parse finishes** (#1939). A request past its deadline got
+  `504`, but its analysis ran on in the background, and once
+  `max(threads × 2, 4)` of those were running, every new request got
+  `503`. A grammar that parses some input in superlinear time made that
+  a denial of service: the pinned Perl grammar takes minutes over a few
+  tens of KB of `-and =>` pairs (#1940), so a handful of small requests
+  kept the server out of service for that long. A flag is now set at
+  the deadline, or earlier if actix drops the request's handler, as it
+  does when the connection is reset before the client has closed its
+  sending side; the parse checks it every hundred parse operations and
+  stops. An ordinary close (FIN) does not drop the handler: HTTP/1 lets
+  a client half-close and still read its response, so actix reads
+  nothing more from the connection, not even a reset that follows, and
+  that request's work runs on until it answers or its deadline, if any.
+  A release server with one orphan slot and a 2 s deadline, sent 8,000
+  such pairs, answered `503` to every later request for as long as it
+  was asked (14 s); it now answers `200` half a second after the `504`.
+  The AST export checks the flag once per node: an unclosed nested Tcl
+  `expr` parses at once but exports in quadratic time (#1942), and a
+  debug build's export of 100,000 parentheses ran for 24 s past a 0.5 s
+  deadline. It now stops at the deadline. The other walks after the
+  parse are not interrupted: they are linear, which `make bench-scaling`
+  gates.
+
 ## [2.5.1] - 2026-11-06
 
 2.5.0 reached PyPI only: its release run failed a Windows smoke test

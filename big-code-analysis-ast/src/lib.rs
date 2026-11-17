@@ -92,6 +92,7 @@ pub mod ast;
 pub mod c_declarator;
 pub(crate) mod c_langs_macros;
 pub(crate) mod c_macro;
+pub mod cancel;
 pub(crate) mod cfg_predicate;
 pub mod checker;
 pub(crate) mod comment_rm;
