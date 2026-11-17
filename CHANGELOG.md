@@ -560,6 +560,18 @@ for historical reference.
   `bca-web` never emits CSV. The rows now come from an explicit stack,
   in the same depth-first order.
 
+- **The Python `Node.parent`, sibling and `field_name` getters no
+  longer kill the interpreter on a deep zero-width node** (#1937). A
+  `MISSING` node is zero-width, and tree-sitter's parent lookup calls
+  itself once per tree level above one, so asking for the parent, a
+  sibling or the field name of one some 15,000 levels deep was a
+  segmentation fault, in 2.5.1 too. The
+  bindings now find a zero-width node's parent by walking down from the
+  root with a cursor, entering only the nodes that hold its position,
+  and read its siblings off that parent; a node with width keeps
+  tree-sitter's own lookup. The Rust `Node::parent` cannot reach the
+  root that way and still makes the call (#1941).
+
 - **`npm` and `npa` read the visibility of interface members** (#1880).
   An interface member used to count as public whatever it declared;
   only a C# interface field already read `private` and `protected`.

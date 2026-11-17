@@ -349,6 +349,12 @@ impl<'a> Node<'a> {
     /// comment-removal walks reach calls this; the remaining callers are
     /// `Ancestors` itself (the no-chain fallback), the one-off start node
     /// of a `dump`, and tests. `rg '\.parent\(\)' src/` re-checks that.
+    ///
+    /// **Not on a deep zero-width node.** On a zero-width node, such as a
+    /// `MISSING` one, tree-sitter's lookup calls itself once per tree
+    /// level, so far enough down it overflows the stack (#1941). The
+    /// Python bindings answer that case by walking down from the root
+    /// (#1937); this type cannot reach the root without this lookup.
     #[inline]
     pub fn parent(&self) -> Option<Node<'a>> {
         node_resolved_parent_lookups::record();

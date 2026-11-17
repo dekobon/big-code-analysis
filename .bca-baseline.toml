@@ -845,13 +845,7 @@ value = 7.0
 path = "big-code-analysis-py/src/node.rs"
 qualified = "PyNode"
 metric = "nom"
-value = 52.0
-
-[[entry]]
-path = "big-code-analysis-py/src/node.rs"
-qualified = "PyNode"
-metric = "wmc"
-value = 59.0
+value = 47.0
 
 [[entry]]
 path = "big-code-analysis-py/src/node.rs"

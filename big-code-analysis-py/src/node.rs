@@ -137,6 +137,83 @@ fn push_children_for_preorder(
     stack[first_child..].reverse();
 }
 
+/// Which relative of a node a getter asks for.
+#[derive(Clone, Copy)]
+enum Relative {
+    Parent,
+    Next { named: bool },
+    Prev { named: bool },
+}
+
+/// The visible parent of the zero-width `node`, found by walking down
+/// from `root` rather than through `ts_node_parent`.
+///
+/// In the pinned runtime, `ts_node_parent` asks
+/// `ts_node_child_with_descendant`, which calls itself once per tree
+/// level when the node it looks for is zero-width. Asking for the parent
+/// of a `MISSING` node some 15,000 levels deep overflowed the
+/// interpreter's stack and killed it (#1937). This walk keeps its place
+/// in a cursor and enters only nodes whose span holds the node's
+/// position, so it costs the siblings along that one path.
+fn zero_width_parent<'t>(root: TsNode<'t>, node: TsNode<'_>) -> Option<TsNode<'t>> {
+    let at = node.start_byte();
+    let holds = |here: &TsNode<'_>| here.start_byte() <= at && at <= here.end_byte();
+    let mut cursor = root.walk();
+    while cursor.node().id() != node.id() {
+        let entered = holds(&cursor.node()) && cursor.goto_first_child();
+        if !entered && !skip_subtree(&mut cursor) {
+            return None;
+        }
+    }
+    cursor.goto_parent().then(|| cursor.node())
+}
+
+/// The visible parent of `node` in the tree rooted at `root`: tree-sitter's
+/// own lookup for a node with width, [`zero_width_parent`] for a
+/// zero-width one, on which `ts_node_parent` recurses once per level (#1937).
+fn parent_within<'t>(root: TsNode<'t>, node: TsNode<'t>) -> Option<TsNode<'t>> {
+    if node.start_byte() == node.end_byte() {
+        zero_width_parent(root, node)
+    } else {
+        node.parent()
+    }
+}
+
+/// Moves `cursor` past the subtree it sits on, to the next node in
+/// pre-order: its next sibling, or the next sibling of the nearest
+/// ancestor that has one. `false` once the walk has left the tree.
+fn skip_subtree(cursor: &mut TreeCursor<'_>) -> bool {
+    while !cursor.goto_next_sibling() {
+        if !cursor.goto_parent() {
+            return false;
+        }
+    }
+    true
+}
+
+/// The child of `parent` before `node` and the one after it, counting only
+/// named children when `named`, read off `parent` rather than through
+/// tree-sitter's sibling lookups, which ask `ts_node_parent` first.
+fn neighbours<'t>(
+    parent: TsNode<'t>,
+    node: TsNode<'_>,
+    named: bool,
+) -> (Option<TsNode<'t>>, Option<TsNode<'t>>) {
+    let counts = |child: &TsNode<'_>| !named || child.is_named();
+    let mut cursor = parent.walk();
+    let mut children = parent.children(&mut cursor);
+    let mut before = None;
+    while let Some(child) = children.next() {
+        if child.id() == node.id() {
+            return (before, children.find(counts));
+        }
+        if counts(&child) {
+            before = Some(child);
+        }
+    }
+    (None, None)
+}
+
 /// Ownership boundary for the erased-lifetime pair (#1057).
 ///
 /// Both pyclasses pair an erased `Node<'static>` / `TreeCursor<'static>`
@@ -180,9 +257,11 @@ mod owned {
         /// `Ast` alive through `ast`.
         ///
         /// The one place the pairing is a *caller* obligation: `node` must
-        /// have come from the tree held by `ast`. Both callers are
+        /// have come from the tree held by `ast`. The callers are
         /// [`PyAst::root_node`] / [`PyAst::find`], which pass a node from
-        /// the very `Ast` they are wrapping. Every other handle in this
+        /// the very `Ast` they are wrapping, and `PyNode::relative`, which
+        /// passes a node it found by walking down from that `Ast`'s root
+        /// for a zero-width node's relatives. Every other handle in this
         /// module is derived from an existing one by [`rewrap`](Self::rewrap)
         /// or [`PyNodeWalk::next_node`], which carry the pairing over
         /// instead of restating it.
@@ -284,6 +363,34 @@ mod owned {
 }
 
 pub(crate) use owned::{PyNode, PyNodeWalk};
+
+impl PyNode {
+    /// `relative` of this node. A node with width keeps tree-sitter's own
+    /// lookup, which is iterative; a zero-width one, such as a `MISSING`
+    /// node, finds its parent from the root instead ([`zero_width_parent`],
+    /// #1937) and reads its siblings off that parent.
+    fn relative(&self, py: Python<'_>, relative: Relative) -> Option<PyNode> {
+        let node = self.node();
+        if node.start_byte() != node.end_byte() {
+            let found = match relative {
+                Relative::Parent => node.parent(),
+                Relative::Next { named: false } => node.next_sibling(),
+                Relative::Next { named: true } => node.next_named_sibling(),
+                Relative::Prev { named: false } => node.prev_sibling(),
+                Relative::Prev { named: true } => node.prev_named_sibling(),
+            };
+            return found.map(|n| self.rewrap(py, n));
+        }
+        let ast = self.ast().bind(py).get();
+        let parent = zero_width_parent(ast.ast_ref().root_node().as_tree_sitter(), node)?;
+        let found = match relative {
+            Relative::Parent => Some(parent),
+            Relative::Next { named } => neighbours(parent, node, named).1,
+            Relative::Prev { named } => neighbours(parent, node, named).0,
+        };
+        found.map(|n| PyNode::wrap(self.ast().clone_ref(py), n))
+    }
+}
 
 #[pymethods]
 impl PyNode {
@@ -405,9 +512,11 @@ impl PyNode {
     /// (e.g. `"declarator"`), or `None` for the root and for nodes their
     /// parent reaches without a field.
     #[getter]
-    fn field_name(&self) -> Option<&'static str> {
-        let parent = self.node().parent()?;
-        let id = self.node().id();
+    fn field_name(&self, py: Python<'_>) -> Option<&'static str> {
+        let node = self.node();
+        let ast = self.ast().bind(py).get();
+        let parent = parent_within(ast.ast_ref().root_node().as_tree_sitter(), node)?;
+        let id = node.id();
         let mut cursor = parent.walk();
         if !cursor.goto_first_child() {
             return None;
@@ -457,31 +566,31 @@ impl PyNode {
     /// This node's parent, or `None` at the root.
     #[getter]
     fn parent(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node().parent().map(|p| self.rewrap(py, p))
+        self.relative(py, Relative::Parent)
     }
 
     /// The next sibling (named or anonymous), or `None`.
     #[getter]
     fn next_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node().next_sibling().map(|n| self.rewrap(py, n))
+        self.relative(py, Relative::Next { named: false })
     }
 
     /// The previous sibling (named or anonymous), or `None`.
     #[getter]
     fn prev_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node().prev_sibling().map(|n| self.rewrap(py, n))
+        self.relative(py, Relative::Prev { named: false })
     }
 
     /// The next *named* sibling, or `None`.
     #[getter]
     fn next_named_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node().next_named_sibling().map(|n| self.rewrap(py, n))
+        self.relative(py, Relative::Next { named: true })
     }
 
     /// The previous *named* sibling, or `None`.
     #[getter]
     fn prev_named_sibling(&self, py: Python<'_>) -> Option<PyNode> {
-        self.node().prev_named_sibling().map(|n| self.rewrap(py, n))
+        self.relative(py, Relative::Prev { named: true })
     }
 
     /// The child at `index` (named and anonymous children counted), or
@@ -630,5 +739,91 @@ impl PyNodeWalk {
 
     fn __next__(&mut self, py: Python<'_>) -> Option<PyNode> {
         self.next_node(py)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use big_code_analysis::{Ast, LANG, Source};
+
+    use super::{TsNode, neighbours, zero_width_parent};
+
+    /// `void f(){x = ((…()…));}`, `depth` parentheses deep: the innermost
+    /// pair holds a zero-width `MISSING` identifier.
+    fn nested_missing(depth: usize) -> Ast {
+        let code = format!(
+            "void f(){{x = {}{};}}\n",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        );
+        Ast::parse(Source::new(LANG::C, code.as_bytes())).expect("C is a default feature")
+    }
+
+    /// Every zero-width node of `root`'s tree, found on an explicit stack.
+    fn zero_width_nodes(root: TsNode<'_>) -> Vec<TsNode<'_>> {
+        let mut found = Vec::new();
+        let mut pending = vec![root];
+        let mut cursor = root.walk();
+        while let Some(node) = pending.pop() {
+            if node.start_byte() == node.end_byte() {
+                found.push(node);
+            }
+            pending.extend(node.children(&mut cursor));
+        }
+        found
+    }
+
+    /// Where tree-sitter's own lookups are safe, at a shallow depth, the
+    /// walk from the root answers what they answer, for every zero-width
+    /// node (#1937).
+    #[test]
+    fn the_root_walk_agrees_with_tree_sitter_where_it_is_safe() {
+        let ast = nested_missing(6);
+        let root = ast.root_node().as_tree_sitter();
+        let nodes = zero_width_nodes(root);
+        assert!(!nodes.is_empty(), "the input must hold a zero-width node");
+        for node in nodes {
+            let parent = zero_width_parent(root, node);
+            assert_eq!(parent, node.parent(), "{}", node.kind());
+            let parent = parent.expect("a zero-width node below the root has a parent");
+            assert_eq!(
+                neighbours(parent, node, false),
+                (node.prev_sibling(), node.next_sibling())
+            );
+            assert_eq!(
+                neighbours(parent, node, true),
+                (node.prev_named_sibling(), node.next_named_sibling())
+            );
+        }
+    }
+
+    /// 20,000 levels above the `MISSING` node, far past the depth at which
+    /// `ts_node_parent` overflowed the interpreter's main-thread stack, on
+    /// a 512 KiB one. expected: the innermost `parenthesized_expression`,
+    /// whose `(` and `)` flank the node.
+    #[test]
+    fn a_deep_zero_width_node_finds_its_parent_on_a_small_stack() {
+        // Parentheses around the `MISSING` node.
+        const DEPTH: usize = 20_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(|| {
+                let ast = nested_missing(DEPTH);
+                let root = ast.root_node().as_tree_sitter();
+                let missing = zero_width_nodes(root)
+                    .into_iter()
+                    .find(TsNode::is_missing)
+                    .expect("the innermost pair holds a MISSING node");
+                let parent = zero_width_parent(root, missing).expect("a parent");
+                assert_eq!(parent.kind(), "parenthesized_expression");
+                let (before, after) = neighbours(parent, missing, false);
+                assert_eq!(before.map(|n| n.kind()), Some("("));
+                assert_eq!(after.map(|n| n.kind()), Some(")"));
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the root walk must not overflow a 512 KiB stack");
     }
 }

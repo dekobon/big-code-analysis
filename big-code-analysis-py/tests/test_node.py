@@ -158,6 +158,39 @@ def test_parent_and_sibling_links() -> None:
     assert stmts[0].prev_sibling is not None  # the opening `{`
 
 
+def _innermost_missing(depth: int) -> Node:
+    """The zero-width ``MISSING`` identifier in ``void f(){x = ((…()…));}``,
+    ``depth`` parentheses deep."""
+    src = "void f(){x = " + "(" * depth + ")" * depth + ";}\n"
+    root = bca.Ast.parse(src, "c").root_node
+    return next(node for node in root.walk() if node.is_missing)
+
+
+@pytest.mark.parametrize("depth", [3, 20_000])
+def test_parent_and_siblings_of_a_deep_zero_width_node(depth: int) -> None:
+    """#1937: a ``MISSING`` node is zero-width, and tree-sitter's parent
+    lookup recursed once per tree level above one, so at 20,000 levels the
+    interpreter died of a segmentation fault. ``parent`` and the sibling
+    getters now answer at any depth what they answer at a shallow one: the
+    innermost ``parenthesized_expression``, whose ``(`` and ``)`` flank the
+    node, with no named sibling."""
+    missing = _innermost_missing(depth)
+    parent = missing.parent
+    assert parent is not None
+    assert parent.kind == "parenthesized_expression"
+    assert missing in parent.children
+    prev, following = missing.prev_sibling, missing.next_sibling
+    assert prev is not None
+    assert prev.kind == "("
+    assert following is not None
+    assert following.kind == ")"
+    assert missing.prev_named_sibling is None
+    assert missing.next_named_sibling is None
+    # `field_name` asks for the parent too; the identifier sits in the
+    # parenthesized expression without a field.
+    assert missing.field_name is None
+
+
 def test_field_name_and_child_by_field_name() -> None:
     fn = bca.Ast.parse(RUST_SRC, "rust").root_node.children[0]
     name = fn.child_by_field_name("name")
