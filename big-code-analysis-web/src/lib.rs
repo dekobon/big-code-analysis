@@ -53,7 +53,8 @@ pub mod cli {
         /// timeout a parse never times out, so no task is ever orphaned and
         /// the `503` back-pressure that sheds load under sustained
         /// pathological input never engages. Use `0` only when an unbounded
-        /// parse is acceptable (issue #707).
+        /// parse is acceptable.
+        // The deadline / admission-gate coupling is issue #707.
         #[clap(long, default_value_t = DEFAULT_PARSE_TIMEOUT_SECS)]
         pub parse_timeout_secs: u64,
         /// Enable CORS for the given origins (off by default).

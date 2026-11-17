@@ -21,7 +21,7 @@ Host for the web server
 Port for the web server
 .TP
 \fB\-\-parse\-timeout\-secs\fR \fI<PARSE_TIMEOUT_SECS>\fR [default: 30]
-Timeout in seconds for each parse operation. `0` disables the deadline *and* the orphaned\-task admission gate it feeds: with no timeout a parse never times out, so no task is ever orphaned and the `503` back\-pressure that sheds load under sustained pathological input never engages. Use `0` only when an unbounded parse is acceptable (issue #707)
+Timeout in seconds for each parse operation. `0` disables the deadline *and* the orphaned\-task admission gate it feeds: with no timeout a parse never times out, so no task is ever orphaned and the `503` back\-pressure that sheds load under sustained pathological input never engages. Use `0` only when an unbounded parse is acceptable
 .TP
 \fB\-\-cors\fR \fI<ORIGINS>\fR
 Enable CORS for the given origins (off by default).
