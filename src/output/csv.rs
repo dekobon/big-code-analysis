@@ -242,9 +242,14 @@ fn write_space_rows<W: Write>(
     path_str: &str,
     space: &FuncSpace,
 ) -> io::Result<()> {
-    write_one_row(wtr, path_str, space)?;
-    for child in &space.spaces {
-        write_space_rows(wtr, path_str, child)?;
+    // Spaces nest as deep as the source's functions, so the rows are
+    // written from an explicit stack: one frame per level aborted the
+    // process on a few tens of thousands of nested closures. Children are
+    // pushed in reverse so `pop()` keeps the depth-first source order.
+    let mut pending = vec![space];
+    while let Some(space) = pending.pop() {
+        write_one_row(wtr, path_str, space)?;
+        pending.extend(space.spaces.iter().rev());
     }
     Ok(())
 }
@@ -578,6 +583,78 @@ mod tests {
             .map(|line| line.split(',').nth(1).unwrap_or(""))
             .collect();
         assert_eq!(names, vec!["root", "outer", "inner", "sibling"]);
+    }
+
+    /// A sink that fails partway through stops the row walk and reports
+    /// the failure rather than writing on. The rows outgrow the CSV
+    /// writer's buffer long before the walk ends, so the failure surfaces
+    /// from a row in the middle of the walk, not from the final flush.
+    #[test]
+    fn a_failing_sink_stops_the_row_walk() {
+        // Nesting levels, enough rows to overflow the writer's buffer
+        // many times over.
+        const DEPTH: usize = 2_000;
+        let mut space = empty_space("leaf", SpaceKind::Function, 1, 1);
+        for level in 0..DEPTH {
+            let mut outer = empty_space(&format!("l{level}"), SpaceKind::Function, 1, 1);
+            outer.spaces.push(space);
+            space = outer;
+        }
+        let mut full = crate::output::test_support::FailAfter::new(usize::MAX);
+        write_csv(&space, Path::new("a.js"), &mut full).expect("an unlimited sink takes every row");
+        let mut failing = crate::output::test_support::FailAfter::new(0);
+        let err = write_csv(&space, Path::new("a.js"), &mut failing)
+            .expect_err("a sink that refuses every write fails the render");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(
+            failing.attempts() < full.attempts(),
+            "the walk must stop at the first failure: {} attempts against {}",
+            failing.attempts(),
+            full.attempts()
+        );
+    }
+
+    // A space nested DEPTH levels deep, as `x = ()=>()=>…1;` produces in
+    // JavaScript, writes one row per level. The rows came from one frame
+    // per level until the walk kept its own stack, and some 32,000 nested
+    // arrow functions aborted a release `bca metrics -O csv` (the depth
+    // varies with the build). Run on a small stack so a reintroduced
+    // recursion aborts here. Measured with the recursion restored, in the
+    // dev profile the tests build: it overflows at about 5,150 levels on
+    // this 512 KiB stack, so `DEPTH` is ~10x past it. Each level carries
+    // its own name, so a walk that left the nesting order fails too.
+    //
+    // expected: one row per level, `l0` … `l49999` in nesting order.
+    #[test]
+    fn deeply_nested_spaces_do_not_overflow_the_stack() {
+        // Nesting levels, far past what the stack below holds at one
+        // frame per level.
+        const DEPTH: usize = 50_000;
+        // A deliberately small test-thread stack.
+        const SMALL_STACK: usize = 512 * 1024;
+        let mut space = empty_space(&format!("l{}", DEPTH - 1), SpaceKind::Function, 1, 1);
+        for level in (0..DEPTH - 1).rev() {
+            let mut outer = empty_space(&format!("l{level}"), SpaceKind::Function, 1, 1);
+            outer.spaces.push(space);
+            space = outer;
+        }
+        std::thread::Builder::new()
+            .stack_size(SMALL_STACK)
+            .spawn(move || {
+                let out = render(&space, Path::new("a.js"));
+                let names: Vec<&str> = out
+                    .lines()
+                    .skip(1) // header
+                    .map(|line| line.split(',').nth(1).unwrap_or(""))
+                    .collect();
+                assert_eq!(names.len(), DEPTH);
+                for (level, name) in names.iter().enumerate() {
+                    assert_eq!(*name, format!("l{level}"));
+                }
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("the CSV row walk must not overflow a 512 KiB stack");
     }
 
     #[test]

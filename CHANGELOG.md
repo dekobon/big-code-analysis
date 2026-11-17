@@ -551,6 +551,15 @@ for historical reference.
   reached the same recursion and aborted where the 0.5.0 pin answered.
   The three checks step through the assignments in a loop.
 
+- **CSV output no longer overflows the stack on deeply nested
+  functions** (#1936). The writer called itself once per nested space,
+  so `bca metrics -O csv` on a few tens of thousands of nested closures,
+  such as JavaScript's `x = ()=>()=>…1;`, aborted the process (from
+  about 43,000 levels on an x86_64 release build, 32,000 on aarch64).
+  The public `write_csv` and `write_csv_aggregate` aborted the same way.
+  `bca-web` never emits CSV. The rows now come from an explicit stack,
+  in the same depth-first order.
+
 - **`npm` and `npa` read the visibility of interface members** (#1880).
   An interface member used to count as public whatever it declared;
   only a C# interface field already read `private` and `protected`.
