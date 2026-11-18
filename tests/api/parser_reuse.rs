@@ -45,7 +45,7 @@ fn retained_parse_provenance_preserves_legacy_cancelled_metrics() {
     let metrics = stopped
         .metrics(big_code_analysis::MetricsOptions::default())
         .unwrap();
-    assert!(metrics.spaces.is_empty());
+    assert_eq!(metrics.spaces.len(), 0);
     assert_eq!(metrics.metrics.loc.dloc(), 0);
     let next = Ast::parse(Source::new(LANG::Rust, b"/// doc\nfn g() {}\n")).unwrap();
     let metrics = next
