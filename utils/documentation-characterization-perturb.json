@@ -4,6 +4,7 @@
   "runner": "cargo",
   "command": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation_"],
   "cases": [
+    {"name":"stop-pruning-rust-outer-doc-run","file":"big-code-analysis-ast/src/checker/rust.rs","old":"if rust_attribute_run_start(node, code) {","new":"if rust_attribute_run_start(node, code) && !Self::is_doc_comment(node, code) {","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
     {"name":"shift-java-dloc-identity-preserving-whole-wire-values","file":"src/metrics/loc/shared.rs","old":".insert_range(member.start_row(), member.end_row());","new":".insert_range(member.start_row() + usize::from(code.starts_with(b\"/** a\\n * b\\n * c */\\n/**/\")), member.end_row() + usize::from(code.starts_with(b\"/** a\\n * b\\n * c */\\n/**/\")));","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
     {"name":"java-empty-marker-enters-legacy-selection","file":"big-code-analysis-ast/src/lang_helpers/doc_text.rs","old":"s.starts_with(b\"/**\") && s != b\"/**/\"","new":"s.starts_with(b\"/**\")","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
     {"name":"drop-rust-newline-discount","file":"src/metrics/loc/rust.rs","old":"(start, end.saturating_sub(1))","new":"(start, end)","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},

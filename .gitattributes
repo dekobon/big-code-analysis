@@ -36,3 +36,4 @@ fuzz/corpus/** -text -diff
 
 # Documentation characterization includes raw CRLF and missing-final-LF inputs.
 tests/fixtures/documentation/sources/** -text
+tests/fixtures/documentation/reference/** -text
