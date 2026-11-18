@@ -217,7 +217,7 @@ def selected_inputs(selection: pathlib.Path, roots: dict[str, pathlib.Path]) -> 
         if not path.is_file():
             sys.exit(f"missing selected input {key!r}")
         tracked = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", "/".join(relative)],
+            ["git", "--literal-pathspecs", "-C", str(root), "ls-files", "--error-unmatch", "--", "/".join(relative)],
             capture_output=True,
         )
         if tracked.returncode:
@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         n = 0
         for rid, root in roots.items():
-            if rid == "corpus" and lang in FIXTURE_ONLY:
+            if explicit is None and rid == "corpus" and lang in FIXTURE_ONLY:
                 continue
             paths = (
                 [p for l, k, _, p in explicit if l == lang and k.split("/")[1] == rid]

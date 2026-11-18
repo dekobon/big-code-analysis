@@ -287,6 +287,27 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual((self.out / "rust/fx/a.rs.metrics.txt").read_bytes(),
                          b"metrics -O json --no-config --language rust -p fx/a.rs\n")
 
+    def test_selected_filename_is_a_literal_git_pathspec(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        (self.fixtures / "*.rs").write_text("fn untracked() {}")
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/*.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection))
+        self.assertEqual(rc, "selected input is not tracked: 'rust/fx/*.rs'")
+        self.assertEqual(m, {})
+
+    def test_explicit_selection_keeps_root_identity_and_selected_helpers(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/alias/a.rs", "ccomment/corpus/a.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--root", f"alias={self.fixtures}",
+                                "--corpus", str(self.fixtures), "--view", "metrics")
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["ccomment/corpus/a.rs", "rust/alias/a.rs"])
+        self.assertEqual(m["populations"], {"rust": 1, "ccomment": 1})
+
 
 if __name__ == "__main__":
     unittest.main()
