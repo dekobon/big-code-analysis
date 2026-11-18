@@ -85,6 +85,15 @@ fn canonical_evidence_rejects_clones_shifted_roots_and_edited_values() {
     let root = parser.ts_tree().root_node();
     let canonical = context.node(root).unwrap();
     assert_eq!(canonical.validate(root), Ok(()));
+    let child = root.named_child(0).unwrap();
+    assert_eq!(child.range(), root.range());
+    assert_eq!(child.into_raw().context, root.into_raw().context);
+    assert_ne!(child.id(), root.id());
+    assert_ne!(child.kind_id(), root.kind_id());
+    assert_eq!(
+        canonical.validate(child),
+        Err(SourceError::NoncanonicalNode)
+    );
     assert_eq!(
         canonical.validate(second.ts_tree().root_node()),
         Err(SourceError::ForeignTree)

@@ -34,6 +34,7 @@ fn one_document_shared_by_two_owners_is_not_two_alternative_claims() {
     assert_eq!(names.len(), 2);
     assert_eq!(names[0].as_tree_sitter().byte_range(), 14..15);
     assert_eq!(names[1].as_tree_sitter().byte_range(), 17..18);
+    facts.owners.push(Owner::File(root));
     facts.owners.extend(
         names
             .iter()
@@ -45,7 +46,7 @@ fn one_document_shared_by_two_owners_is_not_two_alternative_claims() {
     ] {
         facts.associations.push(Association {
             document: DocumentId(0),
-            owners: vec![OwnerId(0), OwnerId(1)],
+            owners: vec![OwnerId(1), OwnerId(2)],
             resolution,
             convention: Convention("Doxygen"),
             binding: Some(context.node(declaration.as_tree_sitter()).unwrap()),
@@ -66,10 +67,15 @@ fn one_document_shared_by_two_owners_is_not_two_alternative_claims() {
         facts.associated_document(associations[0]).unwrap(),
         facts.associated_document(associations[1]).unwrap()
     );
-    assert_ne!(
-        facts.associated_owner(associations[0], 0).unwrap(),
-        facts.associated_owner(associations[0], 1).unwrap()
-    );
+    for association in &associations {
+        for (position, expected) in [14..15, 17..18].into_iter().enumerate() {
+            let owner = facts.associated_owner(*association, position).unwrap();
+            let Owner::Node(node) = owner.get() else {
+                panic!("association must resolve its name owner, not the file decoy");
+            };
+            assert_eq!(node.node().byte_range(), expected);
+        }
+    }
     let foreign = Facts::default();
     assert_eq!(
         foreign.associated_document(associations[0]),

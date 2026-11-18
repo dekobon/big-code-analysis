@@ -6,6 +6,7 @@ use crate::{AnyParser, LANG};
 mod model_cases;
 mod ownership;
 mod provenance;
+mod ranges;
 mod streaming;
 
 #[cfg(feature = "rust")]

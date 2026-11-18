@@ -2,6 +2,12 @@
 
 use std::ops::Range;
 
+// Output alone cannot reveal scanning empty ranges or seeking from the start.
+crate::observation::counter!(
+    included_range_visits,
+    cfg(any(test, feature = "test-support"))
+);
+
 /// A nonempty, half-open source byte range and its borrowed raw bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourcePiece<'s> {
@@ -58,10 +64,12 @@ impl<'s> SourceContext<'s> {
     /// infer completion; adopted/raw inputs retain the caller's precondition.
     #[must_use]
     pub fn new(tree: &'s tree_sitter::Tree, bytes: &'s [u8]) -> Self {
+        let mut included = tree.included_ranges();
+        included.retain(|range| range.start_byte < range.end_byte);
         Self {
             tree,
             bytes,
-            included: tree.included_ranges(),
+            included,
         }
     }
 
@@ -81,6 +89,7 @@ impl<'s> SourceContext<'s> {
         let mut pieces = Vec::new();
         let mut included_bytes = 0;
         for range in &self.included[first..] {
+            included_range_visits::record();
             if range.start_byte >= spelling.end {
                 break;
             }

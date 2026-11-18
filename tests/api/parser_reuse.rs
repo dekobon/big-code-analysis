@@ -35,7 +35,7 @@ use big_code_analysis::{Ast, LANG, Source, tree_sitter};
 
 #[cfg(feature = "rust")]
 #[test]
-fn retained_parse_provenance_preserves_legacy_cancelled_metrics() {
+fn cancelled_parse_keeps_legacy_metrics_empty_and_next_parse_recovers() {
     let source = "/// doc\nfn f() {}\n".repeat(200);
     let cancel = big_code_analysis::ParseCancel::new();
     cancel.cancel();
