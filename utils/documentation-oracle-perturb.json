@@ -17,8 +17,8 @@
     {
       "name": "drop-verbatim-metric-options",
       "file": "utils/drift-oracle.py",
-      "old": "[str(args.verbatim), *extra, lang, str(p)]",
-      "new": "[str(args.verbatim), lang, str(p)]",
+      "old": "[str(args.verbatim), *extra, lang, path_arg]",
+      "new": "[str(args.verbatim), lang, path_arg]",
       "expect": [
         "utils.drift-oracle-test.DriftOracleTests.test_mi_matrix_and_every_argv_are_symmetric_and_explicit",
         "utils.drift-oracle-test.DriftOracleTests.test_a_failed_mi_verbatim_view_is_not_a_baseline"
