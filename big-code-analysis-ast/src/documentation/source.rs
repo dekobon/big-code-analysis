@@ -70,8 +70,8 @@ impl<'s> SourceContext<'s> {
     ///
     /// # Errors
     /// Rejects empty, reversed, out-of-buffer and wholly excluded spellings.
-    // bca: suppress(halstead.effort) -- one interval-intersection loop retains raw slices and excluded-gap evidence together.
     pub fn pieces(&self, spelling: Range<usize>) -> Result<SourcePieces<'s>, SourceError> {
+        // bca: suppress(halstead) -- one interval-intersection loop retains raw slices and excluded-gap evidence together.
         if spelling.start >= spelling.end || spelling.end > self.bytes.len() {
             return Err(SourceError::InvalidRange);
         }
