@@ -42,6 +42,7 @@
 # test modules (#1066). It is not a sibling unit-test file, so the
 # `*_tests.rs` glob does not reach it, and none of it ships.
 ./**/test_support.rs
+./**/test_support/**
 ./target/**
 # Fuzzing scratch (#1154). The seed corpora are deliberately malformed
 # source — invalid UTF-8, NUL bytes, unterminated constructs — so

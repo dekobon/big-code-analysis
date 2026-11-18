@@ -1,0 +1,202 @@
+//! Legacy preservation on raw inputs; source owner/text requirements live in AST fixtures.
+
+use big_code_analysis_ast::test_support::documentation;
+use serde_json::{Value, json};
+
+use crate::{LANG, Metric, MetricsOptions, Source, analyze};
+
+#[cfg(any(
+    feature = "c",
+    feature = "cpp",
+    feature = "mozcpp",
+    feature = "objc",
+    feature = "csharp",
+    feature = "rust",
+    feature = "java",
+    feature = "javascript",
+    feature = "mozjs",
+    feature = "python",
+    feature = "php",
+    feature = "perl",
+    feature = "groovy",
+    feature = "tcl",
+    feature = "irules"
+))]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_legacy_whole_metrics() {
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/documentation/reference/manifest.json"
+    ))
+    .expect("capture manifest");
+    let selection: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/documentation/selection.json"
+    ))
+    .expect("selected keys");
+    assert_eq!(manifest["keys"], selection);
+    assert_eq!(manifest["complete"], true);
+    assert_eq!(
+        manifest["views"],
+        json!([
+            "verbatim_metrics_mi_charges_docs_false",
+            "verbatim_metrics_mi_charges_docs_true",
+            "verbatim_metrics_exclude_tests_mi_charges_docs_false",
+            "verbatim_metrics_exclude_tests_mi_charges_docs_true",
+            "verbatim_metrics_only_mi_mi_charges_docs_false",
+            "verbatim_metrics_only_mi_mi_charges_docs_true",
+            "verbatim_metrics_only_mi_exclude_tests_mi_charges_docs_false",
+            "verbatim_metrics_only_mi_exclude_tests_mi_charges_docs_true",
+            "verbatim_metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_false",
+            "verbatim_metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_true"
+        ])
+    );
+    let anchors: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/documentation/legacy.json"
+    ))
+    .expect("independent anchors");
+    let selected_files: std::collections::BTreeSet<_> = selection
+        .as_array()
+        .expect("keys")
+        .iter()
+        .map(|k| k.as_str().expect("key").rsplit('/').next().expect("file"))
+        .collect();
+    assert_eq!(
+        selected_files,
+        anchors
+            .as_object()
+            .expect("anchors")
+            .keys()
+            .map(String::as_str)
+            .collect()
+    );
+    let mut ran = 0;
+    for key in selection.as_array().expect("keys") {
+        let key = key.as_str().expect("key");
+        let mut parts = key.split('/');
+        let lang: LANG = parts.next().expect("language").parse().expect("known LANG");
+        assert_eq!(parts.next(), Some("documentation"));
+        let file = parts.next().expect("file");
+        assert!(parts.next().is_none());
+        if !lang.is_enabled() {
+            continue;
+        }
+        let source = documentation::source(file);
+        for view in manifest["views"].as_array().expect("views") {
+            let view = view.as_str().expect("view");
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/documentation/reference")
+                .join(format!("{key}.{view}.txt"));
+            let expected: Value =
+                serde_json::from_slice(&std::fs::read(path).expect("checked capture"))
+                    .expect("wire JSON");
+            let opt = &expected["options"];
+            let excluded = opt["exclude_tests"].as_bool().expect("exclude_tests");
+            let mut options = MetricsOptions::default()
+                .with_exclude_tests(excluded)
+                .with_count_cyclomatic_try(opt["count_cyclomatic_try"].as_bool().expect("try"))
+                .with_mi_charges_docs(opt["mi_charges_docs"].as_bool().expect("MI mode"));
+            match opt["metrics"].as_str().expect("selection") {
+                "all" => {}
+                "mi" => options = options.with_only(&[Metric::Mi]),
+                other => panic!("unexpected selection {other}"),
+            }
+            let name = format!("tests/fixtures/documentation/sources/{file}");
+            let space = analyze(
+                Source::new(lang, &source).with_name(Some(name.clone())),
+                options,
+            )
+            .expect("legacy analysis");
+            let observed = json!({
+                "path": name, "lang": lang.to_string(), "source_bytes": source.len(),
+                "options": opt, "metrics": space.to_wire(),
+            });
+            assert_eq!(observed, expected, "{key}/{view}");
+            let anchor = anchors[file]
+                .get(if excluded { "excluded" } else { "included" })
+                .unwrap_or(&anchors[file]["included"]);
+            assert_eq!(
+                json!([
+                    space.metrics.loc.sloc(),
+                    space.metrics.loc.ploc(),
+                    space.metrics.loc.lloc(),
+                    space.metrics.loc.cloc(),
+                    space.metrics.loc.blank(),
+                    space.metrics.loc.dloc()
+                ]),
+                anchor["loc"],
+                "{key}/{view}"
+            );
+            let loc = &space.metrics.loc;
+            let rows: Vec<_> = (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect();
+            assert_eq!(json!(rows), anchor["dloc_rows"], "{key}/{view}");
+            assert_eq!(rows.len() as u64, loc.dloc());
+            if matches!(lang, LANG::Tcl | LANG::Irules) {
+                let ploc: Vec<_> = (0..source.len())
+                    .filter(|row| loc.ploc.lines.contains(*row))
+                    .collect();
+                let cloc: Vec<_> = (0..source.len())
+                    .filter(|row| {
+                        loc.cloc.only_comment_line_starts.contains(*row)
+                            || loc.cloc.code_comment_line_starts.contains(*row)
+                    })
+                    .collect();
+                let (want_code, want_comment) = if file.contains("crlf") {
+                    (vec![1, 3], vec![0])
+                } else {
+                    (vec![3], vec![0, 1])
+                };
+                assert_eq!(ploc, want_code, "{key}: exact code rows");
+                assert_eq!(cloc, want_comment, "{key}: exact comment rows");
+            }
+            let mut nested = Vec::new();
+            let mut stack: Vec<_> = space.spaces.iter().rev().collect();
+            while let Some(child) = stack.pop() {
+                let rows: Vec<_> = (0..source.len())
+                    .filter(|row| child.metrics.loc.dloc.lines.contains(*row))
+                    .collect();
+                assert_eq!(rows.len() as u64, child.metrics.loc.dloc());
+                nested.push(json!([
+                    child.name,
+                    child.kind,
+                    child.start_line,
+                    child.end_line,
+                    rows
+                ]));
+                stack.extend(child.spaces.iter().rev());
+            }
+            assert_eq!(
+                json!(nested),
+                anchor["spaces"],
+                "{key}/{view}: exact space/row population"
+            );
+            if opt["metrics"] == "mi" {
+                assert_eq!(
+                    observed["metrics"]["metrics"]
+                        .as_object()
+                        .expect("metrics")
+                        .keys()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                    ["cyclomatic", "halstead", "loc", "mi"]
+                );
+            }
+            if file == "python-runs.py" || file == "rust-prune.rs" {
+                let mi = &observed["metrics"]["metrics"]["mi"];
+                assert!(mi["original"].as_f64().expect("MI") > 0.0);
+                assert_ne!(observed["metrics"]["metrics"]["halstead"]["length"], 0);
+                if opt["mi_charges_docs"] == true || file == "rust-prune.rs" {
+                    assert!(
+                        mi["sei"].as_f64().expect("SEI")
+                            > mi["original"].as_f64().expect("original")
+                    );
+                } else {
+                    assert_eq!(mi["sei"], mi["original"]);
+                }
+            }
+            ran += 1;
+        }
+    }
+    assert!(ran > 0);
+}

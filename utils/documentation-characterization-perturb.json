@@ -1,0 +1,14 @@
+{
+  "description": "Run on a clean tracked checkpoint. Focused AST and root targets include the mutated crate and dependent metric assertions; this is discrimination evidence, not a unique-guard claim. Parent performs full dependent reviews/sweeps.",
+  "cwd": ".",
+  "runner": "cargo",
+  "command": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation_"],
+  "cases": [
+    {"name":"java-empty-marker-enters-legacy-selection","file":"big-code-analysis-ast/src/lang_helpers/doc_text.rs","old":"s.starts_with(b\"/**\") && s != b\"/**/\"","new":"s.starts_with(b\"/**\")","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
+    {"name":"drop-rust-newline-discount","file":"src/metrics/loc/rust.rs","old":"(start, end.saturating_sub(1))","new":"(start, end)","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
+    {"name":"charge-docs-in-both-mi-modes","file":"src/metrics/mi.rs","old":"let (comment_lines, physical_lines) = if charges_docs {","new":"let (comment_lines, physical_lines) = if charges_docs || loc.dloc() > 0 {","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
+    {"name":"drop-python-named-extra-transparency","file":"big-code-analysis-ast/src/lang_helpers/python.rs","old":"Python::Comment | Python::LineContinuation","new":"Python::Comment","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
+    {"name":"move-java-old-block-row-without-changing-count","file":"tests/fixtures/documentation/sources/java-selection.java","old":"/** a\n * b\n * c */\n/**/\nclass C {}\n","new":"\n/** a\n * b\n * c */\n/**/\nclass C {}\n","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]},
+    {"name":"delete-rust-pruned-outer-doc","file":"tests/fixtures/documentation/sources/rust-prune.rs","old":"/// outer\n","new":"\n","expect":["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]}
+  ]
+}

@@ -1,0 +1,2 @@
+///audit
+class C {}

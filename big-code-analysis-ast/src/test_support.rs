@@ -7,6 +7,8 @@
 use crate::node::{Ancestors, Node, Tree};
 use crate::traits::{LanguageInfo, ParserTrait, Search};
 
+pub mod documentation;
+
 /// Every declared owner of `owners` was met by a fixture (`seen` is the
 /// kind ids its walk emitted), except the never-emitted aliases in
 /// `defensive`, which must not have been — and each of those must still

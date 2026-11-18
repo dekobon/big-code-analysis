@@ -1,8 +1,9 @@
-# Test fixtures: vendored format schemas
+# Test fixtures
 
-This directory holds external schemas that the integration test suite
-validates emitted output against. Files are vendored, never fetched at
-test time, so the suite stays offline and reproducible.
+This directory holds external schemas and deterministic source fixtures for the test suite.
+Schemas are vendored, never fetched at test time, so the suite stays offline and reproducible.
+The [documentation fixtures](documentation/README.md) preserve raw source, independent extraction
+requirements and selected legacy metric captures.
 
 ## Files
 

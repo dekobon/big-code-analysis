@@ -1,0 +1,11 @@
+{
+  "description":"Focused maintained-driver self-tests; no unique-guard claim. Run python3 -B utils/perturb.py utils/documentation-selection-perturb.json on clean tracked targets.",
+  "cwd":".",
+  "runner":"unittest",
+  "command":["python3","-B","-m","unittest","-q","utils/drift-oracle-test.py","utils/drift-compare-test.py"],
+  "cases":[
+    {"name":"allow-untracked-selection","file":"utils/drift-oracle.py","old":"if tracked.returncode:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys"]},
+    {"name":"omit-selected-view","file":"utils/drift-oracle.py","old":"selected_views = args.view or available_views","new":"selected_views = available_views","expect":["utils.drift-oracle-test.DriftOracleTests.test_explicit_selection_is_tracked_exact_and_can_force_a_dialect"]},
+    {"name":"drop-relative-path-mode","file":"utils/drift-oracle.py","old":"if args.relative_paths:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_relative_paths_reach_binary_without_output_rewriting"]}
+  ]
+}

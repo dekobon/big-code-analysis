@@ -33,3 +33,6 @@ tree-sitter-preproc/** linguist-vendored
 # committed, and the fuzz run still passes because the seeds are only a
 # starting point. `-diff` keeps the binary ones out of patch output.
 fuzz/corpus/** -text -diff
+
+# Documentation characterization includes raw CRLF and missing-final-LF inputs.
+tests/fixtures/documentation/sources/** -text

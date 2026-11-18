@@ -89,6 +89,9 @@ fn span_rows(start_row: usize, end_line: usize) -> usize {
 mod dloc;
 mod line_set;
 
+#[cfg(test)]
+mod documentation_tests;
+
 use dloc::Dloc;
 use line_set::LineSet;
 

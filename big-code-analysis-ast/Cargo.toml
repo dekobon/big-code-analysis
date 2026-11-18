@@ -25,6 +25,7 @@ num-traits = "^0.2"
 petgraph = "^0.8"
 regex = "^1.7"
 serde.workspace = true
+serde_json = { workspace = true, optional = true }
 
 tree-sitter.workspace = true
 # Grammar crates are gated behind per-language Cargo features (see
@@ -81,7 +82,7 @@ default = ["all-languages"]
 # Exposes the parse-and-inspect test helpers in `test_support` to a
 # dependent crate's test target (the root crate's metric tests use them).
 # Never enable it in a shipping build.
-test-support = []
+test-support = ["dep:serde_json"]
 all-languages = [
   "bash",
   "c",

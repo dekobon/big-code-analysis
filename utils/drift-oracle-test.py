@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -224,6 +225,67 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual(m["keys"], ["rust/fx/a.rs"])
         self.assertEqual(m["skipped_symlinks"], [str(self.fixtures / "link.rs")])
         self.assertIn("skipped 1 symlink", err)
+
+    def test_explicit_selection_is_tracked_exact_and_can_force_a_dialect(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text(json.dumps(["mozcpp/fx/a.rs"]))
+        view = "verbatim_metrics_only_mi_mi_charges_docs_true"
+        rc, out, _, m = self._run("--selection", str(selection), "--verbatim", str(self.verbatim), "--view", view)
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["mozcpp/fx/a.rs"])
+        self.assertEqual(m["populations"], {"mozcpp": 1})
+        self.assertEqual(m["views"], [view])
+        self.assertEqual(m["cli_cmds"], {})
+        self.assertEqual(m["outputs_per_file"], 1)
+        self.assertEqual(json.loads(out)["outputs"], 1)
+        self.assertEqual(m["metrics_options"], {view: ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=true", "--"]})
+        self.assertEqual(json.loads((self.out / f"mozcpp/fx/a.rs.{view}.txt").read_text()),
+                         {"v": ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=true", "--", "mozcpp", str(self.fixtures / "a.rs")]})
+
+    def test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        for keys in [[], {}, [1], ["rust/fx/a.rs"] * 2, ["rust/fx/missing.rs"],
+                     ["python/fx/b.py"], ["rust/fx/../a.rs"], ["rust/fx//a.rs"],
+                     ["unknown/fx/a.rs"], ["rust/other/a.rs"]]:
+            with self.subTest(keys=keys):
+                selection.write_text(json.dumps(keys))
+                rc, _, _, m = self._run("--selection", str(selection))
+                self.assertNotEqual(rc, 0)
+                self.assertEqual(m, {})
+        os.symlink(self.fixtures / "a.rs", self.fixtures / "link.rs")
+        selection.write_text('["rust/fx/link.rs"]')
+        rc, _, _, _ = self._run("--selection", str(selection))
+        self.assertIn("symlink", str(rc))
+
+    def test_view_validation_and_requested_empty_population_fail(self) -> None:
+        for options in [("--view", "missing"), ("--view", "verbatim"),
+                        ("--view", "metrics", "--view", "metrics")]:
+            rc, _, _, m = self._run("--lang", "rust", *options)
+            self.assertEqual(rc, "duplicate or unavailable --view")
+            self.assertEqual(m, {})
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/a.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--lang", "python")
+        self.assertEqual(rc, "population python is empty")
+        self.assertEqual(m, {})
+
+    def test_relative_paths_reach_binary_without_output_rewriting(self) -> None:
+        old = pathlib.Path.cwd()
+        try:
+            os.chdir(self.root)
+            rc, _, _, m = self._run("--lang", "rust", "--view", "metrics", "--relative-paths")
+        finally:
+            os.chdir(old)
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["rust/fx/a.rs"])
+        self.assertEqual((self.out / "rust/fx/a.rs.metrics.txt").read_bytes(),
+                         b"metrics -O json --no-config --language rust -p fx/a.rs\n")
 
 
 if __name__ == "__main__":
