@@ -245,11 +245,18 @@ default associates the declaration, the alternate the file. Native attributes,
 promoted properties and signature-local comments retain their own source owner
 evidence. An imported callee name is not proof that a call is builtin `define`.
 
-YARD handles `@!` virtual directives and its own scope/call rules. RDoc handles
-`##`, `=begin`/`=end`, and its visibility directives separately. Hidden source
-documents remain retained with the appropriate publication state. An explicit
+YARD and RDoc both read `=begin`/`=end` blocks. YARD handles `@!` virtual
+directives and its own scope/call rules; RDoc has separate `##` and visibility
+directive rules. Hidden source documents retain the appropriate publication
+state. An explicit
 virtual method does not become a concrete declaration merely because a same-name
 method exists later.
+
+Python attribute strings follow the Sphinx target subset where it extends
+PEP 258: a string after `x = y = 1` describes x only, while Sphinx `#:` comments
+can describe both assignment targets. A tuple within the first assignment target
+still enumerates its qualifying leaves. Do not turn the legacy existence test
+into an association for every syntactic target.
 
 Elixir documentation groups use enclosing module, definition kind, name and
 source-written arity. Preserve explicit heads and clauses in the group. Default
@@ -349,7 +356,7 @@ separator; separate additional strings remain separate logical documents.
   semantic decoding. Preserve separately labeled source-cleaned spelling.
   The trigger deliberately over-approximates JLS eligibility, including an
   ineligible spelling whose Unicode-escape backslash has an odd number of
-  preceding backslashes, such as the literal source spelling `\\u0041`.
+  preceding backslashes, such as two backslashes followed by `u0041`.
   [JLS Unicode prelexing](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.3)
   can also alter delimiters or line endings; affected associations remain
   uncertain even when tree-sitter reports no ERROR node. Ordinary docs remain
@@ -377,7 +384,7 @@ output. Freeze these transformations separately from attachment:
 | LDoc lines | Remove the recognized `---` opener; continuation `--` lines lose their own marker; remove at most one following ASCII space |
 | Python Sphinx comments | Remove `#:` and at most one following ASCII space; do not apply string-literal decoding |
 | Go block comments | Remove `/*` and `*/` and at most one immediate interior ASCII space on either boundary; keep internal indentation and stars literally |
-| Ruby RDoc blocks | Remove the `=begin` opener line and `=end` terminator line; retain interior text and indentation |
+| Ruby YARD/RDoc blocks | Remove the `=begin` opener line and `=end` terminator line; retain interior text and indentation |
 | Java traditional, KDoc, Groovydoc, PHPDoc, JSDoc, TypeScript, Doxygen and C# block forms | Remove the outer recognized delimiters; remove one immediate ASCII space inside either delimiter on its boundary line; on later lines remove indentation plus one decoration `*` and at most one following space when present |
 | Lua long documentation comments | Remove the matching long-comment opener/closer, including the matching equals depth; no star decoration rule |
 | Perl POD | Preserve POD markup and internal spacing; omit the terminal `=cut` line and surrounding empty boundary lines; comment-only POD has no prose |
@@ -390,7 +397,7 @@ just because the source file has one. Block-internal LF bytes retain copied
 origins; joins across removed delimiters are synthetic. This differs deliberately
 from Go's `CommentGroup.Text` final newline and renderer-specific whitespace.
 Rust/Python/Elixir literals and Tcl preamble values keep their separately
-specified language cleanup. Sphinx, Go block and RDoc block forms follow the
+specified language cleanup. Sphinx, Go block and Ruby block forms follow the
 table's CRLF, empty-boundary-line and join rules.
 
 Examples: `/** audit */` becomes `audit`; `/**\n * a  \n *   b\n */` becomes
@@ -407,6 +414,13 @@ text unavailable. Non-scalar decoded values are unavailable. Backslash-newline
 and following indentation decode to one space only where the supplied parse
 has reliable boundaries; continuation-affected parses retain the #1802 limitation.
 Never execute Tcl to obtain a value.
+
+The pinned Tcl grammar can misparse a braced preamble when its `#` content and
+closing brace share a source line. That form retains explicit grammar-boundary
+uncertainty and cannot produce a confirmed namespace association or complete
+preamble text. Multiline controls put the closing brace on its own line so the
+parser supplies the namespace and value word. This is a grammar limitation, not
+a Tcl string-substitution rule.
 
 After value decoding, use Ruff's namespace preamble margin: take the leading
 space/tab prefix of the first nonblank content line and remove that prefix from

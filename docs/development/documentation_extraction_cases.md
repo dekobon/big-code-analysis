@@ -50,11 +50,12 @@ attribute form does not mean Python's attribute-binding role.
 | Case | Source | Exact text/origins |
 | --- | --- | --- |
 | python-sphinx | `#: audit\nx = 1` | attribute x; one comment fragment 0..8; `audit` output 0..5 copies source 3..8 |
-| ruby-block | `=begin\naudit\n=end\ndef f\nend` | RDoc method f; fragment 0..17; `audit` output 0..5 copies 7..12; boundary lines no output |
+| ruby-block | `=begin\naudit\n=end\ndef f\nend` | Both YARD and RDoc: method f; fragment 0..17; `audit` output 0..5 copies 7..12; boundary lines no output |
 | go-block | `package p\n/* audit */\nfunc F() {}` | function F; fragment 10..21; `audit` output 0..5 copies 13..18 |
 | tcl-quoted-preamble | `namespace eval n { variable _ruff_preamble "# Heading\\n  detail" }` | namespace n; text `# Heading\n  detail`, escape maps to complete backslash-n token; # preserved |
-| tcl-braced-preamble | `namespace eval n { variable _ruff_preamble {# Heading\\n  detail} }` | namespace n; text `# Heading\\n  detail`, literal backslash-n copied; # preserved |
-| tcl-braced-substitutions | `namespace eval n { variable _ruff_preamble {# $name [call]} }` | namespace n; literal `# $name [call]`; no variable/command evaluation |
+| tcl-braced-preamble | `namespace eval n {\nvariable _ruff_preamble {\n# Heading\\n  detail\n}\n}` | namespace n; text `# Heading\\n  detail`, literal backslash-n copied; # preserved |
+| tcl-braced-substitutions | `namespace eval n {\nvariable _ruff_preamble {\n# $name [call]\n}\n}` | namespace n; literal `# $name [call]`; no variable/command evaluation |
+| tcl-braced-same-line | `namespace eval n { variable _ruff_preamble {# Heading\\n  detail} }` | grammar-boundary uncertainty; no confirmed namespace owner or complete preamble text |
 | tcl-dynamic-preamble | `namespace eval n { variable _ruff_preamble "# $name" }` | namespace owner resolved; text unavailable(dynamic substitution), raw retained |
 
 ## Rust source forms
@@ -193,16 +194,19 @@ grammar that accepts the spelling; ObjC-specific method case is separate.
 | python-module | `"audit"\nx = 1` | primary module doc audit |
 | python-class | `class C:\n    "audit"\n    pass` | primary doc audit -> C |
 | python-attribute | `x = 1\n"audit"` | attribute doc audit -> binding x |
-| python-chained | `x = y = 1\n"audit"` | one attribute doc -> qualifying x and y binding slots |
+| python-chained | `x = y = 1\n"audit"` | one attribute-binding doc -> x only under Sphinx's first-target rule; no y association |
+| python-chained-comment | `#: audit\nx = y = 1` | one Sphinx comment doc -> x and y under the comment path's all-target rule |
 | python-nondoc | `x = 1\nprint(x)\n"audit"` | discarded string, no selected primary/additional/attribute document |
 | python-prefix | `def f():\n    b"audit"\n    pass` | bytes statement not primary doc; same exclusion for f/t strings |
 
 ## PHP callee and placement matrix
 
 Use `<?php\n$x = 0;\n/** audit */\n` plus the statement to isolate source
-declaration attachment from the first-file rule. Both profiles retain the
-stated callee result below. A constant name expression is only resolved when
-it is a static supported string; no evaluator is added.
+declaration attachment from the first-file rule. Both BCA profiles retain the
+stated callee result below, including the explicit static-profile limitations;
+this matrix does not claim exact phpDocumentor name-resolution parity.
+A constant name expression is only resolved when it is a static supported
+string; no evaluator is added.
 
 | Statement / case | Source association | Text and publication |
 | --- | --- | --- |
@@ -211,14 +215,14 @@ it is a static supported string; no evaluator is added.
 | `((define('X', 1)));` | same X slot, grouping wrapper retained | audit |
 | `DEFINE('X', 1);` | no declared constant under case-sensitive phpDocumentor profile; unattached doc evidence | audit still available through evidence; no publication assertion |
 | `Vendor\\define('X', 1);` | no supported builtin constant association; unattached evidence | audit |
-| `namespace\\define('X', 1);` | no supported builtin constant association; unattached evidence | audit |
+| `namespace\\define('X', 1);` | initial static-profile limitation: no builtin association, unattached evidence | audit; phpDocumentor resolves this global-namespace spelling to builtin define |
 | `define($name, 1);` | unresolved constant owner name, call/argument source spans retained | audit; dynamic name |
 | import `use function Vendor\\make as define;` then documented `define('X', 1);` | unresolved imported-callee association, not fabricated builtin X | audit |
 | import `use function define as make;` then documented `make('X', 1);` | unresolved imported-callee association in initial static profile | audit |
 | inside `function f() { /** audit */ define('X', 1); }` | qualified source constant slot X, lexical scope f retained | audit; publication/runtime execution unknown; legacy DLOC zero for the block |
 
-The explicit imported-callee uncertainty is an initial profile limitation;
-the old legacy row may classify its written spelling differently and stays
+The relative-name exclusion and imported-callee uncertainty are initial profile
+limitations. The legacy row may classify the written spelling differently and stays
 independently characterized. With no preceding neutral statement, the file
 selector can consume a doc block before an unsupported call; that is a file
 association, not evidence the callee became a documentation target.
