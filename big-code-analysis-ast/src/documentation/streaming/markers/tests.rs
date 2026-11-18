@@ -600,6 +600,51 @@ fn rust_nested_inner_and_macro_evidence_keeps_exact_source_spelling() {
 
 #[cfg(feature = "rust")]
 #[test]
+fn source_run_retains_containing_and_preceding_nodes() {
+    use crate::RustCode;
+    let source = b"fn outer() {\nlet x = 0;\n///doc\nfn inner() {}\n}";
+    let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
+    let context = SourceContext::new(parser.ts_tree(), parser.code());
+    let mut runs = Vec::new();
+    parser.root_node().act_on_node(&mut |node, ancestors| {
+        if RustCode::is_comment(node) {
+            source_comment::<RustCode>(
+                node,
+                ancestors,
+                &mut SourceRequest {
+                    context: &context,
+                    retain_unbound: false,
+                    sink: &mut |run| runs.push(run),
+                },
+            )
+            .unwrap();
+        }
+    });
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    let containing = run.containing.unwrap().node();
+    assert_eq!(
+        (containing.kind(), containing.byte_range()),
+        ("block", 11..46)
+    );
+    let before = run.code_before.unwrap().node();
+    assert_eq!(
+        (before.kind(), before.byte_range()),
+        ("let_declaration", 13..23)
+    );
+    let target = run.target.unwrap().node();
+    assert_eq!(
+        (target.kind(), target.byte_range()),
+        ("function_item", 31..44)
+    );
+    assert_eq!(run.members.len(), 1);
+    assert_eq!(run.members[0].source.pieces()[0].range(), 24..30);
+    assert_eq!(run.members[0].selection, MarkerSelection::Selected);
+    assert!(matches!(run.members[0].placement, MarkerPlacement::Forward));
+}
+
+#[cfg(feature = "rust")]
+#[test]
 fn rust_macro_context_is_not_recovered_from_a_known_empty_chain() {
     use crate::{RustCode, documentation::UnresolvedReason};
     let parser = AnyParser::parse(

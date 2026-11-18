@@ -4,6 +4,20 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
   "cases": [
     {
+      "name": "source-containing-context-must-be-retained",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "containing: ancestors.parent(comment).map(canonical).transpose()?,",
+      "new": "containing: None,",
+      "expect": ["documentation::streaming::markers::tests::source_run_retains_containing_and_preceding_nodes"]
+    },
+    {
+      "name": "source-preceding-code-must-be-retained",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "code_before: code_before.map(canonical).transpose()?,",
+      "new": "code_before: None,",
+      "expect": ["documentation::streaming::markers::tests::source_run_retains_containing_and_preceding_nodes"]
+    },
+    {
       "name": "source-marker-must-not-reuse-legacy-slot",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
       "old": "Self::Source => WordSlot::SourceDocMarker,",
