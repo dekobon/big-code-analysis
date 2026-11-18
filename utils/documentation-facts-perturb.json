@@ -1,0 +1,70 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "retained-abort-is-not-complete",
+      "file": "big-code-analysis-ast/src/node/parser_cache.rs",
+      "old": "(tree, ParseCompletion::Cancelled)",
+      "new": "(tree, ParseCompletion::Complete)",
+      "expect": ["documentation::tests::provenance::actual_abort_survives_scope_exit_and_next_parse_completes"]
+    },
+    {
+      "name": "adoption-is-not-internally-verified",
+      "file": "big-code-analysis-ast/src/node.rs",
+      "old": "completion: crate::parser::ParseCompletion::Adopted,",
+      "new": "completion: crate::parser::ParseCompletion::Complete,",
+      "expect": ["documentation::tests::provenance::adopted_restricted_parse_retains_caller_provenance"]
+    },
+    {
+      "name": "included-piece-start-is-exact",
+      "file": "big-code-analysis-ast/src/documentation/source.rs",
+      "old": "let start = spelling.start.max(range.start_byte);",
+      "new": "let start = spelling.start.max(range.start_byte) + 1;",
+      "expect": ["documentation::tests::included_pieces_keep_raw_invalid_bytes_and_never_return_the_gap"]
+    },
+    {
+      "name": "occurrence-equality-needs-ordinal",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "std::ptr::eq(self.scope, other.scope) && self.ordinal == other.ordinal",
+      "new": "std::ptr::eq(self.scope, other.scope)",
+      "expect": ["documentation::tests::spelling_excludes_crlf_while_node_retains_it_and_equal_text_is_not_identity"]
+    },
+    {
+      "name": "occurrence-equality-needs-store",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "std::ptr::eq(self.scope, other.scope) && self.ordinal == other.ordinal",
+      "new": "self.ordinal == other.ordinal",
+      "expect": ["documentation::tests::model_cases::independent_stores_have_distinct_handles_and_explicit_role_order"]
+    },
+    {
+      "name": "lookup-rejects-foreign-store",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "if std::ptr::eq(&raw const self.scope, reference.scope) {",
+      "new": "if true || std::ptr::eq(&raw const self.scope, reference.scope) {",
+      "expect": ["documentation::tests::ownership::one_document_shared_by_two_owners_is_not_two_alternative_claims"]
+    },
+    {
+      "name": "selection-identity-needs-view",
+      "file": "big-code-analysis-ast/src/documentation/streaming.rs",
+      "old": "self.view == other.view",
+      "new": "true",
+      "expect": ["documentation::tests::streaming::selection_identity_includes_view_profile_question_and_canonical_context"]
+    },
+    {
+      "name": "requested-unbound-evidence-is-materialized",
+      "file": "big-code-analysis-ast/src/documentation/streaming.rs",
+      "old": "&& (selected || *retain_unbound)",
+      "new": "&& (selected && *retain_unbound)",
+      "expect": ["documentation::tests::streaming::extra_evidence_is_lazy_and_unbound_retention_is_explicit"]
+    },
+    {
+      "name": "output-endpoints-cannot-split-scalars",
+      "file": "big-code-analysis-ast/src/documentation/content.rs",
+      "old": "if !text.is_char_boundary(range.start) || !text.is_char_boundary(range.end) {",
+      "new": "if false {",
+      "expect": ["documentation::tests::text_coordinates_distinguish_scalars_empty_queries_and_origin_kinds"]
+    }
+  ]
+}

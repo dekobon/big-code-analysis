@@ -27,6 +27,8 @@ use std::ops::ControlFlow;
 
 use tree_sitter::{Language, ParseOptions, ParseState, Parser, Tree};
 
+use crate::parser::ParseCompletion;
+
 thread_local! {
     /// The parser this thread reuses across the files it analyzes.
     static SCRATCH_PARSER: Cell<Option<Parser>> = const { Cell::new(None) };
@@ -56,14 +58,15 @@ crate::observation::counter!(parsers_built);
 /// the cached parser and the thread that built it.
 ///
 /// Under a cancelled [`crate::cancel::ParseCancel`] the parse stops and
-/// this returns the tree of an empty input instead (#1939). The stop is a
+/// this returns the tree of an empty input with retained cancelled provenance.
+/// The stop is a
 /// per-call progress callback, not parser state; the parser is reset
 /// after it, because a stopped parser resumes where it left off on the
 /// next call. Nothing in this crate sets a timeout, a cancellation flag,
 /// or included ranges, which *are* parser state: `set_language` does not
 /// clear those, so anything that starts setting one must clear it before
 /// the parser goes back.
-pub fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree {
+pub(super) fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> (Tree, ParseCompletion) {
     let mut parser = SCRATCH_PARSER
         .try_with(Cell::take)
         .ok()
@@ -74,15 +77,18 @@ pub fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree {
     parser
         .set_language(language)
         .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
-    let tree = parse_unless_cancelled(&mut parser, code).unwrap_or_else(|| {
+    let result = if let Some(tree) = parse_unless_cancelled(&mut parser, code) {
+        (tree, ParseCompletion::Complete)
+    } else {
         parser.reset();
-        parser
+        let tree = parser
             .parse(b"", None)
-            .expect("invariant: parser has a language set and nothing stops this parse")
-    });
+            .expect("invariant: parser has a language set and nothing stops this parse");
+        (tree, ParseCompletion::Cancelled)
+    };
     // Dropped rather than cached when the slot is already gone.
     let _ = SCRATCH_PARSER.try_with(|slot| slot.set(Some(parser)));
-    tree
+    result
 }
 
 /// Parses `code`, or answers `None` once the [`crate::cancel`] flag
@@ -148,7 +154,7 @@ mod tests {
             );
             let language = rust_language();
             for i in 0..PARSES {
-                let tree = parse_on_scratch_parser(&language, b"fn f() { let x = 1; }");
+                let (tree, _) = parse_on_scratch_parser(&language, b"fn f() { let x = 1; }");
                 assert!(
                     !tree.root_node().to_sexp().contains("ERROR"),
                     "parse {i} must succeed"
@@ -178,12 +184,15 @@ mod tests {
             let long = "fn f() { let x = 1; }\n".repeat(200);
             let cancel = crate::cancel::ParseCancel::new();
             cancel.cancel();
-            let stopped = cancel.run(|| parse_on_scratch_parser(&language, long.as_bytes()));
+            let (stopped, completion) =
+                cancel.run(|| parse_on_scratch_parser(&language, long.as_bytes()));
+            assert_eq!(completion, ParseCompletion::Cancelled);
             assert_eq!(stopped.root_node().byte_range(), 0..0);
             assert_eq!(stopped.root_node().child_count(), 0);
 
             let code = b"fn g() { let y = 2; }";
-            let next = parse_on_scratch_parser(&language, code);
+            let (next, completion) = parse_on_scratch_parser(&language, code);
+            assert_eq!(completion, ParseCompletion::Complete);
             let mut fresh = Parser::new();
             fresh
                 .set_language(&language)
@@ -201,8 +210,9 @@ mod tests {
     fn an_uncancelled_flag_parses_in_full() {
         let language = rust_language();
         let code = "fn f() { let x = 1; }\n".repeat(200);
-        let tree = crate::cancel::ParseCancel::new()
+        let (tree, completion) = crate::cancel::ParseCancel::new()
             .run(|| parse_on_scratch_parser(&language, code.as_bytes()));
+        assert_eq!(completion, ParseCompletion::Complete);
         assert_eq!(tree.root_node().byte_range(), 0..code.len());
         assert!(!tree.root_node().has_error());
     }
