@@ -12,7 +12,7 @@
 )]
 
 use super::*;
-use crate::lang_helpers::bound_doc_run;
+use big_code_analysis_ast::documentation::streaming::{LegacyEvent, marker_comment};
 
 /// The rows a Rust comment renders on. tree-sitter-rust's
 /// `process_line_doc_content` (see `src/scanner.c` in the pinned grammar
@@ -74,13 +74,20 @@ impl Loc for RustCode {
             // it is asked once here and its answer handed down; a member
             // `bound_doc_run` credits has already passed that test.
             BlockComment | LineComment => {
-                let doc = Self::is_doc_comment(node, code);
-                let (first, last) = rendered_rows(node, doc);
-                let documentation = doc && documents_by_placement::<Self>(node, code, ancestors);
-                add_comment_rows(stats, first, last, documentation);
-                bound_doc_run::<Self>(node, code, ancestors, |member| {
-                    let (first, last) = rendered_rows(member, true);
-                    stats.dloc.lines.insert_range(first, last);
+                marker_comment::<Self>(node, code, ancestors, |event| match event {
+                    LegacyEvent::Comment {
+                        node,
+                        marker,
+                        by_placement,
+                    } => {
+                        let (first, last) = rendered_rows(&node, marker);
+                        add_comment_rows(stats, first, last, by_placement);
+                    }
+                    LegacyEvent::BoundComment(member) => {
+                        let (first, last) = rendered_rows(&member, true);
+                        stats.dloc.lines.insert_range(first, last);
+                    }
+                    _ => {}
                 });
             }
             Statement

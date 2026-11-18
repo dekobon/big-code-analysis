@@ -10,6 +10,7 @@ pub(crate) use super::doc_text::{
     ruby_magic_comment, tsdoc_block, tsdoc_module,
 };
 use crate::checker::Checker;
+use crate::documentation::streaming::markers::CandidateView;
 use crate::node::{Ancestors, FoldLane, Node};
 
 /// How a language's tool attaches a doc comment to the declaration after
@@ -287,7 +288,8 @@ pub fn bound_doc_run<'a, T: Checker>(
     let Some(binding) = T::DOC_BINDING else {
         return;
     };
-    let end = match stretch_end::<T>(comment, code, ancestors, binding.skips) {
+    let view = CandidateView::Legacy;
+    let end = match stretch_end::<T>(comment, code, ancestors, binding.skips, view) {
         // A later member decides.
         StretchEnd::Undecided => return,
         // Nothing documents, and no block gathers the stretch either.
@@ -297,21 +299,47 @@ pub fn bound_doc_run<'a, T: Checker>(
     if !documents_where_it_sits::<T>(comment, code, ancestors) {
         return;
     }
-    let (stretch, code_before) = collect_stretch::<T>(comment, code, ancestors, binding.skips);
-    let forward =
-        |n: &Node<'a>| T::is_doc_comment(n, code) && (binding.forward)(n, code, ancestors);
+    let (stretch, code_before) =
+        collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
+    let forward = |n: &Node<'a>| {
+        view.marker::<T>(n, code, ancestors) && (binding.forward)(n, code, ancestors)
+    };
     let StretchEnd::AtTarget { next, target } = end else {
         if let Some(gathers) = binding.gathers {
-            bind_gathered::<T>(&stretch, code, gathers, forward)
-                .iter()
-                .for_each(&mut credit);
+            bind_gathered(
+                &stretch,
+                code,
+                gathers,
+                |n| view.marker::<T>(n, code, ancestors),
+                forward,
+            )
+            .iter()
+            .for_each(&mut credit);
         }
         return;
     };
-    let kept = match binding.kept {
+    let kept = select_bound::<T>(
+        &stretch,
+        code,
+        binding.kept,
+        (code_before, next, target),
+        forward,
+    );
+    kept.iter().for_each(&mut credit);
+}
+
+pub(crate) fn select_bound<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    kept: KeptDocs,
+    boundaries: (Option<Node<'a>>, Node<'a>, Node<'a>),
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> Vec<Node<'a>> {
+    let (code_before, next, target) = boundaries;
+    match kept {
         KeptDocs::All => stretch.iter().copied().filter(forward).collect(),
-        KeptDocs::Last { joins } => bind_last::<T>(&stretch, code, joins, forward),
-        KeptDocs::Nearest { hidden } => bind_nearest::<T>(&stretch, next, hidden, forward)
+        KeptDocs::Last { joins } => bind_last::<T>(stretch, code, joins, forward),
+        KeptDocs::Nearest { hidden } => bind_nearest::<T>(stretch, next, hidden, forward)
             .into_iter()
             .collect(),
         KeptDocs::Leading {
@@ -326,14 +354,14 @@ pub fn bound_doc_run<'a, T: Checker>(
                 .filter(|_| !after_code(&target))
                 .map(|before| before.end_row());
             let attaches = |n: &Node<'a>| forward(n) && Some(n.start_row()) != after_code_row;
-            bind_leading::<T>(&stretch, code, hidden, joins, attaches)
+            bind_leading::<T>(stretch, code, hidden, joins, attaches)
         }
-    };
-    kept.iter().for_each(&mut credit);
+    }
 }
 
 /// Where a stretch of comments ends, asked of its last comment.
-enum StretchEnd<'a> {
+#[derive(Clone, Copy)]
+pub(crate) enum StretchEnd<'a> {
     /// A later comment of the stretch decides.
     Undecided,
     /// At `target`, an [`Checker::is_doc_target`] or a parse error holding
@@ -351,21 +379,24 @@ enum StretchEnd<'a> {
 /// whether it is read past, and only once the binding's own `skips` and
 /// [`Checker::is_doc_target`] have passed on it, so a binding that decides
 /// errors itself (Doxygen's) keeps its reading.
-fn stretch_end<'a, T: Checker>(
+pub(crate) fn stretch_end<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+    view: CandidateView,
 ) -> StretchEnd<'a> {
     let mut after = ancestors.siblings_after(comment).peekable();
     let Some(&next) = after.peek() else {
         return StretchEnd::Elsewhere;
     };
-    match after.find(|n| !skips(n, ancestors) && !read_past_error::<T>(n, code, ancestors)) {
+    match after.find(|n| !skips(n, ancestors) && !read_past_error_in::<T>(n, code, ancestors, view))
+    {
         Some(target) if T::is_comment(&target) => StretchEnd::Undecided,
         Some(target)
-            if T::is_doc_target(&target, code, ancestors)
-                || (target.is_error() && error_holds_target::<T>(&target, code, ancestors)) =>
+            if view.target::<T>(&target, code, ancestors)
+                || (target.is_error()
+                    && error_holds_target_in::<T>(&target, code, ancestors, view)) =>
         {
             StretchEnd::AtTarget { next, target }
         }
@@ -381,12 +412,14 @@ fn stretch_end<'a, T: Checker>(
 /// `safe` of a `safe fn` is between the item's doc comments and its
 /// first token, not that token. An error the scan does not read past —
 /// one holding a target — ends the stretch and is the sibling before it.
-fn collect_stretch<'a, T: Checker>(
+pub(crate) fn collect_stretch<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+    view: CandidateView,
 ) -> (Vec<Node<'a>>, Option<Node<'a>>) {
+    stretches_collected::record();
     let mut stretch = vec![*comment];
     let mut before = None;
     // An error read past is no member of the stretch: neither a comment
@@ -396,7 +429,7 @@ fn collect_stretch<'a, T: Checker>(
     // above it instead of the one the tool attaches.
     for sibling in ancestors
         .siblings_before(comment)
-        .filter(|sibling| !read_past_error::<T>(sibling, code, ancestors))
+        .filter(|sibling| !read_past_error_in::<T>(sibling, code, ancestors, view))
     {
         if T::is_comment(&sibling) || skips(&sibling, ancestors) {
             stretch.push(sibling);
@@ -415,14 +448,15 @@ fn collect_stretch<'a, T: Checker>(
 /// error between the item's doc comment and the rest of it. Given the
 /// benefit of the doubt, as Doxygen's binding gives one (`doxygen_skips`),
 /// rather than dropping the doc comment on a parse failure.
-fn read_past_error<'a, T: Checker>(
+fn read_past_error_in<'a, T: Checker>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
 ) -> bool {
     node.is_error()
-        && !T::is_doc_target(node, code, ancestors)
-        && !error_holds_target::<T>(node, code, ancestors)
+        && !view.target::<T>(node, code, ancestors)
+        && !error_holds_target_in::<T>(node, code, ancestors, view)
 }
 
 /// Whether a child of the parse error `error` is a doc target: a
@@ -435,17 +469,24 @@ fn read_past_error<'a, T: Checker>(
 /// chain the children are judged with none, which a target test that
 /// climbs pays for at `O(depth)`; every production walk lends one, so
 /// only a test reaches that fallback.
-fn error_holds_target<'a, T: Checker>(
+fn error_holds_target_in<'a, T: Checker>(
     error: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
 ) -> bool {
     let under = ancestors.of_children(error);
     let inside = under.get();
     error
         .children()
-        .any(|child| child.is_named() && T::is_doc_target(&child, code, inside))
+        .any(|child| child.is_named() && view.target::<T>(&child, code, inside))
 }
+
+// Output alone cannot reveal repeated prefix collection or rejected-path work.
+crate::observation::counter!(
+    stretches_collected,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// What a stretch that ends at no target documents: what its last
 /// gathering comment ([`DocBinding::gathers`]) takes — the forward doc
@@ -453,16 +494,14 @@ fn error_holds_target<'a, T: Checker>(
 /// below it, which a line-comment tool reads as one block with it. The
 /// gathering comment does not bind forward, so `forward` drops it; it
 /// documents where it sits.
-fn bind_gathered<'a, T: Checker>(
+pub(crate) fn bind_gathered<'a>(
     stretch: &[Node<'a>],
     code: &[u8],
     gathers: fn(&Node, &[u8]) -> bool,
+    marker: impl Fn(&Node<'a>) -> bool,
     forward: impl Fn(&Node<'a>) -> bool,
 ) -> Vec<Node<'a>> {
-    let Some(gatherer) = stretch
-        .iter()
-        .rposition(|n| T::is_doc_comment(n, code) && gathers(n, code))
-    else {
+    let Some(gatherer) = stretch.iter().rposition(|n| marker(n) && gathers(n, code)) else {
         return Vec::new();
     };
     let line = |n: &Node| node_bytes(n, code).starts_with(b"//");
@@ -473,7 +512,7 @@ fn bind_gathered<'a, T: Checker>(
     while let Some(below) = stretch.get(last + 1)
         && gathers_below
         && line(below)
-        && T::is_doc_comment(below, code)
+        && marker(below)
         && below.start_row() == stretch[last].end_row().saturating_add(1)
     {
         last += 1;
@@ -699,6 +738,24 @@ pub(crate) fn lua_group_head_above<'a, T: Checker>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "c")]
+    fn read_past_error<'a, T: Checker>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        read_past_error_in::<T>(node, code, ancestors, CandidateView::Legacy)
+    }
+
+    #[cfg(feature = "java")]
+    fn error_holds_target<'a, T: Checker>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        error_holds_target_in::<T>(node, code, ancestors, CandidateView::Legacy)
+    }
 
     /// Every language's `DOC_BINDING` spreads `..DocBinding::new(kept)`
     /// and relies on its defaults: nothing skipped, every doc comment

@@ -5,6 +5,56 @@ use serde_json::{Value, json};
 
 use crate::{LANG, Metric, MetricsOptions, Source, analyze};
 
+#[cfg(all(feature = "java", feature = "rust"))]
+#[test]
+fn documentation_marker_stream_preserves_rows_without_source_materialization() {
+    use big_code_analysis_ast::documentation::streaming::markers::{
+        evidence_built, stretches_collected,
+    };
+    for (lang, source, excluded, rows, scans) in [
+        (
+            LANG::Java,
+            "/** a\n * b\n * c */\n/**/\nclass C {}\n",
+            false,
+            vec![0, 1, 2],
+            1,
+        ),
+        (
+            LANG::Java,
+            "class C { void f() { /**a*/\n/**b*/\nclass N {} } }",
+            false,
+            vec![],
+            0,
+        ),
+        (LANG::Java, "/**a*/\n/**b*/", false, vec![], 0),
+        (LANG::Rust, "/*!*/\nfn f() {}\n", false, vec![0], 1),
+        (
+            LANG::Rust,
+            "/// outer\n#[test]\nfn test_f() {}\n\n/// kept\nfn f() {}\n",
+            true,
+            vec![4],
+            1,
+        ),
+    ] {
+        let built = evidence_built::observed();
+        let collected = stretches_collected::observed();
+        let space = analyze(
+            Source::new(lang, source.as_bytes()),
+            MetricsOptions::default().with_exclude_tests(excluded),
+        )
+        .unwrap();
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| space.metrics.loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
+            "{source}"
+        );
+        assert_eq!(evidence_built::observed() - built, 0);
+        assert_eq!(stretches_collected::observed() - collected, scans);
+    }
+}
+
 #[cfg(any(
     feature = "c",
     feature = "cpp",

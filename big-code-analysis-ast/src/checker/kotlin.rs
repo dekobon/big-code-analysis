@@ -10,6 +10,8 @@ impl Checker for KotlinCode {
     impl_comment_from_rows!(kotlin);
     impl_doc_comment_from_row!(kotlin);
 
+    const SOURCE_LOCAL_DOCS: bool = true;
+
     // Kotlin's parser closes each declaration with
     // `PrecedingDocCommentsBinder`, which pulls in the last KDoc of the
     // comments before it and leaves the earlier ones outside, whatever

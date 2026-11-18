@@ -17,6 +17,8 @@
 // conditionals" with no bytes.
 macro_rules! impl_doxygen_doc_binding {
     () => {
+        const SOURCE_LOCAL_DOCS: bool = true;
+
         const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
             skips: $crate::lang_helpers::doxygen::doxygen_skips::<Self>,
             forward: $crate::lang_helpers::doxygen::doxygen_binds_forward::<Self>,
@@ -30,6 +32,19 @@ macro_rules! impl_doxygen_doc_binding {
 
         fn is_doc_target<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
             $crate::lang_helpers::doxygen::doxygen_target::<Self>(node, code, ancestors)
+        }
+
+        fn source_doc_uncertainty<'a>(
+            node: &Node<'a>,
+            _: &[u8],
+            _: Ancestors<'a, '_>,
+        ) -> Option<$crate::documentation::UnresolvedReason> {
+            use $crate::documentation::UnresolvedReason;
+            if $crate::lang_helpers::doxygen::preproc_conditional::<Self>(node) {
+                Some(UnresolvedReason::Conditional)
+            } else {
+                node.is_error().then_some(UnresolvedReason::GrammarBoundary)
+            }
         }
     };
 }

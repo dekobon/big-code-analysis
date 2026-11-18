@@ -215,7 +215,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1288.0
+value = 1319.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
+qualified = "RunSelection<'t>::select"
+metric = "nargs"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -255,6 +261,12 @@ value = 101217.532578918
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "bind_gathered"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bind_leading"
 metric = "nargs"
 value = 5.0
@@ -263,7 +275,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bound_doc_run"
 metric = "halstead.effort"
-value = 74870.34845140431
+value = 55726.365295548676
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -273,7 +285,25 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "collect_stretch"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "joined_run"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "select_bound"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "stretch_end"
 metric = "nargs"
 value = 5.0
 

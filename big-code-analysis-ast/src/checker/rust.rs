@@ -35,7 +35,12 @@ fn rust_doc_binds_forward<'a>(
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
     let inner = rust_inner_doc(node_bytes(comment, code));
-    let in_macro = ancestors.parent(comment).is_some_and(|parent| {
+    let in_macro = rust_doc_in_macro(comment, ancestors);
+    !inner && !in_macro
+}
+
+fn rust_doc_in_macro<'a>(comment: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(comment).is_some_and(|parent| {
         // role-bypass: allow(DocTarget) — a comment *inside* a macro definition's
         // token trees documents what the expansion makes of it; binding context
         // over the parent, not whether the definition is a target
@@ -48,8 +53,7 @@ fn rust_doc_binds_forward<'a>(
                 | Rust::TokenRepetitionPattern
                 | Rust::MacroDefinition
         )
-    });
-    !inner && !in_macro
+    })
 }
 
 impl Checker for RustCode {
@@ -58,6 +62,17 @@ impl Checker for RustCode {
     // child — a structural gate, so the bytes are never read.
     impl_comment_from_rows!(rust);
     impl_doc_comment_from_row!(rust);
+
+    const SOURCE_LOCAL_DOCS: bool = true;
+
+    fn source_doc_uncertainty<'a>(
+        node: &Node<'a>,
+        _: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<crate::documentation::UnresolvedReason> {
+        rust_doc_in_macro(node, ancestors)
+            .then_some(crate::documentation::UnresolvedReason::Expansion)
+    }
 
     // rustc lints a doc comment on a statement or expression as unused and
     // rustdoc renders no item nested in a body, so a body holds its doc

@@ -18,6 +18,27 @@ impl Checker for JavaCode {
     impl_comment_from_rows!(java);
     impl_doc_comment_from_row!(java);
 
+    fn is_source_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_comment(node)
+            && matches!(
+                node_bytes(node, code),
+                [b'/', b'*', b'*', ..] | [b'/', b'/', b'/', ..]
+            )
+    }
+
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        // Package publication depends on explicit filename metadata, not the
+        // following type. Source attachment retains the package in either case.
+        // role-bypass: allow(DocTarget) — package source attachment drops only the legacy filename-shape approximation.
+        crate::roles::java::doc_target::lists_kind(node.kind_id())
+            && (node.kind_id() == Java::PackageDeclaration
+                || Self::is_doc_target(node, code, ancestors))
+    }
+
     // javac's `Token::docComment` gives a declaration the last doc comment
     // before its first token, its annotations and modifiers included, and
     // its dangling-doc-comments lint names every earlier one; blank rows

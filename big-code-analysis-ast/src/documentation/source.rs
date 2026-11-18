@@ -60,6 +60,12 @@ pub struct SourceContext<'s> {
 }
 
 impl<'s> SourceContext<'s> {
+    /// The actual parsed bytes borrowed by this request.
+    #[must_use]
+    pub fn bytes(&self) -> &'s [u8] {
+        self.bytes
+    }
+
     /// Bind the actual parsed source to its tree. This does not reparse or
     /// infer completion; adopted/raw inputs retain the caller's precondition.
     #[must_use]

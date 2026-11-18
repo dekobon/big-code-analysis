@@ -4,6 +4,33 @@
 
 use crate::Node;
 
+pub mod markers;
+
+/// Stream the original marker/placement decision before the final-member binding
+/// callbacks. This path needs no source context and constructs no source evidence.
+pub fn marker_comment<'t, T: crate::Checker>(
+    node: &Node<'t>,
+    code: &[u8],
+    ancestors: crate::Ancestors<'t, '_>,
+    mut sink: impl FnMut(LegacyEvent<'t>),
+) {
+    use crate::lang_helpers::doc_comment::{
+        bound_doc_run, documents_unbound, documents_where_it_sits,
+    };
+    let marker = markers::legacy_marker::<T>(node, code, ancestors);
+    let by_placement = marker
+        && documents_unbound::<T>(node, code, ancestors)
+        && documents_where_it_sits::<T>(node, code, ancestors);
+    sink(LegacyEvent::Comment {
+        node: *node,
+        marker,
+        by_placement,
+    });
+    bound_doc_run::<T>(node, code, ancestors, |member| {
+        sink(LegacyEvent::BoundComment(*member));
+    });
+}
+
 /// A legacy recognition/coverage event, emitted at the original callback point.
 /// Root LOC retains row sets, physical space attribution and aggregation.
 #[derive(Clone, Copy, Debug)]
@@ -48,9 +75,8 @@ pub enum CoverageKind {
     SphinxComment,
 }
 
-// The marker/positional migrations wire these private requests into the shared
-// scan. Keeping the lazy sink concrete here pins zero extra materialization
-// without changing existing callbacks before their atomic root migration.
+// Generic request/key primitives for positional adapters. Marker streaming uses
+// the typed SourceRequest and separate visited-node slots in `markers`.
 #[allow(dead_code)]
 pub(crate) mod evidence {
     use super::super::{Convention, NodeEvidence};

@@ -60,6 +60,8 @@ impl Checker for PhpCode {
     impl_comment_from_rows!(php);
     impl_doc_comment_from_row!(php);
 
+    const SOURCE_LOCAL_DOCS: bool = true;
+
     // phpDocumentor gives an element PHP-Parser's `getDocComment`: the
     // last DocBlock among the comments before the node's first token, so
     // plain comments in between are read past and only the last of several

@@ -669,14 +669,18 @@ pub(crate) enum WordSlot {
     ElixirCallTarget,
     /// Tcl: what a `command`'s leading `simple_word` spells.
     TclCommandWord,
+    /// Legacy documentation marker for the visited comment.
+    LegacyDocMarker,
+    /// Native source-profile marker, which can disagree with the legacy marker.
+    SourceDocMarker,
 }
 
 impl WordSlot {
     /// How many slots a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 2;
+    const COUNT: usize = 4;
 }
 
-const _: () = assert!(WordSlot::TclCommandWord as usize + 1 == WordSlot::COUNT);
+const _: () = assert!(WordSlot::SourceDocMarker as usize + 1 == WordSlot::COUNT);
 
 /// Answers that are a fact of one node, memoised for one walk and keyed
 /// by node id, which is unique within a tree. Most are about the node's

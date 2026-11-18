@@ -1,0 +1,77 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
+  "cases": [
+    {
+      "name": "source-marker-must-not-reuse-legacy-slot",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "Self::Source => WordSlot::SourceDocMarker,",
+      "new": "Self::Source => WordSlot::LegacyDocMarker,",
+      "expect": ["documentation::streaming::markers::tests::divergent_marker_queries_share_real_cache_in_both_orders"]
+    },
+    {
+      "name": "source-candidates-precede-last-selection",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "Self::Source => T::is_source_doc_comment(node, code),",
+      "new": "Self::Source => T::is_doc_comment(node, code),",
+      "expect": ["documentation::streaming::markers::tests::java_source_selects_empty_new_block_before_legacy_selection"]
+    },
+    {
+      "name": "source-prefixes-must-defer",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "if matches!(end, StretchEnd::Undecided) {",
+      "new": "if false && matches!(end, StretchEnd::Undecided) {",
+      "expect": ["documentation::streaming::markers::tests::source_rust_pruned_runs_remain_available_and_defer_once"]
+    },
+    {
+      "name": "legacy-rejected-placement-exits-before-collection",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "if !documents_where_it_sits::<T>(comment, code, ancestors) {",
+      "new": "if false && !documents_where_it_sits::<T>(comment, code, ancestors) {",
+      "expect": ["documentation::streaming::markers::tests::legacy_deferrals_rejections_and_eof_build_no_source_evidence", "metrics::loc::documentation_tests::documentation_marker_stream_preserves_rows_without_source_materialization"]
+    },
+    {
+      "name": "gatherer-retained-alongside-predecessors",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "let selection = if kept || !forward {",
+      "new": "let selection = if kept {",
+      "expect": ["documentation::streaming::markers::tests::c_gatherer_and_predecessors_once", "documentation::streaming::markers::tests::cpp_gatherer_and_predecessors_once", "documentation::streaming::markers::tests::mozcpp_gatherer_and_predecessors_once", "documentation::streaming::markers::tests::objc_gatherer_and_predecessors_once"]
+    },
+    {
+      "name": "legacy-bound-callbacks-remain-source-ordered",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "kept.iter().for_each(&mut credit);",
+      "new": "kept.iter().rev().for_each(&mut credit);",
+      "expect": ["documentation::streaming::markers::tests::rust_all_crosses_plain_comments_attributes_and_blank_rows"]
+    },
+    {
+      "name": "after-code-placement-must-be-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": ".filter(|_| !after_code(&target))",
+      "new": ".filter(|_| false && !after_code(&target))",
+      "expect": ["documentation::streaming::markers::tests::typescript_after_code_is_unattached", "documentation::streaming::markers::tests::tsx_after_code_is_unattached"]
+    },
+    {
+      "name": "rust-attribute-skips-remain-in-the-run",
+      "file": "big-code-analysis-ast/src/checker/rust.rs",
+      "old": "skips: |node, _| node.kind_id() == Rust::AttributeItem,",
+      "new": "skips: |node, _| false && node.kind_id() == Rust::AttributeItem,",
+      "expect": ["documentation::streaming::markers::tests::rust_all_crosses_plain_comments_attributes_and_blank_rows"]
+    },
+    {
+      "name": "conditional-target-is-not-a-resolved-owner",
+      "file": "big-code-analysis-ast/src/checker/doxygen_doc_binding.rs",
+      "old": "Some(UnresolvedReason::Conditional)",
+      "new": "None",
+      "expect": ["documentation::streaming::markers::tests::c_conditional_and_gathering_context", "documentation::streaming::markers::tests::cpp_conditional_and_gathering_context", "documentation::streaming::markers::tests::mozcpp_conditional_and_gathering_context", "documentation::streaming::markers::tests::objc_conditional_and_gathering_context"]
+    },
+    {
+      "name": "rust-legacy-row-correction-uses-marker-not-placement",
+      "file": "src/metrics/loc/rust.rs",
+      "old": "let (first, last) = rendered_rows(&node, marker);",
+      "new": "let (first, last) = rendered_rows(&node, marker && by_placement);",
+      "expect": ["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]
+    }
+  ]
+}

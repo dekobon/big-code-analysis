@@ -409,6 +409,37 @@ pub trait Checker {
     fn is_doc_comment(_: &Node, _code: &[u8]) -> bool {
         false
     }
+    /// Native source marker before selection, independent of the legacy gate.
+    #[must_use]
+    fn is_source_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_doc_comment(node, code)
+    }
+    /// Native source binding, before owner normalization or publication policy.
+    #[must_use]
+    fn source_doc_binding() -> Option<DocBinding> {
+        Self::DOC_BINDING
+    }
+    /// Whether a marker can document locally without a following target.
+    const SOURCE_LOCAL_DOCS: bool = false;
+    /// Source target through the shared role/context inventory.
+    #[must_use]
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::is_doc_target(node, code, ancestors)
+    }
+    /// Uncertainty in a local source marker, before owner normalization.
+    #[must_use]
+    fn source_doc_uncertainty<'a>(
+        node: &Node<'a>,
+        _: &[u8],
+        _: Ancestors<'a, '_>,
+    ) -> Option<crate::documentation::UnresolvedReason> {
+        node.is_error()
+            .then_some(crate::documentation::UnresolvedReason::GrammarBoundary)
+    }
     /// Whether a doc comment inside a function or closure body is still
     /// documentation. `false` where it is better read as a working note,
     /// so a note spelled `/// …` stays a charged comment: rustc lints one
