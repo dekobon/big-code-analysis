@@ -1,4 +1,54 @@
 {
+  "remediation_cycle1": {
+    "reviewed_from": "7128a4430b3a6ee1282a04e6d34b26774d1c84b7",
+    "implementation_checkpoint": "dae737d09bb58c878de8ad463103d9b8e1ec60e7",
+    "scope": "Confirmed D28 findings only; no production metric/recognition change or snapshot reblessing. Parent owns independent remediation review and integration.",
+    "pre_fix_failures": {
+      "python_command": "python3 -B -m unittest -q utils/drift-oracle-test.py utils/drift-compare-test.py",
+      "python_result": "New tests on old implementation: hyphen argv, directory-prefix impostor, and asymmetric shared CLI views failed. An initial odd-path positive also failed because the text-printing stub could not encode a surrogate filename; changing that stub to JSON preserved exact bytes and passed.",
+      "package_command": "TMPDIR=/tmp/opencode python3 -B utils/documentation-package-check.py --baseline 7128a443",
+      "package_result": "exit 101: couldn't read big-code-analysis-ast/src/test_support/../../../tests/fixtures/documentation/inventory.json; No such file or directory. Isolated copy omits that fixture tree while retaining workspace manifests and local grammar dependencies."
+    },
+    "package_boundary": {
+      "package_command": "cargo package -p big-code-analysis-ast --all-features --offline --allow-dirty",
+      "package_result": "unavailable: registry cache offers bca-tree-sitter-ccomment 2.3.1, not required =2.6.1; exit 101 before package verification",
+      "fallback_command": "TMPDIR=/tmp/opencode python3 -B utils/documentation-package-check.py",
+      "fallback_result": "pass: cargo check --offline --locked -p big-code-analysis-ast --all-features --lib; RUSTDOCFLAGS='-D warnings' cargo doc --offline --locked -p big-code-analysis-ast --all-features --no-deps",
+      "qualification": "All-features includes test-support. This verifies compilation without checkout-only fixtures, not registry resolution, Cargo's normalized package manifest, or docs.rs hosting. Production docs.rs feature settings unchanged."
+    },
+    "focused": [
+      {"command":"cargo test -p big-code-analysis-ast -p big-code-analysis --all-features --lib --no-fail-fast documentation_", "result":"12 passed: 8 AST, 4 root (including 2 existing root tests)"},
+      {"command":"cargo clippy -p big-code-analysis-ast -p big-code-analysis --all-features --lib --tests -- -D warnings", "result":"pass after correcting two semicolon lint failures"},
+      {"command":"python3 -B -m unittest -q utils/drift_common-test.py utils/drift-oracle-test.py utils/drift-compare-test.py utils/recovery-oracle-test.py", "result":"57 passed"},
+      {"command":"python3 -B -m unittest -q utils/perturb-test.py", "result":"59 passed"},
+      {"command":"make check-test-lang-gates", "result":"pass: 5122 gated test items"},
+      {"command":"make check-test-lang-gates-compare COMPARE_REF=b47ea189", "result":"pass: no test lost a build"},
+      {"command":"make markdown-lint (after clearing inspected .rumdl_cache); rumdl check tests/fixtures/documentation/README.md", "result":"pass; local links and pinned fragment anchors checked separately"}
+    ],
+    "actual_cli_controls": {
+      "command_template": "python3 -B WORKSPACE/utils/drift-oracle.py --bca WORKSPACE/target/debug/bca --repo-toml WORKSPACE/Cargo.toml --out OUT --root fx=. --selection SELECTION --relative-paths --view metrics --jobs 1",
+      "setup": "Isolated scratch Git repositories with GIT_* environment removed, GIT_CONFIG_NOSYSTEM=1 and GIT_CONFIG_GLOBAL=/dev/null. Hyphen: track --help containing '/// audit\\nfn f() {}\\n'. Impostor: track dir/child.rs, remove its directory and replace it by an untracked regular file dir. Select rust/fx/--help or rust/fx/dir respectively.",
+      "hyphen_result": "exit 0, complete:true, one output, unit name ./--help",
+      "impostor_result": "exit 1, selected input is not tracked: 'rust/fx/dir'; no manifest or capture created"
+    },
+    "fixture_dimensions": {"raw_files":55,"inventory_LANG_entries":25,"selected_keys":39,"views_per_key":10,"reference_records":390,"reference_changes":0},
+    "perturbations": {
+      "tested_revision":"dae737d09bb58c878de8ad463103d9b8e1ec60e7",
+      "command_template":"TMPDIR=/tmp/opencode python3 -B utils/perturb.py MANIFEST",
+      "manifests":[
+        {"path":"utils/documentation-characterization-perturb.json","caught":15,"rc_each":101},
+        {"path":"utils/documentation-oracle-rust-perturb.json","caught":6,"rc_each":101},
+        {"path":"utils/documentation-selection-perturb.json","caught":7,"rc_each":1},
+        {"path":"utils/documentation-oracle-perturb.json","caught":3,"rc_each":1}
+      ],
+      "result":"All 31 caught by expected guards; original 23 cases retained. No bad anchors, missing guards, build errors, or harness errors; mutation targets restored.",
+      "owner_kind_discrimination":"bypass-selected-owner-kind substitutes actual[0][owner_kind] for the independently expected kind. Both Python and Tcl same-span-root tests then fail; the tests also reject a helper that compares against null. Valid independently written projections pass normally.",
+      "new_raw_controls":"Dropping Lua first-file recognition fails its no-following-candidate assertion. Suppressing each Python chained recognition path separately fails the chained-forms test. These are recognition guards, not extraction-association guards.",
+      "qualification":"Focused AST/root documentation filters, whole bench lib, and driver unittest targets; no unique-guard claim. verification.json was the only unrelated dirty file during the sweeps."
+    },
+    "fixture_qualification": "All 55 raw files equal their committed bytes; -text Git attribute applies to the three added controls. All selected input hashes still match reference/manifest.json. Lua first-file and Python chained forms have raw production recognition tests and independently specified future owner requirements, not an extraction implementation or new metric capture.",
+    "prose_review": "Self-review corrected link targets, added Git/MI references, explained MI dependency closure and non-unique mutation guards, and separated language-specific limitations into a linked list. No new findings on final reread; independent review remains parent work."
+  },
   "implementation_checkpoint": "0a5b6e38d9d294209bd6e59c71a7b703dcbb9b46",
   "selection_followup": "324248ef",
   "perturbation_checkpoint": "b547a41f",
