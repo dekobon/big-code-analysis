@@ -1,6 +1,16 @@
 {
   "date": "2026-11-18",
   "semantic_base": "b47ea189ba51fe50d6362f876e77126c35d307d0",
+  "d01_baseline_relationship": {
+    "baseline": "91087f52f5d4a58e31ae320851351990f1436411",
+    "semantic_base": "b47ea189ba51fe50d6362f876e77126c35d307d0",
+    "ancestor_command": "git merge-base --is-ancestor 91087f52f5d4a58e31ae320851351990f1436411 b47ea189ba51fe50d6362f876e77126c35d307d0",
+    "ancestor_exit": 0,
+    "equal_paths": ["Cargo.toml", "Cargo.lock", "src/metrics", "big-code-analysis-ast/src/checker", "big-code-analysis-ast/src/lang_helpers", "big-code-analysis-ast/src/roles", "src/spaces", "src/options.rs"],
+    "comparison_command": "git diff --stat 91087f52f5d4a58e31ae320851351990f1436411 b47ea189ba51fe50d6362f876e77126c35d307d0 -- Cargo.toml Cargo.lock src/metrics big-code-analysis-ast/src/checker big-code-analysis-ast/src/lang_helpers big-code-analysis-ast/src/roles src/spaces src/options.rs big-code-analysis-ast/src/parser.rs big-code-analysis-ast/src/node.rs big-code-analysis-ast/src/node",
+    "changed_parser_paths": ["big-code-analysis-ast/src/parser.rs", "big-code-analysis-ast/src/node.rs", "big-code-analysis-ast/src/node/parser_cache.rs"],
+    "qualification": "D01 baseline is an ancestor of the semantic base. Dependency manifests/lockfile (including grammar pins), metric code and recognition paths listed above are byte-identical. Parser provenance handling changed between them. This source comparison does not establish independently rebuilt clean-base metric parity; the capture build qualifications below still apply."
+  },
   "oracle_build_revision": "3c25db8e3224abcb6e41fde3c2d011655c868149",
   "oracle_portion": "a776c9d4a4927c016413c94596d9cd12925c5b0c",
   "build_worktree_changes": "New test-support module routing, cfg(test) root routing and raw fixtures present during build. No shipping metric, Checker, Getter, role or shared binding changes. Capture driver selection additions run from this checkpoint's source.",
@@ -23,7 +33,7 @@
     "revision": "42d39ad8cb854536e432dcce164fb7392121cccb",
     "sources": ["docs/development/documentation_extraction.md", "docs/development/documentation_extraction_cases.md"],
     "reference_record": "https://gist.github.com/dekobon/acb5b4fd9ada1c2b63f86ae0f0514524",
-    "qualification": "Source expectations copied from accepted D01, not generated from extractor output. Primary LANG inventory requires declaration-associated nonempty text for each source variant, with explicit helper exceptions. Future extraction conformance remains unimplemented."
+    "qualification": "Source expectations copied from accepted D01, not generated from extractor output. Primary LANG inventory requires declaration-associated nonempty text and an explicit selected declaration kind for each source variant, with null helper kinds. owner_kinds separately records every observed same-span node. Lua first-file and Python chained-assignment raw controls extend requirements and production recognition tests only; the selected whole-metric capture is unchanged. Future extraction conformance remains unimplemented."
   },
   "references": [
     {"tool":"Zulu OpenJDK","version":"25.0.5.0.3+1-LTS","evidence":"Prior D01 executed observation, not rerun here","configuration":"JavacTask.parse, -proc:none, logical C.java; DocTrees.getDocComment/getDocCommentTree","command":"jshell --feedback concise; complete source and exact commands in reference_record","reference":"https://docs.oracle.com/en/java/javase/25/docs/specs/javadoc/doc-comment-spec.html","qualification":"BCA empty-block local cleanup intentionally differs from returned slash."},

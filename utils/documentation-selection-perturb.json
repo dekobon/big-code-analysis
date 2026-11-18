@@ -4,8 +4,12 @@
   "runner":"unittest",
   "command":["python3","-B","-m","unittest","-q","utils/drift-oracle-test.py","utils/drift-compare-test.py"],
   "cases":[
-    {"name":"allow-untracked-selection","file":"utils/drift-oracle.py","old":"if tracked.returncode:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys"]},
+    {"name":"allow-untracked-selection","file":"utils/drift-oracle.py","old":"if tracked.returncode or set(tracked.stdout.split(b\"\\0\")[:-1]) != {os.fsencode(\"/\".join(relative))}:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys"]},
     {"name":"omit-selected-view","file":"utils/drift-oracle.py","old":"selected_views = args.view or available_views","new":"selected_views = available_views","expect":["utils.drift-oracle-test.DriftOracleTests.test_explicit_selection_is_tracked_exact_and_can_force_a_dialect"]},
-    {"name":"drop-relative-path-mode","file":"utils/drift-oracle.py","old":"if args.relative_paths:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_relative_paths_reach_binary_without_output_rewriting"]}
+    {"name":"drop-relative-path-mode","file":"utils/drift-oracle.py","old":"if args.relative_paths:","new":"if False:","expect":["utils.drift-oracle-test.DriftOracleTests.test_relative_paths_reach_binary_without_output_rewriting"]},
+    {"name":"tracking-status-without-exact-path","file":"utils/drift-oracle.py","old":"if tracked.returncode or set(tracked.stdout.split(b\"\\0\")[:-1]) != {os.fsencode(\"/\".join(relative))}:","new":"if tracked.returncode:","expect":["utils.drift-oracle-test.DriftOracleTests.test_selection_rejects_directory_prefix_impostor"]},
+    {"name":"drop-leading-hyphen-disambiguation","file":"utils/drift-oracle.py","old":"path_arg = f\"./{p}\" if str(p).startswith(\"-\") else str(p)","new":"path_arg = str(p)","expect":["utils.drift-oracle-test.DriftOracleTests.test_leading_hyphen_relative_path_is_disambiguated_for_every_binary"]},
+    {"name":"unfiltered-one-sided-cli-options","file":"utils/drift-compare.py","old":"compared_options(mb[\"cli_cmds\"]) != compared_options(mh[\"cli_cmds\"])","new":"mb[\"cli_cmds\"] != mh[\"cli_cmds\"]","expect":["utils.drift-compare-test.DriftCompareTests.test_shared_views_filter_cli_and_metrics_but_check_shared_argv"]},
+    {"name":"ignore-shared-cli-argv-change","file":"utils/drift-compare.py","old":"compared_options(mb[\"cli_cmds\"]) != compared_options(mh[\"cli_cmds\"])","new":"False","expect":["utils.drift-compare-test.DriftCompareTests.test_shared_views_filter_cli_and_metrics_but_check_shared_argv"]}
   ]
 }

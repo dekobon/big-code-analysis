@@ -173,6 +173,23 @@ class DriftCompareTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("no view on both sides", text)
 
+    def test_shared_views_filter_cli_and_metrics_but_check_shared_argv(self) -> None:
+        base = _capture(self.root / "base", verbatim=False)
+        head = _capture(self.root / "head", verbatim=False)
+        self._edit(base, views=["ops", "dump"], metrics_options={})
+        self._edit(head, views=["ops", "metrics"], cli_cmds={"ops": ["ops"]})
+        rc, _, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 0)
+        self.assertEqual(summary["views_compared"], ["ops"])
+        self.assertEqual(summary["views_uncompared"], ["dump", "metrics"])
+        self.assertEqual(summary["outputs_compared"], 2)
+        self.assertEqual(summary["key_problems"], 0)
+        self._edit(head, cli_cmds={"ops": ["ops", "-O", "json"]})
+        rc, _, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 1)
+        self.assertEqual(summary["differing"], 0)
+        self.assertEqual(summary["key_problems"], 1)
+
     def test_empty_key_sets_are_refused_even_without_a_filter(self) -> None:
         base = _capture(self.root / "base", verbatim=True, keys=[])
         head = _capture(self.root / "head", verbatim=True, keys=[])

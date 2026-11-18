@@ -69,6 +69,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -217,10 +218,11 @@ def selected_inputs(selection: pathlib.Path, roots: dict[str, pathlib.Path]) -> 
         if not path.is_file():
             sys.exit(f"missing selected input {key!r}")
         tracked = subprocess.run(
-            ["git", "--literal-pathspecs", "-C", str(root), "ls-files", "--error-unmatch", "--", "/".join(relative)],
+            ["git", "--literal-pathspecs", "-C", str(root), "ls-files", "-z", "--error-unmatch", "--", "/".join(relative)],
             capture_output=True,
         )
-        if tracked.returncode:
+        # Unmerged index stages may repeat a path; a tracked descendant is not this file.
+        if tracked.returncode or set(tracked.stdout.split(b"\0")[:-1]) != {os.fsencode("/".join(relative))}:
             sys.exit(f"selected input is not tracked: {key!r}")
         jobs.append((lang, key, root, path))
     return jobs
@@ -331,16 +333,17 @@ def main(argv: list[str] | None = None) -> int:
         dst = out / key
         dst.parent.mkdir(parents=True, exist_ok=True)
         base = [str(args.bca)]
-        tail = ["--no-config", "--language", lang, "-p", str(p)]
+        path_arg = f"./{p}" if str(p).startswith("-") else str(p)
+        tail = ["--no-config", "--language", lang, "-p", path_arg]
         for name, cmd in cli_cmds.items():
             dst.with_name(dst.name + f".{name}.txt").write_bytes(run([*base, *cmd, *tail]))
         for name, extra in metric_options.items():
             dst.with_name(dst.name + f".{name}.txt").write_bytes(run([*base, "metrics", "-O", "json", *extra, *tail]))
         if args.verbatim is not None:
             if "verbatim" in selected_views:
-                dst.with_name(dst.name + ".verbatim.jsonl").write_bytes(run([str(args.verbatim), lang, str(p)]))
+                dst.with_name(dst.name + ".verbatim.jsonl").write_bytes(run([str(args.verbatim), lang, path_arg]))
             for name, extra in verbatim_options.items():
-                dst.with_name(dst.name + f".{name}.txt").write_bytes(run([str(args.verbatim), *extra, lang, str(p)]))
+                dst.with_name(dst.name + f".{name}.txt").write_bytes(run([str(args.verbatim), *extra, lang, path_arg]))
 
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         list(ex.map(one, jobs))

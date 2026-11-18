@@ -166,24 +166,7 @@ fn documentation_legacy_whole_metrics() {
                 .collect();
             assert_eq!(json!(rows), anchor["dloc_rows"], "{key}/{view}");
             assert_eq!(rows.len() as u64, loc.dloc());
-            if matches!(lang, LANG::Tcl | LANG::Irules) {
-                let ploc: Vec<_> = (0..source.len())
-                    .filter(|row| loc.ploc.lines.contains(*row))
-                    .collect();
-                let cloc: Vec<_> = (0..source.len())
-                    .filter(|row| {
-                        loc.cloc.only_comment_line_starts.contains(*row)
-                            || loc.cloc.code_comment_line_starts.contains(*row)
-                    })
-                    .collect();
-                let (want_code, want_comment) = if file.contains("crlf") {
-                    (vec![1, 3], vec![0])
-                } else {
-                    (vec![3], vec![0, 1])
-                };
-                assert_eq!(ploc, want_code, "{key}: exact code rows");
-                assert_eq!(cloc, want_comment, "{key}: exact comment rows");
-            }
+            assert_optional_rows(loc, source.len(), anchor);
             let mut nested = Vec::new();
             let mut stack: Vec<_> = space.spaces.iter().rev().collect();
             while let Some(child) = stack.pop() {
@@ -234,4 +217,58 @@ fn documentation_legacy_whole_metrics() {
     }
     assert_eq!(ran, expected_runs, "every enabled key and view was checked");
     assert!(ran > 0);
+}
+
+fn assert_optional_rows(loc: &super::Stats, source_len: usize, anchor: &Value) {
+    if let Some(expected) = anchor.get("ploc_rows") {
+        let rows: Vec<_> = (0..source_len)
+            .filter(|row| loc.ploc.lines.contains(*row))
+            .collect();
+        assert_eq!(json!(rows), *expected, "exact code rows");
+    }
+    if let Some(expected) = anchor.get("cloc_rows") {
+        let rows: Vec<_> = (0..source_len)
+            .filter(|row| {
+                loc.cloc.only_comment_line_starts.contains(*row)
+                    || loc.cloc.code_comment_line_starts.contains(*row)
+            })
+            .collect();
+        assert_eq!(json!(rows), *expected, "exact comment rows");
+    }
+}
+
+#[cfg(feature = "tcl")]
+#[test]
+fn documentation_optional_rows_follow_anchors_not_filenames() {
+    let source = documentation::source("tcl-crlf.tcl");
+    let space = analyze(
+        Source::new(LANG::Tcl, &source).with_name(Some("renamed.tcl".into())),
+        MetricsOptions::default(),
+    )
+    .expect("renamed fixture");
+    assert_optional_rows(
+        &space.metrics.loc,
+        source.len(),
+        &json!({"ploc_rows":[1,3],"cloc_rows":[0]}),
+    );
+    let source = b"proc unrelated {} {}\n";
+    let space = analyze(
+        Source::new(LANG::Tcl, source).with_name(Some("unrelated-crlf.tcl".into())),
+        MetricsOptions::default(),
+    )
+    .expect("unrelated fixture");
+    assert_optional_rows(&space.metrics.loc, source.len(), &json!({}));
+    assert_optional_rows(
+        &space.metrics.loc,
+        source.len(),
+        &json!({"ploc_rows":[0],"cloc_rows":[]}),
+    );
+    assert!(
+        std::panic::catch_unwind(|| assert_optional_rows(
+            &space.metrics.loc,
+            source.len(),
+            &json!({"ploc_rows":[1,3],"cloc_rows":[0]})
+        ))
+        .is_err()
+    );
 }

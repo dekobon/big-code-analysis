@@ -27,8 +27,8 @@
   "doxygen-cdata.h": {"included":{"loc":[2,1,0,1,0,0],"dloc_rows":[],"spaces":[]}},
   "perl-mixed.pl": {"included":{"loc":[19,2,1,16,1,16],"dloc_rows":[0,1,2,3,4,5,6,7,8,9,10,14,15,16,17,18],"spaces":[["f","function",13,13,[]]]}},
   "groovy-spaces.groovy": {"included":{"loc":[11,6,1,5,0,5],"dloc_rows":[0,2,4,6,8],"spaces":[["R","class",2,2,[]],["R","function",2,2,[]],["C","class",4,11,[4,6,8]],["C","function",6,6,[]],["f","function",10,10,[]]]}},
-  "tcl-continuation.tcl": {"included":{"loc":[4,1,1,2,1,0],"dloc_rows":[],"spaces":[]}},
-  "tcl-crlf.tcl": {"included":{"loc":[4,2,2,1,1,0],"dloc_rows":[],"spaces":[]}},
-  "irules-continuation.irule": {"included":{"loc":[4,1,1,2,1,0],"dloc_rows":[],"spaces":[]}},
-  "irules-crlf.irule": {"included":{"loc":[4,2,2,1,1,0],"dloc_rows":[],"spaces":[]}}
+  "tcl-continuation.tcl": {"included":{"loc":[4,1,1,2,1,0],"dloc_rows":[],"ploc_rows":[3],"cloc_rows":[0,1],"spaces":[]}},
+  "tcl-crlf.tcl": {"included":{"loc":[4,2,2,1,1,0],"dloc_rows":[],"ploc_rows":[1,3],"cloc_rows":[0],"spaces":[]}},
+  "irules-continuation.irule": {"included":{"loc":[4,1,1,2,1,0],"dloc_rows":[],"ploc_rows":[3],"cloc_rows":[0,1],"spaces":[]}},
+  "irules-crlf.irule": {"included":{"loc":[4,2,2,1,1,0],"dloc_rows":[],"ploc_rows":[1,3],"cloc_rows":[0],"spaces":[]}}
 }

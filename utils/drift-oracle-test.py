@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 
@@ -72,6 +73,11 @@ def _stub(path: pathlib.Path, body: str) -> pathlib.Path:
 
 class DriftOracleTests(unittest.TestCase):
     def setUp(self) -> None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        self._git_env = patch.dict(os.environ, env, clear=True)
+        self._git_env.start()
+        self.addCleanup(self._git_env.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name)
         self.bca = _stub(self.root / "bca", "sys.stdout.write(' '.join(sys.argv[1:]) + '\\n')")
@@ -296,6 +302,64 @@ class DriftOracleTests(unittest.TestCase):
         rc, _, _, m = self._run("--selection", str(selection))
         self.assertEqual(rc, "selected input is not tracked: 'rust/fx/*.rs'")
         self.assertEqual(m, {})
+
+    def test_selection_rejects_directory_prefix_impostor(self) -> None:
+        directory = self.fixtures / "dir"
+        directory.mkdir()
+        child = directory / "child.rs"
+        child.write_text("fn child() {}")
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "dir/child.rs"], check=True)
+        child.unlink()
+        directory.rmdir()
+        directory.write_text("fn impostor() {}")
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/dir"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--view", "metrics")
+        self.assertEqual(rc, "selected input is not tracked: 'rust/fx/dir'")
+        self.assertEqual(m, {})
+
+    def test_selection_accepts_exact_odd_paths_in_nested_root(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        names = ["*.rs", ":(glob)*.rs", "quote\"\tline\n.rs", "café.rs"]
+        if os.name == "posix":
+            names.append(os.fsdecode(b"nonutf8-\xff.rs"))
+        for name in names:
+            (self.fixtures / name).write_text("fn exact() {}")
+        subprocess.run(["git", "-C", str(self.root), "add", "fx"], check=True)
+        selection = self.root / "selection.json"
+        keys = [f"rust/fx/{name}" for name in names]
+        selection.write_text(json.dumps(keys))
+        rc, _, err, m = self._run("--selection", str(selection), "--view", "metrics")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(m["keys"], sorted(keys))
+        for name in names:
+            args = json.loads((self.out / f"rust/fx/{name}.metrics.txt").read_text())
+            self.assertEqual(os.fsencode(args[-1]), os.fsencode(self.fixtures / name))
+
+    def test_leading_hyphen_relative_path_is_disambiguated_for_every_binary(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        (self.fixtures / "--help").write_text("fn f() {}")
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "--", "--help"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/--help"]')
+        with contextlib.chdir(self.fixtures):
+            rc, _, _, m = self._run("--selection", str(selection), "--relative-paths",
+                                     "--verbatim", str(self.verbatim))
+        self.assertEqual(rc, 0)
+        self.assertTrue(m["complete"])
+        for view in m["views"]:
+            suffix = ".verbatim.jsonl" if view == "verbatim" else f".{view}.txt"
+            args = json.loads((self.out / f"rust/fx/--help{suffix}").read_text())
+            if view.startswith("verbatim"):
+                args = args["v"]
+                expected = [*oracle.VERBATIM_OPTIONS.get(view, []), "rust", "./--help"]
+            else:
+                head = oracle.CLI_CMDS.get(view, ["metrics", "-O", "json", *EXPECTED_METRICS_OPTIONS.get(view, [])])
+                expected = [*head, "--no-config", "--language", "rust", "-p", "./--help"]
+            self.assertEqual(args, expected, view)
 
     def test_explicit_selection_keeps_root_identity_and_selected_helpers(self) -> None:
         subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)

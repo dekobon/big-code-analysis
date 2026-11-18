@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     def compared_options(matrix: dict) -> dict:
         return {name: argv for name, argv in matrix.items() if not args.only_shared_views or name not in one_sided}
 
-    if compared_options(mb["metrics_options"]) != compared_options(mh["metrics_options"]) or mb["cli_cmds"] != mh["cli_cmds"]:
+    if compared_options(mb["metrics_options"]) != compared_options(mh["metrics_options"]) or compared_options(mb["cli_cmds"]) != compared_options(mh["cli_cmds"]):
         print("option matrix or command set differs between captures")
         problems += 1
     compared = 0
