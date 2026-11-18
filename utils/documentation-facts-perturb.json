@@ -46,6 +46,20 @@
       "expect": ["documentation::tests::ownership::one_document_shared_by_two_owners_is_not_two_alternative_claims"]
     },
     {
+      "name": "association-document-id-must-not-be-zero",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "self.reference(&self.documents, association.fact.document.0)",
+      "new": "self.reference(&self.documents, 0)",
+      "expect": ["documentation::tests::ownership::export_binding_wrapper_is_distinct_from_semantic_owner_and_lexical_scope"]
+    },
+    {
+      "name": "slot-enclosure-id-must-not-be-zero",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "self.reference(&self.owners, slot.enclosing.0)",
+      "new": "self.reference(&self.owners, 0)",
+      "expect": ["documentation::tests::ownership::slots_have_enclosing_owner_role_ordinal_and_source_without_fabricated_nodes"]
+    },
+    {
       "name": "selection-identity-needs-view",
       "file": "big-code-analysis-ast/src/documentation/streaming.rs",
       "old": "self.view == other.view",

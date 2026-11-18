@@ -96,7 +96,7 @@ fn one_document_shared_by_two_owners_is_not_two_alternative_claims() {
 #[cfg(feature = "typescript")]
 #[test]
 fn export_binding_wrapper_is_distinct_from_semantic_owner_and_lexical_scope() {
-    let source = b"/**audit*/\nexport function f() {}";
+    let source = b"/**old*/\n/**audit*/\nexport function f() {}";
     let parser = AnyParser::parse(LANG::Typescript, source.to_vec(), None, None).unwrap();
     let context = SourceContext::new(parser.ts_tree(), source);
     let wrapper = parser
@@ -106,11 +106,27 @@ fn export_binding_wrapper_is_distinct_from_semantic_owner_and_lexical_scope() {
         .unwrap();
     let owner = wrapper.child_by_field_name("declaration").unwrap();
     let mut facts = Facts::default();
+    for (ordinal, (range, text)) in [(0..8, "old"), (9..19, "audit")].into_iter().enumerate() {
+        facts.fragments.push(Fragment {
+            source: context.pieces(range).unwrap(),
+            node: None,
+            form: FragmentForm::Comment,
+        });
+        facts.documents.push(Document {
+            fragments: vec![FragmentId(ordinal)],
+            composition: Composition::Single,
+            role: DocumentRole::LeadingComment,
+            content: Content::Complete {
+                text: text.into(),
+                mappings: vec![],
+            },
+        });
+    }
     facts
         .owners
         .push(Owner::Node(context.node(owner.as_tree_sitter()).unwrap()));
     facts.associations.push(Association {
-        document: DocumentId(0),
+        document: DocumentId(1),
         owners: vec![OwnerId(0)],
         resolution: Resolution::Resolved,
         convention: Convention("BcaTypescriptSource"),
@@ -119,15 +135,30 @@ fn export_binding_wrapper_is_distinct_from_semantic_owner_and_lexical_scope() {
         publication: Publication::Unknown,
     });
     let association = facts.associations().next().unwrap();
+    let documents: Vec<_> = facts.documents().collect();
+    assert_eq!(documents.len(), 2);
+    let selected = facts.associated_document(association).unwrap();
+    assert_eq!(selected, documents[1]);
+    assert_ne!(selected, documents[0]);
+    assert_eq!(
+        facts
+            .document_fragment(selected, 0)
+            .unwrap()
+            .get()
+            .source()
+            .pieces()[0]
+            .bytes(),
+        b"/**audit*/"
+    );
     assert_eq!(
         association.get().binding.unwrap().node().byte_range(),
-        11..33
+        20..42
     );
-    assert_eq!(association.get().lexical_scope.node().byte_range(), 0..33);
+    assert_eq!(association.get().lexical_scope.node().byte_range(), 0..42);
     let Owner::Node(owner) = facts.associated_owner(association, 0).unwrap().get() else {
         panic!("concrete function owner");
     };
-    assert_eq!(owner.node().byte_range(), 18..33);
+    assert_eq!(owner.node().byte_range(), 27..42);
     assert_eq!(owner.node().kind(), "function_declaration");
 }
 
@@ -139,22 +170,25 @@ fn slots_have_enclosing_owner_role_ordinal_and_source_without_fabricated_nodes()
     let context = SourceContext::new(parser.ts_tree(), source);
     let item = parser.root_node().children().next().unwrap();
     let mut facts = Facts::default();
+    facts.owners.push(Owner::File(
+        context.node(parser.ts_tree().root_node()).unwrap(),
+    ));
     facts
         .owners
         .push(Owner::Node(context.node(item.as_tree_sitter()).unwrap()));
     for (ordinal, range) in [19..22, 35..38].into_iter().enumerate() {
         facts.owners.push(Owner::Slot(Slot {
-            enclosing: OwnerId(0),
+            enclosing: OwnerId(1),
             role: SlotRole::Field,
             ordinal,
             source: context.pieces(range).unwrap(),
         }));
     }
     let owners: Vec<_> = facts.owners().collect();
-    assert_eq!(owners.len(), 3);
-    assert_eq!(facts.slot_enclosing(owners[1]).unwrap(), owners[0]);
-    assert_eq!(facts.slot_enclosing(owners[2]).unwrap(), owners[0]);
-    let Owner::Slot(slot) = owners[2].get() else {
+    assert_eq!(owners.len(), 4);
+    assert_eq!(facts.slot_enclosing(owners[2]).unwrap(), owners[1]);
+    assert_eq!(facts.slot_enclosing(owners[3]).unwrap(), owners[1]);
+    let Owner::Slot(slot) = owners[3].get() else {
         panic!("second slot");
     };
     assert_eq!(slot.role, SlotRole::Field);
