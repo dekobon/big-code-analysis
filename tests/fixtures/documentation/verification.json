@@ -51,7 +51,49 @@
     ],
     "python_failure_prefix":"utils.drift-oracle-test.DriftOracleTests."
   },
-  "pending_parent_work":["ordered simplify-rust -> rust-optimize -> audit-tests", "seven scheduled independent reviews including prose", "optional broad repository corpus captures", "issue evidence/publication/merge"],
+  "ordered_skill_review": {
+    "reviewed_range": "b47ea189ba51fe50d6362f876e77126c35d307d0..06d482667c765593d0fbefb49dd76071fac63df5",
+    "order": ["simplify-rust", "rust-optimize", "audit-tests"],
+    "simplify_rust": "No justified Rust cleanup; no edits. Reused the verified be4315a9 full gate because 06d48266 changes evidence only.",
+    "rust_optimize": "No justified behavior-preserving reduction; no edits. cargo clippy -p big-code-analysis-ast -p big-code-analysis-bench --all-features --all-targets -- -W clippy::pedantic passed without warnings.",
+    "capture_scope": "Verified the exact 39-key by 10-view reference file set (390 records), drawn from 29 sources across 15 LANG variants; 52 raw fixtures and 25 independent LANG inventory entries overall. The other 10 LANG variants have primary inventory requirements, not selected whole-metric captures. Existing replay is same-binary reproducibility, not independently rebuilt base/head corpus parity. Current root tests recompute metrics against these references. Capture input hashes match the committed raw sources and grammar pins match b47ea189.",
+    "test_audit": {
+      "tests_audited": 22,
+      "fix_checkpoint": "22c42bf70d0b6d46dc841e516f38044392abe10c",
+      "findings": [
+        {"name":"negative-only conformance assertion", "severity":"weak-assertion", "probe":"conformance-helper-compares-against-null", "before":"UNCAUGHT rc=0 failed=[]", "fix":"Added an independently written successful Rust projection before the rejected results."},
+        {"name":"legacy loop accepts partial selection", "severity":"weak-assertion", "probe":"legacy-selection-loop-visits-only-first-key", "before":"UNCAUGHT rc=0 failed=[]", "fix":"Assert 39 unique selected keys and the exact enabled-key times ten-view execution count."},
+        {"name":"primary recognition accepts partial LANG sweep", "severity":"weak-assertion", "probe":"primary-recognition-loop-visits-only-first-language", "before":"UNCAUGHT rc=0 failed=[]", "fix":"Assert the exact enabled LANG execution count and inventory/source routing consistency."}
+      ],
+      "probe_manifest": "utils/documentation-characterization-perturb.json",
+      "post_fix_probes": {
+        "command_template": "TMPDIR=/tmp/opencode python3 -B utils/perturb.py MANIFEST",
+        "manifests": [
+          {"path":"utils/documentation-characterization-perturb.json", "caught":11, "rc_each":101},
+          {"path":"utils/documentation-oracle-rust-perturb.json", "caught":6, "rc_each":101},
+          {"path":"utils/documentation-selection-perturb.json", "caught":3, "rc_each":1},
+          {"path":"utils/documentation-oracle-perturb.json", "caught":3, "rc_each":1}
+        ],
+        "result": "All 23 caught by their expected guards; no build errors, harness errors, bad anchors or missing guards. The three previously uncaught audit probes now fail their named tests. All mutation targets restored."
+      },
+      "post_fix_feature_isolation": {
+        "command_template": "cargo test -p PACKAGE --lib --no-default-features [--features FEATURE] documentation_",
+        "features": ["rust", "go", "none"],
+        "ast_passed": [2,1,0],
+        "root_passed": [1,0,0],
+        "qualification": "Each package tested separately. Zero tests confirms intentional feature exclusion, not extraction conformance."
+      },
+      "qualification": "Only characterization assertions and maintained perturbation cases changed. The successful projection checks the future-adapter assertion itself, not an implemented extractor. No unique-guard claim. Captures, raw sources, production metrics and capture provenance are unchanged. Post-fix perturbation and full-gate results are recorded separately below."
+    },
+    "tools_unavailable": ["read-only subagent dispatch", "Serena symbols/memory"],
+    "focused_commands": [
+      {"command":"cargo test -p big-code-analysis-ast -p big-code-analysis --all-features --lib --no-fail-fast documentation_", "result":"7 passed after fixes (4 AST, 3 root including 2 existing root tests)"},
+      {"command":"cargo test -p big-code-analysis-bench --lib", "result":"68 passed before assertion-only fixes"},
+      {"command":"python3 -B -m unittest -q utils/drift_common-test.py utils/drift-oracle-test.py utils/drift-compare-test.py utils/recovery-oracle-test.py", "result":"53 passed; Python code unchanged"},
+      {"command":"cargo clippy -p big-code-analysis-ast -p big-code-analysis --all-features --lib --tests -- -D warnings", "result":"pass after fixes"}
+    ]
+  },
+  "pending_parent_work":["seven scheduled independent reviews including prose", "optional broad repository corpus captures", "issue evidence/publication/merge"],
   "not_triggered":["scaling and chain-audit (no production traversal change)", "fuzz (no fuzz files changed)", "metric snapshot submodule/baseline refresh (no metric semantics changed)"],
   "full_gate": {
     "command":"make pre-commit > unique-mktemp-log 2>&1; read ^BCA_GATE: from log",
