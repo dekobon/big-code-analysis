@@ -98,12 +98,13 @@
   "full_gate": {
     "command":"make pre-commit > unique-mktemp-log 2>&1; read ^BCA_GATE: from log",
     "first_verdict":"BCA_GATE: pass (gate=pre-commit)",
-    "final_verified_revision":"be4315a9ef12b607d8fef6fa777eeede6a46df6f",
+    "pre_audit_verified_revision":"be4315a9ef12b607d8fef6fa777eeede6a46df6f",
+    "final_verified_revision":"97432fbb086245db9846088fa70203faf940f3c1",
     "final_verdict":"BCA_GATE: pass (gate=pre-commit)",
     "workspace_tests_passed":7462,"workspace_tests_skipped":4,
     "doctests_passed":68,"doctests_ignored":1,
     "python_tests_passed":413,"python_tests_xfailed":1,
     "unavailable":"patchelf: non-failing maturin wheel rpath warning, twice; no gate stage skipped",
-    "qualification":"Final rerun passed after the named-view/options consistency assertion. Only this evidence record changes afterwards; ordered cleanup and independent reviews remain parent work."
+    "qualification":"Final rerun passed after the ordered skill audit and three assertion fixes. Only this evidence record changes afterwards. All gate stages ran; scheduled independent reviews remain parent work."
   }
 }
