@@ -29,9 +29,33 @@
       "command_template": "python3 -B WORKSPACE/utils/drift-oracle.py --bca WORKSPACE/target/debug/bca --repo-toml WORKSPACE/Cargo.toml --out OUT --root fx=. --selection SELECTION --relative-paths --view metrics --jobs 1",
       "setup": "Isolated scratch Git repositories with GIT_* environment removed, GIT_CONFIG_NOSYSTEM=1 and GIT_CONFIG_GLOBAL=/dev/null. Hyphen: track --help containing '/// audit\\nfn f() {}\\n'. Impostor: track dir/child.rs, remove its directory and replace it by an untracked regular file dir. Select rust/fx/--help or rust/fx/dir respectively.",
       "hyphen_result": "exit 0, complete:true, one output, unit name ./--help",
+      "hyphen_all_views_command":"Same scratch setup and driver argv with --verbatim WORKSPACE/target/debug/verbatim-oracle and no --view restriction, freshly rebuilt binaries at 9a3dc192",
+      "hyphen_all_views_result":"exit 0, complete:true, all 34 CLI/verbatim views, zero failed executions",
       "impostor_result": "exit 1, selected input is not tracked: 'rust/fx/dir'; no manifest or capture created"
     },
     "fixture_dimensions": {"raw_files":55,"inventory_LANG_entries":25,"selected_keys":39,"views_per_key":10,"reference_records":390,"reference_changes":0},
+    "feature_isolation": {
+      "command_template":"cargo test -p PACKAGE --lib --no-default-features [--features FEATURE] documentation_",
+      "packages":["big-code-analysis-ast","big-code-analysis"],
+      "features":["none","rust","go","python","tcl","lua","irules"],
+      "ast_passed":[0,2,1,4,2,2,1],
+      "root_passed":[0,1,0,3,2,0,1],
+      "qualification":"Each package invoked separately at implementation dae737d0; only verification evidence changed during execution. Zero tests denotes feature exclusion, not conformance. All invocations exit 0."
+    },
+    "replay": {
+      "tested_revision":"9a3dc192b9fc7e0146760050bce5d4e699f6a0f7",
+      "build_command":"cargo build -p big-code-analysis-cli -p big-code-analysis-bench --bin bca --bin verbatim-oracle",
+      "capture_command":"README.md Replay block, exact view argv in provenance.json; output written to a unique mktemp directory",
+      "compare_command":"python3 -B utils/drift-compare.py tests/fixtures/documentation/reference OUT",
+      "keys_base":39,"keys_head":39,"outputs_compared":390,"differing":0,"key_problems":0,"views_uncompared":[],
+      "base_bca_sha256_prefix":"dbe4ea4892f8","head_bca_sha256_prefix":"a325f7522e7d",
+      "qualification":"Freshly rebuilt current binaries versus original checked reference; both captures complete. Reproduces every selected record without updating references. The original reference build qualifications remain in provenance.json; this is not independently rebuilt D01/base corpus parity."
+    },
+    "shared_view_reference_control": {
+      "setup":"Copy checked reference twice to scratch; add an ops view, matching cli_cmds entry, outputs_per_file increment and one-sided dummy ops records to head only.",
+      "command":"python3 -B utils/drift-compare.py BASE_COPY HEAD_COPY --only-shared-views",
+      "result":"exit 0; outputs_compared=390, differing=0, key_problems=0, views_uncompared=[ops]. Synthetic view-selection control, not another production capture."
+    },
     "perturbations": {
       "tested_revision":"dae737d09bb58c878de8ad463103d9b8e1ec60e7",
       "command_template":"TMPDIR=/tmp/opencode python3 -B utils/perturb.py MANIFEST",
@@ -47,6 +71,19 @@
       "qualification":"Focused AST/root documentation filters, whole bench lib, and driver unittest targets; no unique-guard claim. verification.json was the only unrelated dirty file during the sweeps."
     },
     "fixture_qualification": "All 55 raw files equal their committed bytes; -text Git attribute applies to the three added controls. All selected input hashes still match reference/manifest.json. Lua first-file and Python chained forms have raw production recognition tests and independently specified future owner requirements, not an extraction implementation or new metric capture.",
+    "full_gate": {
+      "tested_revision":"9a3dc192b9fc7e0146760050bce5d4e699f6a0f7",
+      "command":"log=$(mktemp /tmp/opencode/bca-cycle1-pre-commit.XXXXXX.log); make pre-commit >\"$log\" 2>&1; read the single ^BCA_GATE: line",
+      "verdict":"BCA_GATE: pass (gate=pre-commit)",
+      "exit":0,
+      "workspace_tests_passed":7467,"workspace_tests_skipped":4,
+      "doctests_passed":68,"doctests_ignored":1,
+      "python_tests_passed":413,"python_tests_xfailed":1,
+      "python_test_runtime":"Python 3.14.8 in bindings venv; standalone driver checks used Python 3.14.3",
+      "skipped_stages":[],
+      "unavailable":"patchelf: non-failing maturin wheel rpath warning twice; pytest and stubtest both passed",
+      "qualification":"All gate stages completed. Only verification.json evidence changed during and after this run. No metric behavior, reference records, raw inputs, or test code changed after the tested revision. D28 remains unintegrated pending parent remediation review."
+    },
     "prose_review": "Self-review corrected link targets, added Git/MI references, explained MI dependency closure and non-unique mutation guards, and separated language-specific limitations into a linked list. No new findings on final reread; independent review remains parent work."
   },
   "implementation_checkpoint": "0a5b6e38d9d294209bd6e59c71a7b703dcbb9b46",
