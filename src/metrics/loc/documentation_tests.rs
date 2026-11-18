@@ -33,6 +33,30 @@ fn documentation_legacy_whole_metrics() {
         "../../../tests/fixtures/documentation/selection.json"
     ))
     .expect("selected keys");
+    let keys = selection.as_array().expect("keys");
+    assert_eq!(keys.len(), 39);
+    assert_eq!(
+        keys.iter()
+            .map(|key| key.as_str().expect("key"))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        keys.len(),
+        "each selected language/input key is unique"
+    );
+    let expected_runs = keys
+        .iter()
+        .filter(|key| {
+            key.as_str()
+                .expect("key")
+                .split('/')
+                .next()
+                .expect("language")
+                .parse::<LANG>()
+                .expect("known LANG")
+                .is_enabled()
+        })
+        .count()
+        * 10;
     assert_eq!(manifest["keys"], selection);
     assert_eq!(manifest["complete"], true);
     assert_eq!(
@@ -208,5 +232,6 @@ fn documentation_legacy_whole_metrics() {
             ran += 1;
         }
     }
+    assert_eq!(ran, expected_runs, "every enabled key and view was checked");
     assert!(ran > 0);
 }

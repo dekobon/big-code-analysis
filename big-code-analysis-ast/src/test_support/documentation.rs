@@ -170,6 +170,7 @@ mod tests {
         );
         for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
             let entry = &inventory[lang.to_string()];
+            assert_eq!(entry["path"], primary(lang), "{lang}: fixture routing");
             let source = source(primary(lang));
             let mut comments = Vec::new();
             let mut owners = Vec::new();
@@ -225,12 +226,17 @@ mod tests {
             }
             ran += 1;
         }
+        assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
         assert!(ran > 0);
     }
 
     #[cfg(feature = "rust")]
     #[test]
     fn documentation_conformance_rejects_absent_adapter_and_wrong_identity() {
+        assert_primary_extraction(
+            LANG::Rust,
+            Ok(serde_json::json!([{"fragments":[[0,8]],"owner":[9,18],"text":"audit"}])),
+        );
         for result in [
             Err("Unsupported"),
             Err("NoDeclarationModel"),
