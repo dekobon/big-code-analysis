@@ -38,6 +38,30 @@ def _load(name: str, filename: str):
 oracle = _load("drift_oracle", "drift-oracle.py")
 dc = oracle.dc
 
+EXPECTED_MI_OPTIONS = {
+    "metrics_mi_charges_docs_false": ["--mi-charges-docs=false"],
+    "metrics_mi_charges_docs_true": ["--mi-charges-docs=true"],
+    "metrics_exclude_tests_mi_charges_docs_false": ["--exclude-tests", "--mi-charges-docs=false"],
+    "metrics_exclude_tests_mi_charges_docs_true": ["--exclude-tests", "--mi-charges-docs=true"],
+    "metrics_only_mi_mi_charges_docs_false": ["--metrics", "mi", "--mi-charges-docs=false"],
+    "metrics_only_mi_mi_charges_docs_true": ["--metrics", "mi", "--mi-charges-docs=true"],
+    "metrics_only_mi_exclude_tests_mi_charges_docs_false": ["--metrics", "mi", "--exclude-tests", "--mi-charges-docs=false"],
+    "metrics_only_mi_exclude_tests_mi_charges_docs_true": ["--metrics", "mi", "--exclude-tests", "--mi-charges-docs=true"],
+    "metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_false": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false", "--mi-charges-docs=false"],
+    "metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_true": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false", "--mi-charges-docs=true"],
+}
+
+EXPECTED_METRICS_OPTIONS = {
+    "metrics": [],
+    "metrics_exclude_tests": ["--exclude-tests"],
+    "metrics_no_count_try": ["--cyclomatic-count-try=false"],
+    "metrics_exclude_tests_no_count_try": ["--exclude-tests", "--cyclomatic-count-try=false"],
+    "metrics_only_cyclomatic": ["--metrics", "cyclomatic"],
+    "metrics_only_cognitive": ["--metrics", "cognitive"],
+    "metrics_only_nexits": ["--metrics", "nexits"],
+    **EXPECTED_MI_OPTIONS,
+}
+
 
 def _stub(path: pathlib.Path, body: str) -> pathlib.Path:
     path.write_text(f"#!{sys.executable}\nimport sys\n{body}\n")
@@ -75,8 +99,8 @@ class DriftOracleTests(unittest.TestCase):
         rc, _, _, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust", "--lang", "python")
         self.assertEqual(rc, 0)
         self.assertTrue(m["complete"])
-        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *oracle.METRICS_OPTIONS, "verbatim"])
-        self.assertEqual(m["outputs_per_file"], len(m["views"]))
+        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *EXPECTED_METRICS_OPTIONS, "verbatim", *oracle.VERBATIM_OPTIONS])
+        self.assertEqual(m["outputs_per_file"], 34)
         self.assertEqual(sorted(m["keys"]), ["python/fx/b.py", "rust/fx/a.rs"])
         self.assertEqual(m["verbatim"]["path"], str(self.verbatim))
         self.assertEqual(m["version"], dc.MANIFEST_VERSION)
@@ -91,6 +115,42 @@ class DriftOracleTests(unittest.TestCase):
         )
         self.assertTrue(key.with_name("a.rs.ops.txt").is_file())
         self.assertIn("--language rust", key.with_name("a.rs.metrics_exclude_tests.txt").read_text())
+
+    def test_mi_matrix_and_every_argv_are_symmetric_and_explicit(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        rc, out, _, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust")
+        self.assertEqual(rc, 0)
+        expected_verbatim = {
+            f"verbatim_{name}": ["--metrics-view", *extra, "--"]
+            for name, extra in EXPECTED_MI_OPTIONS.items()
+        }
+        self.assertEqual(oracle.METRICS_OPTIONS, EXPECTED_METRICS_OPTIONS)
+        self.assertEqual(oracle.VERBATIM_OPTIONS, expected_verbatim)
+        self.assertEqual(m["metrics_options"], {**EXPECTED_METRICS_OPTIONS, **expected_verbatim})
+        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *EXPECTED_METRICS_OPTIONS, "verbatim", *expected_verbatim])
+        self.assertEqual(json.loads(out)["outputs"], 34)
+        path = str(self.fixtures / "a.rs")
+        key = self.out / "rust" / "fx" / "a.rs"
+        for name, extra in EXPECTED_METRICS_OPTIONS.items():
+            with self.subTest(view=name):
+                self.assertEqual(
+                    json.loads(key.with_name(f"a.rs.{name}.txt").read_text()),
+                    ["metrics", "-O", "json", *extra, "--no-config", "--language", "rust", "-p", path],
+                )
+        for name, extra in expected_verbatim.items():
+            with self.subTest(view=name):
+                self.assertEqual(
+                    json.loads(key.with_name(f"a.rs.{name}.txt").read_text()),
+                    {"v": [*extra, "rust", path]},
+                )
+
+    def test_a_failed_mi_verbatim_view_is_not_a_baseline(self) -> None:
+        _stub(self.verbatim, "sys.exit(4 if '--mi-charges-docs=true' in sys.argv else 0)")
+        rc, _, err, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust")
+        self.assertEqual(rc, 1)
+        self.assertFalse(m["complete"])
+        self.assertEqual(m["failed_executions"], 5)
+        self.assertIn("not a baseline", err)
 
     def test_outputs_are_captured_as_bytes(self) -> None:
         # A text capture would fold b"\xff\r\n" and b"\xfe\n" to the same
@@ -129,6 +189,7 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertNotIn("verbatim", m["views"])
         self.assertIsNone(m["verbatim"])
+        self.assertEqual(m["metrics_options"], EXPECTED_METRICS_OPTIONS)
         self.assertEqual(m["outputs_per_file"], len(oracle.CLI_CMDS) + len(oracle.METRICS_OPTIONS))
         self.assertFalse((self.out / "rust" / "fx" / "a.rs.verbatim.jsonl").exists())
 

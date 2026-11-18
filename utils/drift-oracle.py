@@ -7,7 +7,13 @@ output, and — when `--verbatim` names the `verbatim-oracle` binary
 (`cargo build -p big-code-analysis-bench --bin verbatim-oracle`) — the
 library-level verbatim record: metrics, ops, the Alterator-built AST
 export, find/count, on the raw bytes, the only path that reaches a
-node ending at EOF.
+node ending at EOF. Paired MI views run through both binaries, with
+selected-metric dependency closure and Rust prune/try combinations.
+The default verbatim record stays compatible with recovery captures;
+additional metrics-only records use `--metrics-view` and spell their
+effective options in the output. `metrics_options` maps each CLI or
+verbatim metric view to its argv; additional views use the usual `.txt`
+suffix even though their payload is JSON.
 
 The verbatim view is optional per side because a base commit older
 than #1744 has no `verbatim-oracle` to build: a base-vs-head run over
@@ -75,8 +81,23 @@ POPULATIONS = dc.populations()
 # what the sweep measures.
 FIXTURE_ONLY = {"ccomment", "preproc"}
 
-# `metrics` option matrix: name -> extra argv. The other commands take
-# no metric-affecting options.
+# Paired MI modes cover documentation, pruning and dependency closure.
+# The last pair combines the Rust axes without multiplying every legacy
+# selection by options that cannot affect it.
+MI_METRICS_OPTIONS = {
+    f"{name}_mi_charges_docs_{mode}": [*extra, f"--mi-charges-docs={mode}"]
+    for name, extra in {
+        "metrics": [],
+        "metrics_exclude_tests": ["--exclude-tests"],
+        "metrics_only_mi": ["--metrics", "mi"],
+        "metrics_only_mi_exclude_tests": ["--metrics", "mi", "--exclude-tests"],
+        "metrics_only_mi_exclude_tests_no_count_try": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false"],
+    }.items()
+    for mode in ("false", "true")
+}
+
+# `metrics` option matrix: name -> extra argv. Keep the original views
+# so existing default captures retain their names and commands.
 METRICS_OPTIONS = {
     "metrics": [],
     "metrics_exclude_tests": ["--exclude-tests"],
@@ -85,6 +106,12 @@ METRICS_OPTIONS = {
     "metrics_only_cyclomatic": ["--metrics", "cyclomatic"],
     "metrics_only_cognitive": ["--metrics", "cognitive"],
     "metrics_only_nexits": ["--metrics", "nexits"],
+    **MI_METRICS_OPTIONS,
+}
+
+VERBATIM_OPTIONS = {
+    f"verbatim_{name}": ["--metrics-view", *extra, "--"]
+    for name, extra in MI_METRICS_OPTIONS.items()
 }
 
 CLI_CMDS = {
@@ -154,7 +181,7 @@ def run(argv: list[str]) -> bytes:
 def views(verbatim: bool) -> list[str]:
     """The per-file output names a capture carries, in the order
     `drift-compare.py` walks them."""
-    return [*CLI_CMDS, *METRICS_OPTIONS, *(["verbatim"] if verbatim else [])]
+    return [*CLI_CMDS, *METRICS_OPTIONS, *(["verbatim", *VERBATIM_OPTIONS] if verbatim else [])]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
             verbatim=None if args.verbatim is None else {"path": str(args.verbatim), "sha256": sha256(args.verbatim)},
             views=views(args.verbatim is not None),
             roots={k: str(v) for k, v in roots.items()},
-            metrics_options=METRICS_OPTIONS,
+            metrics_options={**METRICS_OPTIONS, **(VERBATIM_OPTIONS if args.verbatim is not None else {})},
             cli_cmds=CLI_CMDS,
             populations=counts,
             keys=sorted(keys),
@@ -249,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
             dst.with_name(dst.name + f".{name}.txt").write_bytes(run([*base, "metrics", "-O", "json", *extra, *tail]))
         if args.verbatim is not None:
             dst.with_name(dst.name + ".verbatim.jsonl").write_bytes(run([str(args.verbatim), lang, str(p)]))
+            for name, extra in VERBATIM_OPTIONS.items():
+                dst.with_name(dst.name + f".{name}.txt").write_bytes(run([str(args.verbatim), *extra, lang, str(p)]))
 
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         list(ex.map(one, jobs))

@@ -80,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     if mb is None or mh is None:
         return 2
     kb, kh = set(mb["keys"]), set(mh["keys"])
+    if not kb or not kh:
+        print("no keys on one side; nothing compared")
+        return 2
     if args.lang:
         langs = set(args.lang)
         kb = {k for k in kb if k.split("/", 1)[0] in langs}
@@ -128,7 +131,10 @@ def main(argv: list[str] | None = None) -> int:
         for k in sorted(kh - kb):
             print(f"KEY only in head: {k}")
         problems += len(kb ^ kh)
-    if mb["metrics_options"] != mh["metrics_options"] or mb["cli_cmds"] != mh["cli_cmds"]:
+    def compared_options(matrix: dict) -> dict:
+        return {name: argv for name, argv in matrix.items() if not args.only_shared_views or name not in one_sided}
+
+    if compared_options(mb["metrics_options"]) != compared_options(mh["metrics_options"]) or mb["cli_cmds"] != mh["cli_cmds"]:
         print("option matrix or command set differs between captures")
         problems += 1
     compared = 0
