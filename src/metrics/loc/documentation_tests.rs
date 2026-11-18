@@ -90,6 +90,16 @@ fn documentation_legacy_whole_metrics() {
                 serde_json::from_slice(&std::fs::read(path).expect("checked capture"))
                     .expect("wire JSON");
             let opt = &expected["options"];
+            assert_eq!(
+                opt,
+                &json!({
+                    "mi_charges_docs": view.ends_with("_true"),
+                    "exclude_tests": view.contains("exclude_tests"),
+                    "count_cyclomatic_try": !view.contains("no_count_try"),
+                    "metrics": if view.contains("only_mi") { "mi" } else { "all" },
+                }),
+                "{key}/{view}: options must match the named view"
+            );
             let excluded = opt["exclude_tests"].as_bool().expect("exclude_tests");
             let mut options = MetricsOptions::default()
                 .with_exclude_tests(excluded)

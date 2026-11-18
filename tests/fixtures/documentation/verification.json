@@ -1,0 +1,65 @@
+{
+  "implementation_checkpoint": "0a5b6e38d9d294209bd6e59c71a7b703dcbb9b46",
+  "selection_followup": "324248ef",
+  "perturbation_checkpoint": "b547a41f",
+  "review_base": "b47ea189ba51fe50d6362f876e77126c35d307d0",
+  "focused": {
+    "command": "cargo test -p big-code-analysis-ast -p big-code-analysis --all-features --lib --no-fail-fast documentation_",
+    "result": "7 passed (4 AST, 3 root, including 2 existing root tests)",
+    "clippy_command": "cargo clippy -p big-code-analysis-ast -p big-code-analysis --all-features --lib --tests -- -D warnings",
+    "clippy_result": "pass"
+  },
+  "feature_isolation": {
+    "command_template": "cargo test -p PACKAGE --lib FEATURES documentation_",
+    "packages": ["big-code-analysis-ast", "big-code-analysis"],
+    "feature_arguments": [[], ["--all-features"], ["--no-default-features"], ["--no-default-features", "--features", "rust"], ["--no-default-features", "--features", "go"], ["--no-default-features", "--features", "java,python"]],
+    "ast_passed": [4,4,0,2,1,3],
+    "root_passed": [3,3,0,1,0,3],
+    "qualification": "Each package invoked separately. Zero documentation tests in no-language builds and root Go-only build confirms exclusion, not conformance. Batch initially timed out at 120 seconds while compiling root Rust-only; remaining root Rust/Go/Java+Python invocations rerun successfully."
+  },
+  "gates": [
+    {"command":"make check-test-lang-gates","result":"pass; 5117 gated test items"},
+    {"command":"make check-test-lang-gates-compare COMPARE_REF=b47ea189","result":"pass; no test lost a build"},
+    {"command":"make markdown-lint","result":"pass after removing existing .rumdl_cache"},
+    {"command":"python3 -B -m unittest -q utils/drift-oracle-test.py utils/drift-compare-test.py","result":"30 passed"},
+    {"command":"python3 -B -m unittest -q utils/drift_common-test.py utils/drift-oracle-test.py utils/drift-compare-test.py utils/recovery-oracle-test.py","result":"53 passed"}
+  ],
+  "replay": {
+    "commands": "README.md Replay block; exact capture argv also in provenance.json",
+    "keys_base":39,"keys_head":39,"outputs_compared":390,"differing":0,"key_problems":0,"views_uncompared":[],
+    "qualification":"Head-to-head replay using original captured binaries proves reproducible selection/bytes. Root tests separately recompute current production metrics. Semantic-base pins compared exactly with git show b47ea189:Cargo.toml; all 52 raw files equal their committed bytes."
+  },
+  "perturbations": {
+    "rust_command":"python3 -B utils/perturb.py utils/documentation-characterization-perturb.json",
+    "rust_scope":"AST and root lib targets filtered by documentation_, --no-fail-fast; no unique-guard claim",
+    "rust_results":[
+      {"name":"stop-pruning-rust-outer-doc-run","verdict":"caught","rc":101},
+      {"name":"shift-java-dloc-identity-preserving-whole-wire-values","verdict":"caught","rc":101},
+      {"name":"java-empty-marker-enters-legacy-selection","verdict":"caught","rc":101},
+      {"name":"drop-rust-newline-discount","verdict":"caught","rc":101},
+      {"name":"charge-docs-in-both-mi-modes","verdict":"caught","rc":101},
+      {"name":"drop-python-named-extra-transparency","verdict":"caught","rc":101},
+      {"name":"move-java-old-block-row-without-changing-count","verdict":"caught","rc":101},
+      {"name":"delete-rust-pruned-outer-doc","verdict":"caught","rc":101}
+    ],
+    "rust_failures":"Every mutant failed metrics::loc::documentation_tests::documentation_legacy_whole_metrics. Python transparency also failed metrics::loc::tests::python_documentation_positions_follow_pep_257. No build/harness error; all expected guards present; targets restored.",
+    "python_command":"python3 -B utils/perturb.py utils/documentation-selection-perturb.json",
+    "python_results":[
+      {"name":"allow-untracked-selection","verdict":"caught","rc":1,"failed":["test_selected_filename_is_a_literal_git_pathspec","test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys"]},
+      {"name":"omit-selected-view","verdict":"caught","rc":1,"failed":["test_explicit_selection_is_tracked_exact_and_can_force_a_dialect"]},
+      {"name":"drop-relative-path-mode","verdict":"caught","rc":1,"failed":["test_relative_paths_reach_binary_without_output_rewriting"]}
+    ],
+    "python_failure_prefix":"utils.drift-oracle-test.DriftOracleTests."
+  },
+  "pending_parent_work":["ordered simplify-rust -> rust-optimize -> audit-tests", "seven scheduled independent reviews including prose", "optional broad repository corpus captures", "issue evidence/publication/merge"],
+  "not_triggered":["scaling and chain-audit (no production traversal change)", "fuzz (no fuzz files changed)", "metric snapshot submodule/baseline refresh (no metric semantics changed)"],
+  "full_gate": {
+    "command":"make pre-commit > unique-mktemp-log 2>&1; read ^BCA_GATE: from log",
+    "first_verdict":"BCA_GATE: pass (gate=pre-commit)",
+    "workspace_tests_passed":7462,"workspace_tests_skipped":4,
+    "doctests_passed":68,"doctests_ignored":1,
+    "python_tests_passed":413,"python_tests_xfailed":1,
+    "unavailable":"patchelf: non-failing maturin wheel rpath warning, twice; no gate stage skipped",
+    "qualification":"Final rerun pending after adding the named-view/options consistency assertion."
+  }
+}
