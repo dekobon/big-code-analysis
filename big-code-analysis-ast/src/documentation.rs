@@ -1,0 +1,365 @@
+//! Source-backed documentation records, independent of metric policy.
+//!
+//! Role/context predicates recognize candidates; they do not supply semantic
+//! owners. Fragments add included source spelling, documents add composition
+//! and content state, and associations add profile-qualified attachment.
+//! This module supplies storage and identity primitives, not a collector.
+//! All items are unstable direct-AST plumbing; no root facade is introduced.
+
+mod content;
+mod owners;
+mod source;
+#[doc(hidden)]
+pub mod streaming;
+
+pub use content::*;
+pub use owners::*;
+pub use source::*;
+
+/// One physical occurrence, whose spelling may be narrower than its syntax node.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Fragment<'s> {
+    pub(crate) source: SourcePieces<'s>,
+    pub(crate) node: Option<NodeEvidence<'s>>,
+    pub(crate) form: FragmentForm,
+}
+
+impl<'s> Fragment<'s> {
+    /// Included raw spelling, available even when decoding is unavailable.
+    #[must_use]
+    pub fn source(&self) -> &SourcePieces<'s> {
+        &self.source
+    }
+
+    /// Exact syntax evidence, not necessarily the fragment's spelling range.
+    #[must_use]
+    pub fn node(&self) -> Option<NodeEvidence<'s>> {
+        self.node
+    }
+
+    /// The syntax form, independent of the document's semantic role.
+    #[must_use]
+    pub fn form(&self) -> FragmentForm {
+        self.form
+    }
+}
+
+/// The spelling carrying a documentation occurrence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FragmentForm {
+    /// A line or block comment.
+    Comment,
+    /// A string literal, including its delimiters.
+    Literal,
+    /// A whole documentation attribute, including its value syntax.
+    Attribute,
+    /// POD spelling inside an opaque syntax node.
+    Pod,
+    /// A literal Tcl namespace preamble word.
+    Preamble,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FragmentId(pub(crate) usize);
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DocumentId(pub(crate) usize);
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OwnerId(pub(crate) usize);
+
+/// One logical document, stored once regardless of owner fanout.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Document<'s> {
+    pub(crate) fragments: Vec<FragmentId>,
+    pub(crate) composition: Composition,
+    pub(crate) role: DocumentRole,
+    pub(crate) content: Content<'s>,
+}
+
+impl<'s> Document<'s> {
+    /// Number of ordered physical occurrences composing this document.
+    #[must_use]
+    pub fn fragment_count(&self) -> usize {
+        self.fragments.len()
+    }
+
+    /// How ordered fragments compose; additional Python strings are documents
+    /// of their own, not a concatenation mode.
+    #[must_use]
+    pub fn composition(&self) -> Composition {
+        self.composition
+    }
+
+    /// The semantic documentation role.
+    #[must_use]
+    pub fn role(&self) -> DocumentRole {
+        self.role
+    }
+
+    /// Local text state, independent of whether an owner resolved.
+    #[must_use]
+    pub fn content(&self) -> &Content<'s> {
+        &self.content
+    }
+}
+
+/// Ordered physical-fragment composition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Composition {
+    /// One physical occurrence.
+    Single,
+    /// Adjacent static literals with no separator.
+    LiteralConcatenation,
+    /// A selected comment run or gathered blocks.
+    CommentRun,
+    /// Language-defined composition of comments and attributes.
+    AttributeSequence,
+}
+
+/// Semantic roles in the contract's explicit source-order tie-break order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DocumentRole {
+    /// Primary item or module string documentation.
+    Primary,
+    /// A separate additional Python string expression.
+    Additional,
+    /// A PEP 258 string describing a binding.
+    AttributeBinding,
+    /// A Sphinx attribute comment.
+    Sphinx,
+    /// Documentation preceding a declaration.
+    LeadingComment,
+    /// Documentation in a declaration's body.
+    BodyComment,
+    /// File or package documentation.
+    FilePackage,
+    /// Documentation declaring a virtual target.
+    Virtual,
+    /// Explicitly opted-in BCA inference.
+    Inferred,
+}
+
+impl DocumentRole {
+    /// Stable role rank within a source-order key, not an enum discriminant.
+    #[must_use]
+    pub const fn source_rank(self) -> u8 {
+        match self {
+            Self::Primary => 0,
+            Self::Additional => 1,
+            Self::AttributeBinding => 2,
+            Self::Sphinx => 3,
+            Self::LeadingComment => 4,
+            Self::BodyComment => 5,
+            Self::FilePackage => 6,
+            Self::Virtual => 7,
+            Self::Inferred => 8,
+        }
+    }
+}
+
+/// Immutable record storage. Construction and indexed owner lookup belong to
+/// the collector; an empty store does not claim a completed collection.
+#[derive(Debug, Default)]
+pub struct Facts<'s> {
+    scope: u8,
+    pub(crate) fragments: Vec<Fragment<'s>>,
+    pub(crate) documents: Vec<Document<'s>>,
+    pub(crate) owners: Vec<Owner<'s>>,
+    pub(crate) associations: Vec<Association<'s>>,
+}
+
+/// An index-local borrowed occurrence. Equality is identity, never text equality.
+/// Moving storage before borrowing it is valid. No persistent ID or pointer
+/// ordering is exposed, and two stores over one tree have distinct identities.
+#[derive(Debug)]
+pub struct FactRef<'i, T> {
+    scope: &'i u8,
+    ordinal: usize,
+    fact: &'i T,
+}
+
+impl<T> Copy for FactRef<'_, T> {}
+impl<T> Clone for FactRef<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> PartialEq for FactRef<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.scope, other.scope) && self.ordinal == other.ordinal
+    }
+}
+impl<T> Eq for FactRef<'_, T> {}
+impl<'i, T> FactRef<'i, T> {
+    /// Borrow the retained record without reconstruction.
+    #[must_use]
+    pub fn get(self) -> &'i T {
+        self.fact
+    }
+}
+
+impl<'s> Facts<'s> {
+    fn reference<'i, T>(&'i self, records: &'i [T], ordinal: usize) -> Option<FactRef<'i, T>> {
+        Some(FactRef {
+            scope: &self.scope,
+            ordinal,
+            fact: records.get(ordinal)?,
+        })
+    }
+
+    fn references<'i, T>(
+        &'i self,
+        records: &'i [T],
+    ) -> impl ExactSizeIterator<Item = FactRef<'i, T>> {
+        records.iter().enumerate().map(|(ordinal, fact)| FactRef {
+            scope: &self.scope,
+            ordinal,
+            fact,
+        })
+    }
+
+    /// Physical occurrences in retained order.
+    pub fn fragments(&self) -> impl ExactSizeIterator<Item = FactRef<'_, Fragment<'s>>> {
+        self.references(&self.fragments)
+    }
+
+    /// Logical documents in retained order.
+    pub fn documents(&self) -> impl ExactSizeIterator<Item = FactRef<'_, Document<'s>>> {
+        self.references(&self.documents)
+    }
+
+    /// Semantic owners, independently of metric spaces.
+    pub fn owners(&self) -> impl ExactSizeIterator<Item = FactRef<'_, Owner<'s>>> {
+        self.references(&self.owners)
+    }
+
+    /// Profile-qualified attachment records in retained order.
+    pub fn associations(&self) -> impl ExactSizeIterator<Item = FactRef<'_, Association<'s>>> {
+        self.references(&self.associations)
+    }
+
+    /// The fragment at a composition position, or an identity/bounds error.
+    ///
+    /// # Errors
+    /// Rejects handles from another store and absent composition positions.
+    pub fn document_fragment(
+        &self,
+        document: FactRef<'_, Document<'s>>,
+        position: usize,
+    ) -> Result<FactRef<'_, Fragment<'s>>, FactError> {
+        self.check_scope(document)?;
+        let id = document
+            .fact
+            .fragments
+            .get(position)
+            .ok_or(FactError::MissingRecord)?;
+        self.reference(&self.fragments, id.0)
+            .ok_or(FactError::MissingRecord)
+    }
+
+    /// The shared document referred to by an association.
+    ///
+    /// # Errors
+    /// Rejects foreign handles or an invalid internal document reference.
+    pub fn associated_document(
+        &self,
+        association: FactRef<'_, Association<'s>>,
+    ) -> Result<FactRef<'_, Document<'s>>, FactError> {
+        self.check_scope(association)?;
+        self.reference(&self.documents, association.fact.document.0)
+            .ok_or(FactError::MissingRecord)
+    }
+
+    /// One resolved owner or uncertain candidate, in the association's order.
+    /// Consult `resolution` before treating a candidate as an owner claim.
+    ///
+    /// # Errors
+    /// Rejects foreign handles or an absent owner position.
+    pub fn associated_owner(
+        &self,
+        association: FactRef<'_, Association<'s>>,
+        position: usize,
+    ) -> Result<FactRef<'_, Owner<'s>>, FactError> {
+        self.check_scope(association)?;
+        let id = association
+            .fact
+            .owners
+            .get(position)
+            .ok_or(FactError::MissingRecord)?;
+        self.reference(&self.owners, id.0)
+            .ok_or(FactError::MissingRecord)
+    }
+
+    /// A slot's enclosing semantic owner, distinct from lexical scope.
+    ///
+    /// # Errors
+    /// Rejects a foreign handle, a non-slot owner or an invalid enclosure.
+    pub fn slot_enclosing(
+        &self,
+        owner: FactRef<'_, Owner<'s>>,
+    ) -> Result<FactRef<'_, Owner<'s>>, FactError> {
+        self.check_scope(owner)?;
+        let Owner::Slot(slot) = owner.fact else {
+            return Err(FactError::MissingRecord);
+        };
+        self.reference(&self.owners, slot.enclosing.0)
+            .ok_or(FactError::MissingRecord)
+    }
+
+    /// Source ordering key, kept separate from occurrence equality.
+    ///
+    /// # Errors
+    /// Rejects foreign handles and a document without a physical fragment.
+    pub fn document_order(
+        &self,
+        document: FactRef<'_, Document<'s>>,
+    ) -> Result<(usize, usize, u8, usize), FactError> {
+        let fragment = self.document_fragment(document, 0)?;
+        let first = fragment
+            .fact
+            .source
+            .pieces()
+            .first()
+            .ok_or(FactError::MissingRecord)?;
+        let range = first.range();
+        let end = fragment
+            .fact
+            .source
+            .pieces()
+            .last()
+            .ok_or(FactError::MissingRecord)?
+            .range()
+            .end;
+        Ok((
+            range.start,
+            end,
+            document.fact.role.source_rank(),
+            document.ordinal,
+        ))
+    }
+
+    fn check_scope<T>(&self, reference: FactRef<'_, T>) -> Result<(), FactError> {
+        if std::ptr::eq(&raw const self.scope, reference.scope) {
+            Ok(())
+        } else {
+            Err(FactError::ForeignIndex)
+        }
+    }
+}
+
+/// Identity or storage lookup failure; not an empty owner query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FactError {
+    /// A handle belongs to another store, even if it borrows the same tree.
+    ForeignIndex,
+    /// The requested record or composition position does not exist.
+    MissingRecord,
+}
+
+#[cfg(test)]
+mod tests;

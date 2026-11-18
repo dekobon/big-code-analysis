@@ -87,7 +87,10 @@ crate::observation::counter!(child_scan_cursors, cfg(any(test, feature = "test-s
 /// caller-built `tree_sitter::Tree` directly; this wrapper stays
 /// internal so the metric walker is the only thing that observes it.
 #[derive(Clone, Debug)]
-pub(crate) struct Tree(OtherTree);
+pub(crate) struct Tree {
+    tree: OtherTree,
+    completion: crate::parser::ParseCompletion,
+}
 
 impl Tree {
     /// # Panics
@@ -108,19 +111,27 @@ impl Tree {
         let language = T::lang().get_ts_language().expect(
             "invariant: the caller checked LANG::is_enabled, or reached this through AnyParser",
         );
-        Self(parse_on_scratch_parser(&language, code))
+        let (tree, completion) = parse_on_scratch_parser(&language, code);
+        Self { tree, completion }
     }
 
     pub(crate) fn from_ts_tree(tree: OtherTree) -> Self {
-        Self(tree)
+        Self {
+            tree,
+            completion: crate::parser::ParseCompletion::Adopted,
+        }
     }
 
     pub(crate) fn get_root(&self) -> Node<'_> {
-        Node(self.0.root_node())
+        Node(self.tree.root_node())
     }
 
     pub(crate) fn as_ts_tree(&self) -> &OtherTree {
-        &self.0
+        &self.tree
+    }
+
+    pub(crate) fn completion(&self) -> crate::parser::ParseCompletion {
+        self.completion
     }
 }
 

@@ -24,6 +24,13 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- Added unstable `big-code-analysis-ast::documentation` fact, source and owner
+  primitives, plus retained `Complete` / `Cancelled` / `Adopted` parse provenance
+  on `Parser` and `AnyParser`. The root library's documentation facade follows
+  separately; existing metric behavior is unchanged. (#1656)
+
 ### Changed
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space

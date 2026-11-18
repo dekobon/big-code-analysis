@@ -389,6 +389,12 @@ macro_rules! mk_action {
                 $crate::with_any_parser!(self, |p| p.ts_tree())
             }
 
+            /// The outcome retained when this tree was parsed or adopted.
+            #[must_use]
+            pub fn parse_completion(&self) -> $crate::parser::ParseCompletion {
+                $crate::with_any_parser!(self, |p| p.parse_completion())
+            }
+
             /// The root [`Node`] of the held tree.
             #[must_use]
             pub fn root_node(&self) -> Node<'_> {

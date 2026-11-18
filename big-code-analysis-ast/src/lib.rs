@@ -97,6 +97,7 @@ pub(crate) mod cfg_predicate;
 pub mod checker;
 pub(crate) mod comment_rm;
 pub mod count;
+pub mod documentation;
 pub mod error;
 pub(crate) mod find;
 pub mod getter;
