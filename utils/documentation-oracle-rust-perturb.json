@@ -1,0 +1,53 @@
+{
+  "description": "Run from the repository root after cargo test -p big-code-analysis-bench --lib passes, with python3 -B utils/perturb.py utils/documentation-oracle-rust-perturb.json. Sweeps the whole bench library; no claim of unique guards outside this target. Targets must be tracked and clean.",
+  "cwd": ".",
+  "runner": "cargo",
+  "command": ["cargo", "test", "-p", "big-code-analysis-bench", "--lib"],
+  "cases": [
+    {
+      "name": "drop-mi-doc-charging",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": ".with_mi_charges_docs(self.mi_charges_docs)",
+      "new": ".with_mi_charges_docs(false)",
+      "expect": [
+        "verbatim::tests::metrics_view_mi_modes_and_dependency_closure_reach_each_space",
+        "verbatim::tests::metrics_view_combines_pruning_try_count_and_mi_modes"
+      ]
+    },
+    {
+      "name": "drop-test-pruning",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": ".with_exclude_tests(self.exclude_tests)",
+      "new": ".with_exclude_tests(false)",
+      "expect": ["verbatim::tests::metrics_view_combines_pruning_try_count_and_mi_modes"]
+    },
+    {
+      "name": "drop-try-count-option",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": ".with_count_cyclomatic_try(self.count_cyclomatic_try)",
+      "new": ".with_count_cyclomatic_try(true)",
+      "expect": ["verbatim::tests::metrics_view_combines_pruning_try_count_and_mi_modes"]
+    },
+    {
+      "name": "drop-metric-selection",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": "            options = options.with_only(&[metric]);",
+      "new": "            let _ = metric;",
+      "expect": ["verbatim::tests::metrics_view_mi_modes_and_dependency_closure_reach_each_space"]
+    },
+    {
+      "name": "append-newline-before-parse",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": "Source::new(lang, code)",
+      "new": "Source::from_bytes(lang, [code, b\"\\n\"].concat())",
+      "expect": ["verbatim::tests::metrics_view_defaults_preserve_metrics_and_raw_endings"]
+    },
+    {
+      "name": "normalize-crlf-before-parse",
+      "file": "big-code-analysis-bench/src/verbatim.rs",
+      "old": "Source::new(lang, code)",
+      "new": "Source::from_bytes(lang, code.iter().copied().filter(|byte| *byte != b'\\r').collect::<Vec<_>>())",
+      "expect": ["verbatim::tests::metrics_view_defaults_preserve_metrics_and_raw_endings"]
+    }
+  ]
+}

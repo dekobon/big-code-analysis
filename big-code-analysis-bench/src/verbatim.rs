@@ -481,7 +481,7 @@ mod tests {
                 !err.contains("never-read.rs"),
                 "validated before I/O: {err}"
             );
-            assert!(out.is_empty());
+            assert_eq!(out, b"");
         }
     }
 
@@ -499,7 +499,7 @@ mod tests {
                     .expect_err("incomplete invocation")
                     .contains("usage: verbatim-oracle")
             );
-            assert!(out.is_empty());
+            assert_eq!(out, b"");
         }
         let mut out = Vec::new();
         assert!(
@@ -507,7 +507,7 @@ mod tests {
                 .expect_err("zero files")
                 .starts_with("no input files")
         );
-        assert!(out.is_empty());
+        assert_eq!(out, b"");
     }
 
     /// A record carries every view, on the raw bytes: the input has no
