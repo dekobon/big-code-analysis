@@ -22,6 +22,11 @@ form a document and which declaration or other owner that document describes.
 An owner is the source entity being documented. It can differ from the metric
 space containing the comment.
 
+Documentation lines of code (DLOC) are part of the
+[lines-of-code (LOC) metrics](../../big-code-analysis-book/src/metrics.md#lines-of-code).
+They also affect the documentation-aware
+[maintainability index (MI)](../../big-code-analysis-book/src/metrics.md#maintainability-index-mi).
+
 ```text
 AST role/context recognition and shared binding
     +-- legacy candidate view -> exact streaming reading -> root LOC/MI
@@ -101,6 +106,13 @@ cache.
 | Association | One document, its convention/provenance, binding wrapper and resolved owner or unresolved candidates |
 | Owner | Exact node, location-backed slot, file/root, logical declaration group or virtual target |
 
+A line-comment fragment excludes its terminating LF/CRLF, even when the grammar
+includes that terminator in the optional syntax node. Its range need not equal
+that node's range. Block comments and literal fragments include their outer
+delimiters; attribute-form fragments include the entire attribute spelling,
+not just its value literal. A Tcl preamble fragment is its value word, including
+braces or quotes. Included-range intersection applies to each of these spellings.
+
 An occurrence's identity is not its text. Equal strings at different offsets
 remain different fragments. A document describing several qualifying fields
 is stored once and has several resolved associations. A conditional declaration
@@ -116,7 +128,8 @@ candidate, not a fabricated function inferred from a declarator's shape.
 Type-leading documentation belongs to the type even when metrics synthesize a
 primary-constructor or record-header function space. Explicit Java and compact
 constructors, Kotlin secondary constructors and other declared-constructor targets
-remain owners. Keep signature-holder-only forms distinct. A parameter-local
+remain owners. A parameter-list node can contain documentation without owning it;
+the profile selects the declaration or parameter/property slot. A parameter-local
 document belongs to its parameter slot; `@param` text in a type document stays
 markup rather than creating another document.
 
@@ -165,9 +178,13 @@ contract values, not incidental enum discriminants. Associations follow document
 order, then owner source anchor and slot ordinal. Fragments retain composition
 order. File and virtual documents use their own first fragment as anchor.
 Hash iteration and pointer order never reach output. Initial role order is
-primary, additional, attribute, leading comment, body comment, file/package,
-virtual, then inferred. Future roles append; content states such
-as disabled text do not change an existing role's rank.
+primary, additional, attribute-binding, Sphinx, leading comment, body comment,
+file/package, virtual, then inferred. Here attribute-binding means a Python
+PEP 258 string describing a binding. Rust `#[doc]` and Elixir `@doc` are syntax
+forms, not that role: item documentation uses primary, module documentation
+uses file/package. Mixed Rust comments/attributes retain primary. A metadata-only
+attribute keeps its owner's documentation role. Future roles append; content
+states such as disabled text do not change an existing role's rank.
 
 Every document has a physical occurrence. Empty prose still has nonempty raw
 syntax, such as `/*!*/` or `""`; do not invent zero-width text fragments.
@@ -251,6 +268,22 @@ it. Retain superseded value occurrences as evidence, not extra selected prose.
 Explicit nil evidence remains distinguishable even where group composition
 retains an earlier effective value.
 
+Separate raw metadata occurrences from effective metadata. Elixir filters
+user-supplied `opaque` and `defaults` keys before merging; retain those raw
+occurrences without applying their values. Validate supported built-in keys
+such as string-valued `since` and `deprecated`; invalid values retain explicit
+invalid-metadata evidence rather than a valid effective value. Arbitrary keys
+remain source metadata without evaluation. This is not a general annotation map.
+
+With no `@doc` occurrence, `@impl true` supplies owner evidence and ineligible
+publication, not a fabricated documentation occurrence. For a documented group,
+the compiler's `@impl` fallback disables a nil effective value; it does not
+override explicit string or false values. Retain an explicit nil occurrence
+even when that fallback disables the effective value. `@deprecated "reason"`
+is separate owner evidence and contributes `deprecated` to an existing
+document's effective metadata; it does not create prose. Explicit documentation
+metadata overrides the same compiler-provided key, following `compile_doc_meta`.
+
 Tcl's first body comment block needs no `#ruff` marker. Leading blank source
 lines are allowed; a blank source line or code ends the block. Later `#ruff`
 blocks append fragments to that procedure/method document. A bare `#ruff` line
@@ -315,16 +348,20 @@ separator; separate additional strings remain separate logical documents.
 - Java source tokens containing raw backslash-u have explicit unsupported
   semantic decoding. Preserve separately labeled source-cleaned spelling.
   The trigger deliberately over-approximates JLS eligibility, including an
-  ineligible spelling with an even number of preceding backslashes.
+  ineligible spelling whose Unicode-escape backslash has an odd number of
+  preceding backslashes, such as the literal source spelling `\\u0041`.
   [JLS Unicode prelexing](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.3)
   can also alter delimiters or line endings; affected associations remain
   uncertain even when tree-sitter reports no ERROR node. Ordinary docs remain
   supported. For `/**/`, BCA delimiter-cleaned text is empty by design; observed
   JDK 25.0.5 `DocTrees` returns `/`. Java `////` is different: removing `///`
   leaves the real content `/`, which BCA retains.
-- Elixir static strings, heredocs and supported raw/cooked string sigils follow
-  their language decoding and heredoc margin. Interpolation or computed values
-  make full content unavailable. A constant-looking expression is not evaluated.
+- Elixir supports ordinary strings, heredocs, and `~s`/`~S` string sigils with
+  static delimiters and no modifiers. Decode cooked escapes and language-defined
+  heredoc indentation. Raw `~S` preserves interpolation-looking bytes and escapes
+  except delimiter syntax. Cooked interpolation, computed expressions,
+  charlist/non-string values, other sigils and modifiers have unavailable content.
+  Keep the raw attribute and explicit reason; do not evaluate expressions.
 - Comment adapters remove only their specified delimiter/line prefixes and
   structural margins. A profile's exact LF/CRLF, blank-line, trailing-space and
   join behavior belongs in its fixtures. Keep Markdown hard-break spaces and
@@ -338,6 +375,9 @@ output. Freeze these transformations separately from attachment:
 | Java Markdown | Remove each `///` and the minimum leading space/tab margin of nonblank lines across the selected run; preserve trailing spaces and remaining indentation |
 | C# XML lines, Doxygen lines, Go, Ruby, Bash, Tcl and iRules hash/line forms | Remove the exact recognized marker and at most one following ASCII space from each member; preserve the remaining whitespace |
 | LDoc lines | Remove the recognized `---` opener; continuation `--` lines lose their own marker; remove at most one following ASCII space |
+| Python Sphinx comments | Remove `#:` and at most one following ASCII space; do not apply string-literal decoding |
+| Go block comments | Remove `/*` and `*/` and at most one immediate interior ASCII space on either boundary; keep internal indentation and stars literally |
+| Ruby RDoc blocks | Remove the `=begin` opener line and `=end` terminator line; retain interior text and indentation |
 | Java traditional, KDoc, Groovydoc, PHPDoc, JSDoc, TypeScript, Doxygen and C# block forms | Remove the outer recognized delimiters; remove one immediate ASCII space inside either delimiter on its boundary line; on later lines remove indentation plus one decoration `*` and at most one following space when present |
 | Lua long documentation comments | Remove the matching long-comment opener/closer, including the matching equals depth; no star decoration rule |
 | Perl POD | Preserve POD markup and internal spacing; omit the terminal `=cut` line and surrounding empty boundary lines; comment-only POD has no prose |
@@ -349,7 +389,9 @@ gathered blocks. Keep interior blank comment lines. Do not append a final LF
 just because the source file has one. Block-internal LF bytes retain copied
 origins; joins across removed delimiters are synthetic. This differs deliberately
 from Go's `CommentGroup.Text` final newline and renderer-specific whitespace.
-Rust/Python/Elixir literals keep their separately specified language cleanup.
+Rust/Python/Elixir literals and Tcl preamble values keep their separately
+specified language cleanup. Sphinx, Go block and RDoc block forms follow the
+table's CRLF, empty-boundary-line and join rules.
 
 Examples: `/** audit */` becomes `audit`; `/**\n * a  \n *   b\n */` becomes
 `a  \n  b`; `/// a  \n///   b` in Java becomes `a  \n  b`; `# a\n#\n# b` in
@@ -357,13 +399,24 @@ an attached hash-comment run becomes `a\n\nb`. A source blank line between
 separate runs still participates in attachment rules; cleanup never joins runs
 that the profile did not select together.
 
-Required Elixir static forms are ordinary strings, heredocs, `~s` and `~S`
-string sigils with static delimiters and no unsupported modifiers. Decode cooked
-string escapes and remove language-defined heredoc indentation before mapping.
-Raw `~S` preserves interpolation-looking bytes and escapes except delimiter
-syntax. Cooked forms containing interpolation are unavailable, as are charlist
-or non-string values, unsupported sigils/modifiers and computed expressions.
-Keep the raw attribute and explicit reason for each.
+Tcl preambles accept static braced or quoted words under the
+[Tcl 8.6 substitution rules](https://www.tcl-lang.org/man/tcl8.6/TclCmd/Tcl.htm).
+Braced words preserve ordinary escapes, dollar signs and brackets. Quoted words
+decode Tcl backslash escapes; variable or command substitution makes complete
+text unavailable. Non-scalar decoded values are unavailable. Backslash-newline
+and following indentation decode to one space only where the supplied parse
+has reliable boundaries; continuation-affected parses retain the #1802 limitation.
+Never execute Tcl to obtain a value.
+
+After value decoding, use Ruff's namespace preamble margin: take the leading
+space/tab prefix of the first nonblank content line and remove that prefix from
+each line that has it. Remove empty boundary lines, preserve internal whitespace
+and `#` headings, and normalize CRLF to LF. Do not use the hash-comment cleaner
+or append a terminal newline. In literal Tcl source notation, quoted
+`"# Heading\n  detail"` produces a line break, whereas braced
+`{# Heading\n  detail}` retains the backslash and `n`.
+Both preserve the heading marker. Decoded escapes map to complete source tokens;
+unchanged braced content has copied origins.
 
 Required Rust cooked escapes are escaped quote/backslash, newline/carriage
 return/tab/NUL, valid ASCII hex and Unicode-scalar escapes, and Rust's escaped
@@ -431,11 +484,14 @@ unwinding, valid empty/restricted parses and the next successful parse.
 
 ## Traversal and implementation boundaries {#traversal}
 
-Use `Ancestors::for_walk(chain, node, &folds, &siblings)`, or the explicit
-without-siblings constructor only when no sibling query can occur. Maintain one
-borrowed `ChildAncestors` holder through descent/ascent; do not repeatedly copy
-derived tails. `nearest_level_answer` requires complete ancestry. Preserve
-source bytes and the current typed gate signatures through all callbacks.
+Primary visits use `Ancestors::for_walk(chain, node, &folds, &siblings)` with
+the walk's sibling records. Use the without-siblings constructor only when no
+sibling query can occur. A derived secondary walk maintains one borrowed
+`ChildAncestors` holder through descent/ascent rather than copying derived tails.
+That holder drops sibling-cache access: broad secondary sibling queries need a
+recorded batch or a justified cursor, not repeated uncached seeks.
+`nearest_level_answer` requires complete ancestry. Preserve source bytes and
+the current typed gate signatures through all callbacks.
 
 The collector performs one coordinated structural pass, permitting existing
 amortized sibling scans and indexed finalization. Source/legacy/profile queries
@@ -454,6 +510,27 @@ the structural walk. Cold collection, prepared-index lookup, text/map creation
 and retained-result reads have separate probes. Exact counters measure both
 state computation and slot search. Deep construction, owner extraction, assembly
 and teardown are iterative and tested on a small stack.
+
+The following bounds exclude parsing. Let N/B be input nodes/bytes, F physical
+fragments, E associations, R included ranges, T rendered bytes, S map segments,
+I emitted source intersections, and K query-result records or pieces.
+
+| Operation | Required bound |
+| --- | --- |
+| Collection before sorting | Amortized `O(N + B + F + E + R + I)` structural work; indexed intersections may add `O(F log(R + 1))` instead of a monotone sweep |
+| Prepared owner/node query | Expected `O(1 + K)` indexed lookup, or `O(log(N + F + E + 1) + K)` ordered lookup; no full association/file rescan |
+| Mapping range query | `O(log(S + 1) + K)` including returned source pieces; valid empty-range handling is `O(1)` |
+| Text/map construction | Linear in contributing input bytes, T, S and I; no repeated copying of a growing prefix |
+| Retained text/map access | Borrow a handle or slice in `O(1)` without reconstruction |
+| Retained storage | Borrow source bytes; index `O(N + F + E + R + I)`; rendered T/S storage once per document, not multiplied by owner fanout |
+
+State index-building and deterministic sorting terms separately, including name
+bytes compared and queued references. A full included-range scan per fragment
+is not permitted. Probe small queries near the last owner/map segment, many
+included ranges, a many-fragment document, and independently growing text size
+and owner fanout. Count index comparisons, range intersections and copied bytes
+where output cannot reveal a quadratic regression. Retained-result access must
+not silently rebuild a document on every call.
 
 The Tcl/iRules continuation limitation in
 [#1802](https://github.com/dekobon/big-code-analysis/issues/1802) follows its
@@ -475,8 +552,8 @@ one literal backslash. Other characters are literal UTF-8. Each primary source
 cell ends exactly where shown, without a final newline. Ranges are half-open
 bytes. The primary roster has one document and one resolved declaration
 association per row; Perl selects its explicit unique-heading profile.
-`audit` is arbitrary prose, not a structural
-tag. The source spelling independently fixes the ranges and content.
+`audit` is arbitrary prose, not a structural tag. The source spelling
+independently fixes the ranges and content.
 
 | LANG | Exact source | Fragment range | Owner and range | Local text |
 | --- | --- | --- | --- | --- |
@@ -497,7 +574,7 @@ tag. The source spelling independently fixes the ranges and content.
 | Objc | `/**audit*/\nvoid f(void) {}` | `0..10` | f, `11..26` | `audit` |
 | Go | `package p\n// audit\nfunc F() {}` | `10..18` | F, `19..30` | `audit` |
 | Ruby | `# audit\ndef f\nend` | `0..7` | f, `8..17` | `audit` |
-| Lua | `---audit\nfunction f() end` | `0..8` | f, `9..25` | `audit` |
+| Lua | `module("m")\n---audit\nfunction f() end` | `12..20` | f, `21..37` | `audit` |
 | Perl | `=head2 f\n\nAudit\n\n=cut\n\nsub f {}` | `0..21` | f, `23..31`, inferred role | `=head2 f\n\nAudit` |
 | Elixir | `defmodule M do\n  @doc "audit"\n  def f(), do: :ok\nend` | `17..29` | M/def/f/0, `32..48` | `audit` |
 | Bash | `# @description audit\nf() { :; }` | `0..20` | f, `21..31` | `@description audit` |
@@ -508,6 +585,11 @@ For Ccomment input `/**audit*/` and Preproc input `#define X 1\n`, collection
 reports `NoDeclarationModel` and no documents/associations. A disabled feature
 instead returns language-disabled before collection. Neither helper case can
 satisfy a source language's positive requirement.
+
+Lua's original first-file input `---audit\nfunction f() end` is a separate
+module-document control, with no f association. A preceding `module("m")` makes
+the roster's later block declaration documentation. An undocumented `module()`
+call does not create a synthetic prose document.
 
 ### Independent source and legacy readings
 
@@ -541,6 +623,13 @@ empty local text. Legacy unit DLOC is one, while f's DLOC is zero. For
 `/// outer\n#[test]\nfn test_f() {}\n\n/// kept\nfn f() {}\n`, source docs describe
 both functions. Legacy default DLOC is two; `--exclude-tests` leaves only f
 and DLOC one. Source collection does not inherit the metric pruning option.
+
+For exact Rust input `m! { ///audit\nfn f() {} }\n`, the comment fragment is
+`5..13`, with text `audit` copied from `8..13`. Retain an unresolved macro-expansion
+association and unknown publication; the token-tree spelling does not establish
+a concrete f owner. On the baseline, unit
+`(sloc, ploc, lloc, cloc, blank, dloc) = (2, 2, 0, 1, 0, 1)` and there are no
+nested metric spaces. This source uncertainty does not erase its legacy DLOC.
 
 For `/** Record doc */\nrecord R(int a) {}\n`, the doc belongs to type R,
 not its synthesized header function space. Adding `R {}` inside the record
@@ -601,7 +690,7 @@ without a disambiguating signature remain ambiguous.
 | Offset root or edited node value from the held tree | Noncanonical-node error when context no longer matches the indexed node |
 | Rust profile requested for Python | Unsupported-profile error |
 | Python feature disabled, even with empty input | Language-disabled error |
-| Pre-cancelled typed parse of `///x\nfn f() {}` | Documentation query returns Cancelled outside the cancellation scope too |
+| Typed parse of a long input whose progress callback demonstrably aborts | Retained cancelled provenance; documentation query returns Cancelled outside the cancellation scope too |
 | Complete parse of empty Rust input | Successful empty index |
 | Elixir `@doc false` before f | Retained disabled state for f, no successful empty prose |
 | Elixir `@doc nil` before f | Retained explicit-absence occurrence for f |
@@ -610,6 +699,16 @@ without a disambiguating signature remain ambiguous.
 | Elixir `@doc "text"` and `@doc since: "1"` before f | One document with text `text` and metadata, in either attribute order |
 | Elixir `@doc "old"` then `@doc "new"` before f | Selected text `new`; old occurrence available as superseded evidence |
 | Elixir `@doc "a#{x}b"` before f | Full text unavailable; known `a` and `b` separated by opaque interpolation |
+| Elixir `@impl true` before f without `@doc` | No document; retain owner evidence with ineligible publication |
+| Elixir `@impl true` and explicit `@doc "text"` before f | Present text `text`; impl fallback does not replace it |
+| Elixir `@deprecated "old"` before f without `@doc` | Separate owner metadata evidence, no prose document |
+
+For retained-abort tests, use the existing long-input cancellation fixture or a
+deterministic progress hook and assert that parsing actually aborted. A short
+parse can finish before tree-sitter calls its progress callback. An installed
+cancelled flag alone is not retained-abort provenance. Collection invoked while
+that flag is active returns Cancelled on either entry point; a genuinely
+completed parse queried after the flag is removed remains complete.
 
 For Java `/**pkg*/\npackage p;\nclass C {}`, the comment `0..8` has a source
 association to package p. Explicit logical filename `package-info.java` permits
@@ -642,10 +741,13 @@ that named resolution.
 
 ### Required additional forms
 
-Each row below is an acceptance family owned by the linked adapter issue.
-Its fixture inventory must include every listed spelling/context, in addition
-to the positive roster. A documented limitation has a named unavailable or
-unresolved result; it cannot silently omit a promised form.
+The [case-keyed form inventory](documentation_extraction_cases.md#ownership)
+supplies concrete inputs and outcomes for these acceptance families, including
+the missing-form cleanup, TclOO, Elixir head/clauses and PHP callee matrices.
+Its notation derives exact ranges from written source occurrences, independently
+of implementation results. The families below track coverage ownership; they
+do not let adapters choose between incompatible outcomes. A documented limitation
+has a named unavailable or unresolved result, not an omitted promised form.
 
 | Adapter | Required forms | Exact outcome rule |
 | --- | --- | --- |
@@ -663,14 +765,14 @@ unresolved result; it cannot silently omit a promised form.
 | [JS #1669](https://github.com/dekobon/big-code-analysis/issues/1669) | Both dialects; functions/classes/members/variables/assignments/exports; nested bound callables | Normalize semantic binding owner and retain wrapper; do not attach to every declarator in a multi-declaration |
 | JS | In-body comments, @file/@module/@name, duplicate or forward names, line-versus-block trivia | Unattached legacy DLOC has no fabricated owner; file/virtual docs preserve roles; collisions remain unresolved |
 | [TS #1670](https://github.com/dekobon/big-code-analysis/issues/1670) | Both variants; export/declare/decorators, anonymous defaults, overloads, namespaces/interfaces/types/enums, supported parameters | Distinct source overload owners; declaration wrapper normalization and parameter-only after-code subset remain explicit |
-| TS | @module/@packageDocumentation, assignment/destructuring exclusions, TSX JSX neighbors | Structural file blocks take precedence; excluded assignment forms remain unsupported/unattached rather than copied JS behavior |
+| TS | @module/@packageDocumentation, assignment/destructuring exclusions, TSX JSX neighbors | Structural file blocks take precedence; excluded assignment/destructuring blocks remain unattached evidence, with no resolved binding edge |
 | [C-family #1671](https://github.com/dekobon/big-code-analysis/issues/1671) | Every dialect; leading/trailing/member/signature/in-body docs, multi-declarators, ObjC methods/properties/protocols | Resolve qualifying concrete owners or source slots, with shared documents rather than copied text |
 | C-family | @file gathering, page/group/explicit names, recovery/conditionals, masked names, quoted/CDATA tags | Preserve gatherer once; bounded structural keys finalize; ambiguity/masked original names remain unresolved; quoted/CDATA text does not create structural targets |
 | [Go #1672](https://github.com/dekobon/big-code-analysis/issues/1672) | Package/function/method, type/var/const groups/specs, multi-name fields and interface elements | Group docs stay group docs; member docs remain separate; one field document can serve several named slots |
 | Go | Build/generate/other directives, blank comment rows versus source rows, local/trailing placements | Retain directives as evidence but exclude them from prose as specified; source blank rows detach; excluded local/trailing placements do not get inferred owners |
 | [Ruby #1673](https://github.com/dekobon/big-code-analysis/issues/1673) | Both profiles; methods/classes/modules/singletons/constants/aliases/attributes/visibility wrappers; body/modifier wrappers | Source attachment follows selected scope/call policy; later visibility changes affect eligibility, not occurrence identity |
 | Ruby | `##`, `@!method`, `@!attribute`, `:nodoc:`, shebang/magic comments and named collisions | RDoc/YARD differences stay profile-qualified; virtual docs remain virtual; directives/magic comments are not arbitrary prose |
-| [Lua #1674](https://github.com/dekobon/big-code-analysis/issues/1674) | `---`, long comments, first-file/module contexts, functions/assignments/returns/table fields, structural tags | Opener content and context determine attachment; plain `--` attaches only through selected inference; missing named targets remain virtual/unresolved |
+| [Lua #1674](https://github.com/dekobon/big-code-analysis/issues/1674) | `---`, long comments, first-file/module contexts, functions/assignments/returns/table fields, structural tags | Opener content and context determine attachment; standalone ordinary leading runs require inference; native comments on documented table fields/function parameters retain LDoc provenance |
 | [Perl #1675](https://github.com/dekobon/big-code-analysis/issues/1675) | Direct POD, multiple opaque-node/data-section blocks, headings, comment-only and mixed regions, EOF/CRLF | Preserve physical subranges and POD markup; comment-only regions are not prose; default file/package docs do not attach to the nearest sub |
 | Perl | Unique/forward/duplicate local headings, missing symbols | Explicit heading profile resolves only one qualifying local sub; duplicate/missing cases remain unresolved, with default file docs still available |
 | [Elixir #1676](https://github.com/dekobon/big-code-analysis/issues/1676) | Module/function/macro/type/callback docs, explicit heads/clauses, distinct arities and visibility | Group source-written definitions by module/kind/name/arity; no synthesized default-argument arities or quote-template concrete owners |
@@ -680,6 +782,13 @@ unresolved result; it cannot silently omit a promised form.
 | Tcl | Dynamic names/hooks/preambles, later ordinary comments, continuations/recovery | Dynamic owner/content remains explicit; later unmarked comments excluded; #1802 affected boundaries/phantom declarations remain uncertain |
 | [Irules #1679](https://github.com/dekobon/big-code-analysis/issues/1679) | proc/when, priority/modifiers, neighboring equal-name handlers, leading and body docs | Each handler occurrence has independent identity; both roles remain separate; exact same-scope/row adjacency |
 | Irules | Nested control comments, quoted text, blank/intervening commands, continuations/recovery | No inferred nested control owner; continuation-affected apparent handlers remain uncertain; unrelated positive docs survive |
+
+Sphinx, RDoc block and Go block mapping examples are in
+[comment cleanup cases](documentation_extraction_cases.md#comment-cleanup).
+Lua ordinary trailing comments on documented table fields and function
+parameters have native LDoc provenance, as described in
+[LDoc's code-inference reference](https://lunarmodules.github.io/ldoc/manual/manual.md.html#Inferring_more_from_Code).
+They are not the standalone ordinary leading runs that require generic inference.
 
 ### Reference evidence and baseline
 
@@ -706,6 +815,9 @@ The legacy numbers in these worked cases were measured with the baseline's
 each language case forces its own language and uses the exact written source.
 The characterization issue retains whole-metric captures, both MI modes and
 additional independent row-set assertions before migration.
+
+The [reference observation record](https://gist.github.com/dekobon/acb5b4fd9ada1c2b63f86ae0f0514524)
+preserves the exact Java/Python commands, source inputs and legacy measurements.
 
 ## Qualification and delivery {#qualification}
 
