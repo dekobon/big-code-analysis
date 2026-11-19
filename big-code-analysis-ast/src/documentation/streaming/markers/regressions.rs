@@ -41,7 +41,11 @@ fn runs<T: Checker>(parser: &AnyParser, retain_unbound: bool) -> Vec<MarkerRun<'
     feature = "java",
     feature = "rust",
     feature = "csharp",
-    feature = "php"
+    feature = "php",
+    feature = "c",
+    feature = "cpp",
+    feature = "mozcpp",
+    feature = "objc"
 ))]
 #[allow(clippy::naive_bytecount)]
 fn restricted(lang: LANG, source: &[u8], included: &[Range<usize>]) -> AnyParser {
@@ -334,7 +338,15 @@ fn groovy_hidden_doc_is_unattached_beside_selected_doc() {
     );
 }
 
-#[cfg(any(feature = "rust", feature = "java", feature = "csharp"))]
+#[cfg(any(
+    feature = "rust",
+    feature = "java",
+    feature = "csharp",
+    feature = "c",
+    feature = "cpp",
+    feature = "mozcpp",
+    feature = "objc"
+))]
 fn terminators<T: Checker + crate::traits::LanguageInfo>() {
     for (source, bytes) in [
         (b"///audit\n".as_slice(), b"///audit".as_slice()),
@@ -376,6 +388,19 @@ fn terminators<T: Checker + crate::traits::LanguageInfo>() {
 #[test]
 fn rust_verbatim_line_terminators() {
     terminators::<crate::RustCode>();
+    for (source, expected) in [
+        (b"//!audit\r".as_slice(), b"//!audit\r".as_slice()),
+        (b"//!audit\r\n", b"//!audit"),
+        (b"//!audit\n", b"//!audit"),
+    ] {
+        let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
+        let runs = runs::<crate::RustCode>(&parser, false);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].members.len(), 1);
+        assert_eq!(runs[0].members[0].selection, MarkerSelection::Selected);
+        assert_eq!(runs[0].members[0].source.pieces().len(), 1);
+        assert_eq!(runs[0].members[0].source.pieces()[0].bytes(), expected);
+    }
 }
 #[cfg(feature = "java")]
 #[test]
@@ -386,6 +411,27 @@ fn java_verbatim_line_terminators() {
 #[test]
 fn csharp_verbatim_line_terminators() {
     terminators::<crate::CsharpCode>();
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_verbatim_line_terminators() {
+    terminators::<crate::CCode>();
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_verbatim_line_terminators() {
+    terminators::<crate::CppCode>();
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_verbatim_line_terminators() {
+    terminators::<crate::MozcppCode>();
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_verbatim_line_terminators() {
+    terminators::<crate::ObjcCode>();
 }
 
 #[cfg(any(feature = "rust", feature = "java"))]

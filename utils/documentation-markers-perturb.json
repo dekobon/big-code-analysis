@@ -118,8 +118,8 @@
     {
       "name": "excluded-lf-does-not-strip-included-cr",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "if code.get(lf) == Some(&b'\\n') && context.covers(lf..lf + 1) {",
-      "new": "if code.get(lf) == Some(&b'\\n') {",
+      "old": "if code.get(lf) == Some(&b'\\n') && context.covers(lf..lf + 1) {\n        if code.get(lf - 1) == Some(&b'\\r') && context.covers(lf - 1..lf + 1) {",
+      "new": "if code.get(lf) == Some(&b'\\n') {\n        if code.get(lf - 1) == Some(&b'\\r') {",
       "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
     },
     {
