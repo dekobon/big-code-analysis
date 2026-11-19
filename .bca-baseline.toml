@@ -215,7 +215,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1330.0
+value = 1333.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
@@ -226,8 +226,32 @@ value = 29.0
 [[entry]]
 path = "big-code-analysis-ast/src/checker/php.rs"
 qualified = "php_file_docblock"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/php.rs"
+qualified = "php_file_docblock"
 metric = "halstead.effort"
-value = 72819.97333517869
+value = 85764.10672424761
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/php.rs"
+qualified = "php_file_docblock"
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
+qualified = "RunSelection<'t>::select"
+metric = "halstead.effort"
+value = 55859.38834242588
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
+qualified = "RunSelection<'t>::select"
+metric = "nargs"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -269,7 +293,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 531.0
+value = 554.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -287,13 +311,19 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bound_doc_run"
 metric = "halstead.effort"
-value = 56178.08004602712
+value = 57703.76052754793
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "bound_doc_run"
 metric = "nexits"
 value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "collect_stretch"
+metric = "halstead.effort"
+value = 56431.32292303746
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"

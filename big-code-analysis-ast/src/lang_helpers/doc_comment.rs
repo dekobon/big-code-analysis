@@ -299,8 +299,11 @@ pub fn bound_doc_run<'a, T: Checker>(
     if !documents_where_it_sits::<T>(comment, code, ancestors) {
         return;
     }
-    let (stretch, code_before) =
-        collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
+    let CollectedStretch {
+        members: stretch,
+        code_before,
+        ..
+    } = collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
     let forward = |n: &Node<'a>| {
         view.marker::<T>(n, code, ancestors) && (binding.forward)(n, code, ancestors)
     };
@@ -481,16 +484,23 @@ pub(crate) fn stretch_end<'a, T: Checker>(
 /// `safe` of a `safe fn` is between the item's doc comments and its
 /// first token, not that token. An error the scan does not read past —
 /// one holding a target — ends the stretch and is the sibling before it.
+pub(crate) struct CollectedStretch<'a> {
+    pub(crate) members: Vec<Node<'a>>,
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) prefix_gap: bool,
+}
+
 pub(crate) fn collect_stretch<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
     view: CandidateView,
-) -> (Vec<Node<'a>>, Option<Node<'a>>) {
+) -> CollectedStretch<'a> {
     stretches_collected::record();
     let mut stretch = vec![*comment];
     let mut before = None;
+    let mut prefix_gap = false;
     let mut boundary = comment.end_byte();
     // An error read past is no member of the stretch: neither a comment
     // nor the first token a binder stops at. Left in, a binder that keeps
@@ -499,7 +509,7 @@ pub(crate) fn collect_stretch<'a, T: Checker>(
     // above it instead of the one the tool attaches.
     for sibling in ancestors.siblings_before(comment) {
         if !view.covers(sibling.start_byte()..boundary) {
-            before = Some(sibling);
+            prefix_gap = true;
             break;
         }
         boundary = sibling.start_byte();
@@ -513,8 +523,22 @@ pub(crate) fn collect_stretch<'a, T: Checker>(
             break;
         }
     }
+    if matches!(view, CandidateView::Source(_)) && before.is_none() && !prefix_gap {
+        let start = if ancestors.depth() == Some(1) {
+            0
+        } else {
+            ancestors
+                .parent(comment)
+                .map_or(0, |parent| parent.start_byte())
+        };
+        prefix_gap = !view.covers(start..boundary);
+    }
     stretch.reverse();
-    (stretch, before)
+    CollectedStretch {
+        members: stretch,
+        code_before: before,
+        prefix_gap,
+    }
 }
 
 /// Whether a stretch reads past `node`: a parse error that is no doc

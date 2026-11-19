@@ -100,6 +100,8 @@ pub struct MarkerMember<'s> {
     /// Exact syntax node, including any grammar-owned newline.
     pub node: NodeEvidence<'s>,
     /// Included spelling, excluding a line comment's LF/CRLF terminator.
+    /// May extend one byte beyond `node` to preserve an included lone CR that
+    /// the grammar left outside the comment node.
     pub source: SourcePieces<'s>,
     /// Selection within this profile, independent of legacy billing.
     pub selection: MarkerSelection,
@@ -126,23 +128,35 @@ struct RunSelection<'t> {
     gatherer: Option<Node<'t>>,
     bound: Option<doc_comment::BoundSelection<'t>>,
     gap: bool,
+    prefix_gap_row: Option<usize>,
 }
 
 impl<'t> RunSelection<'t> {
     fn select<T: Checker>(
-        stretch: &[Node<'t>],
-        code_before: Option<Node<'t>>,
+        collected: &doc_comment::CollectedStretch<'t>,
         end: StretchEnd<'t>,
         binding: DocBinding,
         context: &SourceContext<'t>,
         ancestors: Ancestors<'t, '_>,
     ) -> Self {
-        // bca: suppress(nargs) -- the stretch, boundaries, policy and borrowed traversal inputs are independent selector inputs.
+        let stretch = &collected.members;
+        let code_before = collected.code_before;
         let code = context.bytes();
         let marker = |n: &Node<'t>| CandidateView::Source(context).marker::<T>(n, code, ancestors);
-        let forward =
-            |n: &Node<'t>| marker(n) && T::source_doc_binds_forward(n, context, ancestors);
+        let forward = |n: &Node<'t>| {
+            marker(n) && T::source_doc_binds_forward(n, context, ancestors) == Some(true)
+        };
         if let StretchEnd::AtTarget { next, target } = end {
+            // Only a leading-trivia policy that rejects after-code comments
+            // needs the missing prefix; later rows already have a line break.
+            let prefix_gap_row = match binding.kept {
+                doc_comment::KeptDocs::Leading { after_code, .. }
+                    if collected.prefix_gap && !after_code(&target) =>
+                {
+                    stretch.first().map(Node::start_row)
+                }
+                _ => None,
+            };
             let mut bound = doc_comment::select_bound::<T>(
                 stretch,
                 code,
@@ -160,6 +174,7 @@ impl<'t> RunSelection<'t> {
                 gatherer: None,
                 bound: Some(bound),
                 gap: false,
+                prefix_gap_row,
             };
         }
         let result = binding
@@ -175,6 +190,7 @@ impl<'t> RunSelection<'t> {
             gatherer,
             bound: None,
             gap: matches!(end, StretchEnd::ExcludedGap),
+            prefix_gap_row: None,
         }
     }
 
@@ -210,7 +226,20 @@ impl<'t> RunSelection<'t> {
             if kept {
                 selected.next();
             }
-            let forward = T::source_doc_binds_forward(node, request.context, ancestors);
+            let Some(forward) = T::source_doc_binds_forward(node, request.context, ancestors)
+            else {
+                if request.retain_unbound {
+                    let mut evidence = member(
+                        request.context,
+                        node,
+                        MarkerSelection::Unattached,
+                        MarkerPlacement::Unknown,
+                    )?;
+                    evidence.uncertainty = Some(super::super::UnresolvedReason::ExcludedGap);
+                    members.push(evidence);
+                }
+                continue;
+            };
             let selection = if kept || !forward {
                 MarkerSelection::Selected
             } else if self
@@ -238,7 +267,7 @@ impl<'t> RunSelection<'t> {
             };
             let mut member = member(request.context, node, selection, placement)?;
             member.uncertainty = T::source_doc_uncertainty(node, code, ancestors);
-            if self.gap && forward && !kept {
+            if forward && ((self.gap && !kept) || self.prefix_gap_row == Some(node.start_row())) {
                 member.uncertainty = Some(super::super::UnresolvedReason::ExcludedGap);
             }
             members.push(member);
@@ -251,7 +280,7 @@ impl<'t> RunSelection<'t> {
 /// tokens and conditional targets retain uncertainty until an adapter resolves it.
 #[derive(Clone, Copy, Debug)]
 pub enum MarkerPlacement<'s> {
-    /// A gap-spanning comment whose native marker and direction are unknown.
+    /// Excluded source prevents recognizing the marker or deciding its direction.
     Unknown,
     /// Candidate for the following target wrapper.
     Forward,
@@ -293,17 +322,11 @@ pub fn source_comment<'s, T: Checker>(
     {
         return Ok(());
     }
-    let (stretch, code_before) =
+    let collected =
         doc_comment::collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
-    let selection = RunSelection::select::<T>(
-        &stretch,
-        code_before,
-        end,
-        binding,
-        request.context,
-        ancestors,
-    );
-    let members = selection.members::<T>(&stretch, binding, ancestors, request)?;
+    let code_before = collected.code_before;
+    let selection = RunSelection::select::<T>(&collected, end, binding, request.context, ancestors);
+    let members = selection.members::<T>(&collected.members, binding, ancestors, request)?;
     if !members.is_empty() {
         let canonical = |node: Node<'s>| request.context.node(node.as_tree_sitter());
         (request.sink)(MarkerRun {

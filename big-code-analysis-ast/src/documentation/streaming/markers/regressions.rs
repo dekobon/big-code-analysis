@@ -42,6 +42,7 @@ fn runs<T: Checker>(parser: &AnyParser, retain_unbound: bool) -> Vec<MarkerRun<'
     feature = "rust",
     feature = "csharp",
     feature = "php",
+    feature = "typescript",
     feature = "c",
     feature = "cpp",
     feature = "mozcpp",
@@ -219,6 +220,7 @@ fn php_file_scan_cannot_read_a_gap_spanning_marker() {
         if retain {
             assert_eq!(members[0].selection, MarkerSelection::Unattached);
             assert_eq!(members[0].uncertainty, Some(UnresolvedReason::ExcludedGap));
+            assert!(matches!(members[0].placement, MarkerPlacement::Unknown));
             assert!(matches!(members[1].placement, MarkerPlacement::Unknown));
         }
     }
@@ -498,4 +500,170 @@ fn mozcpp_gatherer_search_is_once_per_stretch() {
 #[test]
 fn objc_gatherer_search_is_once_per_stretch() {
     gatherer_search::<crate::ObjcCode>();
+}
+
+#[cfg(all(test, feature = "typescript"))]
+fn source_prefix_gap<T: Checker + crate::traits::LanguageInfo>() {
+    for (source, included, expected_runs, span, target) in [
+        (
+            b"/**a*/ /**b*/\nfunction f() {}".as_slice(),
+            vec![0..6, 7..29],
+            2,
+            7..13,
+            14..29,
+        ),
+        (
+            b"XXXXXX /**b*/\nfunction f() {}".as_slice(),
+            vec![7..29],
+            1,
+            7..13,
+            14..29,
+        ),
+    ] {
+        let parser = restricted(T::lang(), source, &included);
+        for retain in [false, true] {
+            let runs = runs::<T>(&parser, retain);
+            assert_eq!(runs.len(), if retain { expected_runs } else { 1 });
+            if retain && expected_runs == 2 {
+                assert!(runs[0].code_before.is_none());
+                assert!(runs[0].target.is_none());
+                assert_eq!(runs[0].members.len(), 1);
+                assert_eq!(runs[0].members[0].source.pieces()[0].range(), 0..6);
+                assert_eq!(runs[0].members[0].selection, MarkerSelection::Unattached);
+                assert_eq!(
+                    runs[0].members[0].uncertainty,
+                    Some(UnresolvedReason::ExcludedGap)
+                );
+            }
+            let run = runs.last().unwrap();
+            assert!(run.code_before.is_none());
+            assert_eq!(run.target.unwrap().node().byte_range(), target);
+            assert_eq!(run.members.len(), 1);
+            let member = &run.members[0];
+            assert_eq!(member.node.node().byte_range(), span);
+            assert_eq!(member.source.pieces().len(), 1);
+            assert_eq!(member.source.pieces()[0].range(), span);
+            assert_eq!(member.source.pieces()[0].bytes(), b"/**b*/");
+            assert_eq!(member.selection, MarkerSelection::Selected);
+            assert!(matches!(member.placement, MarkerPlacement::Forward));
+            assert_eq!(member.uncertainty, Some(UnresolvedReason::ExcludedGap));
+        }
+    }
+    let parser = AnyParser::parse(
+        T::lang(),
+        b"/**a*/ /**b*/\nfunction f() {}".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let runs = runs::<T>(&parser, false);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].members.len(), 1);
+    assert_eq!(runs[0].members[0].node.node().byte_range(), 7..13);
+    assert_eq!(runs[0].members[0].selection, MarkerSelection::Selected);
+    assert_eq!(runs[0].members[0].uncertainty, None);
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_source_prefix_gap_is_not_preceding_code() {
+    source_prefix_gap::<crate::TypescriptCode>();
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_source_prefix_gap_is_not_preceding_code() {
+    source_prefix_gap::<crate::TsxCode>();
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_source_prefix_gap_keeps_unknown_direction_out_of_selection() {
+    for (source, included) in [
+        (
+            b"<?php\nXX\n/** a */\n/** b */\nclass C {}".as_slice(),
+            vec![0..6, 9..37],
+        ),
+        (
+            b"XX\n<?php\n/** a */\n/** b */\nclass C {}".as_slice(),
+            vec![3..37],
+        ),
+    ] {
+        let parser = restricted(LANG::Php, source, &included);
+        for retain in [false, true] {
+            let runs = runs::<crate::PhpCode>(&parser, retain);
+            assert_eq!(runs.len(), 1);
+            let run = &runs[0];
+            assert_eq!(
+                run.code_before.map(|n| n.node().byte_range()),
+                if included == [3..37] {
+                    Some(3..8)
+                } else {
+                    None
+                }
+            );
+            assert_eq!(run.target.unwrap().node().byte_range(), 27..37);
+            assert_eq!(run.members.len(), if retain { 2 } else { 1 });
+            let b = run.members.last().unwrap();
+            assert_eq!(b.source.pieces().len(), 1);
+            assert_eq!(b.source.pieces()[0].range(), 18..26);
+            assert_eq!(b.source.pieces()[0].bytes(), b"/** b */");
+            assert_eq!(b.selection, MarkerSelection::Selected);
+            assert!(matches!(b.placement, MarkerPlacement::Forward));
+            assert_eq!(b.uncertainty, None);
+            if retain {
+                let a = &run.members[0];
+                assert_eq!(a.source.pieces().len(), 1);
+                assert_eq!(a.source.pieces()[0].range(), 9..17);
+                assert_eq!(a.source.pieces()[0].bytes(), b"/** a */");
+                assert_eq!(a.selection, MarkerSelection::Unattached);
+                assert!(matches!(a.placement, MarkerPlacement::Unknown));
+                assert_eq!(a.uncertainty, Some(UnresolvedReason::ExcludedGap));
+            }
+        }
+    }
+    let parser = AnyParser::parse(
+        LANG::Php,
+        b"<?php\n/** a */\n/** b */\nclass C {}".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let runs = runs::<crate::PhpCode>(&parser, false);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].members.len(), 2);
+    assert!(matches!(
+        runs[0].members[0].placement,
+        MarkerPlacement::Local
+    ));
+    assert!(matches!(
+        runs[0].members[1].placement,
+        MarkerPlacement::Forward
+    ));
+    assert!(
+        runs[0]
+            .members
+            .iter()
+            .all(|m| m.selection == MarkerSelection::Selected && m.uncertainty.is_none())
+    );
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_source_prefix_gap_cannot_select_unknown_define_documentation() {
+    let source = b"<?php\nXX\n/** a */\n((define('X',1)));";
+    let parser = restricted(LANG::Php, source, &[0..6, 9..source.len()]);
+    assert!(runs::<crate::PhpCode>(&parser, false).is_empty());
+    let runs = runs::<crate::PhpCode>(&parser, true);
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    assert!(run.code_before.is_none());
+    assert_eq!(run.target.unwrap().node().byte_range(), 18..source.len());
+    assert_eq!(run.members.len(), 1);
+    let member = &run.members[0];
+    assert_eq!(member.source.pieces()[0].range(), 9..17);
+    assert_eq!(member.source.pieces().len(), 1);
+    assert_eq!(member.selection, MarkerSelection::Unattached);
+    assert!(matches!(member.placement, MarkerPlacement::Unknown));
+    assert_eq!(member.uncertainty, Some(UnresolvedReason::ExcludedGap));
 }

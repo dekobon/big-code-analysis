@@ -142,6 +142,48 @@
       "old": "CandidateView::Source(context),",
       "new": "CandidateView::Legacy,",
       "expect": ["documentation::streaming::markers::regressions::php_file_scan_cannot_read_a_gap_spanning_marker"]
+    },
+    {
+      "name": "prefix-gap-is-not-preceding-code",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "prefix_gap = true;\n            break;",
+      "new": "prefix_gap = true;\n            before = Some(sibling);\n            break;",
+      "expect": ["documentation::streaming::markers::regressions::typescript_source_prefix_gap_is_not_preceding_code", "documentation::streaming::markers::regressions::tsx_source_prefix_gap_is_not_preceding_code", "documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection"]
+    },
+    {
+      "name": "selected-prefix-gap-remains-uncertain",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "self.prefix_gap_row == Some(node.start_row())",
+      "new": "(!kept && self.prefix_gap_row == Some(node.start_row()))",
+      "expect": ["documentation::streaming::markers::regressions::typescript_source_prefix_gap_is_not_preceding_code", "documentation::streaming::markers::regressions::tsx_source_prefix_gap_is_not_preceding_code"]
+    },
+    {
+      "name": "first-source-token-keeps-excluded-prefix",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "prefix_gap = !view.covers(start..boundary);",
+      "new": "prefix_gap = false && !view.covers(start..boundary);",
+      "expect": ["documentation::streaming::markers::regressions::typescript_source_prefix_gap_is_not_preceding_code", "documentation::streaming::markers::regressions::tsx_source_prefix_gap_is_not_preceding_code"]
+    },
+    {
+      "name": "unknown-php-direction-is-not-forward",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": ".map(|file| !file)",
+      "new": ".or(Some(false)).map(|file| !file)",
+      "expect": ["documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection", "documentation::streaming::markers::regressions::php_source_prefix_gap_cannot_select_unknown_define_documentation"]
+    },
+    {
+      "name": "unknown-php-direction-is-not-local",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": ".map(|file| !file)",
+      "new": ".or(Some(true)).map(|file| !file)",
+      "expect": ["documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection", "documentation::streaming::markers::regressions::php_source_prefix_gap_cannot_select_unknown_define_documentation"]
+    },
+    {
+      "name": "php-file-scan-checks-before-first-node",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "if !view.covers(0..boundary) {",
+      "new": "if false && !view.covers(0..boundary) {",
+      "expect": ["documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection"]
     }
   ]
 }

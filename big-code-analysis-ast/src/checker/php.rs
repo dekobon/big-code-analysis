@@ -22,13 +22,14 @@ fn php_file_preamble(node: &Node) -> bool {
 /// node is not a class, function, constant, interface or trait, the first
 /// DocBlock among them is the file's, and otherwise it is only when exactly
 /// two DocBlocks precede it. The backward test stops at the previous
-/// DocBlock, so only the file's first one scans forward.
+/// DocBlock, so only the file's first one scans forward. A source gap reached
+/// by either scan leaves the file decision unknown; the legacy view has no gaps.
 fn php_file_docblock<'a>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     view: CandidateView,
-) -> bool {
+) -> Option<bool> {
     let marker = |n: &Node| match view {
         CandidateView::Legacy => PhpCode::is_doc_comment(n, code),
         CandidateView::Source(_) => view.marker::<PhpCode>(n, code, ancestors),
@@ -36,26 +37,33 @@ fn php_file_docblock<'a>(
     let preamble_or_plain =
         |n: Node| php_file_preamble(&n) || (PhpCode::is_comment(&n) && !marker(&n));
     let mut boundary = comment.start_byte();
-    if !ancestors.parent_has_kind(comment, Php::Program as u16)
-        || !ancestors.siblings_before(comment).all(|n| {
-            let continuous = view.covers(n.start_byte()..boundary);
-            boundary = n.start_byte();
-            continuous && preamble_or_plain(n)
-        })
-    {
-        return false;
+    if !ancestors.parent_has_kind(comment, Php::Program as u16) {
+        return Some(false);
+    }
+    for node in ancestors.siblings_before(comment) {
+        if !view.covers(node.start_byte()..boundary) {
+            return None;
+        }
+        boundary = node.start_byte();
+        if !preamble_or_plain(node) {
+            return Some(false);
+        }
+    }
+    if !view.covers(0..boundary) {
+        return None;
     }
     let mut docs = 1_usize;
     let mut boundary = comment.end_byte();
     for node in ancestors.siblings_after(comment) {
         if !view.covers(boundary..node.end_byte()) {
-            return false;
+            return None;
         }
         boundary = node.end_byte();
         if marker(&node) {
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
-            return docs == 2
+            return Some(
+                docs == 2
                 // role-bypass: allow(DocTarget, FuncOpener, Container, Member) — the subset
                 // of targets `createFileDocBlock` treats as the file's first element: a
                 // selection policy over the row, not membership
@@ -67,15 +75,18 @@ fn php_file_docblock<'a>(
                         | Php::ConstDeclaration2
                         | Php::InterfaceDeclaration
                         | Php::TraitDeclaration
-                );
+                ),
+            );
         }
     }
-    true
+    view.covers(boundary..code.len()).then_some(true)
 }
 
 fn php_doc_in_signature<'a>(comment: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     ancestors.parent(comment).is_some_and(|parent| {
         let kind = parent.kind_id();
+        // A DocBlock after an expression inside its statement belongs to the
+        // following token, rather than documenting that expression's signature.
         // role-bypass: allow(DocTarget) — signature placement excludes define expression statements.
         let declaration =
             crate::roles::php::doc_target::lists_kind(kind) && kind != Php::ExpressionStatement;
@@ -103,14 +114,17 @@ impl Checker for PhpCode {
         node: &Node<'a>,
         context: &crate::documentation::SourceContext<'a>,
         ancestors: Ancestors<'a, '_>,
-    ) -> bool {
-        !php_doc_in_signature(node, ancestors)
-            && !php_file_docblock(
-                node,
-                context.bytes(),
-                ancestors,
-                CandidateView::Source(context),
-            )
+    ) -> Option<bool> {
+        if php_doc_in_signature(node, ancestors) {
+            return Some(false);
+        }
+        php_file_docblock(
+            node,
+            context.bytes(),
+            ancestors,
+            CandidateView::Source(context),
+        )
+        .map(|file| !file)
     }
 
     // phpDocumentor gives an element PHP-Parser's `getDocComment`: the
@@ -127,6 +141,7 @@ impl Checker for PhpCode {
         forward: |comment, code, ancestors| {
             !php_doc_in_signature(comment, ancestors)
                 && !php_file_docblock(comment, code, ancestors, CandidateView::Legacy)
+                    .unwrap_or(false)
         },
         ..DocBinding::new(KeptDocs::Leading {
             hidden: |node, code| !Self::is_doc_comment(node, code),
