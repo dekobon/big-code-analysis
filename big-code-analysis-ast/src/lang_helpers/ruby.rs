@@ -13,6 +13,38 @@ use crate::Ruby;
 use crate::lang_helpers::doc_comment::node_bytes;
 use crate::node::{Ancestors, FoldLane, Node};
 
+/// YARD 0.9.45 `META_MATCH` after `on_comment` hash-line cleanup: remove
+/// the hash run and at most one whitespace byte, then require `@!((\w\.?)+)`
+/// followed by whitespace or end of line. Indented examples remain prose.
+pub(crate) fn source_yard_directive(node: &Node<'_>, code: &[u8]) -> bool {
+    let bytes = node_bytes(node, code);
+    let hashes = bytes.iter().take_while(|&&byte| byte == b'#').count();
+    if hashes == 0 {
+        return false;
+    }
+    let body = &bytes[hashes..];
+    let body = if body.first().is_some_and(u8::is_ascii_whitespace) {
+        &body[1..]
+    } else {
+        body
+    };
+    let Some(mut identifier) = body.strip_prefix(b"@!") else {
+        return false;
+    };
+    let mut found = false;
+    while let Some(byte) = identifier.first() {
+        if !byte.is_ascii_alphanumeric() && *byte != b'_' {
+            break;
+        }
+        found = true;
+        identifier = &identifier[1..];
+        if identifier.first() == Some(&b'.') {
+            identifier = &identifier[1..];
+        }
+    }
+    found && identifier.first().is_none_or(u8::is_ascii_whitespace)
+}
+
 /// Whether `node` — a `Block` / `DoBlock` — is the body of a stabby
 /// lambda (`->(z) { … }` / `->(z) do … end`), which parses as a `Lambda`
 /// node that CONTAINS the block. The `Lambda` wrapper already counts as

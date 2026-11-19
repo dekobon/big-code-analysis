@@ -69,8 +69,8 @@
     {
       "name": "source-member-order",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "run.members.reverse();",
-      "new": "// mutation: leave the reverse scan reversed",
+      "old": "members.push(member);",
+      "new": "members.insert(0, member);",
       "expect": ["documentation::streaming::positional::tests::go_order_directives_and_candidate_are_independent"]
     },
     {
@@ -107,6 +107,62 @@
       "old": "prefix_gap: run.prefix_gap,",
       "new": "prefix_gap: false,",
       "expect": ["documentation::streaming::positional::tests::go_gaps_split_runs_before_selection_and_keep_composition_metadata", "documentation::streaming::positional::tests::ruby_gap_after_code_does_not_hide_incomplete_composition"]
+    },
+    {
+      "name": "legacy-must-not-materialize-before-acceptance",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "let Some(first) = run.first_eligible else {",
+      "new": "let _members = run.materialize(ancestors);\n    let Some(first) = run.first_eligible else {",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::ruby_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::lua_legacy_materializes_no_members", "metrics::loc::documentation_tests::documentation_go_positional_exact_rows"]
+    },
+    {
+      "name": "source-buffer-counter-counts-actual-pushes",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "members_materialized::record();",
+      "new": "// mutation: omit actual buffer observation",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::ruby_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::lua_legacy_materializes_no_members"]
+    },
+    {
+      "name": "exhausted-positional-suffix-is-not-eof",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "!view.covers(last_examined_end..scope_end)",
+      "new": "false && !view.covers(last_examined_end..scope_end)",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_exhaustion_reports_unknown_suffix", "documentation::streaming::positional::tests::remediation::ruby_exhaustion_preserves_explicit_selection", "documentation::streaming::positional::tests::remediation::lua_exhaustion_preserves_known_file_and_tagged_selection"]
+    },
+    {
+      "name": "unknown-prefix-row-must-not-discard-clean-suffix",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": ".take_while(|node| node.start_row() == row)",
+      "new": ".take_while(|node| true || node.start_row() == row)",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_unknown_first_row_keeps_clean_suffix", "documentation::streaming::positional::tests::remediation::ruby_unknown_first_row_keeps_clean_suffix"]
+    },
+    {
+      "name": "yard-later-member-is-not-first-only",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "|| run.members.iter().skip(1).any(|member| {",
+      "new": "|| run.members.iter().skip(1).take(0).any(|member| {",
+      "expect": ["documentation::streaming::positional::tests::remediation::yard_later_directives_follow_trivia_or_prose"]
+    },
+    {
+      "name": "yard-cleanup-removes-at-most-one-whitespace",
+      "file": "big-code-analysis-ast/src/lang_helpers/ruby.rs",
+      "old": "let Some(mut identifier) = body.strip_prefix(b\"@!\") else {",
+      "new": "let Some(mut identifier) = body.trim_ascii_start().strip_prefix(b\"@!\") else {",
+      "expect": ["documentation::streaming::positional::tests::remediation::yard_later_directive_cleanup_is_bounded"]
+    },
+    {
+      "name": "unknown-prefix-row-is-not-selected-prose",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if prefix_placement_gap {",
+      "new": "if false && prefix_placement_gap {",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_unknown_first_row_keeps_clean_suffix", "documentation::streaming::positional::tests::remediation::ruby_unknown_first_row_keeps_clean_suffix"]
+    },
+    {
+      "name": "suffix-gap-does-not-erase-known-selection",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if run.end == RunEnd::ExcludedGap",
+      "new": "if run.suffix_gap || run.end == RunEnd::ExcludedGap",
+      "expect": ["documentation::streaming::positional::tests::remediation::ruby_exhaustion_preserves_explicit_selection", "documentation::streaming::positional::tests::remediation::lua_exhaustion_preserves_known_file_and_tagged_selection"]
     }
   ]
 }

@@ -6,7 +6,7 @@ use crate::{Ancestors, Checker, Node};
 use super::super::{NodeEvidence, SourceContext, SourceError, SourcePieces, UnresolvedReason};
 use super::markers::CandidateView;
 
-pub use doc_comment::{positional_predecessors, positional_runs_collected};
+pub use doc_comment::{members_materialized, positional_predecessors, positional_runs_collected};
 crate::observation::counter!(evidence_built, cfg(any(test, feature = "test-support")));
 
 /// Why the final comment cannot defer to another member.
@@ -18,7 +18,8 @@ pub enum RunEnd {
     BlankLine,
     /// The language's long-comment terminator ends the run.
     Terminator,
-    /// No further sibling exists in this containing scope.
+    /// No further parsed sibling exists. `SourceRun::suffix_gap` distinguishes
+    /// unknown excluded source from a complete scope ending.
     EndOfScope,
     /// Excluded bytes interrupt the run or the following token.
     ExcludedGap,
@@ -92,6 +93,9 @@ pub struct SourceRun<'s> {
     pub code_before: Option<NodeEvidence<'s>>,
     /// Excluded source before this run may make composition incomplete.
     pub prefix_gap: bool,
+    /// Excluded source remains after parsed sibling exhaustion. Independently
+    /// known selection survives, but composition or attachment is incomplete.
+    pub suffix_gap: bool,
     /// Why the run ended.
     pub end: RunEnd,
     /// An excluded gap or recovery boundary prevented a certain decision.
@@ -137,11 +141,12 @@ pub fn source_comment<'s, T: Checker>(
     ) else {
         return Ok(());
     };
-    let decision = SourceDecision::new::<T>(&run, ancestors, request.context);
+    let collected = SourceMembers::collect(&run, ancestors, request.context);
+    let decision = SourceDecision::new::<T>(&run, &collected, ancestors, request.context);
     if decision.selection == RunSelection::Unattached && !request.retain_unbound {
         return Ok(());
     }
-    let members = source_members::<T>(&run, decision.selection, request)?;
+    let members = source_members::<T>(&collected, decision.selection, request)?;
     if !members.is_empty() {
         let canonical = |node: Node<'s>| request.context.node(node.as_tree_sitter());
         (request.sink)(SourceRun {
@@ -152,6 +157,7 @@ pub fn source_comment<'s, T: Checker>(
             containing: ancestors.parent(comment).map(canonical).transpose()?,
             code_before: run.code_before.map(canonical).transpose()?,
             prefix_gap: run.prefix_gap,
+            suffix_gap: run.suffix_gap,
             end: run.end,
             uncertainty: decision.uncertainty,
         });
@@ -165,29 +171,78 @@ struct SourceDecision<'t> {
     uncertainty: Option<UnresolvedReason>,
 }
 
+struct SourceMembers<'t> {
+    nodes: Vec<Node<'t>>,
+    eligible_start: usize,
+    prefix_placement_gap: bool,
+}
+
+impl<'t> SourceMembers<'t> {
+    fn collect(
+        run: &PositionalRun<'t>,
+        ancestors: Ancestors<'t, '_>,
+        source: &SourceContext<'t>,
+    ) -> Self {
+        let nodes = run.materialize(ancestors);
+        let mut eligible_start = run.first_eligible.map_or(nodes.len(), |first| {
+            nodes.partition_point(|node| node.start_byte() < first.start_byte())
+        });
+        let prefix_placement_gap = run.prefix_gap
+            && nodes
+                .get(eligible_start)
+                .is_some_and(|first| !complete_row_prefix(first, source));
+        if prefix_placement_gap {
+            let row = nodes[eligible_start].start_row();
+            eligible_start += nodes[eligible_start..]
+                .iter()
+                .take_while(|node| node.start_row() == row)
+                .count();
+        }
+        Self {
+            nodes,
+            eligible_start,
+            prefix_placement_gap,
+        }
+    }
+}
+
+fn complete_row_prefix(first: &Node<'_>, source: &SourceContext<'_>) -> bool {
+    let start = first
+        .start_byte()
+        .saturating_sub(first.as_tree_sitter().start_position().column);
+    source.covers(start..first.start_byte())
+        && source.bytes()[start..first.start_byte()]
+            .iter()
+            .all(u8::is_ascii_whitespace)
+}
+
 impl<'t> SourceDecision<'t> {
     fn new<T: Checker>(
         run: &PositionalRun<'t>,
+        collected: &SourceMembers<'t>,
         ancestors: Ancestors<'t, '_>,
         source: &SourceContext<'t>,
     ) -> Self {
         let mut decision = Self {
             selection: RunSelection::Unattached,
             target: None,
-            uncertainty: None,
+            uncertainty: (run.suffix_gap || collected.prefix_placement_gap)
+                .then_some(UnresolvedReason::ExcludedGap),
         };
-        if !continuous_placement(run, source) {
+        if run.end == RunEnd::ExcludedGap
+            || !source.covers(run.first.start_byte()..run.last.end_byte())
+        {
             decision.uncertainty = Some(UnresolvedReason::ExcludedGap);
+            return decision;
+        }
+        if collected.eligible_start == collected.nodes.len() {
             return decision;
         }
         decision.target = run
             .below
             .filter(|n| T::is_source_doc_target(n, source.bytes(), ancestors));
-        if run.trailing_members == run.members.len() {
-            return decision;
-        }
         let context = RunContext {
-            members: &run.members[run.trailing_members..],
+            members: &collected.nodes[collected.eligible_start..],
             below: run.below,
             code: source.bytes(),
             source: Some(source),
@@ -210,34 +265,15 @@ impl<'t> SourceDecision<'t> {
     }
 }
 
-fn continuous_placement(run: &PositionalRun<'_>, source: &SourceContext<'_>) -> bool {
-    let Some(first) = run.members.first() else {
-        return false;
-    };
-    if run.end == RunEnd::ExcludedGap || !source.covers(first.start_byte()..first.end_byte()) {
-        return false;
-    }
-    if !run.prefix_gap {
-        return true;
-    }
-    let start = first
-        .start_byte()
-        .saturating_sub(first.as_tree_sitter().start_position().column);
-    source.covers(start..first.start_byte())
-        && source.bytes()[start..first.start_byte()]
-            .iter()
-            .all(u8::is_ascii_whitespace)
-}
-
 fn source_members<'s, T: Checker>(
-    run: &PositionalRun<'s>,
+    collected: &SourceMembers<'s>,
     selection: RunSelection,
     request: &SourceRequest<'_, 's>,
 ) -> Result<Vec<RunMember<'s>>, SourceError> {
     let mut members = Vec::new();
-    for (index, node) in run.members.iter().enumerate() {
-        let trailing = index < run.trailing_members;
-        if trailing && !request.retain_unbound {
+    for (index, node) in collected.nodes.iter().enumerate() {
+        let ineligible = index < collected.eligible_start;
+        if ineligible && !request.retain_unbound {
             continue;
         }
         let directive = request.context.covers(node.start_byte()..node.end_byte())
@@ -252,7 +288,7 @@ fn source_members<'s, T: Checker>(
                 .context
                 .pieces(node.start_byte()..spelling_end(request.context, node))?,
             directive,
-            selected: !trailing && !directive && selection != RunSelection::Unattached,
+            selected: !ineligible && !directive && selection != RunSelection::Unattached,
         });
     }
     Ok(members)

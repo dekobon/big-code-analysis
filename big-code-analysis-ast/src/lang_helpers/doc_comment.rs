@@ -430,6 +430,8 @@ pub(crate) enum StretchEnd<'a> {
     Elsewhere,
     /// Excluded bytes interrupt the source stretch or target spelling.
     ExcludedGap,
+    /// Parsed siblings are exhausted but excluded source remains in this scope.
+    SuffixGap,
 }
 
 /// Where the stretch `comment` belongs to ends. The scan stops at the
@@ -448,7 +450,7 @@ pub(crate) fn stretch_end<'a, T: Checker>(
     let mut after = ancestors.siblings_after(comment).peekable();
     let Some(&next) = after.peek() else {
         return if view.covers(comment.start_byte()..comment.end_byte()) {
-            StretchEnd::Elsewhere
+            exhausted_stretch(comment, comment.end_byte(), code, ancestors, view)
         } else {
             StretchEnd::ExcludedGap
         };
@@ -472,8 +474,43 @@ pub(crate) fn stretch_end<'a, T: Checker>(
         {
             StretchEnd::AtTarget { next, target }
         }
+        None => exhausted_stretch(comment, boundary, code, ancestors, view),
         _ => StretchEnd::Elsewhere,
     }
+}
+
+fn exhausted_stretch<'a>(
+    comment: &Node<'a>,
+    last_examined_end: usize,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+) -> StretchEnd<'a> {
+    if suffix_gap(comment, last_examined_end, code, ancestors, view) {
+        StretchEnd::SuffixGap
+    } else {
+        StretchEnd::Elsewhere
+    }
+}
+
+fn suffix_gap<'a>(
+    comment: &Node<'a>,
+    last_examined_end: usize,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+) -> bool {
+    if matches!(view, CandidateView::Legacy) {
+        return false;
+    }
+    let scope_end = if ancestors.depth().is_some_and(|depth| depth <= 1) {
+        code.len()
+    } else {
+        ancestors
+            .parent(comment)
+            .map_or(code.len(), |scope| scope.end_byte())
+    };
+    !view.covers(last_examined_end..scope_end)
 }
 
 /// The stretch `comment` ends, in source order, and the sibling before it:
@@ -752,17 +789,17 @@ pub fn leading_doc_run<'a, T: Checker>(
     let Some(run) = positional_run::<T>(comment, code, ancestors, CandidateView::Legacy) else {
         return;
     };
-    let Some(first) = run.members.get(run.trailing_members) else {
+    let Some(first) = run.first_eligible else {
         return;
     };
     let documents = run
         .below
         .is_some_and(|n| T::is_doc_target(&n, code, ancestors))
-        || T::is_doc_run_opener(first, run.below.as_ref(), code, ancestors);
+        || T::is_doc_run_opener(&first, run.below.as_ref(), code, ancestors);
     if !documents {
         return;
     }
-    for member in run.members.into_iter().skip(run.trailing_members) {
+    for member in run.members_from(first, ancestors) {
         if !T::is_doc_run_directive(&member, code) {
             credit(member.start_row(), member.end_row());
         }
@@ -783,16 +820,40 @@ pub(crate) fn run_continues_to<T: Checker>(comment: &Node, next: &Node, code: &[
                 && !T::ends_doc_run(comment, code)))
 }
 
-/// Ordered members and boundaries from the completed positional run. Trailing
-/// rows are rejected for billing but retained when source evidence is requested.
+/// Constant-sized boundaries from the completed positional run. Members stream
+/// forward only after legacy acceptance, or into source-only storage.
 pub(crate) struct PositionalRun<'a> {
-    pub(crate) members: Vec<Node<'a>>,
+    pub(crate) first: Node<'a>,
+    pub(crate) last: Node<'a>,
+    pub(crate) first_eligible: Option<Node<'a>>,
     pub(crate) next: Option<Node<'a>>,
     pub(crate) below: Option<Node<'a>>,
     pub(crate) code_before: Option<Node<'a>>,
     pub(crate) prefix_gap: bool,
-    pub(crate) trailing_members: usize,
+    pub(crate) suffix_gap: bool,
     pub(crate) end: crate::documentation::streaming::positional::RunEnd,
+}
+
+impl<'a> PositionalRun<'a> {
+    pub(crate) fn materialize(&self, ancestors: Ancestors<'a, '_>) -> Vec<Node<'a>> {
+        let mut members = Vec::new();
+        for member in self.members_from(self.first, ancestors) {
+            members_materialized::record();
+            members.push(member);
+        }
+        members
+    }
+
+    pub(crate) fn members_from<'c>(
+        &self,
+        first: Node<'a>,
+        ancestors: Ancestors<'a, 'c>,
+    ) -> impl Iterator<Item = Node<'a>> + use<'a, 'c> {
+        let last_start = self.last.start_byte();
+        std::iter::once(first)
+            .chain(ancestors.siblings_after(&first))
+            .take_while(move |member| member.start_byte() <= last_start)
+    }
 }
 
 crate::observation::counter!(
@@ -801,6 +862,11 @@ crate::observation::counter!(
 );
 crate::observation::counter!(
     positional_predecessors,
+    cfg(any(test, feature = "test-support"))
+);
+// Counts actual node-buffer pushes; legacy boundary and coverage paths never call it.
+crate::observation::counter!(
+    members_materialized,
     cfg(any(test, feature = "test-support"))
 );
 
@@ -832,6 +898,8 @@ pub(crate) fn positional_run<'a, T: Checker>(
     let mut run = collect_positional_prefix::<T>(comment, code, ancestors, view);
     run.next = next;
     run.below = below.filter(|_| continuous);
+    run.suffix_gap =
+        next.is_none() && suffix_gap(comment, comment.end_byte(), code, ancestors, view);
     run.end = end;
     Some(run)
 }
@@ -845,15 +913,17 @@ fn collect_positional_prefix<'a, T: Checker>(
     // bca: suppress(cognitive, halstead) -- one reverse state machine preserves clean rows, same-row comments, trailing rows and excluded boundaries.
     positional_runs_collected::record();
     let mut run = PositionalRun {
-        members: vec![*comment],
+        first: *comment,
+        last: *comment,
+        first_eligible: Some(*comment),
         next: None,
         below: None,
         code_before: None,
         prefix_gap: false,
-        trailing_members: 0,
+        suffix_gap: false,
         end: crate::documentation::streaming::positional::RunEnd::EndOfScope,
     };
-    let mut clean_members = 0;
+    let mut clean_first = None;
     let mut row_first = *comment;
     let mut stopped = false;
     for prev in ancestors.siblings_before(comment) {
@@ -866,7 +936,7 @@ fn collect_positional_prefix<'a, T: Checker>(
         if !T::is_comment(&prev) {
             run.code_before = Some(prev);
             if prev.end_row() >= row_first.start_row() {
-                run.trailing_members = run.members.len() - clean_members;
+                run.first_eligible = clean_first;
             }
             stopped = true;
             break;
@@ -877,10 +947,10 @@ fn collect_positional_prefix<'a, T: Checker>(
             break;
         }
         if prev.end_row() < row_first.start_row() {
-            clean_members = run.members.len();
+            clean_first = Some(row_first);
         }
-        run.members.push(prev);
         row_first = prev;
+        run.first_eligible = Some(row_first);
     }
     if !stopped && matches!(view, CandidateView::Source(_)) {
         let start = if ancestors.depth() == Some(1) {
@@ -892,7 +962,7 @@ fn collect_positional_prefix<'a, T: Checker>(
         };
         run.prefix_gap = !view.covers(start..row_first.start_byte());
     }
-    run.members.reverse();
+    run.first = row_first;
     run
 }
 

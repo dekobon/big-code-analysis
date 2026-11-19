@@ -111,14 +111,14 @@
     {
       "name": "lone-cr-is-source-content",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "let lf = if code.get(end - 1) == Some(&b'\\n') {",
-      "new": "let lf = if code.get(end - 1) == Some(&b'\\r') { return end - 1; } else if code.get(end - 1) == Some(&b'\\n') {",
+      "old": "let lf = if context.covers(end - 1..end) && code.get(end - 1) == Some(&b'\\n') {",
+      "new": "let lf = if code.get(end - 1) == Some(&b'\\r') { return end - 1; } else if context.covers(end - 1..end) && code.get(end - 1) == Some(&b'\\n') {",
       "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
     },
     {
       "name": "excluded-lf-does-not-strip-included-cr",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "if code.get(lf) == Some(&b'\\n') && context.covers(lf..lf + 1) {\n        if code.get(lf - 1) == Some(&b'\\r') && context.covers(lf - 1..lf + 1) {",
+      "old": "if context.covers(lf..lf + 1) && code.get(lf) == Some(&b'\\n') {\n        if context.covers(lf - 1..lf + 1) && code.get(lf - 1) == Some(&b'\\r') {",
       "new": "if code.get(lf) == Some(&b'\\n') {\n        if code.get(lf - 1) == Some(&b'\\r') {",
       "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
     },
@@ -184,6 +184,27 @@
       "old": "if !view.covers(0..boundary) {",
       "new": "if false && !view.covers(0..boundary) {",
       "expect": ["documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection"]
+    },
+    {
+      "name": "marker-exhaustion-retains-suffix-composition",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "suffix_gap: selection.suffix_gap,",
+      "new": "suffix_gap: false,",
+      "expect": ["documentation::streaming::markers::regressions::suffix::rust_local_selection_keeps_suffix_composition_gap", "documentation::streaming::markers::regressions::suffix::java_unattached_exhaustion_keeps_unknown_suffix", "documentation::streaming::markers::regressions::suffix::c_gatherer_keeps_selected_suffix_evidence"]
+    },
+    {
+      "name": "marker-exhaustion-after-skipped-trivia-is-not-eof",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "None => exhausted_stretch(comment, boundary, code, ancestors, view),",
+      "new": "None => StretchEnd::Elsewhere,",
+      "expect": ["documentation::streaming::markers::regressions::suffix::marker_exhaustion_checks_after_final_skipped_trivia"]
+    },
+    {
+      "name": "nested-suffix-uses-lexical-boundary",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": ".map_or(code.len(), |scope| scope.end_byte())",
+      "new": ".map_or(code.len(), |_scope| code.len())",
+      "expect": ["documentation::streaming::markers::regressions::suffix::nested_marker_exhaustion_uses_lexical_scope_not_file_tail"]
     }
   ]
 }

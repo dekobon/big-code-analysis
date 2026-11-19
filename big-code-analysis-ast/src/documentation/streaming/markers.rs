@@ -95,6 +95,9 @@ pub struct MarkerRun<'s> {
     /// Excluded source precedes this stretch. Composition may be incomplete even
     /// when only selected members were requested and their attachment is known.
     pub prefix_gap: bool,
+    /// Excluded source remains after the last examined sibling. Local or
+    /// gathered selection can be known while composition remains incomplete.
+    pub suffix_gap: bool,
 }
 
 /// One physical source marker or uncertain comment and its selection result.
@@ -131,6 +134,7 @@ struct RunSelection<'t> {
     gatherer: Option<Node<'t>>,
     bound: Option<doc_comment::BoundSelection<'t>>,
     gap: bool,
+    suffix_gap: bool,
     prefix_gap_row: Option<usize>,
 }
 
@@ -177,6 +181,7 @@ impl<'t> RunSelection<'t> {
                 gatherer: None,
                 bound: Some(bound),
                 gap: false,
+                suffix_gap: false,
                 prefix_gap_row,
             };
         }
@@ -193,6 +198,7 @@ impl<'t> RunSelection<'t> {
             gatherer,
             bound: None,
             gap: matches!(end, StretchEnd::ExcludedGap),
+            suffix_gap: matches!(end, StretchEnd::SuffixGap),
             prefix_gap_row: None,
         }
     }
@@ -270,7 +276,10 @@ impl<'t> RunSelection<'t> {
             };
             let mut member = member(request.context, node, selection, placement)?;
             member.uncertainty = T::source_doc_uncertainty(node, code, ancestors);
-            if forward && ((self.gap && !kept) || self.prefix_gap_row == Some(node.start_row())) {
+            if self.suffix_gap
+                || (forward
+                    && ((self.gap && !kept) || self.prefix_gap_row == Some(node.start_row())))
+            {
                 member.uncertainty = Some(super::super::UnresolvedReason::ExcludedGap);
             }
             members.push(member);
@@ -318,8 +327,10 @@ pub fn source_comment<'s, T: Checker>(
     if matches!(end, StretchEnd::Undecided) {
         return Ok(());
     }
-    if matches!(end, StretchEnd::Elsewhere | StretchEnd::ExcludedGap)
-        && !request.retain_unbound
+    if matches!(
+        end,
+        StretchEnd::Elsewhere | StretchEnd::ExcludedGap | StretchEnd::SuffixGap
+    ) && !request.retain_unbound
         && !T::SOURCE_LOCAL_DOCS
         && binding.gathers.is_none()
     {
@@ -341,6 +352,7 @@ pub fn source_comment<'s, T: Checker>(
             containing: ancestors.parent(comment).map(canonical).transpose()?,
             code_before: code_before.map(canonical).transpose()?,
             prefix_gap: collected.prefix_gap,
+            suffix_gap: selection.suffix_gap,
         });
     }
     Ok(())
@@ -372,21 +384,21 @@ fn member<'s>(
 pub(super) fn line_spelling_end(context: &SourceContext<'_>, node: &Node<'_>) -> usize {
     let code = context.bytes();
     let end = node.end_byte();
-    let lf = if code.get(end - 1) == Some(&b'\n') {
+    let lf = if context.covers(end - 1..end) && code.get(end - 1) == Some(&b'\n') {
         end - 1
     } else {
         end
     };
-    if code.get(lf) == Some(&b'\n') && context.covers(lf..lf + 1) {
-        if code.get(lf - 1) == Some(&b'\r') && context.covers(lf - 1..lf + 1) {
+    if context.covers(lf..lf + 1) && code.get(lf) == Some(&b'\n') {
+        if context.covers(lf - 1..lf + 1) && code.get(lf - 1) == Some(&b'\r') {
             return lf - 1;
         }
         return lf;
     }
     // Some grammars exclude CR from the node even when no included LF follows it.
-    if code.get(end) == Some(&b'\r')
-        && context.covers(end..end + 1)
-        && !(code.get(end + 1) == Some(&b'\n') && context.covers(end + 1..end + 2))
+    if context.covers(end..end + 1)
+        && code.get(end) == Some(&b'\r')
+        && !(context.covers(end + 1..end + 2) && code.get(end + 1) == Some(&b'\n'))
     {
         return end + 1;
     }

@@ -4,6 +4,8 @@ use super::*;
 use crate::{AnyParser, LANG, Search};
 use std::ops::Range;
 
+mod remediation;
+
 #[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]
 fn runs<T: Checker>(parser: &AnyParser, retain: bool, directives: bool) -> Vec<SourceRun<'_>> {
     let context = SourceContext::new(parser.ts_tree(), parser.code());

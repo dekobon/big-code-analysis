@@ -257,7 +257,7 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
 qualified = "RunSelection<'t>::select"
 metric = "halstead.effort"
-value = 55859.38834242588
+value = 59655.33539489184
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
@@ -266,16 +266,28 @@ metric = "nargs"
 value = 5.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
+qualified = "line_spelling_end"
+metric = "halstead.effort"
+value = 48591.21083121782
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers/regressions/suffix.rs"
+qualified = "check_suffix"
+metric = "halstead.effort"
+value = 57170.887340554174
+
+[[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/positional.rs"
 qualified = "SourceDecision<'t>::new"
 metric = "halstead.effort"
-value = 48196.811018362634
+value = 53278.06215664464
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/positional.rs"
 qualified = "source_comment"
 metric = "halstead.effort"
-value = 47971.63551728485
+value = 53469.151178029744
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/positional/tests.rs"
@@ -323,7 +335,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 626.0
+value = 690.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -363,6 +375,12 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "exhausted_stretch"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "joined_run"
 metric = "nargs"
 value = 5.0
@@ -371,7 +389,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "positional_run"
 metric = "halstead.effort"
-value = 49504.66878343322
+value = 58580.287928857055
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -383,11 +401,17 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "stretch_end"
 metric = "halstead.effort"
-value = 63070.7256524501
+value = 73719.8111279588
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "stretch_end"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "suffix_gap"
 metric = "nargs"
 value = 5.0
 

@@ -106,7 +106,10 @@ impl Checker for RubyCode {
             .members
             .first()
             .filter(|first| {
-                crate::roles::ruby::doc_run_opener::owns(first, run.code, ancestors)
+                (crate::roles::ruby::doc_run_opener::owns(first, run.code, ancestors)
+                    || run.members.iter().skip(1).any(|member| {
+                        crate::lang_helpers::ruby::source_yard_directive(member, run.code)
+                    }))
                     && ruby_source_yard_reads(YardScope::Namespace, first, ancestors)
             })
             .map(|_| crate::documentation::streaming::positional::OpenerReason::Explicit))

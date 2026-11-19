@@ -5,6 +5,8 @@ use crate::documentation::SourcePiece;
 use crate::{AnyParser, LANG, Search, documentation::UnresolvedReason};
 use std::ops::Range;
 
+mod suffix;
+
 #[cfg(any(
     feature = "java",
     feature = "rust",

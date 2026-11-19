@@ -19,9 +19,10 @@ struct PositionalRows<'a> {
 #[allow(clippy::arithmetic_side_effects)]
 fn positional_rows(lang: LANG, source: &[u8], expected: PositionalRows<'_>) {
     use big_code_analysis_ast::documentation::streaming::positional::{
-        evidence_built, positional_runs_collected,
+        evidence_built, members_materialized, positional_runs_collected,
     };
     let before = evidence_built::observed();
+    let materialized = members_materialized::observed();
     let scans = positional_runs_collected::observed();
     let intersections = big_code_analysis_ast::documentation::included_range_visits::observed();
     let space = analyze(
@@ -53,6 +54,7 @@ fn positional_rows(lang: LANG, source: &[u8], expected: PositionalRows<'_>) {
         &json!({"ploc_rows": expected.code, "cloc_rows": expected.comments}),
     );
     assert_eq!(evidence_built::observed() - before, 0);
+    assert_eq!(members_materialized::observed() - materialized, 0);
     assert_eq!(
         big_code_analysis_ast::documentation::included_range_visits::observed() - intersections,
         0
