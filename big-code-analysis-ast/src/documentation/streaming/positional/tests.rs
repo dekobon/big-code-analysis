@@ -470,7 +470,9 @@ fn ruby_gap_after_code_does_not_hide_incomplete_composition() {
 #[cfg(feature = "ruby")]
 #[test]
 fn ruby_source_and_legacy_scope_caches_disagree_in_both_orders() {
-    let source = b"foo do\n# audit\ndef f; end\nend";
+    // The conditional puts the call block above the immediate parent, so its
+    // different scope states occupy cached fold levels rather than fresh steps.
+    let source = b"foo do\nif true\n# audit\ndef f; end\nend\nend";
     let parser = parse(LANG::Ruby, source);
     for source_first in [false, true] {
         let context = SourceContext::new(parser.ts_tree(), source);
@@ -510,7 +512,7 @@ fn ruby_source_and_legacy_scope_caches_disagree_in_both_orders() {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].selection, RunSelection::Unattached);
         assert!(result[0].target.is_none());
-        assert_eq!(credited, [(1, 1)]);
+        assert_eq!(credited, [(2, 2)]);
     }
 }
 
