@@ -4,6 +4,27 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
   "cases": [
     {
+      "name": "ruby-source-opener-leaks-call-block-scope",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "&& ruby_source_yard_reads(YardScope::Namespace, first, ancestors)",
+      "new": "&& ruby_yard_reads(YardScope::Namespace, first, ancestors)",
+      "expect": ["documentation::streaming::positional::tests::ruby_yard_scope_uses_actual_wrapper_context"]
+    },
+    {
+      "name": "lua-first-file-scan-crosses-excluded-siblings",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "        if source.is_some_and(|source| !source.covers(sibling.start_byte()..earliest.end_byte())) {\n            return Err(crate::documentation::UnresolvedReason::ExcludedGap);\n        }\n        if source.is_some_and(|source| {\n            before\n                .peek()\n                .is_some_and(|above| !source.covers(above.start_byte()..sibling.end_byte()))\n        }) {\n            return Err(crate::documentation::UnresolvedReason::ExcludedGap);\n        }\n",
+      "new": "",
+      "expect": ["documentation::streaming::positional::tests::lua_gap_never_fabricates_first_file_context"]
+    },
+    {
+      "name": "lua-prose-only-in-opener-member",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "if !text.text {",
+      "new": "if !{ let mut first_text = LdocText::default(); first_text.read(first, run.code); first_text.text } {",
+      "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
+    },
+    {
       "name": "legacy-comment-after-coverage",
       "file": "big-code-analysis-ast/src/documentation/streaming.rs",
       "old": "    marker_comment::<T>(node, code, ancestors, &mut sink);\n    crate::lang_helpers::leading_doc_run::<T>(node, code, ancestors, |first, last| {\n        sink(LegacyEvent::Coverage {\n            kind: CoverageKind::LeadingRun,\n            first,\n            last,\n        });\n    });",

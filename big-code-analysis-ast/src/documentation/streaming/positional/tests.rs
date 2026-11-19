@@ -156,6 +156,11 @@ fn lua_plain_marked_first_file_and_later_contexts() {
         ),
         ("---\nfunction f() end", RunSelection::Unattached, 4..20),
         (
+            "---\n-- audit\nfunction f() end",
+            RunSelection::Opener(OpenerReason::FirstFile),
+            13..29,
+        ),
+        (
             "module(\"m\")\n--- \nfunction f() end",
             RunSelection::Unattached,
             17..33,
@@ -271,6 +276,8 @@ fn ruby_yard_scope_uses_actual_wrapper_context() {
             RunSelection::FollowingTarget,
         ),
         ("foo do\n# audit\ndef f; end\nend", RunSelection::Unattached),
+        ("foo do\n##\n# audit\nputs 1\nend", RunSelection::Unattached),
+        ("foo do\n# @!method ghost\nend", RunSelection::Unattached),
         ("def outer\n# audit\nX = 1\nend", RunSelection::Unattached),
         (
             "if true\n# audit\ndef f; end\nend",
@@ -383,6 +390,18 @@ fn lua_gap_never_fabricates_first_file_context() {
     assert!(result[0].prefix_gap);
     assert!(result[0].code_before.is_none());
     assert_eq!(result[0].uncertainty, Some(UnresolvedReason::ExcludedGap));
+    let source = b"-- header\nXXXX\nmodule(\"m\")\n---audit\nfunction f() end";
+    let parser = restricted(LANG::Lua, source, &[0..10, 15..source.len()]);
+    assert!(runs::<crate::LuaCode>(&parser, false, false).is_empty());
+    let result = runs::<crate::LuaCode>(&parser, true, false);
+    assert_eq!(result.len(), 2);
+    let later = &result[1];
+    assert!(!later.prefix_gap);
+    identity(later.code_before.unwrap(), "function_call", 15..26);
+    identity(later.target.unwrap(), "function_declaration", 36..52);
+    assert_eq!(later.selection, RunSelection::Unattached);
+    assert_eq!(later.uncertainty, Some(UnresolvedReason::ExcludedGap));
+    members(later, &[(27..35, b"---audit", false)]);
 }
 
 #[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]
