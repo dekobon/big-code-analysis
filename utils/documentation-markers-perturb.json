@@ -204,7 +204,7 @@
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
       "old": ".map_or(code.len(), |scope| scope.end_byte())",
       "new": ".map_or(code.len(), |_scope| code.len())",
-      "expect": ["documentation::streaming::markers::regressions::suffix::nested_marker_exhaustion_uses_lexical_scope_not_file_tail"]
+      "expect": ["lang_helpers::doc_comment::tests::documentation_exhausted_tail_uses_the_current_lexical_scope"]
     }
   ]
 }

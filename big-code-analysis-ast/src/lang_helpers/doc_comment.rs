@@ -988,6 +988,54 @@ pub(crate) fn lua_group_head_above<'a, T: Checker>(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "rust")]
+    #[test]
+    fn documentation_exhausted_tail_uses_the_current_lexical_scope() {
+        use crate::documentation::SourceContext;
+        use crate::{AnyParser, LANG, RustCode, Search};
+        let source = b"mod m { //! audit\n}\nXXXX";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&LANG::Rust.tree_sitter_language().unwrap())
+            .unwrap();
+        parser
+            .set_included_ranges(&[tree_sitter::Range {
+                start_byte: 0,
+                end_byte: 20,
+                start_point: tree_sitter::Point::new(0, 0),
+                end_point: tree_sitter::Point::new(2, 0),
+            }])
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let parser = AnyParser::from_tree(LANG::Rust, tree, source.to_vec()).unwrap();
+        let context = SourceContext::new(parser.ts_tree(), source);
+        let mut checked = 0;
+        parser.root_node().act_on_node(&mut |node, ancestors| {
+            if RustCode::is_comment(node) {
+                assert_eq!(ancestors.parent(node).unwrap().kind(), "declaration_list");
+                assert_eq!(ancestors.parent(node).unwrap().end_byte(), 19);
+                // Exercise the exhaustion helper directly: the parsed closing
+                // brace normally stops marker scanning before this tail check.
+                assert!(!suffix_gap(
+                    node,
+                    node.end_byte(),
+                    source,
+                    ancestors,
+                    CandidateView::Source(&context)
+                ));
+                assert!(suffix_gap(
+                    node,
+                    node.end_byte(),
+                    source,
+                    Ancestors::known(&[parser.root_node()]),
+                    CandidateView::Source(&context)
+                ));
+                checked += 1;
+            }
+        });
+        assert_eq!(checked, 1);
+    }
+
     #[cfg(feature = "c")]
     fn read_past_error<'a, T: Checker>(
         node: &Node<'a>,
