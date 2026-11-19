@@ -4,6 +4,34 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
   "cases": [
     {
+      "name": "legacy-comment-after-coverage",
+      "file": "big-code-analysis-ast/src/documentation/streaming.rs",
+      "old": "    marker_comment::<T>(node, code, ancestors, &mut sink);\n    crate::lang_helpers::leading_doc_run::<T>(node, code, ancestors, |first, last| {\n        sink(LegacyEvent::Coverage {\n            kind: CoverageKind::LeadingRun,\n            first,\n            last,\n        });\n    });",
+      "new": "    crate::lang_helpers::leading_doc_run::<T>(node, code, ancestors, |first, last| {\n        sink(LegacyEvent::Coverage {\n            kind: CoverageKind::LeadingRun,\n            first,\n            last,\n        });\n    });\n    marker_comment::<T>(node, code, ancestors, &mut sink);",
+      "expect": ["documentation::streaming::positional::tests::go_completed_run_is_scanned_once", "documentation::streaming::positional::tests::ruby_completed_run_is_scanned_once", "documentation::streaming::positional::tests::lua_completed_run_is_scanned_once"]
+    },
+    {
+      "name": "source-drop-recovered-candidate",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": ".filter(|n| T::is_source_doc_target(n, source.bytes(), ancestors));",
+      "new": ".filter(|n| !n.has_error() && T::is_source_doc_target(n, source.bytes(), ancestors));",
+      "expect": ["documentation::streaming::positional::tests::go_missing_target_retains_uncertain_canonical_candidate"]
+    },
+    {
+      "name": "source-lua-empty-opener-selects",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "if !text.text {",
+      "new": "if false && !text.text {",
+      "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
+    },
+    {
+      "name": "source-lua-forgets-earlier-file-block",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "if opens_run\n",
+      "new": "if source.is_none() && opens_run\n",
+      "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
+    },
+    {
       "name": "positional-final-member-deferral",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
       "old": "if continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {",

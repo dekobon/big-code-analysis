@@ -281,7 +281,7 @@ value = 47971.63551728485
 path = "big-code-analysis-ast/src/documentation/streaming/positional/tests.rs"
 qualified = "work"
 metric = "halstead.effort"
-value = 53704.58403901065
+value = 73112.8706762203
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"

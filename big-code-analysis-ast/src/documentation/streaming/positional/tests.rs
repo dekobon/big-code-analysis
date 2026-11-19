@@ -154,6 +154,12 @@ fn lua_plain_marked_first_file_and_later_contexts() {
             RunSelection::Opener(OpenerReason::FollowingItem),
             27..43,
         ),
+        ("---\nfunction f() end", RunSelection::Unattached, 4..20),
+        (
+            "module(\"m\")\n--- \nfunction f() end",
+            RunSelection::Unattached,
+            17..33,
+        ),
     ] {
         let parser = parse(LANG::Lua, source.as_bytes());
         let result = runs::<crate::LuaCode>(&parser, true, false);
@@ -183,6 +189,19 @@ fn lua_plain_marked_first_file_and_later_contexts() {
         ],
     );
     assert_eq!(result[0].end, RunEnd::EndOfScope);
+    let parser = parse(LANG::Lua, b"---module\n\n---later\nfunction f() end");
+    let result = runs::<crate::LuaCode>(&parser, false, false);
+    assert_eq!(result.len(), 2);
+    assert_eq!(
+        result[0].selection,
+        RunSelection::Opener(OpenerReason::FirstFile)
+    );
+    assert!(result[0].target.is_none());
+    assert_eq!(
+        result[1].selection,
+        RunSelection::Opener(OpenerReason::FollowingItem)
+    );
+    identity(result[1].target.unwrap(), "function_declaration", 20..36);
 }
 
 #[cfg(feature = "go")]
@@ -385,17 +404,30 @@ fn work<T: Checker + crate::traits::LanguageInfo>(prefix: &str, comment: &str, t
         let mut rows = Vec::new();
         parser.root_node().act_on_node(&mut |node, ancestors| {
             if T::is_comment(node) {
+                let mut billed = false;
                 super::super::positional_comment::<T>(
                     node,
                     source.as_bytes(),
                     ancestors,
                     |event| {
+                        if let super::super::LegacyEvent::Comment { node: current, .. } = event {
+                            assert_eq!(current.id(), node.id());
+                            assert!(!billed, "each visit bills its comment once");
+                            billed = true;
+                        }
                         if let super::super::LegacyEvent::Coverage { kind, first, last } = event {
+                            assert!(billed, "coverage follows the final comment's billing");
+                            assert_eq!(
+                                node.start_row(),
+                                width,
+                                "only the final visit credits the run"
+                            );
                             assert_eq!(kind, super::super::CoverageKind::LeadingRun);
                             rows.push((first, last));
                         }
                     },
                 );
+                assert!(billed);
             }
         });
         assert_eq!(rows, (1..=width).map(|row| (row, row)).collect::<Vec<_>>());
@@ -591,6 +623,8 @@ fn go_missing_target_retains_uncertain_canonical_candidate() {
         Some(UnresolvedReason::GrammarBoundary)
     );
     assert!(result[0].following.unwrap().node().has_error());
+    assert_eq!(result[0].selection, RunSelection::FollowingTarget);
+    identity(result[0].target.unwrap(), "function_declaration", 19..29);
     assert_eq!(result[0].members.len(), 1);
     identity(result[0].members[0].node, "comment", 10..18);
 }
