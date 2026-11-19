@@ -14,7 +14,7 @@ use super::min_or_zero;
 /// docstring are the constructs recorded here, and their rows are
 /// exactly the rows the same arms also record as comment lines, so
 /// `dloc() <= cloc()` holds by construction — `add_comment_rows` inserts
-/// into both, and `add_leading_doc_run` (Go, Ruby, Lua),
+/// into both, and `add_positional_comment` (Go, Ruby, Lua),
 /// `add_bound_doc_run` (the doc comments Rust, Java, Kotlin, Groovy, C#,
 /// PHP and the JS family attach to the declaration after them, #1613)
 /// and Python's

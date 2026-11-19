@@ -214,14 +214,26 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "<file>"
+metric = "loc.ploc"
+value = 525.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker.rs"
+qualified = "<file>"
 metric = "loc.sloc"
-value = 1333.0
+value = 1354.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker.rs"
 qualified = "Checker"
 metric = "nom"
-value = 29.0
+value = 32.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/checker/lua.rs"
+qualified = "lua_first_block_in"
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/checker/php.rs"
@@ -252,6 +264,24 @@ path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
 qualified = "RunSelection<'t>::select"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/positional.rs"
+qualified = "SourceDecision<'t>::new"
+metric = "halstead.effort"
+value = 48196.811018362634
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/positional.rs"
+qualified = "source_comment"
+metric = "halstead.effort"
+value = 47971.63551728485
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/positional/tests.rs"
+qualified = "work"
+metric = "halstead.effort"
+value = 53704.58403901065
 
 [[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
@@ -293,7 +323,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 554.0
+value = 626.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -336,6 +366,12 @@ path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "joined_run"
 metric = "nargs"
 value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "positional_run"
+metric = "halstead.effort"
+value = 49504.66878343322
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"

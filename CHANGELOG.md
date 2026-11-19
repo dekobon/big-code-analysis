@@ -26,6 +26,10 @@ for historical reference.
 
 ### Added
 
+- Added unstable AST positional-run evidence for Go, Ruby and Lua, including
+  ordered comments, directive members, candidate targets and opener reasons.
+  Marker and positional runs retain excluded-prefix composition metadata. (#1659)
+
 - Added unstable AST-crate source-marker `Checker` hooks and streaming requests
   that retain selection, source pieces and attachment uncertainty. The separate
   legacy event stream preserves existing metric behavior. (#1658)

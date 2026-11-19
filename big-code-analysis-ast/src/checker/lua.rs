@@ -19,19 +19,25 @@ struct LdocText {
     tag: bool,
 }
 
+impl LdocText {
+    fn read(&mut self, member: &Node<'_>, code: &[u8]) {
+        for line in node_bytes(member, code).split(|&byte| byte == b'\n') {
+            let body = ldoc_line_body(line);
+            self.text |= body.iter().any(|&byte| {
+                !matches!(byte, b'-' | b'[' | b']' | b'=') && !byte.is_ascii_whitespace()
+            });
+            self.tag |=
+                matches!(body.trim_ascii_start(), [b'@', tag, ..] if tag.is_ascii_alphanumeric());
+        }
+    }
+}
+
 fn lua_block_text<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> LdocText {
     let mut found = LdocText::default();
     let mut member = *first;
     let mut after = ancestors.siblings_after(first);
     loop {
-        for line in node_bytes(&member, code).split(|&byte| byte == b'\n') {
-            let body = ldoc_line_body(line);
-            found.text |= body.iter().any(|&byte| {
-                !matches!(byte, b'-' | b'[' | b']' | b'=') && !byte.is_ascii_whitespace()
-            });
-            found.tag |=
-                matches!(body.trim_ascii_start(), [b'@', tag, ..] if tag.is_ascii_alphanumeric());
-        }
+        found.read(&member, code);
         match after.next() {
             Some(next) if run_continues_to::<LuaCode>(&member, &next, code) => member = next,
             _ => return found,
@@ -57,6 +63,16 @@ fn ldoc_line_body(line: &[u8]) -> &[u8] {
 /// and every block that reaches it qualifies, so the scans of a file cover
 /// disjoint stretches and cost `O(siblings)` in all.
 fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    lua_first_block_in(first, code, ancestors, None).unwrap_or(false)
+}
+
+fn lua_first_block_in<'a>(
+    first: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: Option<&crate::documentation::SourceContext<'a>>,
+) -> Result<bool, crate::documentation::UnresolvedReason> {
+    // bca: suppress(halstead) -- the same reverse first-block decision serves legacy and source, with source-only gap barriers.
     // A fast path, not a separate rule: every other container opens with a
     // token (`if`, `do`, `{`), and the grammar parks a comment above a
     // body's first statement after it, so the first-token test below would
@@ -67,11 +83,21 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
         .parent(first)
         .is_none_or(|parent| parent.kind_id() != Lua::Chunk)
     {
-        return false;
+        return Ok(false);
     }
     let mut earliest = *first;
     let mut before = ancestors.siblings_before(first).peekable();
     while let Some(sibling) = before.next() {
+        if source.is_some_and(|source| !source.covers(sibling.start_byte()..earliest.end_byte())) {
+            return Err(crate::documentation::UnresolvedReason::ExcludedGap);
+        }
+        if source.is_some_and(|source| {
+            before
+                .peek()
+                .is_some_and(|above| !source.covers(above.start_byte()..sibling.end_byte()))
+        }) {
+            return Err(crate::documentation::UnresolvedReason::ExcludedGap);
+        }
         // `run_continues_to` asks only whether `sibling` continues a run
         // from `above`, so a comment directly under code needs the
         // comment test too: it opens its run.
@@ -85,13 +111,19 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
             && ldoc_opener(node_bytes(&sibling, code))
             && lua_block_text(&sibling, code, ancestors).text
         {
-            return false;
+            return Ok(false);
         }
         earliest = sibling;
     }
+    if source.is_some_and(|source| !source.covers(0..earliest.start_byte())) {
+        return Err(crate::documentation::UnresolvedReason::ExcludedGap);
+    }
     // role-bypass: allow(Comment) — whether the file opens with a comment or
     // a shebang, LDoc's first-token rule; traversal, not membership
-    matches!(earliest.kind_id().into(), Lua::Comment | Lua::HashBangLine)
+    Ok(matches!(
+        earliest.kind_id().into(),
+        Lua::Comment | Lua::HashBangLine
+    ))
 }
 
 /// The first statement of a `block`, which stands for it: the grammar parks
@@ -104,6 +136,67 @@ fn lua_block_first_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
 }
 
 impl Checker for LuaCode {
+    const SOURCE_POSITIONAL_DOCS: bool = true;
+
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        if let Some(item) = lua_block_first_statement(node) {
+            crate::roles::lua::doc_target::owns(&item, code, ancestors.of_children(node).get())
+        } else {
+            crate::roles::lua::doc_target::owns(node, code, ancestors)
+        }
+    }
+
+    fn source_doc_run_opener<'a>(
+        run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    > {
+        // bca: suppress(nexits, halstead) -- retain unknown prefix context before selecting file, tagged or following-item documentation.
+        use crate::documentation::streaming::positional::OpenerReason;
+        if run.members.first().is_some_and(|first| {
+            ancestors
+                .siblings_before(first)
+                .next()
+                .is_some_and(|above| {
+                    Self::is_comment(&above)
+                        && run.source.is_some_and(|source| {
+                            !source.covers(above.start_byte()..first.end_byte())
+                        })
+                })
+        }) {
+            return Err(crate::documentation::UnresolvedReason::ExcludedGap);
+        }
+        let Some(first) = run
+            .members
+            .first()
+            .filter(|first| crate::roles::lua::doc_run_opener::owns(first, run.code, ancestors))
+        else {
+            return Ok(None);
+        };
+        let mut text = LdocText::default();
+        for member in run.members {
+            text.read(member, run.code);
+        }
+        if !text.text {
+            return Ok(None);
+        }
+        if lua_first_block_in(first, run.code, ancestors, run.source)? {
+            return Ok(Some(OpenerReason::FirstFile));
+        }
+        if text.tag {
+            return Ok(Some(OpenerReason::Tagged));
+        }
+        Ok(run
+            .below
+            .filter(|next| Self::is_source_doc_target(next, run.code, ancestors))
+            .map(|_| OpenerReason::FollowingItem))
+    }
     // The `Comment` row of `roles/lua.rs` (#1699); no `DocComment`.
     impl_comment_from_rows!(lua);
 

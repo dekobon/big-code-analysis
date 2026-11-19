@@ -182,6 +182,8 @@ fn excluded_code_keeps_unrelated_later_docs_and_splits_comment_runs() {
         assert_eq!(runs.len(), if retain { 2 } else { 1 });
         let last = runs.last().unwrap();
         assert_eq!(last.members.len(), 1);
+        assert!(last.prefix_gap);
+        assert!(last.code_before.is_none());
         assert_eq!(last.members[0].source.pieces()[0].bytes(), b"/**new*/");
         assert_eq!(last.members[0].selection, MarkerSelection::Selected);
         assert_eq!(last.members[0].uncertainty, None);
@@ -196,6 +198,25 @@ fn excluded_code_keeps_unrelated_later_docs_and_splits_comment_runs() {
                 Some(UnresolvedReason::ExcludedGap)
             );
         }
+    }
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn selected_join_all_run_reports_missing_prefix_for_composition() {
+    let source = b"///old\nXXXX\n///new\nfn f() {}";
+    let parser = restricted(LANG::Rust, source, &[0..7, 12..source.len()]);
+    for retain in [false, true] {
+        let result = runs::<crate::RustCode>(&parser, retain);
+        assert_eq!(result.len(), if retain { 2 } else { 1 });
+        let last = result.last().unwrap();
+        assert!(last.prefix_gap);
+        assert!(last.code_before.is_none());
+        assert_eq!(last.members.len(), 1);
+        assert_eq!(last.members[0].selection, MarkerSelection::Selected);
+        assert_eq!(last.members[0].source.pieces()[0].bytes(), b"///new");
+        assert_eq!(last.target.unwrap().node().kind(), "function_item");
+        assert_eq!(last.target.unwrap().node().byte_range(), 19..28);
     }
 }
 

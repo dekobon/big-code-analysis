@@ -46,8 +46,7 @@ impl Loc for LuaCode {
                 if ancestors.parent_has_kind(node, Lua::Comment as u16) => {}
 
             Lua::Comment => {
-                add_comment_lines::<Self>(node, code, ancestors, stats);
-                add_leading_doc_run::<Self>(node, code, ancestors, stats);
+                add_positional_comment::<Self>(node, code, ancestors, stats);
             }
 
             // Standalone assignment (`x = 1`). Skip when nested inside a local variable

@@ -1103,7 +1103,7 @@ impl Stats {
             self.sloc()
         );
         // Every documentation row is a cloc row (#1597) — `add_comment_rows`
-        // bills both, `add_leading_doc_run` re-bills billed comment rows —
+        // bills both, `add_positional_comment` re-bills billed comment rows —
         // and MI's subtractions rely on it. Compared as sets, not counts: a
         // stray row would grow the union while leaving `dloc() <= cloc()`.
         #[cfg(debug_assertions)]

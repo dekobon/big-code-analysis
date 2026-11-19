@@ -1,0 +1,63 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
+  "cases": [
+    {
+      "name": "positional-final-member-deferral",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "if continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {",
+      "new": "if false && continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {",
+      "expect": ["documentation::streaming::positional::tests::go_completed_run_is_scanned_once", "documentation::streaming::positional::tests::ruby_completed_run_is_scanned_once", "documentation::streaming::positional::tests::lua_completed_run_is_scanned_once"]
+    },
+    {
+      "name": "legacy-directive-exclusion",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "if !T::is_doc_run_directive(&member, code) {",
+      "new": "if true || !T::is_doc_run_directive(&member, code) {",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_positional_exact_rows", "metrics::loc::documentation_tests::documentation_ruby_positional_exact_rows"]
+    },
+    {
+      "name": "source-member-order",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "run.members.reverse();",
+      "new": "// mutation: leave the reverse scan reversed",
+      "expect": ["documentation::streaming::positional::tests::go_order_directives_and_candidate_are_independent"]
+    },
+    {
+      "name": "lua-ordinary-comment-is-not-inference",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "Ok(None) if T::SOURCE_POSITIONAL_TARGETS && decision.target.is_some() => {",
+      "new": "Ok(None) if decision.target.is_some() => {",
+      "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
+    },
+    {
+      "name": "source-directive-retention-is-lazy",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if directive && !request.retain_directives {",
+      "new": "if false && directive && !request.retain_directives {",
+      "expect": ["documentation::streaming::positional::tests::go_order_directives_and_candidate_are_independent", "documentation::streaming::positional::tests::go_directive_only_evidence_is_lazy_and_not_prose"]
+    },
+    {
+      "name": "ruby-source-and-legacy-scope-are-different-questions",
+      "file": "big-code-analysis-ast/src/lang_helpers/ruby.rs",
+      "old": "FoldLane::SourceDocScope",
+      "new": "FoldLane::DocScope",
+      "expect": ["documentation::streaming::positional::tests::ruby_source_and_legacy_scope_caches_disagree_in_both_orders"]
+    },
+    {
+      "name": "marker-selected-composition-needs-prefix-gap",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "prefix_gap: collected.prefix_gap,",
+      "new": "prefix_gap: false,",
+      "expect": ["documentation::streaming::markers::regressions::selected_join_all_run_reports_missing_prefix_for_composition"]
+    },
+    {
+      "name": "positional-selected-composition-needs-prefix-gap",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "prefix_gap: run.prefix_gap,",
+      "new": "prefix_gap: false,",
+      "expect": ["documentation::streaming::positional::tests::go_gaps_split_runs_before_selection_and_keep_composition_metadata", "documentation::streaming::positional::tests::ruby_gap_after_code_does_not_hide_incomplete_composition"]
+    }
+  ]
+}

@@ -453,6 +453,8 @@ pub(crate) enum FoldLane {
     /// Ruby's YARD namespace. One lane serves both because a walk parses
     /// one language.
     DocScope,
+    /// Source YARD scope excludes call blocks retained by legacy metrics.
+    SourceDocScope,
     /// Python: the climb from a node through the parentheses above it to
     /// a bare string statement (#1610).
     BareStringClimb,
@@ -479,7 +481,7 @@ pub(crate) enum FoldLane {
 
 impl FoldLane {
     /// How many lanes a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 11;
+    const COUNT: usize = 12;
 }
 
 // A lane past `COUNT` would index out of the array at run time, on the

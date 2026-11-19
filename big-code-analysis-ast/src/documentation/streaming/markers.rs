@@ -92,6 +92,9 @@ pub struct MarkerRun<'s> {
     pub containing: Option<NodeEvidence<'s>>,
     /// Preceding code retained for after-code placement decisions.
     pub code_before: Option<NodeEvidence<'s>>,
+    /// Excluded source precedes this stretch. Composition may be incomplete even
+    /// when only selected members were requested and their attachment is known.
+    pub prefix_gap: bool,
 }
 
 /// One physical source marker or uncertain comment and its selection result.
@@ -337,6 +340,7 @@ pub fn source_comment<'s, T: Checker>(
                 .and_then(|node| T::source_doc_uncertainty(&node, code, ancestors)),
             containing: ancestors.parent(comment).map(canonical).transpose()?,
             code_before: code_before.map(canonical).transpose()?,
+            prefix_gap: collected.prefix_gap,
         });
     }
     Ok(())
@@ -365,7 +369,7 @@ fn member<'s>(
     })
 }
 
-fn line_spelling_end(context: &SourceContext<'_>, node: &Node<'_>) -> usize {
+pub(super) fn line_spelling_end(context: &SourceContext<'_>, node: &Node<'_>) -> usize {
     let code = context.bytes();
     let end = node.end_byte();
     let lf = if code.get(end - 1) == Some(&b'\n') {

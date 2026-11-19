@@ -749,28 +749,20 @@ pub fn leading_doc_run<'a, T: Checker>(
     ancestors: Ancestors<'a, '_>,
     mut credit: impl FnMut(usize, usize),
 ) {
-    let next = ancestors.siblings_after(comment).next();
-    if next
-        .as_ref()
-        .is_some_and(|n| run_continues_to::<T>(comment, n, code))
-    {
-        // A later member decides.
-        return;
-    }
-    let Some(first) = run_first_member::<T>(comment, code, ancestors) else {
+    let Some(run) = positional_run::<T>(comment, code, ancestors, CandidateView::Legacy) else {
         return;
     };
-    // `next` is `comment`'s sibling, so `ancestors` is its chain too.
-    let below = next.filter(|n| T::doc_target_start_row(n) == comment.end_row().saturating_add(1));
-    let documents = below.is_some_and(|n| T::is_doc_target(&n, code, ancestors))
-        || T::is_doc_run_opener(&first, below.as_ref(), code, ancestors);
+    let Some(first) = run.members.get(run.trailing_members) else {
+        return;
+    };
+    let documents = run
+        .below
+        .is_some_and(|n| T::is_doc_target(&n, code, ancestors))
+        || T::is_doc_run_opener(first, run.below.as_ref(), code, ancestors);
     if !documents {
         return;
     }
-    for member in std::iter::once(first).chain(ancestors.siblings_after(&first)) {
-        if member.start_byte() > comment.start_byte() {
-            break;
-        }
+    for member in run.members.into_iter().skip(run.trailing_members) {
         if !T::is_doc_run_directive(&member, code) {
             credit(member.start_row(), member.end_row());
         }
@@ -791,48 +783,117 @@ pub(crate) fn run_continues_to<T: Checker>(comment: &Node, next: &Node, code: &[
                 && !T::ends_doc_run(comment, code)))
 }
 
-/// The first member of the run `comment` ends: the comment siblings
-/// before it on consecutive rows that hold nothing but comments, so two
-/// comments sharing a row (`/* a */ /* b */`) are one row of the run.
-/// `None` when code precedes `comment` on its own row: a trailing
-/// comment belongs to no run, and a row where code precedes its
-/// comments ends the run below it. One backward pass over one sibling
-/// iterator.
-fn run_first_member<'a, T: Checker>(
+/// Ordered members and boundaries from the completed positional run. Trailing
+/// rows are rejected for billing but retained when source evidence is requested.
+pub(crate) struct PositionalRun<'a> {
+    pub(crate) members: Vec<Node<'a>>,
+    pub(crate) next: Option<Node<'a>>,
+    pub(crate) below: Option<Node<'a>>,
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) prefix_gap: bool,
+    pub(crate) trailing_members: usize,
+    pub(crate) end: crate::documentation::streaming::positional::RunEnd,
+}
+
+crate::observation::counter!(
+    positional_runs_collected,
+    cfg(any(test, feature = "test-support"))
+);
+crate::observation::counter!(
+    positional_predecessors,
+    cfg(any(test, feature = "test-support"))
+);
+
+pub(crate) fn positional_run<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    // `row_first` is the earliest comment found on the row being scanned;
-    // `first` is the first member of the earliest row known to be clean.
-    // Each step moves `row_first` to the sibling just before it, so one
-    // iterator walks the whole run.
-    let mut before = ancestors.siblings_before(comment);
-    let mut first = None;
-    let mut row_first = *comment;
-    loop {
-        match before.next() {
-            // Another token on this row: a comment extends the row, and
-            // code before it makes every comment on the row a trailing one.
-            Some(prev) if prev.end_row() >= row_first.start_row() => {
-                if !T::is_comment(&prev) {
-                    return first;
-                }
-                row_first = prev;
-            }
-            // A comment ending on the row above: this row is clean, and
-            // the run continues upward unless that comment ends a run.
-            Some(prev)
-                if T::is_comment(&prev)
-                    && prev.end_row().saturating_add(1) == row_first.start_row()
-                    && !T::ends_doc_run(&prev, code) =>
-            {
-                first = Some(row_first);
-                row_first = prev;
-            }
-            _ => return Some(row_first),
-        }
+    view: CandidateView<'_>,
+) -> Option<PositionalRun<'a>> {
+    use crate::documentation::streaming::positional::RunEnd;
+    let next = ancestors.siblings_after(comment).next();
+    let continuous =
+        view.covers(comment.start_byte()..next.map_or(comment.end_byte(), |n| n.end_byte()));
+    if continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {
+        return None;
     }
+    let below = next.filter(|n| T::doc_target_start_row(n) == comment.end_row().saturating_add(1));
+    let end = if !continuous {
+        RunEnd::ExcludedGap
+    } else if T::ends_doc_run(comment, code) {
+        RunEnd::Terminator
+    } else if next.is_none() {
+        RunEnd::EndOfScope
+    } else if below.is_none() && next.is_some_and(|n| n.start_row() > comment.end_row()) {
+        RunEnd::BlankLine
+    } else {
+        RunEnd::Token
+    };
+    let mut run = collect_positional_prefix::<T>(comment, code, ancestors, view);
+    run.next = next;
+    run.below = below.filter(|_| continuous);
+    run.end = end;
+    Some(run)
+}
+
+fn collect_positional_prefix<'a, T: Checker>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+) -> PositionalRun<'a> {
+    // bca: suppress(cognitive, halstead) -- one reverse state machine preserves clean rows, same-row comments, trailing rows and excluded boundaries.
+    positional_runs_collected::record();
+    let mut run = PositionalRun {
+        members: vec![*comment],
+        next: None,
+        below: None,
+        code_before: None,
+        prefix_gap: false,
+        trailing_members: 0,
+        end: crate::documentation::streaming::positional::RunEnd::EndOfScope,
+    };
+    let mut clean_members = 0;
+    let mut row_first = *comment;
+    let mut stopped = false;
+    for prev in ancestors.siblings_before(comment) {
+        positional_predecessors::record();
+        if !view.covers(prev.start_byte()..row_first.end_byte()) {
+            run.prefix_gap = true;
+            stopped = true;
+            break;
+        }
+        if !T::is_comment(&prev) {
+            run.code_before = Some(prev);
+            if prev.end_row() >= row_first.start_row() {
+                run.trailing_members = run.members.len() - clean_members;
+            }
+            stopped = true;
+            break;
+        }
+        if !run_continues_to::<T>(&prev, &row_first, code) {
+            run.code_before = Some(prev);
+            stopped = true;
+            break;
+        }
+        if prev.end_row() < row_first.start_row() {
+            clean_members = run.members.len();
+        }
+        run.members.push(prev);
+        row_first = prev;
+    }
+    if !stopped && matches!(view, CandidateView::Source(_)) {
+        let start = if ancestors.depth() == Some(1) {
+            0
+        } else {
+            ancestors
+                .parent(comment)
+                .map_or(0, |parent| parent.start_byte())
+        };
+        run.prefix_gap = !view.covers(start..row_first.start_byte());
+    }
+    run.members.reverse();
+    run
 }
 
 /// The trailing comment that heads `first`'s LDoc group, when `first` sits

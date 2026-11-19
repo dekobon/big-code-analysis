@@ -5,6 +5,25 @@
 use crate::Node;
 
 pub mod markers;
+pub mod positional;
+
+/// Stream a positional comment and its completed run's original inclusive rows.
+/// Coverage follows the current comment's billing and excludes directive members.
+pub fn positional_comment<'t, T: crate::Checker>(
+    node: &Node<'t>,
+    code: &[u8],
+    ancestors: crate::Ancestors<'t, '_>,
+    mut sink: impl FnMut(LegacyEvent<'t>),
+) {
+    marker_comment::<T>(node, code, ancestors, &mut sink);
+    crate::lang_helpers::leading_doc_run::<T>(node, code, ancestors, |first, last| {
+        sink(LegacyEvent::Coverage {
+            kind: CoverageKind::LeadingRun,
+            first,
+            last,
+        });
+    });
+}
 
 /// Stream the original marker/placement decision before the final-member binding
 /// callbacks. This path needs no source context and constructs no source evidence.

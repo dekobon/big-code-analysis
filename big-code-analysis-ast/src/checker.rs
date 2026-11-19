@@ -578,6 +578,27 @@ pub trait Checker {
     fn is_doc_run_directive(_: &Node, _code: &[u8]) -> bool {
         false
     }
+    /// Whether the native source profile uses positional comment runs.
+    const SOURCE_POSITIONAL_DOCS: bool = false;
+    /// Whether bare adjacency suffices, independently of an explicit opener.
+    const SOURCE_POSITIONAL_TARGETS: bool = false;
+    /// Source opener evidence from the completed run, before owner normalization.
+    ///
+    /// # Errors
+    /// Returns uncertainty when excluded source prevents the content decision.
+    fn source_doc_run_opener<'a>(
+        run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    > {
+        Ok(run
+            .members
+            .first()
+            .filter(|first| Self::is_doc_run_opener(first, run.below.as_ref(), run.code, ancestors))
+            .map(|_| crate::documentation::streaming::positional::OpenerReason::Explicit))
+    }
     /// Whether `node` opens a space by its kind alone: a function,
     /// closure, or one of the containers (class, struct, trait, impl,
     /// namespace, interface).

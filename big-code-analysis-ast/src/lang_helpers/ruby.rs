@@ -129,6 +129,23 @@ pub(crate) fn ruby_yard_reads<'a>(
     scope: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    yard_reads(needs, scope, ancestors, false)
+}
+
+pub(crate) fn ruby_source_yard_reads<'a>(
+    needs: YardScope,
+    scope: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    yard_reads(needs, scope, ancestors, true)
+}
+
+fn yard_reads<'a>(
+    needs: YardScope,
+    scope: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+) -> bool {
     // Read upward, the rule is: the nearest namespace admits the
     // statement; a method body met first rejects it if it needs a
     // namespace; a singleton class or conditional on the way makes it
@@ -142,11 +159,16 @@ pub(crate) fn ruby_yard_reads<'a>(
     let reads = ancestors.fold_down(
         scope,
         0,
-        FoldLane::DocScope,
+        if source {
+            FoldLane::SourceDocScope
+        } else {
+            FoldLane::DocScope
+        },
         BOTH,
         // Where YARD reads a doc comment, not whether a node opens a space:
         // each arm below that names a space opener is exempt for that.
-        |above, ancestor, _, _| match ancestor.kind_id().into() {
+        |above, ancestor, outer, _| match ancestor.kind_id().into() {
+            _ if source && crate::roles::ruby::closure::owns(ancestor, &[], outer) => 0,
             // role-bypass: allow(Container) — the file, where YARD reads
             Ruby::Program => BOTH,
             // Each opens a namespace only where one already reads it. For a

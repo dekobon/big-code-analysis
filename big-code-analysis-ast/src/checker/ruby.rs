@@ -2,7 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::ruby::{YardScope, ruby_yard_reads};
+use crate::lang_helpers::ruby::{YardScope, ruby_source_yard_reads, ruby_yard_reads};
 
 /// The statement a comment run directly above `node` documents: `node`
 /// itself, or the statement a wrapper stands for. A statement modifier
@@ -58,7 +58,59 @@ fn ruby_then_first_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
         .flatten()
 }
 
+fn ruby_doc_target<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+) -> bool {
+    let (statement, chain) = match ruby_then_first_statement(node) {
+        Some(first) => (first, Some(ancestors.of_children(node))),
+        None => (*node, None),
+    };
+    let statement_chain = chain.as_ref().map_or(ancestors, ChildAncestors::get);
+    ruby_documented_core(&statement, statement_chain).is_some_and(|(core, core_chain)| {
+        let core_chain = core_chain
+            .as_ref()
+            .map_or(statement_chain, ChildAncestors::get);
+        let reads = if source {
+            ruby_source_yard_reads
+        } else {
+            ruby_yard_reads
+        };
+        crate::roles::ruby::doc_target::owns(&core, code, core_chain)
+            && reads(YardScope::of(&core), node, ancestors)
+    })
+}
+
 impl Checker for RubyCode {
+    const SOURCE_POSITIONAL_DOCS: bool = true;
+    const SOURCE_POSITIONAL_TARGETS: bool = true;
+
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        ruby_doc_target(node, code, ancestors, true)
+    }
+
+    fn source_doc_run_opener<'a>(
+        run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    > {
+        Ok(run
+            .members
+            .first()
+            .filter(|first| {
+                crate::roles::ruby::doc_run_opener::owns(first, run.code, ancestors)
+                    && ruby_source_yard_reads(YardScope::Namespace, first, ancestors)
+            })
+            .map(|_| crate::documentation::streaming::positional::OpenerReason::Explicit))
+    }
     // The `Comment` row of `roles/ruby.rs` (#1699); no `DocComment`.
     impl_comment_from_rows!(ruby);
 
@@ -74,18 +126,7 @@ impl Checker for RubyCode {
     // node's chain, where the comment sits. The candidate test goes
     // first, so the scope fold runs only for one.
     fn is_doc_target<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-        let (statement, chain) = match ruby_then_first_statement(node) {
-            Some(first) => (first, Some(ancestors.of_children(node))),
-            None => (*node, None),
-        };
-        let statement_chain = chain.as_ref().map_or(ancestors, ChildAncestors::get);
-        ruby_documented_core(&statement, statement_chain).is_some_and(|(core, core_chain)| {
-            let core_chain = core_chain
-                .as_ref()
-                .map_or(statement_chain, ChildAncestors::get);
-            crate::roles::ruby::doc_target::owns(&core, code, core_chain)
-                && ruby_yard_reads(YardScope::of(&core), node, ancestors)
-        })
+        ruby_doc_target(node, code, ancestors, false)
     }
 
     fn doc_target_start_row(node: &Node) -> usize {

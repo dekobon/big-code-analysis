@@ -5,6 +5,176 @@ use serde_json::{Value, json};
 
 use crate::{LANG, Metric, MetricsOptions, Source, analyze};
 
+#[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]
+#[derive(Clone, Copy)]
+struct PositionalRows<'a> {
+    loc: [u64; 6],
+    docs: &'a [usize],
+    code: &'a [usize],
+    comments: &'a [usize],
+    scans: usize,
+}
+
+#[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]
+#[allow(clippy::arithmetic_side_effects)]
+fn positional_rows(lang: LANG, source: &[u8], expected: PositionalRows<'_>) {
+    use big_code_analysis_ast::documentation::streaming::positional::{
+        evidence_built, positional_runs_collected,
+    };
+    let before = evidence_built::observed();
+    let scans = positional_runs_collected::observed();
+    let intersections = big_code_analysis_ast::documentation::included_range_visits::observed();
+    let space = analyze(
+        Source::new(lang, source),
+        MetricsOptions::default().with_only(&[Metric::Loc]),
+    )
+    .unwrap();
+    let loc = &space.metrics.loc;
+    assert_eq!(
+        [
+            loc.sloc(),
+            loc.ploc(),
+            loc.lloc(),
+            loc.cloc(),
+            loc.blank(),
+            loc.dloc()
+        ],
+        expected.loc
+    );
+    assert_eq!(
+        (0..source.len())
+            .filter(|row| loc.dloc.lines.contains(*row))
+            .collect::<Vec<_>>(),
+        expected.docs
+    );
+    assert_optional_rows(
+        loc,
+        source.len(),
+        &json!({"ploc_rows": expected.code, "cloc_rows": expected.comments}),
+    );
+    assert_eq!(evidence_built::observed() - before, 0);
+    assert_eq!(
+        big_code_analysis_ast::documentation::included_range_visits::observed() - intersections,
+        0
+    );
+    assert_eq!(
+        positional_runs_collected::observed() - scans,
+        expected.scans
+    );
+    assert_eq!(space.spaces.len(), 1);
+    assert_eq!(space.spaces[0].metrics.loc.dloc(), 0);
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn documentation_go_positional_exact_rows() {
+    // Eight physical rows: package/function code, five comment rows, one source blank.
+    positional_rows(
+        LANG::Go,
+        b"package p\n// a\n//go:generate tool\n//\n/* b */ /* c */\n\n// d\nfunc F() {}",
+        PositionalRows {
+            loc: [8, 2, 0, 5, 1, 1],
+            docs: &[6],
+            code: &[0, 7],
+            comments: &[1, 2, 3, 4, 6],
+            scans: 2,
+        },
+    );
+    positional_rows(
+        LANG::Go,
+        b"package p\n// a\n//go:generate tool\n//\n/* b */ /* c */\nfunc F() {}",
+        PositionalRows {
+            loc: [6, 2, 0, 4, 0, 3],
+            docs: &[1, 3, 4],
+            code: &[0, 5],
+            comments: &[1, 2, 3, 4],
+            scans: 1,
+        },
+    );
+}
+
+#[cfg(feature = "ruby")]
+#[test]
+fn documentation_ruby_positional_exact_rows() {
+    positional_rows(
+        LANG::Ruby,
+        b"#!/ruby\n# frozen_string_literal: true\n# a\n#\n# b\ndef f; end",
+        PositionalRows {
+            loc: [6, 1, 1, 5, 0, 3],
+            docs: &[2, 3, 4],
+            code: &[5],
+            comments: &[0, 1, 2, 3, 4],
+            scans: 1,
+        },
+    );
+    positional_rows(
+        LANG::Ruby,
+        b"# a\n\n# b\ndef f; end",
+        PositionalRows {
+            loc: [4, 1, 1, 2, 1, 1],
+            docs: &[2],
+            code: &[3],
+            comments: &[0, 2],
+            scans: 2,
+        },
+    );
+}
+
+#[cfg(feature = "ruby")]
+#[test]
+fn documentation_ruby_block_legacy_rows_remain_in_physical_space() {
+    let source = b"foo do\n# audit\ndef f; end\nend";
+    let space = analyze(
+        Source::new(LANG::Ruby, source),
+        MetricsOptions::default().with_only(&[Metric::Loc]),
+    )
+    .unwrap();
+    assert_eq!(
+        [
+            space.metrics.loc.sloc(),
+            space.metrics.loc.ploc(),
+            space.metrics.loc.lloc(),
+            space.metrics.loc.cloc(),
+            space.metrics.loc.blank(),
+            space.metrics.loc.dloc()
+        ],
+        [4, 3, 1, 1, 0, 1]
+    );
+    assert_eq!(space.spaces.len(), 1);
+    let block = &space.spaces[0];
+    assert_eq!(block.metrics.loc.dloc(), 1);
+    assert!(block.metrics.loc.dloc.lines.contains(1));
+    assert_eq!(block.spaces.len(), 1);
+    assert_eq!(block.spaces[0].metrics.loc.dloc(), 0);
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn documentation_lua_positional_exact_rows() {
+    positional_rows(
+        LANG::Lua,
+        b"module(\"m\")\n---a\n--\n-- b\nfunction f() end",
+        PositionalRows {
+            loc: [5, 2, 1, 3, 0, 3],
+            docs: &[1, 2, 3],
+            code: &[0, 4],
+            comments: &[1, 2, 3],
+            scans: 1,
+        },
+    );
+    positional_rows(
+        LANG::Lua,
+        b"module(\"m\")\n-- a\nfunction f() end",
+        PositionalRows {
+            loc: [3, 2, 1, 1, 0, 0],
+            docs: &[],
+            code: &[0, 2],
+            comments: &[1],
+            scans: 1,
+        },
+    );
+}
+
 #[cfg(all(feature = "java", feature = "rust"))]
 #[test]
 fn documentation_marker_stream_preserves_rows_without_source_materialization() {

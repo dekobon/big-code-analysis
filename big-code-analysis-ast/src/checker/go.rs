@@ -4,6 +4,8 @@
 use super::*;
 
 impl Checker for GoCode {
+    const SOURCE_POSITIONAL_DOCS: bool = true;
+    const SOURCE_POSITIONAL_TARGETS: bool = true;
     // The `Comment`, `DocTarget` and `DocRunDirective` rows of
     // `roles/go.rs` (#1699): go/doc's targets under the function-body
     // scope gate, read with the node's own chain; a directive by its
