@@ -57,6 +57,7 @@ pub struct SourceContext<'s> {
     tree: &'s tree_sitter::Tree,
     bytes: &'s [u8],
     included: Vec<tree_sitter::Range>,
+    continuous: Vec<Range<usize>>,
 }
 
 impl<'s> SourceContext<'s> {
@@ -72,10 +73,21 @@ impl<'s> SourceContext<'s> {
     pub fn new(tree: &'s tree_sitter::Tree, bytes: &'s [u8]) -> Self {
         let mut included = tree.included_ranges();
         included.retain(|range| range.start_byte < range.end_byte);
+        let mut continuous: Vec<Range<usize>> = Vec::new();
+        for range in &included {
+            if let Some(last) = continuous.last_mut()
+                && last.end == range.start_byte
+            {
+                last.end = range.end_byte;
+            } else {
+                continuous.push(range.start_byte..range.end_byte);
+            }
+        }
         Self {
             tree,
             bytes,
             included,
+            continuous,
         }
     }
 
@@ -118,6 +130,23 @@ impl<'s> SourceContext<'s> {
         })
     }
 
+    /// Whether the whole interval is available, without joining across a gap.
+    pub(crate) fn covers(&self, span: Range<usize>) -> bool {
+        if span.start > span.end || span.end > self.bytes.len() {
+            return false;
+        }
+        if span.is_empty() {
+            return true;
+        }
+        let first = self
+            .continuous
+            .partition_point(|range| range.end <= span.start);
+        included_range_visits::record();
+        self.continuous
+            .get(first)
+            .is_some_and(|range| range.start <= span.start && range.end >= span.end)
+    }
+
     /// Record a node reached canonically by a collector cursor. The caller
     /// supplies canonical traversal context; foreign trees are rejected here.
     /// Later validation compares against this retained value without parent walks.
@@ -129,6 +158,39 @@ impl<'s> SourceContext<'s> {
             return Err(SourceError::ForeignTree);
         }
         Ok(NodeEvidence { canonical })
+    }
+}
+
+#[cfg(all(test, feature = "rust"))]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn coverage_seeks_to_late_ranges_and_stops_at_the_first_gap() {
+        let source = b"a ".repeat(256);
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&crate::LANG::Rust.tree_sitter_language().unwrap())
+            .unwrap();
+        let ranges: Vec<_> = (0..256)
+            .map(|i| tree_sitter::Range {
+                start_byte: i * 2,
+                end_byte: i * 2 + 1,
+                start_point: tree_sitter::Point::new(0, i * 2),
+                end_point: tree_sitter::Point::new(0, i * 2 + 1),
+            })
+            .collect();
+        parser.set_included_ranges(&ranges).unwrap();
+        let tree = parser.parse(&source, None).unwrap();
+        let context = SourceContext::new(&tree, &source);
+        let before = included_range_visits::observed();
+        assert!(context.covers(510..511));
+        // expected: the last range only; earlier ranges are binary-searched past.
+        assert_eq!(included_range_visits::observed() - before, 1);
+        let before = included_range_visits::observed();
+        assert!(!context.covers(0..511));
+        // expected: the first continuous interval cannot contain the whole request.
+        assert_eq!(included_range_visits::observed() - before, 1);
     }
 }
 

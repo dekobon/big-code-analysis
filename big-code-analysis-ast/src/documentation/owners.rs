@@ -104,6 +104,8 @@ pub enum UnresolvedReason {
     Expansion,
     /// Recovery or known grammar boundaries are insufficient.
     GrammarBoundary,
+    /// Excluded source bytes prevent recognizing a continuous spelling or attachment.
+    ExcludedGap,
 }
 
 /// Known publication eligibility under a convention, separate from attachment.

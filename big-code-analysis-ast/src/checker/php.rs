@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::documentation::streaming::markers::CandidateView;
 use crate::lang_helpers::doc_comment::never_joins;
 
 /// A top-level node phpDocumentor's `createFileDocBlock` passes over
@@ -22,18 +23,36 @@ fn php_file_preamble(node: &Node) -> bool {
 /// DocBlock among them is the file's, and otherwise it is only when exactly
 /// two DocBlocks precede it. The backward test stops at the previous
 /// DocBlock, so only the file's first one scans forward.
-fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
-    let preamble_or_plain = |n: Node| {
-        php_file_preamble(&n) || (PhpCode::is_comment(&n) && !PhpCode::is_doc_comment(&n, code))
+fn php_file_docblock<'a>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
+) -> bool {
+    let marker = |n: &Node| match view {
+        CandidateView::Legacy => PhpCode::is_doc_comment(n, code),
+        CandidateView::Source(_) => view.marker::<PhpCode>(n, code, ancestors),
     };
+    let preamble_or_plain =
+        |n: Node| php_file_preamble(&n) || (PhpCode::is_comment(&n) && !marker(&n));
+    let mut boundary = comment.start_byte();
     if !ancestors.parent_has_kind(comment, Php::Program as u16)
-        || !ancestors.siblings_before(comment).all(preamble_or_plain)
+        || !ancestors.siblings_before(comment).all(|n| {
+            let continuous = view.covers(n.start_byte()..boundary);
+            boundary = n.start_byte();
+            continuous && preamble_or_plain(n)
+        })
     {
         return false;
     }
     let mut docs = 1_usize;
+    let mut boundary = comment.end_byte();
     for node in ancestors.siblings_after(comment) {
-        if PhpCode::is_doc_comment(&node, code) {
+        if !view.covers(boundary..node.end_byte()) {
+            return false;
+        }
+        boundary = node.end_byte();
+        if marker(&node) {
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
             return docs == 2
@@ -54,6 +73,24 @@ fn php_file_docblock<'a>(comment: &Node<'a>, code: &[u8], ancestors: Ancestors<'
     true
 }
 
+fn php_doc_in_signature<'a>(comment: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    ancestors.parent(comment).is_some_and(|parent| {
+        let kind = parent.kind_id();
+        // role-bypass: allow(DocTarget) — signature placement excludes define expression statements.
+        let declaration =
+            crate::roles::php::doc_target::lists_kind(kind) && kind != Php::ExpressionStatement;
+        // role-bypass: allow(Closure) — signature holders beyond declaration owners.
+        let signature_holder = matches!(
+            kind.into(),
+            Php::AnonymousFunction
+                | Php::ArrowFunction
+                | Php::FormalParameters
+                | Php::PropertyPromotionParameter
+        );
+        declaration || signature_holder
+    })
+}
+
 impl Checker for PhpCode {
     // The `Comment` and `DocComment` rows of `roles/php.rs` (#1699):
     // the one comment kind, a DocBlock under PHP's marker.
@@ -61,6 +98,20 @@ impl Checker for PhpCode {
     impl_doc_comment_from_row!(php);
 
     const SOURCE_LOCAL_DOCS: bool = true;
+
+    fn source_doc_binds_forward<'a>(
+        node: &Node<'a>,
+        context: &crate::documentation::SourceContext<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        !php_doc_in_signature(node, ancestors)
+            && !php_file_docblock(
+                node,
+                context.bytes(),
+                ancestors,
+                CandidateView::Source(context),
+            )
+    }
 
     // phpDocumentor gives an element PHP-Parser's `getDocComment`: the
     // last DocBlock among the comments before the node's first token, so
@@ -74,34 +125,8 @@ impl Checker for PhpCode {
     // each is a declaration here like a method.
     const DOC_BINDING: Option<DocBinding> = Some(DocBinding {
         forward: |comment, code, ancestors| {
-            let in_signature = ancestors.parent(comment).is_some_and(|parent| {
-                let kind = parent.kind_id();
-                // The declarations are the `DocTarget` row's kind table,
-                // less the `define()` statement: a DocBlock among an
-                // expression statement's children sits after its
-                // expression, where PHP-Parser gives it to the token
-                // after it, as `/** d */ $x = 1;` does (#1646). Beside
-                // the declarations the closures, a parameter list and a
-                // promoted parameter, which hold a DocBlock in a
-                // signature without being targets themselves.
-                // role-bypass: allow(DocTarget) — the row's declaration owners, which hold
-                // their DocBlock as a child after `#[…]` attributes; the statement owner
-                // holds no declaration children, so it is left out of the signature set
-                let declaration = crate::roles::php::doc_target::lists_kind(kind)
-                    && kind != Php::ExpressionStatement;
-                // role-bypass: allow(Closure) — a DocBlock *inside* a closure is in
-                // its signature; where a declaration's children end is a binding
-                // question, not membership
-                let signature_holder = matches!(
-                    kind.into(),
-                    Php::AnonymousFunction
-                        | Php::ArrowFunction
-                        | Php::FormalParameters
-                        | Php::PropertyPromotionParameter
-                );
-                declaration || signature_holder
-            });
-            !in_signature && !php_file_docblock(comment, code, ancestors)
+            !php_doc_in_signature(comment, ancestors)
+                && !php_file_docblock(comment, code, ancestors, CandidateView::Legacy)
         },
         ..DocBinding::new(KeptDocs::Leading {
             hidden: |node, code| !Self::is_doc_comment(node, code),

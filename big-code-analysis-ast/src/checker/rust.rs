@@ -72,6 +72,10 @@ impl Checker for RustCode {
     ) -> Option<crate::documentation::UnresolvedReason> {
         rust_doc_in_macro(node, ancestors)
             .then_some(crate::documentation::UnresolvedReason::Expansion)
+            .or_else(|| {
+                node.is_error()
+                    .then_some(crate::documentation::UnresolvedReason::GrammarBoundary)
+            })
     }
 
     // rustc lints a doc comment on a statement or expression as unused and

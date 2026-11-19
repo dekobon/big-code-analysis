@@ -20,15 +20,15 @@
     {
       "name": "source-marker-must-not-reuse-legacy-slot",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "Self::Source => WordSlot::SourceDocMarker,",
-      "new": "Self::Source => WordSlot::LegacyDocMarker,",
+      "old": "Self::Source(_) => WordSlot::SourceDocMarker,",
+      "new": "Self::Source(_) => WordSlot::LegacyDocMarker,",
       "expect": ["documentation::streaming::markers::tests::divergent_marker_queries_share_real_cache_in_both_orders"]
     },
     {
       "name": "source-candidates-precede-last-selection",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "Self::Source => T::is_source_doc_comment(node, code),",
-      "new": "Self::Source => T::is_doc_comment(node, code),",
+      "old": "Self::Source(_) => T::is_source_doc_comment(node, code),",
+      "new": "Self::Source(_) => T::is_doc_comment(node, code),",
       "expect": ["documentation::streaming::markers::tests::java_source_selects_empty_new_block_before_legacy_selection"]
     },
     {
@@ -55,8 +55,8 @@
     {
       "name": "legacy-bound-callbacks-remain-source-ordered",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "kept.iter().for_each(&mut credit);",
-      "new": "kept.iter().rev().for_each(&mut credit);",
+      "old": "kept.nodes.iter().for_each(&mut credit);",
+      "new": "kept.nodes.iter().rev().for_each(&mut credit);",
       "expect": ["documentation::streaming::markers::tests::rust_all_crosses_plain_comments_attributes_and_blank_rows"]
     },
     {
@@ -86,6 +86,62 @@
       "old": "let (first, last) = rendered_rows(&node, marker);",
       "new": "let (first, last) = rendered_rows(&node, marker && by_placement);",
       "expect": ["metrics::loc::documentation_tests::documentation_legacy_whole_metrics"]
+    },
+    {
+      "name": "source-included-byte-barriers-precede-selection",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "Self::Source(context) => context.covers(span),",
+      "new": "Self::Source(_context) => true,",
+      "expect": ["documentation::streaming::markers::regressions::excluded_marker_cannot_supersede_genuine_documentation", "documentation::streaming::markers::regressions::excluded_attachment_and_target_bytes_are_barriers", "documentation::streaming::markers::regressions::excluded_code_keeps_unrelated_later_docs_and_splits_comment_runs"]
+    },
+    {
+      "name": "opaque-token-retains-unknown-evidence",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "if request.retain_unbound && T::is_comment(node) {",
+      "new": "if false && request.retain_unbound && T::is_comment(node) {",
+      "expect": ["documentation::streaming::markers::regressions::excluded_marker_byte_never_becomes_a_native_marker"]
+    },
+    {
+      "name": "rejected-placement-is-not-supersession",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": ".is_some_and(|bound| bound.eligible(index, stretch, code))",
+      "new": ".is_some_and(|bound| true || bound.eligible(index, stretch, code))",
+      "expect": ["documentation::streaming::markers::regressions::typescript_mixed_rejections_are_not_superseded", "documentation::streaming::markers::regressions::tsx_mixed_rejections_are_not_superseded", "documentation::streaming::markers::regressions::groovy_hidden_doc_is_unattached_beside_selected_doc"]
+    },
+    {
+      "name": "lone-cr-is-source-content",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "let lf = if code.get(end - 1) == Some(&b'\\n') {",
+      "new": "let lf = if code.get(end - 1) == Some(&b'\\r') { return end - 1; } else if code.get(end - 1) == Some(&b'\\n') {",
+      "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
+    },
+    {
+      "name": "excluded-lf-does-not-strip-included-cr",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "if code.get(lf) == Some(&b'\\n') && context.covers(lf..lf + 1) {",
+      "new": "if code.get(lf) == Some(&b'\\n') {",
+      "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
+    },
+    {
+      "name": "rust-recovery-keeps-default-uncertainty",
+      "file": "big-code-analysis-ast/src/checker/rust.rs",
+      "old": "node.is_error()\n                    .then_some(crate::documentation::UnresolvedReason::GrammarBoundary)",
+      "new": "None",
+      "expect": ["documentation::streaming::markers::regressions::rust_recovery_target_retains_grammar_uncertainty"]
+    },
+    {
+      "name": "gatherer-search-must-not-repeat",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": ".map(|gathers| doc_comment::bind_gathered(stretch, code, gathers, marker, forward));",
+      "new": ".map(|gathers| { let _ = doc_comment::bind_gathered(stretch, code, gathers, marker, forward); doc_comment::bind_gathered(stretch, code, gathers, marker, forward) });",
+      "expect": ["documentation::streaming::markers::regressions::c_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::cpp_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::mozcpp_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::objc_gatherer_search_is_once_per_stretch"]
+    },
+    {
+      "name": "php-source-direction-keeps-range-context",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "CandidateView::Source(context),",
+      "new": "CandidateView::Legacy,",
+      "expect": ["documentation::streaming::markers::regressions::php_file_scan_cannot_read_a_gap_spanning_marker"]
     }
   ]
 }

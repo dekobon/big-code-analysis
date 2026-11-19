@@ -26,6 +26,10 @@ for historical reference.
 
 ### Added
 
+- Added unstable AST-crate source-marker `Checker` hooks and streaming requests
+  that retain selection, source pieces and attachment uncertainty. The separate
+  legacy event stream preserves existing metric behavior. (#1658)
+
 - Added unstable `big-code-analysis-ast::documentation` fact, source and owner
   primitives, plus retained `Complete` / `Cancelled` / `Adopted` parse provenance
   on `Parser` and `AnyParser`. The root library's documentation facade follows

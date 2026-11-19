@@ -419,6 +419,17 @@ pub trait Checker {
     fn source_doc_binding() -> Option<DocBinding> {
         Self::DOC_BINDING
     }
+    /// Source-only direction test. Overrides must respect included-range barriers
+    /// when inspecting comments beyond the current continuous spelling.
+    #[must_use]
+    fn source_doc_binds_forward<'a>(
+        node: &Node<'a>,
+        context: &crate::documentation::SourceContext<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::source_doc_binding()
+            .is_some_and(|binding| (binding.forward)(node, context.bytes(), ancestors))
+    }
     /// Whether a marker can document locally without a following target.
     const SOURCE_LOCAL_DOCS: bool = false;
     /// Source target through the shared role/context inventory.

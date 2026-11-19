@@ -313,6 +313,7 @@ pub fn bound_doc_run<'a, T: Checker>(
                 |n| view.marker::<T>(n, code, ancestors),
                 forward,
             )
+            .kept
             .iter()
             .for_each(&mut credit);
         }
@@ -322,23 +323,72 @@ pub fn bound_doc_run<'a, T: Checker>(
         &stretch,
         code,
         binding.kept,
-        (code_before, next, target),
+        StretchBounds {
+            code_before,
+            next,
+            target,
+        },
         forward,
     );
-    kept.iter().for_each(&mut credit);
+    kept.nodes.iter().for_each(&mut credit);
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct StretchBounds<'a> {
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) next: Node<'a>,
+    pub(crate) target: Node<'a>,
+}
+
+pub(crate) struct BoundSelection<'a> {
+    pub(crate) nodes: Vec<Node<'a>>,
+    eligible_end: usize,
+    after_code_row: Option<usize>,
+    policy: KeptDocs,
+    next: Node<'a>,
+}
+
+impl BoundSelection<'_> {
+    pub(crate) fn eligible(&self, index: usize, stretch: &[Node], code: &[u8]) -> bool {
+        let node = &stretch[index];
+        index < self.eligible_end
+            && Some(node.start_row()) != self.after_code_row
+            && match self.policy {
+                KeptDocs::Nearest { hidden } => {
+                    !hidden(node, stretch.get(index + 1).unwrap_or(&self.next))
+                }
+                KeptDocs::Leading { hidden, .. } => !hidden(node, code),
+                _ => true,
+            }
+    }
 }
 
 pub(crate) fn select_bound<'a, T: Checker>(
     stretch: &[Node<'a>],
     code: &[u8],
     kept: KeptDocs,
-    boundaries: (Option<Node<'a>>, Node<'a>, Node<'a>),
+    boundaries: StretchBounds<'a>,
     forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
-    let (code_before, next, target) = boundaries;
-    match kept {
+) -> BoundSelection<'a> {
+    let StretchBounds {
+        code_before,
+        next,
+        target,
+    } = boundaries;
+    let mut selection = BoundSelection {
+        nodes: Vec::new(),
+        eligible_end: stretch.len(),
+        after_code_row: None,
+        policy: kept,
+        next,
+    };
+    selection.nodes = match kept {
         KeptDocs::All => stretch.iter().copied().filter(forward).collect(),
-        KeptDocs::Last { joins } => bind_last::<T>(stretch, code, joins, forward),
+        KeptDocs::Last { joins } => {
+            let (nodes, eligible_end) = bind_last::<T>(stretch, code, joins, forward);
+            selection.eligible_end = eligible_end;
+            nodes
+        }
         KeptDocs::Nearest { hidden } => bind_nearest::<T>(stretch, next, hidden, forward)
             .into_iter()
             .collect(),
@@ -350,13 +400,17 @@ pub(crate) fn select_bound<'a, T: Checker>(
             // A member on the row the code before the stretch ends on is
             // after that code, where a scan from the next line break does
             // not reach.
-            let after_code_row = code_before
+            selection.after_code_row = code_before
                 .filter(|_| !after_code(&target))
                 .map(|before| before.end_row());
-            let attaches = |n: &Node<'a>| forward(n) && Some(n.start_row()) != after_code_row;
-            bind_leading::<T>(stretch, code, hidden, joins, attaches)
+            let attaches =
+                |n: &Node<'a>| forward(n) && Some(n.start_row()) != selection.after_code_row;
+            let (nodes, eligible_end) = bind_leading::<T>(stretch, code, hidden, joins, attaches);
+            selection.eligible_end = eligible_end;
+            nodes
         }
-    }
+    };
+    selection
 }
 
 /// Where a stretch of comments ends, asked of its last comment.
@@ -371,6 +425,8 @@ pub(crate) enum StretchEnd<'a> {
     /// At a statement, a closing brace, the end of the file — anything
     /// that documents nothing.
     Elsewhere,
+    /// Excluded bytes interrupt the source stretch or target spelling.
+    ExcludedGap,
 }
 
 /// Where the stretch `comment` belongs to ends. The scan stops at the
@@ -388,10 +444,23 @@ pub(crate) fn stretch_end<'a, T: Checker>(
 ) -> StretchEnd<'a> {
     let mut after = ancestors.siblings_after(comment).peekable();
     let Some(&next) = after.peek() else {
-        return StretchEnd::Elsewhere;
+        return if view.covers(comment.start_byte()..comment.end_byte()) {
+            StretchEnd::Elsewhere
+        } else {
+            StretchEnd::ExcludedGap
+        };
     };
-    match after.find(|n| !skips(n, ancestors) && !read_past_error_in::<T>(n, code, ancestors, view))
-    {
+    let mut boundary = comment.start_byte();
+    let mut continuous = true;
+    let target = after.find(|n| {
+        continuous = view.covers(boundary..n.end_byte());
+        boundary = n.end_byte();
+        !continuous || (!skips(n, ancestors) && !read_past_error_in::<T>(n, code, ancestors, view))
+    });
+    if !continuous {
+        return StretchEnd::ExcludedGap;
+    }
+    match target {
         Some(target) if T::is_comment(&target) => StretchEnd::Undecided,
         Some(target)
             if view.target::<T>(&target, code, ancestors)
@@ -422,15 +491,21 @@ pub(crate) fn collect_stretch<'a, T: Checker>(
     stretches_collected::record();
     let mut stretch = vec![*comment];
     let mut before = None;
+    let mut boundary = comment.end_byte();
     // An error read past is no member of the stretch: neither a comment
     // nor the first token a binder stops at. Left in, a binder that keeps
     // the last doc comment before the first token (tsc's, JSDoc's,
     // javac's) would read the error as that token and keep the comment
     // above it instead of the one the tool attaches.
-    for sibling in ancestors
-        .siblings_before(comment)
-        .filter(|sibling| !read_past_error_in::<T>(sibling, code, ancestors, view))
-    {
+    for sibling in ancestors.siblings_before(comment) {
+        if !view.covers(sibling.start_byte()..boundary) {
+            before = Some(sibling);
+            break;
+        }
+        boundary = sibling.start_byte();
+        if read_past_error_in::<T>(&sibling, code, ancestors, view) {
+            continue;
+        }
         if T::is_comment(&sibling) || skips(&sibling, ancestors) {
             stretch.push(sibling);
         } else {
@@ -494,15 +569,28 @@ crate::observation::counter!(
 /// below it, which a line-comment tool reads as one block with it. The
 /// gathering comment does not bind forward, so `forward` drops it; it
 /// documents where it sits.
+pub(crate) struct Gathered<'a> {
+    pub(crate) kept: Vec<Node<'a>>,
+    pub(crate) gatherer: Option<Node<'a>>,
+}
+
+crate::observation::counter!(gatherer_probes, cfg(any(test, feature = "test-support")));
+
 pub(crate) fn bind_gathered<'a>(
     stretch: &[Node<'a>],
     code: &[u8],
     gathers: fn(&Node, &[u8]) -> bool,
     marker: impl Fn(&Node<'a>) -> bool,
     forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
-    let Some(gatherer) = stretch.iter().rposition(|n| marker(n) && gathers(n, code)) else {
-        return Vec::new();
+) -> Gathered<'a> {
+    let Some(gatherer) = stretch.iter().rposition(|n| {
+        gatherer_probes::record();
+        marker(n) && gathers(n, code)
+    }) else {
+        return Gathered {
+            kept: Vec::new(),
+            gatherer: None,
+        };
     };
     let line = |n: &Node| node_bytes(n, code).starts_with(b"//");
     // Only a line-comment gatherer reads the line doc comments below it
@@ -517,7 +605,10 @@ pub(crate) fn bind_gathered<'a>(
     {
         last += 1;
     }
-    stretch[..=last].iter().copied().filter(forward).collect()
+    Gathered {
+        kept: stretch[..=last].iter().copied().filter(forward).collect(),
+        gatherer: Some(stretch[gatherer]),
+    }
 }
 
 /// [`KeptDocs::Last`] over a stretch in source order: the last doc
@@ -528,16 +619,19 @@ fn bind_last<'a, T: Checker>(
     code: &[u8],
     joins: fn(&Node, &Node, &[u8]) -> bool,
     forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
+) -> (Vec<Node<'a>>, usize) {
     let split = stretch
         .iter()
         .position(|n| !T::is_comment(n))
         .unwrap_or(stretch.len());
     let (before, after) = stretch.split_at(split);
     let Some(last) = before.iter().rposition(&forward) else {
-        return after.iter().copied().find(forward).into_iter().collect();
+        return (
+            after.iter().copied().find(forward).into_iter().collect(),
+            stretch.len(),
+        );
     };
-    joined_run(before, last, code, joins, forward)
+    (joined_run(before, last, code, joins, forward), split)
 }
 
 /// [`KeptDocs::Leading`] over a stretch in source order: the members
@@ -550,19 +644,19 @@ fn bind_leading<'a, T: Checker>(
     hidden: fn(&Node, &[u8]) -> bool,
     joins: fn(&Node, &Node, &[u8]) -> bool,
     forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
+) -> (Vec<Node<'a>>, usize) {
     let first_token = stretch
         .iter()
         .position(|n| !T::is_comment(n) && !hidden(n, code))
         .unwrap_or(stretch.len());
     let before = &stretch[..first_token];
     let Some(last) = before.iter().rposition(|n| !hidden(n, code)) else {
-        return Vec::new();
+        return (Vec::new(), first_token);
     };
     if !forward(&before[last]) {
-        return Vec::new();
+        return (Vec::new(), first_token);
     }
-    joined_run(before, last, code, joins, forward)
+    (joined_run(before, last, code, joins, forward), first_token)
 }
 
 /// `before[last]` with the doc comments directly before it that it

@@ -82,6 +82,7 @@ fn divergent_marker_queries_share_real_cache_in_both_orders() {
     for source_first in [false, true] {
         let source = b"/**/\nclass C {}";
         let parser = AnyParser::parse(LANG::Java, source.to_vec(), None, None).unwrap();
+        let context = SourceContext::new(parser.ts_tree(), parser.code());
         let root = parser.root_node();
         let comment = root.children().next().unwrap();
         let cache = FoldCache::default();
@@ -89,15 +90,15 @@ fn divergent_marker_queries_share_real_cache_in_both_orders() {
         let chain = [root];
         let ancestors = Ancestors::for_walk(&chain, &comment, &cache, &siblings);
         let order = if source_first {
-            [CandidateView::Source, CandidateView::Legacy]
+            [CandidateView::Source(&context), CandidateView::Legacy]
         } else {
-            [CandidateView::Legacy, CandidateView::Source]
+            [CandidateView::Legacy, CandidateView::Source(&context)]
         };
         let before = marker_reads::observed();
         for view in order.into_iter().cycle().take(6) {
             assert_eq!(
                 view.marker::<JavaCode>(&comment, source, ancestors),
-                matches!(view, CandidateView::Source)
+                matches!(view, CandidateView::Source(_))
             );
         }
         // expected: each distinct view computes once for this visited node.
@@ -112,7 +113,7 @@ fn divergent_marker_queries_share_real_cache_in_both_orders() {
         let mut events = Vec::new();
         for view in order {
             match view {
-                CandidateView::Source => source_comment::<JavaCode>(
+                CandidateView::Source(_) => source_comment::<JavaCode>(
                     &comment,
                     ancestors,
                     &mut SourceRequest {

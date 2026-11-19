@@ -10,22 +10,32 @@ use super::super::{NodeEvidence, SourceContext, SourceError, SourcePieces};
 // Separate slots are necessary even on one visited node: Java's empty marker
 // answers differently before the same Last selector runs.
 #[derive(Clone, Copy)]
-pub(crate) enum CandidateView {
+pub(crate) enum CandidateView<'s> {
     Legacy,
-    Source,
+    Source(&'s SourceContext<'s>),
 }
 
-impl CandidateView {
+impl CandidateView<'_> {
+    pub(crate) fn covers(self, span: std::ops::Range<usize>) -> bool {
+        match self {
+            Self::Legacy => true,
+            Self::Source(context) => context.covers(span),
+        }
+    }
+
     pub(crate) fn marker<T: Checker>(self, node: &Node, code: &[u8], ancestors: Ancestors) -> bool {
+        if !self.covers(node.start_byte()..node.end_byte()) {
+            return false;
+        }
         let slot = match self {
             Self::Legacy => WordSlot::LegacyDocMarker,
-            Self::Source => WordSlot::SourceDocMarker,
+            Self::Source(_) => WordSlot::SourceDocMarker,
         };
         ancestors.classified(slot, node, || {
             marker_reads::record();
             u8::from(match self {
                 Self::Legacy => T::is_doc_comment(node, code),
-                Self::Source => T::is_source_doc_comment(node, code),
+                Self::Source(_) => T::is_source_doc_comment(node, code),
             })
         }) != 0
     }
@@ -38,7 +48,10 @@ impl CandidateView {
     ) -> bool {
         match self {
             Self::Legacy => T::is_doc_target(node, code, ancestors),
-            Self::Source => T::is_source_doc_target(node, code, ancestors),
+            Self::Source(_) => {
+                self.covers(node.start_byte()..node.end_byte())
+                    && T::is_source_doc_target(node, code, ancestors)
+            }
         }
     }
 }
@@ -50,7 +63,7 @@ pub(crate) fn legacy_marker<T: Checker>(node: &Node, code: &[u8], ancestors: Anc
 // The result cannot reveal extra marker reads or evidence built then discarded.
 crate::observation::counter!(marker_reads, cfg(any(test, feature = "test-support")));
 crate::observation::counter!(evidence_built, cfg(any(test, feature = "test-support")));
-pub use doc_comment::stretches_collected;
+pub use doc_comment::{gatherer_probes, stretches_collected};
 
 /// Explicit source-only request for a language's native marker binding profile.
 /// The caller visits comments once in source order, with its walk's caches.
@@ -68,7 +81,8 @@ pub struct SourceRequest<'r, 's> {
 /// evidence; a target is a binding candidate, never a resolved semantic owner.
 #[derive(Debug)]
 pub struct MarkerRun<'s> {
-    /// Recognized occurrences in source order, without repeated gatherers.
+    /// Source occurrences in order, including explicitly unknown gap-spanning
+    /// comments when requested, without repeated gatherers.
     pub members: Vec<MarkerMember<'s>>,
     /// Following target wrapper, possibly a conditional or recovery node.
     pub target: Option<NodeEvidence<'s>>,
@@ -80,7 +94,7 @@ pub struct MarkerRun<'s> {
     pub code_before: Option<NodeEvidence<'s>>,
 }
 
-/// One physical source marker and its selection result.
+/// One physical source marker or uncertain comment and its selection result.
 #[derive(Debug)]
 pub struct MarkerMember<'s> {
     /// Exact syntax node, including any grammar-owned newline.
@@ -110,6 +124,8 @@ struct RunSelection<'t> {
     kept: Vec<Node<'t>>,
     target: Option<Node<'t>>,
     gatherer: Option<Node<'t>>,
+    bound: Option<doc_comment::BoundSelection<'t>>,
+    gap: bool,
 }
 
 impl<'t> RunSelection<'t> {
@@ -118,39 +134,47 @@ impl<'t> RunSelection<'t> {
         code_before: Option<Node<'t>>,
         end: StretchEnd<'t>,
         binding: DocBinding,
-        input: (&[u8], Ancestors<'t, '_>),
+        context: &SourceContext<'t>,
+        ancestors: Ancestors<'t, '_>,
     ) -> Self {
-        let (code, ancestors) = input;
-        let marker = |n: &Node<'t>| CandidateView::Source.marker::<T>(n, code, ancestors);
-        let forward = |n: &Node<'t>| marker(n) && (binding.forward)(n, code, ancestors);
+        // bca: suppress(nargs) -- the stretch, boundaries, policy and borrowed traversal inputs are independent selector inputs.
+        let code = context.bytes();
+        let marker = |n: &Node<'t>| CandidateView::Source(context).marker::<T>(n, code, ancestors);
+        let forward =
+            |n: &Node<'t>| marker(n) && T::source_doc_binds_forward(n, context, ancestors);
         if let StretchEnd::AtTarget { next, target } = end {
+            let mut bound = doc_comment::select_bound::<T>(
+                stretch,
+                code,
+                binding.kept,
+                doc_comment::StretchBounds {
+                    code_before,
+                    next,
+                    target,
+                },
+                forward,
+            );
             return Self {
-                kept: doc_comment::select_bound::<T>(
-                    stretch,
-                    code,
-                    binding.kept,
-                    (code_before, next, target),
-                    forward,
-                ),
+                kept: std::mem::take(&mut bound.nodes),
                 target: Some(target),
                 gatherer: None,
+                bound: Some(bound),
+                gap: false,
             };
         }
-        let result = binding.gathers.map(|gathers| {
-            let gatherer = stretch
-                .iter()
-                .rfind(|n| marker(n) && gathers(n, code))
-                .copied();
-            (
-                doc_comment::bind_gathered(stretch, code, gathers, marker, forward),
-                gatherer,
-            )
+        let result = binding
+            .gathers
+            .map(|gathers| doc_comment::bind_gathered(stretch, code, gathers, marker, forward));
+        let doc_comment::Gathered { kept, gatherer } = result.unwrap_or(doc_comment::Gathered {
+            kept: Vec::new(),
+            gatherer: None,
         });
-        let (kept, gatherer) = result.unwrap_or_default();
         Self {
             kept,
             target: None,
             gatherer,
+            bound: None,
+            gap: matches!(end, StretchEnd::ExcludedGap),
         }
     }
 
@@ -161,22 +185,40 @@ impl<'t> RunSelection<'t> {
         ancestors: Ancestors<'t, '_>,
         request: &SourceRequest<'_, 't>,
     ) -> Result<Vec<MarkerMember<'t>>, SourceError> {
-        // bca: suppress(halstead) -- one ordered merge pairs selected nodes with retained source evidence.
+        // bca: suppress(halstead, cognitive, cyclomatic, abc) -- one ordered merge preserves selection, uncertain tokens and lazy evidence without rescanning the stretch.
         let code = request.context.bytes();
         let mut selected = self.kept.iter().peekable();
         let mut members = Vec::new();
-        for node in stretch
-            .iter()
-            .filter(|n| CandidateView::Source.marker::<T>(n, code, ancestors))
-        {
+        for (index, node) in stretch.iter().enumerate() {
+            if !request.context.covers(node.start_byte()..node.end_byte()) {
+                if request.retain_unbound && T::is_comment(node) {
+                    let mut evidence = member(
+                        request.context,
+                        node,
+                        MarkerSelection::Unattached,
+                        MarkerPlacement::Unknown,
+                    )?;
+                    evidence.uncertainty = Some(super::super::UnresolvedReason::ExcludedGap);
+                    members.push(evidence);
+                }
+                continue;
+            }
+            if !CandidateView::Source(request.context).marker::<T>(node, code, ancestors) {
+                continue;
+            }
             let kept = selected.peek().is_some_and(|n| n.id() == node.id());
             if kept {
                 selected.next();
             }
-            let forward = (binding.forward)(node, code, ancestors);
+            let forward = T::source_doc_binds_forward(node, request.context, ancestors);
             let selection = if kept || !forward {
                 MarkerSelection::Selected
-            } else if self.target.is_some() && !self.kept.is_empty() {
+            } else if self
+                .bound
+                .as_ref()
+                .is_some_and(|bound| bound.eligible(index, stretch, code))
+                && !self.kept.is_empty()
+            {
                 MarkerSelection::Superseded
             } else {
                 MarkerSelection::Unattached
@@ -196,6 +238,9 @@ impl<'t> RunSelection<'t> {
             };
             let mut member = member(request.context, node, selection, placement)?;
             member.uncertainty = T::source_doc_uncertainty(node, code, ancestors);
+            if self.gap && forward && !kept {
+                member.uncertainty = Some(super::super::UnresolvedReason::ExcludedGap);
+            }
             members.push(member);
         }
         Ok(members)
@@ -206,6 +251,8 @@ impl<'t> RunSelection<'t> {
 /// tokens and conditional targets retain uncertainty until an adapter resolves it.
 #[derive(Clone, Copy, Debug)]
 pub enum MarkerPlacement<'s> {
+    /// A gap-spanning comment whose native marker and direction are unknown.
+    Unknown,
     /// Candidate for the following target wrapper.
     Forward,
     /// Inner, trailing, signature, structural or expansion-local documentation.
@@ -218,8 +265,8 @@ pub enum MarkerPlacement<'s> {
 }
 
 /// Recognize native source markers at a comment visit. Uses the same stretch
-/// boundaries and selection algorithms as legacy binding, with separate
-/// pre-selection predicates. A deferred member never collects its prefix.
+/// selection algorithms as legacy binding, with separate pre-selection predicates
+/// and source-only gap barriers. A deferred member never collects its prefix.
 ///
 /// # Errors
 /// Propagates source identity/range failures; no successful partial run is emitted.
@@ -233,12 +280,13 @@ pub fn source_comment<'s, T: Checker>(
         return Ok(());
     };
     let code = request.context.bytes();
-    let view = CandidateView::Source;
+    request.context.node(comment.as_tree_sitter())?;
+    let view = CandidateView::Source(request.context);
     let end = doc_comment::stretch_end::<T>(comment, code, ancestors, binding.skips, view);
     if matches!(end, StretchEnd::Undecided) {
         return Ok(());
     }
-    if matches!(end, StretchEnd::Elsewhere)
+    if matches!(end, StretchEnd::Elsewhere | StretchEnd::ExcludedGap)
         && !request.retain_unbound
         && !T::SOURCE_LOCAL_DOCS
         && binding.gathers.is_none()
@@ -247,8 +295,14 @@ pub fn source_comment<'s, T: Checker>(
     }
     let (stretch, code_before) =
         doc_comment::collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
-    let selection =
-        RunSelection::select::<T>(&stretch, code_before, end, binding, (code, ancestors));
+    let selection = RunSelection::select::<T>(
+        &stretch,
+        code_before,
+        end,
+        binding,
+        request.context,
+        ancestors,
+    );
     let members = selection.members::<T>(&stretch, binding, ancestors, request)?;
     if !members.is_empty() {
         let canonical = |node: Node<'s>| request.context.node(node.as_tree_sitter());
@@ -273,12 +327,12 @@ fn member<'s>(
 ) -> Result<MarkerMember<'s>, SourceError> {
     evidence_built::record();
     let bytes = doc_comment::node_bytes(node, context.bytes());
-    let end = if bytes.starts_with(b"//") {
-        let line = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-        node.start_byte() + line.strip_suffix(b"\r").unwrap_or(line).len()
-    } else {
-        node.end_byte()
-    };
+    let end =
+        if bytes.starts_with(b"//") && context.covers(node.start_byte()..node.start_byte() + 2) {
+            line_spelling_end(context, node)
+        } else {
+            node.end_byte()
+        };
     Ok(MarkerMember {
         node: context.node(node.as_tree_sitter())?,
         source: context.pieces(node.start_byte()..end)?,
@@ -288,5 +342,31 @@ fn member<'s>(
     })
 }
 
+fn line_spelling_end(context: &SourceContext<'_>, node: &Node<'_>) -> usize {
+    let code = context.bytes();
+    let end = node.end_byte();
+    let lf = if code.get(end - 1) == Some(&b'\n') {
+        end - 1
+    } else {
+        end
+    };
+    if code.get(lf) == Some(&b'\n') && context.covers(lf..lf + 1) {
+        if code.get(lf - 1) == Some(&b'\r') && context.covers(lf - 1..lf + 1) {
+            return lf - 1;
+        }
+        return lf;
+    }
+    // Some grammars exclude CR from the node even when no included LF follows it.
+    if code.get(end) == Some(&b'\r')
+        && context.covers(end..end + 1)
+        && !(code.get(end + 1) == Some(&b'\n') && context.covers(end + 1..end + 2))
+    {
+        return end + 1;
+    }
+    end
+}
+
+#[cfg(test)]
+mod regressions;
 #[cfg(test)]
 mod tests;
