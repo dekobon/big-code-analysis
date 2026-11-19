@@ -4,6 +4,7 @@ use super::*;
 use crate::{AnyParser, LANG, Search};
 use std::ops::Range;
 
+mod cycle2;
 mod remediation;
 
 #[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]

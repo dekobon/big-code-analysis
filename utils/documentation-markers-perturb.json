@@ -202,9 +202,16 @@
     {
       "name": "nested-suffix-uses-lexical-boundary",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": ".map_or(code.len(), |scope| scope.end_byte())",
-      "new": ".map_or(code.len(), |_scope| code.len())",
+      "old": "scope.start_byte()..scope.end_byte()",
+      "new": "scope.start_byte()..code.len()",
       "expect": ["lang_helpers::doc_comment::tests::documentation_exhausted_tail_uses_the_current_lexical_scope"]
+    },
+    {
+      "name": "chainless-marker-scope-must-recognize-root-parent",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "None => node.parent().filter(|parent| parent.parent().is_some()),",
+      "new": "None => node.parent(),",
+      "expect": ["documentation::streaming::markers::regressions::cycle2::rust_chainless_marker_prefix_uses_full_buffer", "documentation::streaming::markers::regressions::cycle2::java_chainless_marker_prefix_uses_full_buffer", "documentation::streaming::markers::regressions::cycle2::rust_chainless_marker_suffix_uses_full_buffer", "documentation::streaming::markers::regressions::cycle2::java_chainless_marker_suffix_uses_full_buffer"]
     }
   ]
 }

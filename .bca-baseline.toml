@@ -335,7 +335,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 690.0
+value = 686.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -365,7 +365,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "collect_stretch"
 metric = "halstead.effort"
-value = 56431.32292303746
+value = 48097.31864419657
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"

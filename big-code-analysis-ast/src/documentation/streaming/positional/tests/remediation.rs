@@ -15,6 +15,7 @@ fn allocation_free<T: Checker + crate::traits::LanguageInfo>(
     ] {
         let parser = parse(T::lang(), source.as_bytes());
         let before = members_materialized::observed();
+        let scope_reads = source_scope_reads::observed();
         parser.root_node().act_on_node(&mut |node, ancestors| {
             if T::is_comment(node) {
                 super::super::super::positional_comment::<T>(
@@ -26,6 +27,11 @@ fn allocation_free<T: Checker + crate::traits::LanguageInfo>(
             }
         });
         assert_eq!(members_materialized::observed() - before, 0, "{source}");
+        assert_eq!(
+            source_scope_reads::observed() - scope_reads,
+            0,
+            "legacy does not ask source scope bounds"
+        );
         let expected = parser.root_node().preorder().filter(T::is_comment).count();
         assert!(expected > 0);
         let source_runs = runs::<T>(&parser, true, true);

@@ -5,6 +5,7 @@ use crate::documentation::SourcePiece;
 use crate::{AnyParser, LANG, Search, documentation::UnresolvedReason};
 use std::ops::Range;
 
+mod cycle2;
 mod suffix;
 
 #[cfg(any(

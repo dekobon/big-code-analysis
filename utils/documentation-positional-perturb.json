@@ -132,8 +132,8 @@
     {
       "name": "unknown-prefix-row-must-not-discard-clean-suffix",
       "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
-      "old": ".take_while(|node| node.start_row() == row)",
-      "new": ".take_while(|node| true || node.start_row() == row)",
+      "old": "&& node.start_row() <= connected_end_row",
+      "new": "&& (true || node.start_row() <= connected_end_row)",
       "expect": ["documentation::streaming::positional::tests::remediation::go_unknown_first_row_keeps_clean_suffix", "documentation::streaming::positional::tests::remediation::ruby_unknown_first_row_keeps_clean_suffix"]
     },
     {
@@ -163,6 +163,55 @@
       "old": "if run.end == RunEnd::ExcludedGap",
       "new": "if run.suffix_gap || run.end == RunEnd::ExcludedGap",
       "expect": ["documentation::streaming::positional::tests::remediation::ruby_exhaustion_preserves_explicit_selection", "documentation::streaming::positional::tests::remediation::lua_exhaustion_preserves_known_file_and_tagged_selection"]
+    },
+    {
+      "name": "chainless-positional-scope-must-recognize-root-parent",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "None => node.parent().filter(|parent| parent.parent().is_some()),",
+      "new": "None => node.parent(),",
+      "expect": ["documentation::streaming::positional::tests::cycle2::go_chainless_exhaustion_keeps_full_buffer_suffix", "documentation::streaming::positional::tests::cycle2::ruby_chainless_exhaustion_keeps_full_buffer_suffix", "documentation::streaming::positional::tests::cycle2::go_chainless_prefix_keeps_unknown_first_row", "documentation::streaming::positional::tests::cycle2::ruby_chainless_prefix_keeps_unknown_first_row"]
+    },
+    {
+      "name": "known-source-context-must-not-resolve-physical-parents",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "Some(0 | 1) => None,",
+      "new": "Some(0 | 1) => node.parent().filter(|parent| parent.parent().is_some()),",
+      "expect": ["lang_helpers::doc_comment::tests::documentation_scope_bounds_respect_known_and_unknown_context"]
+    },
+    {
+      "name": "uncertain-prefix-must-cover-the-first-multiline-ending-row",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "let mut connected_end_row = nodes[eligible_start].end_row();\n            while let Some(node) = nodes.get(eligible_start)\n                && node.start_row() <= connected_end_row\n            {\n                connected_end_row = connected_end_row.max(node.end_row());\n                eligible_start += 1;\n            }",
+      "new": "let row = nodes[eligible_start].start_row();\n            eligible_start += nodes[eligible_start..].iter().take_while(|node| node.start_row() == row).count();",
+      "expect": ["documentation::streaming::positional::tests::cycle2::uncertain_multiline_prefix_excludes_all_row_connected_members"]
+    },
+    {
+      "name": "uncertain-row-connection-extends-through-later-multiline-members",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "connected_end_row = connected_end_row.max(node.end_row());",
+      "new": "// mutation: do not extend the connected row",
+      "expect": ["documentation::streaming::positional::tests::cycle2::uncertain_multiline_prefix_excludes_all_row_connected_members"]
+    },
+    {
+      "name": "trailing-only-keeps-its-known-candidate",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if collected.eligible_start == collected.nodes.len() {\n            return decision;",
+      "new": "if collected.eligible_start == collected.nodes.len() {\n            decision.target = None;\n            return decision;",
+      "expect": ["documentation::streaming::positional::tests::cycle2::go_trailing_only_keeps_candidate_without_selection", "documentation::streaming::positional::tests::cycle2::ruby_trailing_only_keeps_candidate_without_selection", "documentation::streaming::positional::tests::cycle2::lua_trailing_only_keeps_candidate_without_selection"]
+    },
+    {
+      "name": "recovered-trailing-candidate-keeps-uncertainty",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if decision.uncertainty.is_none() {",
+      "new": "if decision.uncertainty.is_none() && collected.eligible_start < collected.nodes.len() {",
+      "expect": ["documentation::streaming::positional::tests::cycle2::recovered_trailing_candidate_keeps_grammar_uncertainty"]
+    },
+    {
+      "name": "legacy-exhaustion-must-bypass-source-scope-bounds",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "if matches!(view, CandidateView::Legacy) {\n        return false;",
+      "new": "if false && matches!(view, CandidateView::Legacy) {\n        return false;",
+      "expect": ["documentation::streaming::positional::tests::remediation::go_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::ruby_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::lua_legacy_materializes_no_members"]
     }
   ]
 }

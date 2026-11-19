@@ -6,7 +6,9 @@ use crate::{Ancestors, Checker, Node};
 use super::super::{NodeEvidence, SourceContext, SourceError, SourcePieces, UnresolvedReason};
 use super::markers::CandidateView;
 
-pub use doc_comment::{members_materialized, positional_predecessors, positional_runs_collected};
+pub use doc_comment::{
+    members_materialized, positional_predecessors, positional_runs_collected, source_scope_reads,
+};
 crate::observation::counter!(evidence_built, cfg(any(test, feature = "test-support")));
 
 /// Why the final comment cannot defer to another member.
@@ -192,11 +194,13 @@ impl<'t> SourceMembers<'t> {
                 .get(eligible_start)
                 .is_some_and(|first| !complete_row_prefix(first, source));
         if prefix_placement_gap {
-            let row = nodes[eligible_start].start_row();
-            eligible_start += nodes[eligible_start..]
-                .iter()
-                .take_while(|node| node.start_row() == row)
-                .count();
+            let mut connected_end_row = nodes[eligible_start].end_row();
+            while let Some(node) = nodes.get(eligible_start)
+                && node.start_row() <= connected_end_row
+            {
+                connected_end_row = connected_end_row.max(node.end_row());
+                eligible_start += 1;
+            }
         }
         Self {
             nodes,
@@ -235,12 +239,18 @@ impl<'t> SourceDecision<'t> {
             decision.uncertainty = Some(UnresolvedReason::ExcludedGap);
             return decision;
         }
-        if collected.eligible_start == collected.nodes.len() {
-            return decision;
-        }
         decision.target = run
             .below
             .filter(|n| T::is_source_doc_target(n, source.bytes(), ancestors));
+        if decision.uncertainty.is_none() {
+            decision.uncertainty = run
+                .next
+                .filter(|n| n.has_error() || n.is_missing())
+                .map(|_| UnresolvedReason::GrammarBoundary);
+        }
+        if collected.eligible_start == collected.nodes.len() {
+            return decision;
+        }
         let context = RunContext {
             members: &collected.nodes[collected.eligible_start..],
             below: run.below,
@@ -254,12 +264,6 @@ impl<'t> SourceDecision<'t> {
             }
             Ok(None) => {}
             Err(reason) => decision.uncertainty = Some(reason),
-        }
-        if decision.uncertainty.is_none() {
-            decision.uncertainty = run
-                .next
-                .filter(|n| n.has_error() || n.is_missing())
-                .map(|_| UnresolvedReason::GrammarBoundary);
         }
         decision
     }

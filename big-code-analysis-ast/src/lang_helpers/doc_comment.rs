@@ -503,15 +503,28 @@ fn suffix_gap<'a>(
     if matches!(view, CandidateView::Legacy) {
         return false;
     }
-    let scope_end = if ancestors.depth().is_some_and(|depth| depth <= 1) {
-        code.len()
-    } else {
-        ancestors
-            .parent(comment)
-            .map_or(code.len(), |scope| scope.end_byte())
-    };
+    let scope_end = source_scope_bounds(comment, code, ancestors).end;
     !view.covers(last_examined_end..scope_end)
 }
+
+// The caller's chain is authoritative, including an explicitly empty one.
+// Only the unknown fallback resolves physical parents; a restricted root's span
+// cannot substitute for the full source interval.
+fn source_scope_bounds<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> std::ops::Range<usize> {
+    source_scope_reads::record();
+    let scope = match ancestors.depth() {
+        Some(0 | 1) => None,
+        Some(_) => ancestors.parent(node),
+        None => node.parent().filter(|parent| parent.parent().is_some()),
+    };
+    scope.map_or(0..code.len(), |scope| scope.start_byte()..scope.end_byte())
+}
+
+crate::observation::counter!(source_scope_reads, cfg(any(test, feature = "test-support")));
 
 /// The stretch `comment` ends, in source order, and the sibling before it:
 /// `comment` and the siblings before it that are comments or skipped,
@@ -561,13 +574,7 @@ pub(crate) fn collect_stretch<'a, T: Checker>(
         }
     }
     if matches!(view, CandidateView::Source(_)) && before.is_none() && !prefix_gap {
-        let start = if ancestors.depth() == Some(1) {
-            0
-        } else {
-            ancestors
-                .parent(comment)
-                .map_or(0, |parent| parent.start_byte())
-        };
+        let start = source_scope_bounds(comment, code, ancestors).start;
         prefix_gap = !view.covers(start..boundary);
     }
     stretch.reverse();
@@ -953,13 +960,7 @@ fn collect_positional_prefix<'a, T: Checker>(
         run.first_eligible = Some(row_first);
     }
     if !stopped && matches!(view, CandidateView::Source(_)) {
-        let start = if ancestors.depth() == Some(1) {
-            0
-        } else {
-            ancestors
-                .parent(comment)
-                .map_or(0, |parent| parent.start_byte())
-        };
+        let start = source_scope_bounds(comment, code, ancestors).start;
         run.prefix_gap = !view.covers(start..row_first.start_byte());
     }
     run.first = row_first;
@@ -987,6 +988,44 @@ pub(crate) fn lua_group_head_above<'a, T: Checker>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn documentation_scope_bounds_respect_known_and_unknown_context() {
+        use crate::node::node_resolved_parent_lookups;
+        use crate::{AnyParser, LANG, Search};
+        let code = b"\nmod m { //! audit\n}\n";
+        let parser = AnyParser::parse(LANG::Rust, code.to_vec(), None, None).unwrap();
+        let root = parser.root_node();
+        let before = node_resolved_parent_lookups::observed();
+        assert_eq!(
+            source_scope_bounds(&root, code, Ancestors::unknown()),
+            0..21
+        );
+        assert_eq!(node_resolved_parent_lookups::observed() - before, 1);
+        let mut checked = 0;
+        root.act_on_node(&mut |node, ancestors| {
+            let expected = match node.kind() {
+                "mod_item" => 0..21,
+                "line_comment" => 7..20,
+                _ => return,
+            };
+            let before = node_resolved_parent_lookups::observed();
+            assert_eq!(source_scope_bounds(node, code, ancestors), expected);
+            assert_eq!(
+                source_scope_bounds(node, code, Ancestors::known(&[])),
+                0..21
+            );
+            assert_eq!(node_resolved_parent_lookups::observed() - before, 0);
+            assert_eq!(
+                source_scope_bounds(node, code, Ancestors::unknown()),
+                expected
+            );
+            assert_eq!(node_resolved_parent_lookups::observed() - before, 2);
+            checked += 1;
+        });
+        assert_eq!(checked, 2);
+    }
 
     #[cfg(feature = "rust")]
     #[test]
@@ -1024,10 +1063,10 @@ mod tests {
                     CandidateView::Source(&context)
                 ));
                 assert!(suffix_gap(
-                    node,
-                    node.end_byte(),
+                    &parser.root_node(),
+                    20,
                     source,
-                    Ancestors::known(&[parser.root_node()]),
+                    Ancestors::known(&[]),
                     CandidateView::Source(&context)
                 ));
                 checked += 1;
