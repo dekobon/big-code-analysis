@@ -1,14 +1,16 @@
 # Fuzzing
 
 `big-code-analysis` runs [cargo-fuzz][cf] against the parse-and-walk
-layer: the `fuzz/` crate holds twelve [libFuzzer][lf] targets that feed
-arbitrary bytes to `Ast::parse` and then run every public walk over the
-result. Coverage-guided mutation reaches malformed and adversarial input
+layer. The `fuzz/` crate holds [libFuzzer][lf] targets that feed
+arbitrary bytes to the parser and exercise its walks and source-documentation
+collector. Coverage-guided mutation reaches malformed and adversarial input
 shapes that a fixture suite samples only where someone thought to look.
 
 This page is for contributors running or extending the fuzz targets. It
 starts with running them and triaging a crash; the target design and the
 reasons the job runs outside `make pre-commit` follow.
+It assumes familiarity with [Cargo](https://doc.rust-lang.org/cargo/) and the project's
+test commands. A fuzz target is a function that libFuzzer repeatedly calls with mutated bytes.
 
 [cf]: https://rust-fuzz.github.io/book/cargo-fuzz.html
 [lf]: https://llvm.org/docs/LibFuzzer.html
@@ -40,6 +42,7 @@ Then:
 
 ```bash
 make fuzz-check                                   # fmt + clippy + test + build
+make fuzz-replay                                  # committed corpus, no mutation
 make fuzz-smoke                                   # every target, FUZZ_RUNS each
 make fuzz-run FUZZ_TARGET=preproc_macro FUZZ_RUNS=1000000
 make fuzz-run FUZZ_TARGET=parse_cpp FUZZ_INPUT=fuzz/artifacts/parse_cpp/<file>
@@ -102,6 +105,16 @@ Those are byte-exact, and `.gitattributes` marks the directory
 `-text -diff` so git never normalises them. Several exist precisely to
 carry what it would otherwise rewrite.
 
+The `documentation` corpus uses a
+[tagged format](#documentation-properties) instead of raw source alone.
+`fuzz/documentation-seeds.json` records each header, payload
+[SHA-256](https://csrc.nist.gov/pubs/fips/180-4/upd1/final),
+fixture provenance, and executed assertion class. Metadata stays outside the
+corpus so libFuzzer never treats a registry file as a source seed.
+`python3 -B fuzz/generate_documentation_seeds.py` regenerates the deliberate
+seeds. Its inputs are the raw documentation fixtures and explicitly written
+edge cases; it never obtains expected values from collector output.
+
 `nested_depth`'s seeds are different in kind: that target decodes bytes
 into a generator input rather than treating them as source. Its layout
 is defined by a hand-written [`Arbitrary`](https://docs.rs/arbitrary)
@@ -133,7 +146,7 @@ should each be explicable.
 the walk, because deliberately malformed source measures nothing and
 would put ERROR-node parses into `bca report`.
 
-## Triaging a crash
+## Triaging a crash {#triaging-a-crash}
 
 libFuzzer writes the offending input to `fuzz/artifacts/<target>/`. The
 CI workflow uploads that directory as the `fuzz-artifacts` artifact, and
@@ -204,11 +217,14 @@ specific rationale.
 | `preproc_macro` | `preprocess` harvest → `Source::with_preproc` → the C-family macro-masking lexer |
 | `preproc_includes` | `preprocess` over several files → `fix_includes` → include-graph resolution, SCC collapse, candidate scoring |
 | `nested_depth` | A structured generator for the deep-nesting complexity class |
+| `documentation` | Tagged language/profile selection, borrowed source collection, and bounded identity, owner, qualification, and map queries |
 
 Three design points are load-bearing.
 
-**The bytes reach the parser unmodified.** Targets call
-`Source::from_bytes`, which applies no normalisation. The file-reading
+**The bytes reach the parser unmodified.** Full-walk targets call
+`Source::from_bytes`, which applies no normalisation. The tagged documentation
+target passes its unchanged payload to `AnyParser` or a raw included-range parser.
+The file-reading
 path (`read_file`, `read_file_with_eol`, `normalize_eol`) runs
 `normalize_line_endings`, which guarantees a trailing newline. Tests
 using those readers cannot exercise a node ending at EOF, and that is
@@ -217,23 +233,128 @@ would pass vacuously while looking like coverage. `Ast::from_path`
 normalises; no target uses it.
 
 **One parse, every walk.** `ops`, `dump` and comment removal are seams on
-an already-built `Ast`, not separate entry points, so each target parses
+an already-built `Ast`, not separate entry points, so each full-walk target parses
 once and then fans out over `metrics`, `ops`, `strip_comments`, `dump`,
-`functions`, `suppressions`, `count` and `find`. It also serialises the
+`functions`, `suppressions`, `count` and `find`. The documentation check uses
+that same `Ast`'s language, tree, and held source buffer. Preprocessor targets
+therefore supply the masked bytes that actually produced the tree.
+The harness also serialises the
 results, which is the only thing in the fan-out that reaches
 `recursion::serialize_bounded` and `wire::map_tree`, the recursion
 bounded by #1056, after nested input was found able to abort the process
 from `Serialize`.
 
 **The C grammars are instrumented too.** cargo-fuzz sanitizes the Rust
-side; the tree-sitter grammars are C compiled by build scripts and are
-not covered unless asked, which would leave the largest body of
-memory-unsafe code in the graph outside the sanitizer. `make fuzz-check`
-sets `CFLAGS_<host-triple>`. It has to be the triple-qualified spelling:
-`cc` resolves `<VAR>_<target>`, then `<VAR>_<target_with_underscores>`,
+side; the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars are C
+compiled by build scripts and need separate instrumentation.
+`make fuzz-check` sets `CFLAGS_<host-triple>`. It has to be the triple-qualified
+spelling: `cc` resolves `<VAR>_<target>`, then `<VAR>_<target_with_underscores>`,
 then `<BUILD_KIND>_<VAR>`, then bare `<VAR>`, and picks `HOST_` rather
 than `TARGET_` for the build kind when it is not cross-compiling, so
 `TARGET_CFLAGS` is silently inert for a native fuzz build.
+
+### Documentation properties {#documentation-properties}
+
+The documentation target has a handwritten version-one three-byte header.
+The payload after byte 2 reaches the parser unchanged, including invalid
+encoding, NUL bytes, CRLF, and a missing final newline. Unknown tags,
+reserved bits, and unknown profile selectors produce distinct skips before
+parsing. They never alias a supported language through a modulus.
+
+| Byte | Version-one meaning |
+|---|---|
+| 0 | Language tag in the stable table below |
+| 1, bit 0 | Collect a second index on the same parse; compare results and reject foreign handles |
+| 1, bit 1 | Check cloned-tree, shifted-node, and edited-node rejection |
+| 1, bits 2–3 | `0`: ordinary collection; `1`: included ranges; `2`: cancelled collection scope followed by restored collection; `3`: active uncancelled scope |
+| 1, bits 4–7 | Reserved; setting any bit skips the input |
+| 2, bits 0–4 | Profile selector from `PROFILES` in `fuzz/src/documentation/header.rs`; `0` selects the language default |
+| 2, bit 5 | Retain unbound candidate evidence |
+| 2, bit 6 | Retain directive evidence |
+| 2, bit 7 | Reserved version bit; setting it skips the input |
+
+The language tags are part of the corpus format, independent of enum
+discriminants or iteration order:
+
+| Tags | Languages in tag order |
+|---|---|
+| 0–4 | Rust, Python, Java, Kotlin, Groovy |
+| 5–9 | Csharp, Php, Javascript, Mozjs, Typescript |
+| 10–14 | Tsx, C, Cpp, Mozcpp, Objc |
+| 15–19 | Go, Ruby, Lua, Perl, Elixir |
+| 20–24 | Bash, Tcl, Irules, Ccomment, Preproc |
+
+Registration tests compare the table with the `LANG` roster and execute every
+registered seed through the real target. Positive seeds assert exact fragment
+and owner ranges, parsed declaration kinds, text, and copied mappings from
+`tests/fixtures/documentation/inventory.json`. Deferred adapters require
+`AdapterUnavailable`; helper grammars require `NoDeclarationModel`.
+Recognized deferred profiles differ from `UnsupportedProfile`.
+These outcomes do not count as positive source extraction. Future adapters
+must add their own positive seeds when their source paths become available.
+
+The checker validates raw pieces against the exact source and included ranges.
+It checks observed document, association, and qualification ordering without
+sorting the results. Bounded owner and canonical-cursor queries compare
+prepared adjacency with enumeration. Pending assessments remain inspectable
+alongside known associations; candidate and reference qualifications retain
+their distinct identities and reasons. Cross-index handles and noncanonical
+nodes must return the documented identity errors.
+
+Every complete document gets one map validation. Runs must cover its output;
+copied origins match source bytes, transformed queries retain all responsible
+token pieces, and synthetic output has no source. Stored runs may divide a
+UTF-8 scalar when adjacent included pieces divide it. Query endpoints must
+still be scalar boundaries. The query set includes reversed, out-of-bounds,
+scalar-splitting, valid, late, and empty-EOF ranges. Unavailable, pending,
+metadata, disabled, and explicit-absence content never becomes empty text.
+Registered positives reach copied origins, synthetic comment joins, and decoded
+CRLF tokens across included pieces. Expanded origins and source-produced metadata,
+disabled, and explicit-absence states await their later adapters; defensive match
+arms do not establish positive coverage of those forms.
+
+The resource limits are harness policy:
+
+- Inspect source buffers up to 32 KiB. Larger inputs skip only the added
+  documentation operation in the ordinary walk fanout; no source is truncated.
+- Perform at most two ordinary collections over the same parse.
+- Select at most eight owner/node positions and eight map ranges per input,
+  including late positions.
+- Limit structured included-range inputs to 256 ranges. Each non-NUL payload
+  byte becomes one included range, so adjacent ranges can divide a scalar.
+  NUL bytes create excluded gaps. Parsing uses the original payload once.
+
+The checker makes linear or output-proportional passes and uses expected
+constant-time hash indexing. Its included-byte prefix table costs linear
+source space and avoids scanning every included range for every piece.
+Bounded enumeration checks may scan associations for each selected owner;
+the selected-owner count is constant. These limits bound harness work, not
+library allocation or legitimate documentation fanout. They do not prove an
+input fits `FUZZ_TIMEOUT`.
+
+Cancellation uses `AnyParser`'s retained completion state. Deterministic tests
+pre-cancel a deliberately large parse and require `ParseCompletion::Cancelled`
+after the flag scope ends. Tagged modes check active collection cancellation,
+restoration, and an uncancelled flag. A tiny empty root is never evidence that
+the parse callback aborted. Large phase-budget cancellation tests remain in
+the AST crate; the fuzz target does not expose private phase hooks.
+
+Run the finite documentation validation sequence one heavy operation at a time:
+
+```bash
+make fuzz-check
+make fuzz-replay
+make fuzz-smoke FUZZ_RUNS=1000
+make fuzz-run FUZZ_TARGET=documentation FUZZ_RUNS=10000
+```
+
+Record the revision, nightly and cargo-fuzz versions, input timeout, registered
+seed inventory, and actual run counts. A printed tool-availability skip is a
+skipped stage. Preserve a failing input and stop investigation runs when a
+production crash appears; follow [crash triage](#triaging-a-crash) before
+promoting it to a seed. Local recovery seeds use a constructed valid/error pair
+with an independently documented neighbor. Arbitrary random inputs do not
+imply equivalent documentation after an unspecified source edit.
 
 ### Fuzzing an order-dependent function
 
@@ -256,15 +377,16 @@ that iterates an unordered collection, establish which of its outputs
 are order-stable. If a crash can depend on the order, the artifact is
 not a reproducer and the target is worse than nothing.
 
-### Languages not fuzzed
+### Language-specific walk targets
 
-Recorded so the omission reads as a decision. `Mozjs` was measured
+The tagged documentation target dispatches every enabled `LANG`. The
+language-specific full-walk targets have a narrower scope. `Mozjs` was measured
 metric-equivalent to upstream JavaScript on real input (#507). `Preproc`
 is driven by `preproc_macro` and `preproc_includes`, whose first pass
 is a `PreprocParser` parse of the bytes; the C-family macro-masking
 lexer that `preproc_macro` then reaches is the same one `Mozcpp` runs,
-reached there through `LANG::Cpp`, so no target parses the Gecko C++
-fork itself. The remaining grammars are
+reached there through `LANG::Cpp`. The documentation target parses the Gecko
+C++ fork through its own tag. The remaining full-walk omissions are
 upstream crates with no evidence pointing at them; adding one is a
 five-line file plus a `[[bin]]` stanza, and the bar for doing so is a
 reason, not a wish for symmetry.

@@ -1,0 +1,691 @@
+[
+  {
+    "name": "dispatch-rust",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "ce646e523f0521572773a98f800e0cc2d89bad973db42910519b992dc24e74d3",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "rust",
+    "fixture": "primary.rs",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-python",
+    "header": [
+      1,
+      1,
+      0
+    ],
+    "sha256": "e0c7b85344ed518c3d52629eaaab3fe85ac811d4c1bd67abb9b1ff3079182d7f",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "python",
+    "fixture": "primary.py",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-java",
+    "header": [
+      2,
+      1,
+      0
+    ],
+    "sha256": "3c5a04d0c3788f9cf33c238df6688b583ce5dc8f914929c91303e800fb4801d1",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "java",
+    "fixture": "primary.java",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-kotlin",
+    "header": [
+      3,
+      1,
+      0
+    ],
+    "sha256": "aca5759030293707bd4d7880965ad41933605976c2d044d55183d98466c1fd0f",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "kotlin",
+    "fixture": "primary.kt",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-groovy",
+    "header": [
+      4,
+      1,
+      0
+    ],
+    "sha256": "a29f84385529c86ce647822d3802dbc580cb12f2a16b9e83aba6097976d864f5",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "groovy",
+    "fixture": "primary.groovy",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-csharp",
+    "header": [
+      5,
+      1,
+      0
+    ],
+    "sha256": "b3698db6bb9fb9a4ad8964897b840672f02e23a9e6e0ab7eba4e006b073d2547",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "csharp",
+    "fixture": "primary.cs",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-php",
+    "header": [
+      6,
+      1,
+      0
+    ],
+    "sha256": "ee3e5ec42d6ab8bceb5ee3d48fc4c6a0f89fecfe24832bb0ee69270232822030",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "php",
+    "fixture": "primary.php",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-javascript",
+    "header": [
+      7,
+      1,
+      0
+    ],
+    "sha256": "34c40d2f896bb5a0ffd0ac968fa632ca1dea36a94be2b09a94cb3eb73da82f50",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "javascript",
+    "fixture": "primary.js",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-mozjs",
+    "header": [
+      8,
+      1,
+      0
+    ],
+    "sha256": "34c40d2f896bb5a0ffd0ac968fa632ca1dea36a94be2b09a94cb3eb73da82f50",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "mozjs",
+    "fixture": "primary.js",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-typescript",
+    "header": [
+      9,
+      1,
+      0
+    ],
+    "sha256": "acf8c1ba061c30bc69ce91c85d1ac8b3b3bca05613d31924bfed388d80aba395",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "typescript",
+    "fixture": "primary.ts",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-tsx",
+    "header": [
+      10,
+      1,
+      0
+    ],
+    "sha256": "bf12549bfebf4c8d79dd844c5b9e67e466c651e49c48834b121998abc12fd887",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "tsx",
+    "fixture": "primary.tsx",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-c",
+    "header": [
+      11,
+      1,
+      0
+    ],
+    "sha256": "27f93efa0b5cbae8067baac0eea5d241f6100c6018eb0339ec909164c2db3492",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "c",
+    "fixture": "primary.c",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-cpp",
+    "header": [
+      12,
+      1,
+      0
+    ],
+    "sha256": "df5ccf71dd0efe1f6121024024bf7da40904332bf458ebff4ae280d7952b4f5b",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "cpp",
+    "fixture": "primary.cpp",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-mozcpp",
+    "header": [
+      13,
+      1,
+      0
+    ],
+    "sha256": "df5ccf71dd0efe1f6121024024bf7da40904332bf458ebff4ae280d7952b4f5b",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "mozcpp",
+    "fixture": "primary.cpp",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-objc",
+    "header": [
+      14,
+      1,
+      0
+    ],
+    "sha256": "27f93efa0b5cbae8067baac0eea5d241f6100c6018eb0339ec909164c2db3492",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "objc",
+    "fixture": "primary.m",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-go",
+    "header": [
+      15,
+      1,
+      0
+    ],
+    "sha256": "77f10ec0ba5ac8abd062718c661581518eab81a00aa3ce932f4ed3c20fb1c756",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "go",
+    "fixture": "primary.go",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-ruby",
+    "header": [
+      16,
+      1,
+      0
+    ],
+    "sha256": "6ddf6cab5c4bc618542a667bfb9c3360b5ac6f4042d7d144b87052da67c4fa77",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "ruby",
+    "fixture": "primary.rb",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-lua",
+    "header": [
+      17,
+      1,
+      0
+    ],
+    "sha256": "6bf0e1558d9cba673f3002f3e9c94c6d17f683bcba12ef8c28932db57277a4c7",
+    "class": "positive",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "lua",
+    "fixture": "primary.lua",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-perl",
+    "header": [
+      18,
+      1,
+      0
+    ],
+    "sha256": "4cfdd5e4df5efa65fac36a8828016fc2b8043f72c87f55a4a02c7440204af49b",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "perl",
+    "fixture": "primary.pl",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-elixir",
+    "header": [
+      19,
+      1,
+      0
+    ],
+    "sha256": "bc51d2bc2ae36a524b04cc73f7bd24f1b8ad99c6d438ef32bcb6cff632a327a5",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "elixir",
+    "fixture": "primary.ex",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-bash",
+    "header": [
+      20,
+      1,
+      0
+    ],
+    "sha256": "2f4d69dff498ec26d68d6a0bace15205533009b103ff69f4eda22e0fb05fa6cc",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "bash",
+    "fixture": "primary.bash",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-tcl",
+    "header": [
+      21,
+      1,
+      0
+    ],
+    "sha256": "23f08cc44ad0048ed348e70600fd6f625c7bdb95c3d2bf3502af0c3d66f91dfb",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "tcl",
+    "fixture": "primary.tcl",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-irules",
+    "header": [
+      22,
+      1,
+      0
+    ],
+    "sha256": "623deef1baa92f389d1e4a9a5706de9d41099d203e253fe3a1b0403cfbf5f293",
+    "class": "deferred",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "irules",
+    "fixture": "primary.irule",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-ccomment",
+    "header": [
+      23,
+      1,
+      0
+    ],
+    "sha256": "f51dc282fa5239841a36c65a37ebcdc36a2359819153465c52c7855a2ae9f5ef",
+    "class": "helper",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "ccomment",
+    "fixture": "helper-comment.c",
+    "has_error": false
+  },
+  {
+    "name": "dispatch-preproc",
+    "header": [
+      24,
+      1,
+      0
+    ],
+    "sha256": "4767235cb67f169cad00d920f225a05dcf4a11b3a71b215277b2ecc879ce82f0",
+    "class": "helper",
+    "provenance": "tests/fixtures/documentation/inventory.json",
+    "inventory": "preproc",
+    "fixture": "helper-preproc.h",
+    "has_error": false
+  },
+  {
+    "name": "rust-eof",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "299d86d4b9a429931e8d6eb6c0aa8d871aab85f9f50c51e228654d6c16ebd0b6",
+    "class": "eof",
+    "provenance": "tests/fixtures/documentation/forms.json",
+    "fixture": "rust-eof.rs",
+    "has_error": false
+  },
+  {
+    "name": "rust-crlf",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "83f241449672f5dbb9ecb0b0961f23f473df8ac788ceceac5e394752fa8fc010",
+    "class": "crlf",
+    "provenance": "tests/fixtures/documentation/forms.json",
+    "fixture": "rust-crlf.rs",
+    "has_error": false
+  },
+  {
+    "name": "rust-attribute",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "aac39c7cc5bc121b5a806cc7e48af010226c50176197ef51fd62cef6ce0f45d5",
+    "class": "pending-content",
+    "provenance": "tests/fixtures/documentation/forms.json",
+    "fixture": "rust-attribute.rs",
+    "has_error": false
+  },
+  {
+    "name": "rust-join",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "84b7f038825b8c2dda112108879f6c91751c3722a126d242b5a3e6f28f4ac14c",
+    "class": "join",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::rust_joint_smoke_pins_exact_composition_and_maps",
+    "has_error": false
+  },
+  {
+    "name": "c-shared-owners",
+    "header": [
+      11,
+      3,
+      0
+    ],
+    "sha256": "8e5ee273ef5f4887f4f618aa4167ee7388dd96a7092d1db55d82868da21d3809",
+    "class": "shared",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::c_declaration_fanout_and_trailing_projection_share_retained_text",
+    "has_error": false
+  },
+  {
+    "name": "cpp-gathered",
+    "header": [
+      12,
+      1,
+      0
+    ],
+    "sha256": "a49216d0d4c90fd33c63b2df11ff1eaf329f567c10a3c6430a397342cde3dd2b",
+    "class": "gathered",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/remediation_tests.rs::gathered_disposition_does_not_rescan_structural_member_per_fragment",
+    "has_error": false
+  },
+  {
+    "name": "cpp-candidate-qualification",
+    "header": [
+      12,
+      3,
+      0
+    ],
+    "sha256": "7dff7bb0546623cefd1cec5b34245375c9c8083876dc9710ba694f0be3c04d0e",
+    "class": "candidate-qualification",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/named_tests.rs::ambiguous_candidates_keep_structured_qualification_and_reference_identity",
+    "has_error": true
+  },
+  {
+    "name": "cpp-reference-qualification",
+    "header": [
+      12,
+      3,
+      0
+    ],
+    "sha256": "077e3876e7a96a36b0fc2abb94e5b3f7088c409ebd60bceec4595de7852bd5aa",
+    "class": "reference-qualification",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/named_tests.rs::ambiguous_candidates_keep_structured_qualification_and_reference_identity",
+    "has_error": false
+  },
+  {
+    "name": "cpp-missing-name",
+    "header": [
+      12,
+      1,
+      0
+    ],
+    "sha256": "b0ecccbf651ec0723a3dcc9af1ba23f3f147db9ff8658a7d22be6a507459ff76",
+    "class": "missing-name",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::doxygen_static_names_resolve_unique_missing_and_ambiguous_targets",
+    "has_error": false
+  },
+  {
+    "name": "cpp-pending-name",
+    "header": [
+      12,
+      1,
+      0
+    ],
+    "sha256": "da9dcb9477660912b3ac64ab8d09f46060e0df4d6479a508d791714d2dea2278",
+    "class": "pending-name",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/named_tests.rs::narrow_signature_grammar_defers_malformed_and_unsupported_references",
+    "has_error": false
+  },
+  {
+    "name": "kotlin-pending-owner",
+    "header": [
+      3,
+      1,
+      0
+    ],
+    "sha256": "0bfcb4a9a404dc859fe5fa59ebd33d0e1dda620df62ac56ff7743879eae046a3",
+    "class": "pending-owner",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/form_tests.rs::kotlin_parameter_form_is_pending_in_default_queries",
+    "has_error": false
+  },
+  {
+    "name": "kotlin-known-and-pending",
+    "header": [
+      3,
+      3,
+      0
+    ],
+    "sha256": "b1857d0245b606b299102fb05eb946260546b62ba1a10759df34a9e20785d281",
+    "class": "known-and-pending",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/assessment_tests.rs::kotlin_local_pending_owner_keeps_complete_text_and_known_leading_association",
+    "has_error": false
+  },
+  {
+    "name": "rust-invalid-utf8",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "e51081eea0d1b39ddcee3759a46f46ad8b5d563bfc2011118c18308c19335402",
+    "class": "invalid-encoding",
+    "provenance": "big-code-analysis-ast/src/documentation/text/tests.rs invalid comment decoding",
+    "has_error": false
+  },
+  {
+    "name": "rust-partial-delimiter",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "8d64a30d9de151b649006a1d9871037ac5649ab6162ea5d7fd77c54fed07b155",
+    "class": "partial",
+    "provenance": "handwritten incomplete block comment",
+    "has_error": true
+  },
+  {
+    "name": "java-scalar-pieces",
+    "header": [
+      2,
+      5,
+      0
+    ],
+    "sha256": "050399e4846ac1e6ccb52c72f81f53f40f118c4eda7fd43810127abfc521488d",
+    "class": "scalar-pieces",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/remediation_tests.rs::multiline_text_reuses_retained_fragment_intersections",
+    "has_error": false
+  },
+  {
+    "name": "java-crlf-token-pieces",
+    "header": [
+      2,
+      5,
+      0
+    ],
+    "sha256": "719043a4916e897a599b425ae2f0b89a3529a2415ec33c1d658683139ea5d1d1",
+    "class": "decoded-pieces",
+    "provenance": "big-code-analysis-ast/src/documentation/text/comments.rs CRLF normalization across included pieces",
+    "has_error": false
+  },
+  {
+    "name": "java-source-gap",
+    "header": [
+      2,
+      5,
+      0
+    ],
+    "sha256": "daeec0fb98695bade148a51736407c569e396e0b28125ba377fc5f31eaf2b4d5",
+    "class": "source-gap",
+    "provenance": "handwritten included-range gap through a comment",
+    "has_error": false
+  },
+  {
+    "name": "java-empty",
+    "header": [
+      2,
+      1,
+      0
+    ],
+    "sha256": "fc195a6cd44a547748cb4c9c01990b1eafbe7208a83756d163fce1e574c44db3",
+    "class": "empty",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::java_selected_empty_document_keeps_superseded_raw_evidence_only_on_request",
+    "has_error": false
+  },
+  {
+    "name": "java-evidence",
+    "header": [
+      2,
+      3,
+      32
+    ],
+    "sha256": "fc195a6cd44a547748cb4c9c01990b1eafbe7208a83756d163fce1e574c44db3",
+    "class": "evidence",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::java_selected_empty_document_keeps_superseded_raw_evidence_only_on_request",
+    "has_error": false
+  },
+  {
+    "name": "go-directive-off",
+    "header": [
+      15,
+      1,
+      0
+    ],
+    "sha256": "b42ea8971804b58bcb99d7a301b016c5212dfc1d4aca6b43d77b1ea4379d6b5b",
+    "class": "directive-off",
+    "provenance": "big-code-analysis-ast/src/documentation/streaming/positional/tests.rs::go_directive_only_evidence_is_lazy_and_not_prose",
+    "has_error": false
+  },
+  {
+    "name": "go-directive-on",
+    "header": [
+      15,
+      1,
+      64
+    ],
+    "sha256": "b42ea8971804b58bcb99d7a301b016c5212dfc1d4aca6b43d77b1ea4379d6b5b",
+    "class": "directive-on",
+    "provenance": "big-code-analysis-ast/src/documentation/streaming/positional/tests.rs::go_directive_only_evidence_is_lazy_and_not_prose",
+    "has_error": false
+  },
+  {
+    "name": "rust-cancelled-scope",
+    "header": [
+      0,
+      8,
+      0
+    ],
+    "sha256": "ce646e523f0521572773a98f800e0cc2d89bad973db42910519b992dc24e74d3",
+    "class": "cancelled-scope",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::raw_input_checks_and_cancellation_have_distinct_outcomes",
+    "has_error": false
+  },
+  {
+    "name": "rust-active-scope",
+    "header": [
+      0,
+      12,
+      0
+    ],
+    "sha256": "ce646e523f0521572773a98f800e0cc2d89bad973db42910519b992dc24e74d3",
+    "class": "active-scope",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/assessment_tests.rs::nested_collection_cancellation_restores_outer_flag_after_unwind",
+    "has_error": false
+  },
+  {
+    "name": "rust-incompatible-profile",
+    "header": [
+      0,
+      0,
+      2
+    ],
+    "sha256": "ce646e523f0521572773a98f800e0cc2d89bad973db42910519b992dc24e74d3",
+    "class": "incompatible-profile",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::named_profiles_distinguish_deferred_incompatible_and_available",
+    "has_error": false
+  },
+  {
+    "name": "ruby-rdoc-deferred",
+    "header": [
+      16,
+      0,
+      14
+    ],
+    "sha256": "6ddf6cab5c4bc618542a667bfb9c3360b5ac6f4042d7d144b87052da67c4fa77",
+    "class": "deferred-profile",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::named_profiles_distinguish_deferred_incompatible_and_available",
+    "has_error": false
+  },
+  {
+    "name": "php-documentor-deferred",
+    "header": [
+      6,
+      0,
+      8
+    ],
+    "sha256": "ee3e5ec42d6ab8bceb5ee3d48fc4c6a0f89fecfe24832bb0ee69270232822030",
+    "class": "deferred-profile",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::named_profiles_distinguish_deferred_incompatible_and_available",
+    "has_error": false
+  },
+  {
+    "name": "rust-valid-neighbor",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "2fe7db67de9c8a32fcaf41aed50c252d18256c939ec525f0eb231bef45fe3274",
+    "class": "neighbor",
+    "provenance": "handwritten recovery pair: valid declaration",
+    "has_error": false
+  },
+  {
+    "name": "rust-recovery-neighbor",
+    "header": [
+      0,
+      1,
+      0
+    ],
+    "sha256": "99e2c08576998000b48523c34ee01efcf72914df61882150d61a62d7944c544d",
+    "class": "neighbor",
+    "provenance": "handwritten recovery pair: localized missing expression",
+    "has_error": true
+  }
+]
