@@ -48,7 +48,6 @@ fn recovery_and_conditional_semantics_reject_shape_preserving_substitutions() {
                 let expected = match replacement {
                     "wrong" => "exact source piece range/bytes",
                     "@file" if key == "recovery-depth" => "combined fixture binding/scope identity",
-                    "@file" => "combined fixture resolution/owner count",
                     "@fn absent" if key == "conditional-depth" => "direct attachment must have Q=0",
                     _ => "combined fixture resolution/owner count",
                 };

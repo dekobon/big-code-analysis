@@ -118,10 +118,10 @@ fn inherited_workflow_retries_only_legacy_and_preserves_harness_errors() {
         let parsed: Vec<_> = calls
             .lines()
             .map(|call| {
-                let argv: Vec<_> = call.split_whitespace().collect();
-                let separator = argv.iter().position(|arg| *arg == "--").unwrap();
+                let words: Vec<_> = call.split_whitespace().collect();
+                let separator = words.iter().position(|arg| *arg == "--").unwrap();
                 assert_eq!(
-                    &argv[..separator],
+                    &words[..separator],
                     [
                         "bench",
                         "-p",
@@ -131,7 +131,7 @@ fn inherited_workflow_retries_only_legacy_and_preserves_harness_errors() {
                     ]
                 );
                 let args = std::iter::once("--bench".to_owned())
-                    .chain(argv[separator + 1..].iter().map(|s| (*s).to_owned()));
+                    .chain(words[separator + 1..].iter().map(|s| (*s).to_owned()));
                 let Action::Run(args) = parse_args(args).unwrap() else {
                     panic!("run")
                 };
