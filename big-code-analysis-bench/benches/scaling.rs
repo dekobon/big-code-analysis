@@ -83,11 +83,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Ok(report) => {
-            if mode == Mode::Gate {
-                println!("combined gate: {} performance failures", report.failures());
-            } else {
-                println!("{mode:?}: no performance verdict");
-            }
+            print!("{}", report.final_summary(mode));
             ExitCode::from(report.exit_code(mode, optimized))
         }
     }

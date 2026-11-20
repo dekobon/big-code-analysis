@@ -253,6 +253,7 @@ fn additional_fixture(
                 "deep recovered sibling parent absent",
             )?;
             require(index.documents().len() == 32, "recovery document count")?;
+            super::attachment_validation::validate(probe.key, size, parsed, index)?;
         }
         "conditional-depth" => {
             require(
@@ -260,6 +261,7 @@ fn additional_fixture(
                 "conditional structure depth",
             )?;
             require(index.documents().len() == 1, "conditional document count")?;
+            super::attachment_validation::validate(probe.key, size, parsed, index)?;
         }
         "missing-name" => {
             require(count("declaration") == size, "unrelated named declarations")?;

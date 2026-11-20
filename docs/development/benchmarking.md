@@ -94,6 +94,12 @@ The scaling executable uses these exit codes:
 
 Report-only suppresses exit 1 but still rejects harness errors.
 
+After both full tables, a compact footer lists each failure's ID and cause. Legacy failures
+name the exponent and bound or the abandoned walk's size, duration and budget. Source failures
+name their statistic class, value, bound and policy. The final line gives the total failure
+count. A tail excerpt can omit earlier failure rows; compare its visible count with that total
+and consult the full `target/bench/scaling*.log` files in the `metric-walk-benchmarks` artifact.
+
 ### Registry and timed boundaries
 
 `big-code-analysis-bench/src/documentation/` supplies one registry to the source gate and
@@ -228,6 +234,12 @@ IDs and source bytes are preserved. The gate needs its own runner results under 
 policy. Do not change bounds after observing a run. New optimization guards also need
 discriminating counter tests and controlled regressed/fixed pairs where a timing claim requires
 them. Record both revisions explicitly for each regressed/fixed comparison.
+
+The source gate retains all parsed inputs and indexes across its schedule; documentation
+Criterion prepares state per cell. Record this working-set difference, actual compiled features
+and production counter overhead in the comparison. Counter guards cover their recorded paths;
+raw storage scans can bypass public iterator counters. The private failed-name lookup tests
+guard unrelated spelling comparisons after an indexed miss, not every possible name-index cost.
 
 The visible array-declarator ladder measures visible nesting and requests to
 `TreeCursor::field_name`. It does not bound hidden-rule work inside each dependency call.
@@ -1767,7 +1779,9 @@ rather than red. Run `make bench-scaling` around any change to AST
 traversal, `Checker`, `Getter`, or a metric's `compute`.
 
 `.github/workflows/benchmark.yml` runs the gate quarterly and on
-`workflow_dispatch`, mirroring
+`workflow_dispatch`, explicitly selecting `--scope legacy` for both its initial and confirmation
+runs. Its retry policy applies only to legacy probes. Source qualification uses the
+[separate predeclared policy](#source-documentation). The schedule mirrors
 [mutation testing](mutation_testing.md). It files an issue on a
 sustained performance failure. The growth statistics reduce sensitivity to host speed,
 but load still affects them. Confirm a performance-bound failure on an idle host before

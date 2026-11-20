@@ -3,6 +3,62 @@ use big_code_analysis_ast::LANG;
 use big_code_analysis_ast::documentation::*;
 
 #[test]
+fn recovery_and_conditional_semantics_reject_shape_preserving_substitutions() {
+    for key in ["recovery-depth", "conditional-depth"] {
+        let probe = REGISTRY.iter().find(|p| p.key == key).unwrap();
+        for size in [4, 32] {
+            let source = String::from_utf8(probe.source(size).unwrap()).unwrap();
+            for replacement in ["wrong", "@file", "@fn absent"] {
+                let changed = source.replace("audit", replacement);
+                let parsed = Parsed::Ordinary(
+                    big_code_analysis::Ast::parse(big_code_analysis::Source::new(
+                        probe.language,
+                        changed.as_bytes(),
+                    ))
+                    .unwrap(),
+                );
+                let index = parsed.collect(probe).unwrap();
+                let nodes = parsed.nodes();
+                let count = |kind| nodes.iter().filter(|(n, _)| n.kind() == kind).count();
+                // Pin the original weaker conditions before requiring the new
+                // text/attachment oracle to reject each counterexample.
+                assert_eq!(
+                    parsed.tree().root_node().has_error(),
+                    key == "recovery-depth"
+                );
+                assert_eq!(count("struct_specifier"), size);
+                if key == "recovery-depth" {
+                    assert_eq!(count("field_declaration"), size + 31);
+                    assert!(
+                        nodes
+                            .iter()
+                            .any(|(n, depth)| n.kind() == "field_declaration_list"
+                                && n.has_error()
+                                && n.child_count() >= 64
+                                && *depth >= size)
+                    );
+                    assert_eq!(index.documents().len(), 32);
+                } else {
+                    assert_eq!(count("preproc_if"), size);
+                    assert_eq!(index.documents().len(), 1);
+                }
+                let Err(error) = Prepared::new(probe, size, &parsed, &index) else {
+                    panic!("accepted {key}/{size}/{replacement}")
+                };
+                let expected = match replacement {
+                    "wrong" => "exact source piece range/bytes",
+                    "@file" if key == "recovery-depth" => "combined fixture binding/scope identity",
+                    "@file" => "combined fixture resolution/owner count",
+                    "@fn absent" if key == "conditional-depth" => "direct attachment must have Q=0",
+                    _ => "combined fixture resolution/owner count",
+                };
+                assert_eq!(error.0, expected, "{key}/{size}/{replacement}");
+            }
+        }
+    }
+}
+
+#[test]
 fn original_registry_ids_sizes_and_options_are_preserved() {
     assert_eq!(
         crate::shapes::PROBES.len() + crate::vcs::VCS_PROBES.len(),
@@ -432,6 +488,27 @@ fn new_generated_names_keep_affine_bytes() {
         let probe = REGISTRY.iter().find(|p| p.key == key).unwrap();
         let [a, b, c] = probe.sizes.map(|size| probe.source(size).unwrap().len());
         assert_eq!(c - b, 2 * (b - a), "{key}");
+    }
+}
+
+#[test]
+fn missing_name_source_retains_distinct_keys_without_owner_edges() {
+    let probe = REGISTRY.iter().find(|p| p.key == "missing-name").unwrap();
+    for size in [32, 64, 128] {
+        let parsed = Parsed::new(probe, size).unwrap();
+        let before = observations();
+        let index = parsed.collect(probe).unwrap();
+        let after = observations();
+        // Each fixed-width f00000000 name stores nine bytes; its normalized
+        // void\0f00000000\0(\0void\0) signature stores 23, regardless of bucket collisions.
+        assert_eq!(after.key_bytes_stored - before.key_bytes_stored, 32 * size);
+        assert_eq!(index.associations().len(), 1);
+        let association = index.associations().next().unwrap();
+        assert_eq!(
+            association.get().resolution,
+            Resolution::Unresolved(UnresolvedReason::MissingName)
+        );
+        assert_eq!(association.get().owner_count(), 0);
     }
 }
 

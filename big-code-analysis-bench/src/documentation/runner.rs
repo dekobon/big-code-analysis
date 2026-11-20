@@ -358,6 +358,21 @@ pub fn run_with_budget(
             batches: Vec::with_capacity(rounds),
         });
     }
+    measure_schedule(&prepared, &mut raw, rounds, budget)?;
+    reduce(&probes, rounds, mode, raw.clone())
+        .map_err(|error| HarnessError(format!("{error}\nretained source batches: {raw:#?}")))
+}
+
+fn measure_schedule(
+    prepared: &[Prepared<'_, '_>],
+    raw: &mut [RawCell],
+    rounds: usize,
+    budget: Duration,
+) -> Result<(), HarnessError> {
+    require(
+        prepared.len() == raw.len() && !raw.is_empty(),
+        "invalid scheduled cell membership",
+    )?;
     for (round, at) in schedule(raw.len(), rounds) {
         let cell = &raw[at];
         let elapsed = batch(&prepared[at], cell.iterations)
@@ -385,8 +400,7 @@ pub fn run_with_budget(
             });
         }
     }
-    reduce(&probes, rounds, mode, raw.clone())
-        .map_err(|error| HarnessError(format!("{error}\nretained source batches: {raw:#?}")))
+    Ok(())
 }
 
 fn batch(operation: &Prepared<'_, '_>, iterations: u32) -> Result<Duration, HarnessError> {
@@ -541,7 +555,10 @@ fn reduce_cell(raw: RawCell, rounds: usize, mode: Mode) -> Result<SourceCell, Ha
     })
 }
 
-fn statistic(class: StatisticClass, cells: &[SourceCell]) -> Result<Statistic, HarnessError> {
+pub(super) fn statistic(
+    class: StatisticClass,
+    cells: &[SourceCell],
+) -> Result<Statistic, HarnessError> {
     require(
         cells.len() == 3
             && cells
@@ -836,5 +853,67 @@ mod tests {
                 .iter()
                 .all(|c| c.batches.len() == 1 && c.iterations == 1)
         );
+    }
+
+    #[test]
+    fn batch_executes_every_requested_repetition() {
+        let probe = &REGISTRY[1];
+        let parsed = Parsed::new(probe, 4).unwrap();
+        let index = parsed.collect(probe).unwrap();
+        let prepared = Prepared::new(probe, 4, &parsed, &index).unwrap();
+        for iterations in [1, 3, 5] {
+            let before = big_code_analysis_ast::documentation::observations();
+            let _elapsed = batch(&prepared, iterations).unwrap();
+            let after = big_code_analysis_ast::documentation::observations();
+            assert_eq!(after.renders - before.renders, 4 * iterations as usize);
+            assert_eq!(
+                after.visits - before.visits,
+                parsed.nodes().len() * iterations as usize
+            );
+        }
+    }
+
+    #[test]
+    fn scheduler_executes_and_records_unequal_frozen_counts() {
+        let probe = &REGISTRY[1];
+        let sizes = [2, 4, 8];
+        let counts = [1, 2, 4];
+        let parsed: Vec<_> = sizes
+            .into_iter()
+            .map(|size| Parsed::new(probe, size).unwrap())
+            .collect();
+        let indexes: Vec<_> = parsed.iter().map(|p| p.collect(probe).unwrap()).collect();
+        let prepared: Vec<_> = parsed
+            .iter()
+            .zip(&indexes)
+            .zip(sizes)
+            .map(|((p, i), size)| Prepared::new(probe, size, p, i).unwrap())
+            .collect();
+        let before = big_code_analysis_ast::documentation::observations();
+        let mut raw = Vec::new();
+        for ((operation, size), iterations) in prepared.iter().zip(sizes).zip(counts) {
+            let _calibration = batch(operation, 1).unwrap();
+            raw.push(RawCell {
+                counts: operation.counts(),
+                id: probe.id,
+                size,
+                bytes: size,
+                segments: 1,
+                iterations,
+                batches: vec![],
+            });
+        }
+        measure_schedule(&prepared, &mut raw, 3, MAX_CELL_WALK).unwrap();
+        let after = big_code_analysis_ast::documentation::observations();
+        // Calibration renders 2+4+8 documents. Each scheduled round renders
+        // 2*1+4*2+8*4; two warmups plus three measured rounds gives 224 total.
+        assert_eq!(after.renders - before.renders, 224);
+        for (cell, count) in raw.iter().zip(counts) {
+            assert_eq!(cell.iterations, count);
+            assert_eq!(
+                cell.batches.iter().map(|b| b.round).collect::<Vec<_>>(),
+                [0, 1, 2]
+            );
+        }
     }
 }

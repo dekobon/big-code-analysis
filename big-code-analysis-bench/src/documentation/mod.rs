@@ -1,5 +1,6 @@
 //! Shared source-documentation registry, operations and class-specific gate.
 
+mod attachment_validation;
 pub mod combined;
 mod fixtures;
 mod operation;
@@ -7,6 +8,8 @@ pub mod runner;
 #[cfg(test)]
 mod tests;
 mod validation;
+#[cfg(all(test, unix))]
+mod workflow_tests;
 
 pub use fixtures::{REGISTRY, SourceProbe, StatisticClass};
 pub use operation::{Parsed, Prepared, SourceCounts};
