@@ -16,6 +16,12 @@
 //! inspect only their indexed associations and linked pending scopes. Individual
 //! dependency calls and allocation are not internally interruptible; crate-owned
 //! scans use the collection work budget.
+//! Complex C-family headers retain pending named matching; simple keys preserve
+//! lexical token boundaries and stay within the canonical source scope. Conditional
+//! and recovery provenance qualifies named candidates. Comment rendering clips the
+//! fragment's retained intersections monotonically rather than searching global
+//! included ranges for each emitted segment. Cancellation checks bound work between
+//! polls; releasing accumulated partial state still costs its retained storage.
 
 pub(crate) mod budget;
 pub(crate) mod byte_scan;
@@ -66,12 +72,22 @@ pub struct Observations {
     pub name_bytes: usize,
     /// Distinct name candidates compared inside hash buckets.
     pub name_candidates: usize,
+    /// Normalized name/signature key bytes retained across distinct entries.
+    pub key_bytes_stored: usize,
     /// Actual source-target requests, including binding callbacks.
     pub target_queries: usize,
     /// Source-target cache misses that execute classification.
     pub target_computations: usize,
     /// Byte visits in shared classifier scans.
     pub classifier_bytes: usize,
+    /// Outer Doxygen structural scanner iterations.
+    pub structural_bytes: usize,
+    /// Doxygen structural classifier calls.
+    pub structural_calls: usize,
+    /// Global source-intersection binary-search comparisons.
+    pub intersection_searches: usize,
+    /// Monotone retained-fragment piece visits during text emission.
+    pub fragment_piece_visits: usize,
     /// Pending-scope query links and records visited.
     pub assessment_scope_reads: usize,
     /// Dependency field lookups made by recognition callbacks.
@@ -102,9 +118,14 @@ pub fn observations() -> Observations {
         copy_chunks: text::copy_chunks::observed(),
         name_bytes: names::name_bytes::observed(),
         name_candidates: names::name_candidates::observed(),
+        key_bytes_stored: names::key_bytes_stored::observed(),
         target_queries: recognition::target_queries::observed(),
         target_computations: recognition::target_computations::observed(),
         classifier_bytes: byte_scan::bytes_read::observed(),
+        structural_bytes: crate::lang_helpers::doxygen::structural_bytes::observed(),
+        structural_calls: crate::lang_helpers::doxygen::structural_calls::observed(),
+        intersection_searches: source::intersection_searches::observed(),
+        fragment_piece_visits: text::source_cursor::fragment_piece_visits::observed(),
         assessment_scope_reads: index::assessment_scope_reads::observed(),
         field_lookups: crate::node::field_lookups::observed(),
         child_lookups: crate::node::child_lookups::observed(),

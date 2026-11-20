@@ -64,6 +64,41 @@ fn copied_decoded_expanded_and_synthetic_origins_keep_exact_responsibility() {
 
 #[cfg(feature = "rust")]
 #[test]
+fn transformed_queries_return_every_disjoint_responsible_piece() {
+    let source = b"abcdefgh";
+    let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
+    let context = SourceContext::new(parser.ts_tree(), source);
+    let pieces = || {
+        SourcePieces::from_included_pieces(vec![
+            context.pieces(0..2).unwrap().pieces()[0].clone(),
+            context.pieces(5..8).unwrap().pieces()[0].clone(),
+        ])
+    };
+    let mut builder = TextBuilder::default();
+    builder
+        .transformed("é", Origin::Decoded(pieces()), &NoBudget)
+        .unwrap();
+    builder
+        .transformed("   ", Origin::Expanded(pieces()), &NoBudget)
+        .unwrap();
+    let content = builder.finish();
+    let view = complete(&content);
+    for range in [0..2, 3..4] {
+        let part = view.origins(range.clone()).unwrap().next().unwrap();
+        assert_eq!(part.output, range);
+        let (OriginView::Decoded(pieces) | OriginView::Expanded(pieces)) = part.origin else {
+            panic!("transformed")
+        };
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0].range(), 0..2);
+        assert_eq!(pieces[1].range(), 5..8);
+        assert_eq!(pieces[0].bytes(), b"ab");
+        assert_eq!(pieces[1].bytes(), b"fgh");
+    }
+}
+
+#[cfg(feature = "rust")]
+#[test]
 fn utf8_carry_and_invalid_source_are_not_lossily_decoded() {
     let source = format!("{}é🦀", "a".repeat(BYTE_INTERVAL - 1));
     let parser = AnyParser::parse(LANG::Rust, source.as_bytes().to_vec(), None, None).unwrap();

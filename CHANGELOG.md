@@ -36,6 +36,10 @@ for historical reference.
   Prepared node projections expose multi-owner and pending forms. Complex
   declarators remain pending, and gathered Doxygen references use their
   structural member. Reusable Python/Tcl cleanup preserves token origins.
+  Rust outer/inner contributors coalesce by semantic target; root/module docs use
+  file/package roles. Exact wrapper selection, conditional name provenance, helper
+  node identity, logical boundary trimming and retained-intersection text emission
+  preserve pending results without redirected or partial-complete claims.
   (#1660, #1661)
 
 - Added unstable AST positional-run evidence for Go, Ruby and Lua, including

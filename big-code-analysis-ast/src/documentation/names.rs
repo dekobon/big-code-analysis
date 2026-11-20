@@ -5,22 +5,39 @@ use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 
 use super::budget::WorkBudget;
+use super::canonical::NodeId;
 use super::{OwnerId, SourceError, UnresolvedReason};
+
+mod tokens;
 
 #[derive(Default)]
 pub(super) struct Names {
-    identifiers: HashMap<u64, Vec<NameEntry>>,
-    signatures: HashMap<u64, Vec<NameEntry>>,
+    identifiers: HashMap<(NodeId, u64), Vec<NameEntry>>,
+    signatures: HashMap<(NodeId, u64), Vec<NameEntry>>,
+    complex: HashMap<(NodeId, u64), Vec<NameEntry>>,
     hasher: RandomState,
 }
 
 struct NameEntry {
     spelling: Vec<u8>,
-    owners: Vec<OwnerId>,
+    owners: Vec<NamedOwner>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct NamedOwner {
+    pub(super) owner: OwnerId,
+    pub(super) qualification: Option<UnresolvedReason>,
+}
+
+pub(super) struct NameResolution {
+    pub(super) owners: Vec<OwnerId>,
+    pub(super) reason: Option<UnresolvedReason>,
+    pub(super) pending: bool,
 }
 
 crate::observation::counter!(name_bytes, cfg(any(test, feature = "test-support")));
 crate::observation::counter!(name_candidates, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(key_bytes_stored, cfg(any(test, feature = "test-support")));
 
 fn key<B: WorkBudget>(
     bytes: &[u8],
@@ -39,10 +56,17 @@ fn normalized_key<B: WorkBudget>(
 ) -> Result<(u64, Vec<u8>), SourceError> {
     let mut hash = hasher.build_hasher();
     let mut key = Vec::new();
-    for &byte in bytes {
-        budget.bytes(1).map_err(Into::into)?;
-        name_bytes::record();
-        if !byte.is_ascii_whitespace() {
+    let Some(tokens) = tokens::tokens(bytes, budget)? else {
+        return Ok((0, Vec::new()));
+    };
+    for (position, token) in tokens.iter().enumerate() {
+        if position != 0 {
+            hash.write_u8(0);
+            key.push(0);
+        }
+        for &byte in *token {
+            budget.bytes(1).map_err(Into::into)?;
+            name_bytes::record();
             hash.write_u8(byte);
             key.push(byte);
         }
@@ -72,7 +96,7 @@ fn same_spelling<B: WorkBudget>(
 fn insert_entry<B: WorkBudget>(
     bucket: &mut Vec<NameEntry>,
     spelling: Vec<u8>,
-    owner: OwnerId,
+    owner: NamedOwner,
     budget: &B,
 ) -> Result<(), SourceError> {
     for entry in bucket.iter_mut() {
@@ -86,10 +110,18 @@ fn insert_entry<B: WorkBudget>(
         spelling,
         owners: vec![owner],
     });
+    for _ in bucket
+        .last()
+        .map_or(&[][..], |entry| entry.spelling.as_slice())
+    {
+        budget.bytes(1).map_err(Into::into)?;
+        key_bytes_stored::record();
+    }
     Ok(())
 }
 
 impl Names {
+    #[cfg(test)]
     pub(super) fn insert<B: WorkBudget>(
         &mut self,
         name: &[u8],
@@ -97,16 +129,60 @@ impl Names {
         owner: OwnerId,
         budget: &B,
     ) -> Result<(), SourceError> {
-        let (hash, name) = key(name, &self.hasher, budget)?;
-        insert_entry(
-            self.identifiers.entry(hash).or_default(),
+        self.insert_candidate(
             name,
+            Some(signature),
+            NodeId(0),
+            NamedOwner {
+                owner,
+                qualification: None,
+            },
+            budget,
+        )
+    }
+
+    pub(super) fn insert_candidate<B: WorkBudget>(
+        &mut self,
+        name: &[u8],
+        signature: Option<&[u8]>,
+        scope: NodeId,
+        owner: NamedOwner,
+        budget: &B,
+    ) -> Result<(), SourceError> {
+        let (hash, name) = key(name, &self.hasher, budget)?;
+        let mut copied_name = Vec::new();
+        for &byte in &name {
+            budget.bytes(1).map_err(Into::into)?;
+            copied_name.push(byte);
+        }
+        insert_entry(
+            self.identifiers.entry((scope, hash)).or_default(),
+            copied_name,
             owner,
             budget,
         )?;
-        let (hash, signature) = key(signature, &self.hasher, budget)?;
+        let signature = match signature {
+            Some(signature) => {
+                if let Some(tokens) = tokens::tokens(signature, budget)?
+                    && tokens::reference_name(&tokens, budget)?.is_some()
+                {
+                    Some(key(signature, &self.hasher, budget)?)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        let Some((hash, signature)) = signature.filter(|(_, key)| !key.is_empty()) else {
+            return insert_entry(
+                self.complex.entry((scope, hash)).or_default(),
+                name,
+                owner,
+                budget,
+            );
+        };
         insert_entry(
-            self.signatures.entry(hash).or_default(),
+            self.signatures.entry((scope, hash)).or_default(),
             signature,
             owner,
             budget,
@@ -114,11 +190,36 @@ impl Names {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn resolve<B: WorkBudget>(
         &self,
         reference: &[u8],
         budget: &B,
     ) -> Result<(Vec<OwnerId>, Option<UnresolvedReason>), SourceError> {
+        let result = self.resolve_in(reference, NodeId(0), budget)?;
+        Ok((result.owners, result.reason))
+    }
+
+    pub(super) fn resolve_in<B: WorkBudget>(
+        &self,
+        reference: &[u8],
+        scope: NodeId,
+        budget: &B,
+    ) -> Result<NameResolution, SourceError> {
+        let Some(tokens) = tokens::tokens(reference, budget)? else {
+            return Ok(NameResolution {
+                owners: Vec::new(),
+                reason: None,
+                pending: true,
+            });
+        };
+        let Some(name) = tokens::reference_name(&tokens, budget)? else {
+            return Ok(NameResolution {
+                owners: Vec::new(),
+                reason: None,
+                pending: true,
+            });
+        };
         let (hash, key) = key(reference, &self.hasher, budget)?;
         let mut signatures = false;
         for byte in &key {
@@ -131,7 +232,7 @@ impl Names {
             &self.identifiers
         };
         let mut owners = Vec::new();
-        if let Some(candidates) = index.get(&hash) {
+        if let Some(candidates) = index.get(&(scope, hash)) {
             for entry in candidates {
                 budget.step().map_err(Into::into)?;
                 if same_spelling(&entry.spelling, &key, budget)? {
@@ -143,12 +244,52 @@ impl Names {
                 }
             }
         }
+        let (name_hash, name_key) = self.key_name(name, budget)?;
+        let mut pending = false;
+        if let Some(candidates) = self.complex.get(&(scope, name_hash)) {
+            for entry in candidates {
+                budget.step().map_err(Into::into)?;
+                if same_spelling(&entry.spelling, &name_key, budget)? {
+                    pending = true;
+                    if signatures {
+                        for &owner in &entry.owners {
+                            budget.step().map_err(Into::into)?;
+                            owners.push(owner);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
         let reason = match owners.len() {
             0 => Some(UnresolvedReason::MissingName),
-            1 => None,
+            1 => owners[0].qualification,
             _ => Some(UnresolvedReason::Ambiguous),
         };
-        Ok((owners, reason))
+        if owners.len() > 1 {
+            for owner in &owners {
+                budget.step().map_err(Into::into)?;
+                pending |= owner.qualification.is_some();
+            }
+        }
+        let mut ids = Vec::new();
+        for owner in owners {
+            budget.step().map_err(Into::into)?;
+            ids.push(owner.owner);
+        }
+        Ok(NameResolution {
+            owners: ids,
+            reason,
+            pending,
+        })
+    }
+
+    fn key_name<B: WorkBudget>(
+        &self,
+        name: &[u8],
+        budget: &B,
+    ) -> Result<(u64, Vec<u8>), SourceError> {
+        key(name, &self.hasher, budget)
     }
 }
 
@@ -182,15 +323,21 @@ mod tests {
         let mut names = Names::default();
         let (hash, _) = key(b"f", &names.hasher, &NoBudget).unwrap();
         names.identifiers.insert(
-            hash,
+            (NodeId(0), hash),
             vec![
                 NameEntry {
                     spelling: b"g".to_vec(),
-                    owners: vec![OwnerId(0)],
+                    owners: vec![NamedOwner {
+                        owner: OwnerId(0),
+                        qualification: None,
+                    }],
                 },
                 NameEntry {
                     spelling: b"f".to_vec(),
-                    owners: vec![OwnerId(1)],
+                    owners: vec![NamedOwner {
+                        owner: OwnerId(1),
+                        qualification: None,
+                    }],
                 },
             ],
         );

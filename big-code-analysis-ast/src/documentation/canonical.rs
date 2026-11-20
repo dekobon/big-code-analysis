@@ -29,6 +29,9 @@ pub(super) struct CanonicalNode<'s> {
     pub(super) pending_parent: Option<NodeId>,
     pub(super) following: Option<NodeId>,
     pub(super) owner_context: NodeId,
+    pub(super) name_scope: NodeId,
+    pub(super) qualification: Option<super::UnresolvedReason>,
+    pub(super) signature_complex: bool,
 }
 
 #[derive(Debug)]
@@ -71,6 +74,9 @@ impl<'s> CanonicalNodes<'s> {
             pending_parent: None,
             following: None,
             owner_context: id,
+            name_scope: NodeId(0),
+            qualification: None,
+            signature_complex: false,
         });
         id
     }

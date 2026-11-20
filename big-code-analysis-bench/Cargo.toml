@@ -34,7 +34,7 @@ workspace = true
 # `vcs` is on so the harness can time `vcs::score::apply_percentile`
 # (#1267), the one hot path here that is not a walk over an AST.
 big-code-analysis = { path = "..", features = ["vcs"] }
-big-code-analysis-ast = { path = "../big-code-analysis-ast", features = ["test-support"] }
+big-code-analysis-ast = { path = "../big-code-analysis-ast", default-features = false }
 # For the `verbatim-oracle` record lines (#1744); the root's own
 # serialisers are what the record carries.
 serde_json.workspace = true

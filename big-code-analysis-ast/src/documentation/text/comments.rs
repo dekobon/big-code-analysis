@@ -1,5 +1,6 @@
 //! Comment-local cleanup over source coordinates, before any output copying.
 
+use super::source_cursor::SourceCursor;
 use super::{TextBuilder, TextError};
 use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Fragment, Origin, Profile, SourceContext, UnavailableReason};
@@ -250,12 +251,13 @@ fn prepare<B: WorkBudget>(
 fn append_range<'s, B: WorkBudget>(
     builder: &mut TextBuilder<'s>,
     context: &SourceContext<'s>,
+    source: &mut SourceCursor<'_, 's>,
     range: Range<usize>,
     splices: bool,
     budget: &B,
 ) -> Result<(), TextError> {
     if !splices {
-        return builder.source(context, range, budget);
+        return source.copy(builder, range, budget);
     }
     let mut start = range.start;
     let mut at = start;
@@ -269,11 +271,11 @@ fn append_range<'s, B: WorkBudget>(
         for _ in 1..removed {
             charge(budget)?;
         }
-        builder.source(context, start..at, budget)?;
+        source.copy(builder, start..at, budget)?;
         at += removed;
         start = at;
     }
-    builder.source(context, start..range.end, budget)
+    source.copy(builder, start..range.end, budget)
 }
 
 pub(in crate::documentation) fn render<'s, B: WorkBudget>(
@@ -345,23 +347,46 @@ fn render_local<'s, B: WorkBudget>(
             }
         }
     }
+    emit_blocks(profile, context, fragments, &blocks, budget)
+}
+
+fn emit_blocks<'s, B: WorkBudget>(
+    profile: Profile,
+    context: &SourceContext<'s>,
+    fragments: &[&Fragment<'s>],
+    blocks: &[Block],
+    budget: &B,
+) -> Result<Content<'s>, TextError> {
     let mut builder = TextBuilder::default();
-    for (position, block) in blocks.iter().enumerate() {
+    let mut first_block = 0;
+    let mut last_block = blocks.len();
+    if profile != Profile::Rust {
+        while first_block < last_block && empty_block(&blocks[first_block], budget)? {
+            first_block += 1;
+        }
+        while last_block > first_block && empty_block(&blocks[last_block - 1], budget)? {
+            last_block -= 1;
+        }
+    }
+    for (position, block) in blocks.iter().enumerate().take(last_block).skip(first_block) {
         budget
             .step()
             .map_err(|error| TextError::Source(error.into()))?;
-        if position != 0 {
+        if position != first_block {
             builder.transformed("\n", Origin::Synthetic, budget)?;
         }
+        let mut source = SourceCursor::new(&fragments[position].source);
         let mut first = 0;
         let mut end = block.lines.len();
-        if profile != Profile::Rust {
+        if profile != Profile::Rust && position == first_block {
             while first < end && block.lines[first].content.is_empty() {
                 budget
                     .step()
                     .map_err(|error| TextError::Source(error.into()))?;
                 first += 1;
             }
+        }
+        if profile != Profile::Rust && position + 1 == last_block {
             while end > first && block.lines[end - 1].content.is_empty() {
                 budget
                     .step()
@@ -373,6 +398,7 @@ fn render_local<'s, B: WorkBudget>(
             append_range(
                 &mut builder,
                 context,
+                &mut source,
                 line.content.clone(),
                 profile == Profile::Doxygen,
                 budget,
@@ -381,16 +407,28 @@ fn render_local<'s, B: WorkBudget>(
                 if line.ending.len() == 2 {
                     builder.transformed(
                         "\n",
-                        Origin::Decoded(context.pieces_with_budget(line.ending.clone(), budget)?),
+                        Origin::Decoded(source.pieces(line.ending.clone(), budget)?),
                         budget,
                     )?;
                 } else {
-                    builder.source(context, line.ending.clone(), budget)?;
+                    source.copy(&mut builder, line.ending.clone(), budget)?;
                 }
             }
         }
     }
     Ok(builder.finish())
+}
+
+fn empty_block<B: WorkBudget>(block: &Block, budget: &B) -> Result<bool, TextError> {
+    for line in &block.lines {
+        budget
+            .step()
+            .map_err(|error| TextError::Source(error.into()))?;
+        if !line.content.is_empty() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool, TextError> {
@@ -517,6 +555,12 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
     }
     let mut star_column = None;
     for line in &block.lines[start..end] {
+        crate::documentation::budget::in_phase(
+            budget,
+            crate::documentation::budget::WorkPhase::Decoration,
+            || budget.step(),
+        )
+        .map_err(|error| TextError::Source(error.into()))?;
         let indent = margin(&bytes[line.content.clone()], budget)?;
         if line.content.start + indent >= line.content.end
             || bytes[line.content.start + indent] != b'*'
@@ -557,4 +601,43 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
         }
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod remediation_tests {
+    use super::*;
+    use crate::documentation::budget::{CollectionBudget, WorkPhase, cancel_in_phase};
+
+    #[test]
+    fn star_column_pass_cancels_on_line_budget_before_byte_budget() {
+        let bytes = b"*";
+        let mut block = Block {
+            lines: (0..2048)
+                .map(|_| Line {
+                    content: 0..1,
+                    ending: 0..0,
+                })
+                .collect(),
+            rust_decoration: false,
+            markdown: false,
+        };
+        let result = cancel_in_phase(WorkPhase::Decoration, || {
+            beautify(&mut block, bytes, &CollectionBudget::default())
+        });
+        assert!(matches!(
+            result,
+            Err(TextError::Source(
+                crate::documentation::SourceError::Cancelled
+            ))
+        ));
+        let mut next = Block {
+            lines: vec![Line {
+                content: 0..1,
+                ending: 0..0,
+            }],
+            rust_decoration: false,
+            markdown: false,
+        };
+        assert!(!beautify(&mut next, bytes, &CollectionBudget::default()).unwrap());
+    }
 }

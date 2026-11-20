@@ -78,7 +78,9 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         .insert(builder.index.source.node(root)?, None, 0);
     if profile != Profile::Helper {
         builder.add_owner(root_id, Owner::File(builder.index.source.node(root)?));
-        builder.walk::<T>(&budget)?;
+    }
+    builder.walk::<T>(&budget)?;
+    if profile != Profile::Helper {
         builder.finish(&budget)?;
     }
     budget.checkpoint()?;
@@ -176,7 +178,21 @@ impl<'s> Builder<'s> {
             match visit {
                 Visit::Exit(id, depth) => {
                     chain.truncate(depth);
-                    self.finalize_projection(id, budget)?;
+                    if self.index.profile != Profile::Helper {
+                        self.finalize_projection(id, budget)?;
+                    }
+                    let record = &self.index.canonical.nodes[id.0];
+                    let complex = record.signature_complex
+                        || matches!(
+                            record.evidence.node().kind(),
+                            "lambda_expression"
+                                | "optional_parameter_declaration"
+                                | "function_definition"
+                                | "declaration"
+                        );
+                    if let Some(parent) = record.parent {
+                        self.index.canonical.nodes[parent.0].signature_complex |= complex;
+                    }
                 }
                 Visit::Enter(id, depth) => {
                     visits::record();
@@ -184,7 +200,8 @@ impl<'s> Builder<'s> {
                     let node =
                         Node::from_tree_sitter(self.index.canonical.nodes[id.0].evidence.node());
                     bounds(node.as_tree_sitter(), self.index.source.bytes().len())?;
-                    if transparent_doc_context(node.kind())
+                    self.inherit_context(id, &node);
+                    if transparent_doc_context(self.index.profile, node.kind())
                         && let Some(parent) = self.index.canonical.nodes[id.0].parent
                     {
                         self.index.canonical.nodes[id.0].owner_context =
@@ -195,6 +212,9 @@ impl<'s> Builder<'s> {
                         budget,
                         super::budget::WorkPhase::Classification,
                         || {
+                            if self.index.profile == Profile::Helper {
+                                return Ok(());
+                            }
                             self.register::<T>(id, &node, ancestors, budget)?;
                             self.recognize::<T>(id, &node, ancestors, budget)
                         },
@@ -320,6 +340,7 @@ impl<'s> Builder<'s> {
                             | "expression_statement"
                     ))
                 || node.has_error()
+                || conditional_kind(node.kind())
                 || node.is_missing()
             {
                 self.index.canonical.nodes[id.0].projection = Projection::Pending;
@@ -328,6 +349,35 @@ impl<'s> Builder<'s> {
             }
         }
         Ok(())
+    }
+
+    fn inherit_context(&mut self, id: NodeId, node: &Node<'s>) {
+        if let Some(parent) = self.index.canonical.nodes[id.0].parent {
+            let outer = &self.index.canonical.nodes[parent.0];
+            let scope = if matches!(
+                outer.evidence.node().kind(),
+                "namespace_definition"
+                    | "class_specifier"
+                    | "struct_specifier"
+                    | "union_specifier"
+                    | "function_definition"
+                    | "lambda_expression"
+                    | "compound_statement"
+            ) {
+                parent
+            } else {
+                outer.name_scope
+            };
+            let qualification = outer.qualification;
+            self.index.canonical.nodes[id.0].name_scope = scope;
+            self.index.canonical.nodes[id.0].qualification = qualification;
+        }
+        let record = &mut self.index.canonical.nodes[id.0];
+        if node.is_error() || node.is_missing() {
+            record.qualification = Some(UnresolvedReason::GrammarBoundary);
+        } else if conditional_kind(node.kind()) && record.qualification.is_none() {
+            record.qualification = Some(UnresolvedReason::Conditional);
+        }
     }
 
     fn recognize<T: Checker + crate::traits::LanguageInfo>(
@@ -427,8 +477,7 @@ impl<'s> Builder<'s> {
         let target = self.evidence_id(run.target)?;
         let scope = self.evidence_id(run.containing)?.unwrap_or(NodeId(0));
         let code_before = self.evidence_id(run.code_before)?;
-        let mut local: std::collections::HashMap<NodeId, usize> = std::collections::HashMap::new();
-        let mut gathered: std::collections::HashMap<usize, usize> =
+        let mut structural_drafts: std::collections::HashMap<NodeId, usize> =
             std::collections::HashMap::new();
         let mut forward = Draft {
             fragments: Vec::new(),
@@ -459,22 +508,37 @@ impl<'s> Builder<'s> {
                 forward.fragments.push(id);
                 forward.unresolved = forward.unresolved.or(member.uncertainty);
             } else {
-                let mut draft = Draft {
-                    fragments: vec![id],
-                    target: None,
-                    scope,
-                    binding: run.target,
-                    role: DocumentRole::Primary,
-                    unresolved: member.uncertainty,
-                    pending: false,
-                    gap: run.prefix_gap || run.suffix_gap,
-                };
                 let local_node =
                     if let markers::MarkerPlacement::Gathered(gatherer) = member.placement {
                         gatherer
                     } else {
                         member.node
                     };
+                let gatherer = if matches!(
+                    member.placement,
+                    markers::MarkerPlacement::Gatherer | markers::MarkerPlacement::Gathered(_)
+                ) {
+                    Some(self.index.canonical.lookup(local_node.node())?)
+                } else {
+                    None
+                };
+                if let Some(&index) = gatherer.as_ref().and_then(|id| structural_drafts.get(id)) {
+                    let draft = &mut self.drafts[index];
+                    draft.fragments.push(id);
+                    draft.unresolved = draft.unresolved.or(member.uncertainty);
+                    draft.gap |= run.prefix_gap || run.suffix_gap;
+                    continue;
+                }
+                let mut draft = Draft {
+                    fragments: vec![id],
+                    target: None,
+                    scope,
+                    binding: None,
+                    role: DocumentRole::Primary,
+                    unresolved: member.uncertainty,
+                    pending: false,
+                    gap: run.prefix_gap || run.suffix_gap,
+                };
                 self.local_target(&mut draft, local_node, member.placement, budget)?;
                 if self.index.profile == Profile::BcaPhpSource
                     && draft.role == DocumentRole::FilePackage
@@ -483,6 +547,7 @@ impl<'s> Builder<'s> {
                     let kind = self.index.canonical.nodes[target.0].evidence.node().kind();
                     if matches!(kind, "enum_declaration" | "expression_statement") {
                         draft.target = Some(target);
+                        draft.binding = run.target;
                         draft.role = DocumentRole::Primary;
                         draft.pending = kind == "expression_statement";
                     }
@@ -491,31 +556,14 @@ impl<'s> Builder<'s> {
                     let raw = &self.index.source.bytes()[member.node.node().byte_range()];
                     if matches!(raw.get(..4), Some(b"///<" | b"//!<" | b"/**<" | b"/*!<")) {
                         draft.target = code_before;
+                        draft.binding = run.code_before;
                         draft.pending = code_before.is_none();
                     }
                 }
-                if matches!(
-                    member.placement,
-                    markers::MarkerPlacement::Gatherer | markers::MarkerPlacement::Gathered(_)
-                ) {
-                    if let Some(&index) = gathered.get(&local_node.node().id()) {
-                        self.drafts[index].fragments.push(id);
-                    } else {
-                        gathered.insert(local_node.node().id(), self.drafts.len());
-                        self.drafts.push(draft);
-                    }
-                } else if self.index.profile == Profile::Rust
-                    && let Some(target) = draft.target
-                {
-                    if let Some(&index) = local.get(&target) {
-                        self.drafts[index].fragments.push(id);
-                    } else {
-                        local.insert(target, self.drafts.len());
-                        self.drafts.push(draft);
-                    }
-                } else {
-                    self.drafts.push(draft);
+                if let Some(gatherer) = gatherer {
+                    structural_drafts.insert(gatherer, self.drafts.len());
                 }
+                self.drafts.push(draft);
             }
         }
         if !forward.fragments.is_empty() {
@@ -564,12 +612,14 @@ impl<'s> Builder<'s> {
             positional::RunSelection::Opener(positional::OpenerReason::FirstFile) => {
                 draft.target = Some(NodeId(0));
                 draft.role = DocumentRole::FilePackage;
+                draft.binding = None;
             }
             positional::RunSelection::Opener(
                 positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,
             ) => {
                 draft.target = None;
                 draft.pending = true;
+                draft.binding = None;
             }
             _ => {}
         }
@@ -771,6 +821,7 @@ impl<'s> Builder<'s> {
     }
 
     fn finish(&mut self, budget: &CollectionBudget) -> Result<(), CollectionError> {
+        self.coalesce_rust(budget)?;
         self.combine_pending(budget)?;
         for draft in std::mem::take(&mut self.drafts) {
             budget.step()?;
@@ -882,6 +933,13 @@ fn is_wrapper(profile: Profile, kind: &str) -> bool {
     }
 }
 
+pub(super) fn conditional_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "preproc_if" | "preproc_ifdef" | "preproc_else" | "preproc_elif" | "preproc_elifdef"
+    )
+}
+
 fn needs_slot(profile: Profile, kind: &str) -> bool {
     match profile {
         Profile::Doxygen => matches!(kind, "declaration" | "field_declaration"),
@@ -909,7 +967,10 @@ fn fields_needed(profile: Profile, kind: &str) -> bool {
         || (profile == Profile::Yard && matches!(kind, "if_modifier" | "unless_modifier"))
 }
 
-fn transparent_doc_context(kind: &str) -> bool {
+fn transparent_doc_context(profile: Profile, kind: &str) -> bool {
+    if profile == Profile::Kdoc && matches!(kind, "primary_constructor" | "getter" | "setter") {
+        return true;
+    }
     matches!(
         kind,
         "parameters"
@@ -938,5 +999,7 @@ mod cost_tests;
 mod form_tests;
 #[cfg(test)]
 mod projection_tests;
+#[cfg(test)]
+mod remediation_tests;
 #[cfg(test)]
 mod tests;

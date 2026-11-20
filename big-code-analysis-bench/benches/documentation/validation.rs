@@ -89,7 +89,7 @@ fn shape(name: &str, size: usize, parser: &AnyParser) {
         "width" => assert_eq!(root.child_count(), size * 2),
         "fragments" => assert_eq!(count("comment"), size),
         "c-slots" | "fanout-fixed-text" => assert_eq!(count("identifier"), size),
-        "hidden-fields" => {
+        "visible-declarator-depth" => {
             assert_eq!(count("array_declarator"), size);
             assert!(maximum >= size);
         }
@@ -140,7 +140,9 @@ pub(super) fn fixture(
         .documentation(context, &options)
         .unwrap_or_else(|error| panic!("{name}: {error:?}"));
     match name {
-        "depth" | "ruby-modifiers" | "hidden-fields" => documents(&index, 1, 1, 1, "audit"),
+        "depth" | "ruby-modifiers" | "visible-declarator-depth" => {
+            documents(&index, 1, 1, 1, "audit");
+        }
         "width" => documents(&index, size, 1, 1, "audit"),
         "fragments" => documents(
             &index,

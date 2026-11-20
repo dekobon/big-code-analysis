@@ -101,9 +101,11 @@ fn structural_command_at<'s, B: WorkBudget>(
         b"idlexcept",
         b"module",
     ];
+    structural_calls::record();
     let mut at = 0;
     while at < s.len() {
         budget.bytes(1)?;
+        structural_bytes::record();
         if let Some(end) = literal_end(s, at, budget)? {
             at = end;
             continue;
@@ -226,19 +228,25 @@ fn format_block_end<B: WorkBudget>(
 /// comes first.
 fn code_span_close<B: WorkBudget>(span: &[u8], budget: &B) -> Result<Option<usize>, B::Error> {
     let mut start = 0;
-    for (index, line) in scan::lines(span, budget).enumerate() {
-        let line = line?;
-        if let Some(close) = scan::position(line, |b| b == b'`', budget)? {
-            return Ok(Some(start + close));
+    while start < span.len() {
+        budget.step()?;
+        let end = scan::position(&span[start..], |b| matches!(b, b'`' | b'\n'), budget)?
+            .map_or(span.len(), |at| start + at);
+        if span.get(end) == Some(&b'`') {
+            return Ok(Some(end));
         }
+        let line = &span[start..end];
         let text = scan::trim(line, budget)?;
-        if index > 0 && scan::trim(text.strip_prefix(b"*").unwrap_or(text), budget)?.is_empty() {
+        if start > 0 && scan::trim(text.strip_prefix(b"*").unwrap_or(text), budget)?.is_empty() {
             return Ok(None);
         }
-        start += line.len() + 1;
+        start = end + 1;
     }
     Ok(None)
 }
+
+crate::observation::counter!(structural_calls, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(structural_bytes, cfg(any(test, feature = "test-support")));
 
 /// Where an HTML comment whose text starts at `s[from]` ends: after its
 /// `-->`, or at the end of the comment when it has none. Doxygen 1.13.2

@@ -10,6 +10,15 @@ impl Builder<'_> {
     ) -> Result<(), CollectionError> {
         budget.step()?;
         let node = self.index.canonical.nodes[id.0].evidence.node();
+        if self.index.profile == Profile::Doxygen
+            && node.has_error()
+            && matches!(
+                node.kind(),
+                "function_definition" | "declaration" | "field_declaration"
+            )
+        {
+            self.index_recovered_name(id, budget)?;
+        }
         if node.has_error()
             || node.is_missing()
             || !self
@@ -58,13 +67,29 @@ impl Builder<'_> {
             {
                 continue;
             }
-            if let Projection::Ready(ids) = &record.projection {
-                for &owner in ids {
-                    budget.step()?;
-                    owners.push(owner);
-                }
-                break;
+            if (self.index.profile == Profile::Ldoc
+                || matches!(node.kind(), "then" | "ambient_declaration"))
+                && !record.evidence.node().is_named()
+            {
+                continue;
             }
+            match &record.projection {
+                Projection::Ready(ids) => {
+                    for &owner in ids {
+                        budget.step()?;
+                        owners.push(owner);
+                    }
+                }
+                Projection::Pending => {
+                    self.index.canonical.nodes[id.0].projection = Projection::Pending;
+                    return Ok(());
+                }
+                Projection::Unsupported => {
+                    self.index.canonical.nodes[id.0].projection = Projection::Unsupported;
+                    return Ok(());
+                }
+            }
+            break;
         }
         if !owners.is_empty() {
             self.index.canonical.nodes[id.0].projection = Projection::Ready(owners);
@@ -145,12 +170,21 @@ impl Builder<'_> {
                 if self.index.source.bytes().get(end.saturating_sub(1)) == Some(&b';') {
                     end -= 1;
                 }
-                self.names.insert(
+                let complex = self.complex_header(id, budget)?;
+                let record = &self.index.canonical.nodes[id.0];
+                self.names.insert_candidate(
                     &self.index.source.bytes()[node.byte_range()],
-                    &self.index.source.bytes()[declaration.start_byte()..end],
-                    enclosing,
+                    (!complex).then(|| &self.index.source.bytes()[declaration.start_byte()..end]),
+                    record.name_scope,
+                    super::super::names::NamedOwner {
+                        owner: enclosing,
+                        qualification: record.qualification,
+                    },
                     budget,
                 )?;
+                if complex {
+                    self.pending_name(id);
+                }
             } else {
                 let source = self
                     .index
@@ -200,16 +234,90 @@ impl Builder<'_> {
             .source
             .covers_with_budget(node.start_byte()..end, budget)?
         {
-            self.names.insert(
+            let complex = self.complex_header(id, budget)?;
+            let record = &self.index.canonical.nodes[id.0];
+            self.names.insert_candidate(
                 &self.index.source.bytes()[self.index.canonical.nodes[name.0]
                     .evidence
                     .node()
                     .byte_range()],
-                &self.index.source.bytes()[node.start_byte()..end],
-                owner,
+                (!complex).then(|| &self.index.source.bytes()[node.start_byte()..end]),
+                record.name_scope,
+                super::super::names::NamedOwner {
+                    owner,
+                    qualification: record.qualification,
+                },
                 budget,
             )?;
+            if complex {
+                self.pending_name(id);
+            }
         }
+        Ok(())
+    }
+
+    fn pending_name(&mut self, id: NodeId) {
+        let assessment = self.index.assessments.len();
+        self.index.assessments.push(Assessment {
+            axis: AssessmentAxis::Owner,
+            reason: "Complex signature awaits exact named matching",
+            node: Some(self.index.canonical.nodes[id.0].evidence),
+            document: None,
+        });
+        self.index.canonical.nodes[id.0].pending.push(assessment);
+    }
+
+    fn complex_header(
+        &self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<bool, CollectionError> {
+        for &child in
+            &self.index.canonical.children[self.index.canonical.nodes[id.0].children.clone()]
+        {
+            budget.step()?;
+            let record = &self.index.canonical.nodes[child.0];
+            if record.field != Some("body") && record.signature_complex {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn index_recovered_name(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let Some(declarator) = self.declarator_child(id, budget)? else {
+            return Ok(());
+        };
+        let Some((name, true)) = self.declared_name(declarator, budget)? else {
+            return Ok(());
+        };
+        let name_node = self.index.canonical.nodes[name.0].evidence.node();
+        if name_node.is_missing()
+            || !self
+                .index
+                .source
+                .covers_with_budget(name_node.byte_range(), budget)?
+        {
+            return Ok(());
+        }
+        let owner = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        self.index.canonical.nodes[id.0].projection = Projection::Pending;
+        self.names.insert_candidate(
+            &self.index.source.bytes()[name_node.byte_range()],
+            None,
+            self.index.canonical.nodes[id.0].name_scope,
+            super::super::names::NamedOwner {
+                owner,
+                qualification: Some(UnresolvedReason::GrammarBoundary),
+            },
+            budget,
+        )?;
+        self.pending_name(id);
         Ok(())
     }
 }

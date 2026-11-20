@@ -46,6 +46,7 @@ pub(crate) enum WorkPhase {
     Ranges,
     Batch,
     Text,
+    Decoration,
     Names,
     Ordering,
 }

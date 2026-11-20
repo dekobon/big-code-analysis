@@ -3,7 +3,7 @@
   "publication": "Unknown for every implemented profile; Rust doc/cfg_attr additionally retains pending publication assessment",
   "variants": {
     "Rust": {
-      "implemented": ["basic outer line/block", "adjacent comment composition", "inner root/module/function", "macro Expansion", "comments across ordinary attributes", "raw fragments and exact local comment maps"],
+      "implemented": ["basic outer line/block", "same-target outer/inner composition", "root/module FilePackage and other target Primary roles", "inner root/module/function", "macro Expansion", "comments across ordinary attributes", "raw fragments and exact local comment maps"],
       "ineligible": ["plain comments", "document/test/rustfmt::skip attribute paths"],
       "pending": ["doc assignment/raw/cooked/metadata attributes", "cfg_attr", "mixed comment/attribute composition", "field/variant/tuple slots", "other local contexts"]
     },
@@ -60,7 +60,7 @@
     "Cpp": {
       "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures including definitions", "line/block phase-two splicing"],
       "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
-      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery/template projections", "complex declarators", "publication"]
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery/template projections", "complex declarators and exact default-expression signatures", "qualified/unsupported reference grammar", "publication"]
     },
     "Mozcpp": {
       "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures", "line/block phase-two splicing"],

@@ -359,13 +359,19 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 897.0
+value = 956.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 126.0
+value = 138.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "Builder<'s>::finish"
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -401,31 +407,31 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "abc"
-value = 55.97320787662612
+value = 52.478567053607705
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "cognitive"
-value = 48.0
+value = 43.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "cyclomatic"
-value = 20.0
+value = 19.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "halstead.effort"
-value = 232144.35747298473
+value = 223259.64032932615
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "nexits"
-value = 5.0
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -472,6 +478,12 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::register"
+metric = "abc"
+value = 38.28837943815329
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "Builder<'s>::register"
 metric = "cognitive"
 value = 15.0
 
@@ -479,13 +491,13 @@ value = 15.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::register"
 metric = "cyclomatic"
-value = 16.0
+value = 17.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::register"
 metric = "halstead.effort"
-value = 75856.64234451539
+value = 77748.62342197515
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -521,31 +533,37 @@ value = 7.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "abc"
-value = 47.56048780237646
+value = 49.85980344927164
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "Builder<'s>::walk"
+metric = "cognitive"
+value = 17.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "halstead.effort"
-value = 110827.26177270018
+value = 182593.08399265425
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "nexits"
-value = 8.0
+value = 9.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "abc"
-value = 53.291650377896914
+value = 53.41348144429457
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "halstead.effort"
-value = 87295.73158561725
+value = 90175.5563699593
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -561,45 +579,57 @@ value = 13.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
-qualified = "Builder<'s>::combine_pending"
-metric = "cognitive"
-value = 15.0
+qualified = "Builder<'s>"
+metric = "wmc"
+value = 73.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
+qualified = "Builder<'s>::coalesce_rust"
+metric = "halstead.effort"
+value = 48218.38058500087
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::combine_pending"
 metric = "halstead.effort"
-value = 58161.637831875196
+value = 58850.75713727861
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 39.11521443121589
+value = 51.12729212465687
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cognitive"
-value = 18.0
+value = 23.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cyclomatic"
-value = 18.0
+value = 23.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 92864.2122735224
+value = 163794.80999271595
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "nexits"
 value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
+qualified = "Builder<'s>::named_document"
+metric = "cognitive"
+value = 17.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -627,57 +657,81 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>"
+metric = "wmc"
+value = 67.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::c_slots"
 metric = "abc"
-value = 53.749418601506754
+value = 56.2672195865408
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::c_slots"
 metric = "cognitive"
-value = 20.0
+value = 23.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::c_slots"
 metric = "halstead.effort"
-value = 118991.71741040709
+value = 148400.19270030435
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::c_slots"
 metric = "nexits"
-value = 9.0
+value = 10.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::finalize_projection"
+metric = "abc"
+value = 44.15880433163923
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "cognitive"
-value = 21.0
+value = 27.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "cyclomatic"
-value = 21.0
+value = 29.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "halstead.effort"
-value = 110018.09239923891
+value = 191098.72458144272
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "nexits"
-value = 8.0
+value = 11.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::index_function_definition"
+metric = "halstead.effort"
+value = 53216.35692536166
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::index_function_definition"
 metric = "nexits"
-value = 8.0
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::index_recovered_name"
+metric = "nexits"
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/tests.rs"
@@ -711,7 +765,85 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/names.rs"
-qualified = "Names::resolve"
+qualified = "Names::insert_candidate"
+metric = "halstead.effort"
+value = 53324.76224742121
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::insert_candidate"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::insert_candidate"
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::resolve_in"
+metric = "abc"
+value = 53.27288240746881
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::resolve_in"
+metric = "cognitive"
+value = 35.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::resolve_in"
+metric = "cyclomatic"
+value = 19.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::resolve_in"
+metric = "halstead.effort"
+value = 152988.29680210442
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names.rs"
+qualified = "Names::resolve_in"
+metric = "nexits"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "reference_name"
+metric = "cognitive"
+value = 16.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "reference_name"
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "tokens"
+metric = "cognitive"
+value = 23.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "tokens"
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "tokens"
+metric = "halstead.effort"
+value = 96833.3962353417
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/names/tokens.rs"
+qualified = "tokens"
 metric = "nexits"
 value = 5.0
 
@@ -725,13 +857,13 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
 qualified = "NativeRules<T>::target"
 metric = "halstead.effort"
-value = 62580.37535783485
+value = 66174.94088354147
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
 qualified = "NativeRules<T>::target::<anon@L79>"
 metric = "cyclomatic"
-value = 15.0
+value = 17.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
@@ -923,19 +1055,19 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 541.0
+value = 583.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "append_range"
 metric = "nargs"
-value = 5.0
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "abc"
-value = 66.70832032063167
+value = 69.28924880528002
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -953,13 +1085,13 @@ value = 28.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "halstead.effort"
-value = 383332.4051257595
+value = 409210.04703845707
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "nexits"
-value = 15.0
+value = 16.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -996,6 +1128,42 @@ path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "delimiters"
 metric = "nexits"
 value = 11.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "abc"
+value = 46.776062254106
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "cognitive"
+value = 34.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "cyclomatic"
+value = 19.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "halstead.effort"
+value = 135842.98435141143
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "nargs"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "emit_blocks"
+metric = "nexits"
+value = 10.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1048,26 +1216,14 @@ value = 9.0
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "render_local"
-metric = "abc"
-value = 68.18357573492314
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/text/comments.rs"
-qualified = "render_local"
 metric = "cognitive"
-value = 50.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/text/comments.rs"
-qualified = "render_local"
-metric = "cyclomatic"
-value = 22.0
+value = 27.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "render_local"
 metric = "halstead.effort"
-value = 242315.44217119092
+value = 74922.20406534027
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1079,7 +1235,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "render_local"
 metric = "nexits"
-value = 16.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/literals.rs"

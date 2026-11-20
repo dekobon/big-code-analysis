@@ -3,6 +3,51 @@
 use super::*;
 
 impl<'s> Builder<'s> {
+    pub(super) fn coalesce_rust(
+        &mut self,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        if self.index.profile != Profile::Rust {
+            return Ok(());
+        }
+        let mut groups = std::collections::HashMap::<NodeId, usize>::new();
+        for mut draft in std::mem::take(&mut self.drafts) {
+            budget.step()?;
+            if let Some(target) = draft.target
+                && matches!(draft.unresolved, None | Some(UnresolvedReason::ExcludedGap))
+            {
+                draft.role = self.rust_role(target);
+                draft.scope = self.index.canonical.nodes[target.0]
+                    .parent
+                    .unwrap_or(NodeId(0));
+                if let Some(&index) = groups.get(&target) {
+                    let composed = &mut self.drafts[index];
+                    for fragment in draft.fragments {
+                        budget.step()?;
+                        composed.fragments.push(fragment);
+                    }
+                    composed.pending |= draft.pending;
+                    composed.gap |= draft.gap;
+                    composed.unresolved = composed.unresolved.or(draft.unresolved);
+                    composed.binding = composed.binding.or(draft.binding);
+                    continue;
+                }
+                groups.insert(target, self.drafts.len());
+            }
+            self.drafts.push(draft);
+        }
+        Ok(())
+    }
+
+    fn rust_role(&self, target: NodeId) -> DocumentRole {
+        if target.0 == 0
+            || self.index.canonical.nodes[target.0].evidence.node().kind() == "mod_item"
+        {
+            DocumentRole::FilePackage
+        } else {
+            DocumentRole::Primary
+        }
+    }
     pub(super) fn combine_pending(
         &mut self,
         budget: &CollectionBudget,
@@ -11,6 +56,7 @@ impl<'s> Builder<'s> {
         for (index, draft) in self.drafts.iter().enumerate() {
             budget.step()?;
             if let Some(target) = draft.target
+                && matches!(draft.unresolved, None | Some(UnresolvedReason::ExcludedGap))
                 && matches!(
                     draft.role,
                     DocumentRole::Primary | DocumentRole::FilePackage
@@ -25,7 +71,7 @@ impl<'s> Builder<'s> {
                 self.drafts[index].fragments.push(fragment);
                 self.drafts[index].pending = true;
             } else {
-                let scope = self.index.canonical.nodes[node.0]
+                let scope = self.index.canonical.nodes[target.unwrap_or(node).0]
                     .parent
                     .unwrap_or(NodeId(0));
                 if let Some(target) = target {
@@ -35,15 +81,13 @@ impl<'s> Builder<'s> {
                     fragments: vec![fragment],
                     target,
                     scope,
-                    binding: target.map(|id| self.index.canonical.nodes[id.0].evidence),
-                    role: if target.is_some_and(|id| {
-                        id.0 == 0
-                            || self.index.canonical.nodes[id.0].evidence.node().kind() == "mod_item"
-                    }) {
-                        DocumentRole::FilePackage
-                    } else {
-                        DocumentRole::Primary
-                    },
+                    binding: target
+                        .filter(|_| {
+                            self.index.canonical.nodes[node.0].evidence.node().kind()
+                                == "attribute_item"
+                        })
+                        .map(|id| self.index.canonical.nodes[id.0].evidence),
+                    role: target.map_or(DocumentRole::Primary, |id| self.rust_role(id)),
                     unresolved: None,
                     pending: true,
                     gap: false,
@@ -93,15 +137,21 @@ impl<'s> Builder<'s> {
         if self.index.profile == Profile::Doxygen
             && draft.target.is_none()
             && !draft.gap
-            && let Some((found, resolution)) = self.named_document(document, budget)?
+            && let Some(result) = self.named_document(document, draft.scope, budget)?
         {
-            owners = found;
-            named_resolution = Some(resolution);
-            pending = false;
+            owners = result.owners;
+            named_resolution = result
+                .reason
+                .map(Resolution::Unresolved)
+                .or_else(|| (!result.pending).then_some(Resolution::Resolved));
+            pending = result.pending;
         }
         if let Some(target) = draft.target {
             match &self.index.canonical.nodes[target.0].projection {
                 Projection::Ready(ids) => {
+                    draft.unresolved = draft
+                        .unresolved
+                        .or(self.index.canonical.nodes[target.0].qualification);
                     for &id in ids {
                         budget.step()?;
                         owners.push(id);
@@ -112,8 +162,26 @@ impl<'s> Builder<'s> {
         }
         if pending {
             self.pending_document(&draft, document, &owners, attribute, budget)?;
+            if self.index.profile == Profile::CsharpXml
+                && let Some(target) = draft.target
+                && conditional_kind(self.index.canonical.nodes[target.0].evidence.node().kind())
+            {
+                let assessment = self.index.assessments.len();
+                self.index.assessments.push(Assessment {
+                    axis: AssessmentAxis::Selection,
+                    reason: "Conditional XML documentation selection awaits branch interpretation",
+                    node: Some(self.index.canonical.nodes[target.0].evidence),
+                    document: Some(document),
+                });
+                self.index.canonical.nodes[target.0]
+                    .pending
+                    .push(assessment);
+            }
         }
-        if !owners.is_empty() || draft.unresolved.is_some() || named_resolution.is_some() {
+        if (!owners.is_empty() && (!pending || draft.target.is_some()))
+            || draft.unresolved.is_some()
+            || named_resolution.is_some()
+        {
             self.index.facts.associations.push(Association {
                 document,
                 owners,
@@ -159,9 +227,10 @@ impl<'s> Builder<'s> {
             self.index.assessments_by_owner[owner.0].push(assessment);
         }
         if owners.is_empty() {
-            self.index.canonical.nodes[draft.target.unwrap_or(draft.scope).0]
-                .pending
-                .push(assessment);
+            let scope = draft
+                .target
+                .unwrap_or(self.index.canonical.nodes[draft.scope.0].owner_context);
+            self.index.canonical.nodes[scope.0].pending.push(assessment);
         }
         Ok(())
     }
@@ -169,8 +238,9 @@ impl<'s> Builder<'s> {
     fn named_document(
         &self,
         document: DocumentId,
+        scope: NodeId,
         budget: &CollectionBudget,
-    ) -> Result<Option<(Vec<OwnerId>, Resolution)>, CollectionError> {
+    ) -> Result<Option<super::super::names::NameResolution>, CollectionError> {
         for id in self.index.facts.documents[document.0]
             .fragments
             .iter()
@@ -195,11 +265,23 @@ impl<'s> Builder<'s> {
                 if command != b"fn" {
                     return Ok(None);
                 }
-                let (owners, reason) = self.names.resolve(name, budget)?;
-                return Ok(Some((
-                    owners,
-                    reason.map_or(Resolution::Resolved, Resolution::Unresolved),
-                )));
+                let record = &self.index.canonical.nodes[scope.0];
+                let scope = if matches!(
+                    record.evidence.node().kind(),
+                    "namespace_definition"
+                        | "class_specifier"
+                        | "struct_specifier"
+                        | "compound_statement"
+                ) {
+                    scope
+                } else {
+                    record.name_scope
+                };
+                let mut result = self.names.resolve_in(name, scope, budget)?;
+                if let Some(reason) = record.qualification {
+                    result.reason = Some(reason);
+                }
+                return Ok(Some(result));
             }
         }
         Ok(None)

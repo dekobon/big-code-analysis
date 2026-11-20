@@ -79,6 +79,7 @@ impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
         ancestors.try_memoised(crate::node::MemoQuestion::SourceDocTarget, node, || {
             target_computations::record();
             match T::lang() {
+                crate::LANG::Csharp if super::collector::conditional_kind(node.kind()) => Ok(true),
                 crate::LANG::C => crate::lang_helpers::doxygen::doxygen_target_with_budget::<
                     crate::CCode,
                     _,

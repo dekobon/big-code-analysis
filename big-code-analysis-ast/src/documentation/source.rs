@@ -186,6 +186,7 @@ impl<'s> SourceContext<'s> {
         let mut end = self.included.len();
         while first < end {
             budget.step().map_err(Into::into)?;
+            intersection_searches::record();
             let middle = first + (end - first) / 2;
             if self.included[middle].end_byte <= spelling.start {
                 first = middle + 1;
@@ -262,6 +263,11 @@ impl<'s> SourceContext<'s> {
         Ok(NodeEvidence { canonical })
     }
 }
+
+crate::observation::counter!(
+    intersection_searches,
+    cfg(any(test, feature = "test-support"))
+);
 
 #[cfg(all(test, feature = "rust"))]
 mod coverage_tests {
