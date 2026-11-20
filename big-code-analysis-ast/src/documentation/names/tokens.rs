@@ -1,4 +1,5 @@
 //! Narrow lexical keys for exact static C-family signatures.
+//! Each consumed input byte is charged once in this scanner, including delimiters.
 
 use crate::documentation::SourceError;
 use crate::documentation::budget::WorkBudget;
@@ -25,34 +26,45 @@ pub(super) fn tokens<'s, B: WorkBudget>(
                 at += 1;
             }
         } else if bytes[at..].starts_with(b"/*") {
+            charge(1, budget)?;
             at += 2;
-            while at + 1 < bytes.len() && !bytes[at..].starts_with(b"*/") {
-                budget.bytes(1).map_err(Into::into)?;
-                super::name_bytes::record();
+            while at < bytes.len() && !bytes[at..].starts_with(b"*/") {
+                charge(1, budget)?;
                 at += 1;
             }
-            if at + 1 >= bytes.len() {
+            if at == bytes.len() {
                 return Ok(None);
             }
+            charge(2, budget)?;
             at += 2;
             continue;
         } else if bytes[at..].starts_with(b"&&") || bytes[at..].starts_with(b"::") {
+            charge(1, budget)?;
             at += 2;
         } else if matches!(bytes[at], b'(' | b')' | b',' | b'*' | b'&') {
             at += 1;
         } else {
             return Ok(None);
         }
+        budget.step().map_err(Into::into)?;
         result.push(&bytes[start..at]);
     }
     Ok(Some(result))
+}
+
+fn charge<B: WorkBudget>(count: usize, budget: &B) -> Result<(), SourceError> {
+    budget.bytes(count).map_err(Into::into)?;
+    for _ in 0..count {
+        super::name_bytes::record();
+    }
+    Ok(())
 }
 
 pub(super) fn reference_name<'s, B: WorkBudget>(
     tokens: &[&'s [u8]],
     budget: &B,
 ) -> Result<Option<&'s [u8]>, SourceError> {
-    if tokens.len() == 1 && identifier(tokens[0]) {
+    if tokens.len() == 1 && super::grammar::identifier(tokens[0]) {
         return Ok(Some(tokens[0]));
     }
     let mut open = None;
@@ -78,11 +90,10 @@ pub(super) fn reference_name<'s, B: WorkBudget>(
         return Ok(None);
     }
     let name = tokens[open - 1];
-    Ok(identifier(name).then_some(name))
-}
-
-fn identifier(bytes: &[u8]) -> bool {
-    bytes
-        .first()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+    if !super::grammar::identifier(name)
+        || !super::grammar::return_type(&tokens[..open - 1], budget)?
+    {
+        return Ok(None);
+    }
+    Ok(super::grammar::parameters(&tokens[open + 1..tokens.len() - 1], budget)?.then_some(name))
 }

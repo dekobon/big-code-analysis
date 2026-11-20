@@ -40,6 +40,9 @@ for historical reference.
   file/package roles. Exact wrapper selection, conditional name provenance, helper
   node identity, logical boundary trimming and retained-intersection text emission
   preserve pending results without redirected or partial-complete claims.
+  Exact named matching validates a narrow type/parameter grammar, interns names
+  once, and preserves structured candidate/reference qualifications alongside
+  ambiguity. Token scanning and key emission charge complete byte widths.
   (#1660, #1661)
 
 - Added unstable AST positional-run evidence for Go, Ruby and Lua, including

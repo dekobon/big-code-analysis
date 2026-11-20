@@ -494,12 +494,9 @@ fn nested_default_lambda_signature_work_is_linear_in_primary_facts() {
                 .count(),
             depth
         );
-        // Each complex declaration stores its one-byte name twice, never its header.
-        assert_eq!(
-            after.key_bytes_stored - before.key_bytes_stored,
-            2 * depth + 17
-        );
-        assert_eq!(after.name_bytes - before.name_bytes, 2 * depth + 40);
+        // Each complex declaration stores one name; leaf stores its name and token key.
+        assert_eq!(after.key_bytes_stored - before.key_bytes_stored, depth + 17);
+        assert_eq!(after.name_bytes - before.name_bytes, 3 * depth + 60);
     }
 }
 

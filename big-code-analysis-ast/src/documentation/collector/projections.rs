@@ -199,6 +199,7 @@ impl Builder<'_> {
                 }));
                 self.index.associations_by_owner.push(Vec::new());
                 self.index.assessments_by_owner.push(Vec::new());
+                self.index.qualifications_by_owner.push(Vec::new());
                 self.index.owner_nodes.push(id);
                 slots.push(slot);
             }
@@ -313,7 +314,11 @@ impl Builder<'_> {
             self.index.canonical.nodes[id.0].name_scope,
             super::super::names::NamedOwner {
                 owner,
-                qualification: Some(UnresolvedReason::GrammarBoundary),
+                qualification: {
+                    let mut qualification = self.index.canonical.nodes[id.0].qualification;
+                    qualification.insert(UnresolvedReason::GrammarBoundary);
+                    qualification
+                },
             },
             budget,
         )?;

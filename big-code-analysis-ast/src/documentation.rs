@@ -22,6 +22,9 @@
 //! fragment's retained intersections monotonically rather than searching global
 //! included ranges for each emitted segment. Cancellation checks bound work between
 //! polls; releasing accumulated partial state still costs its retained storage.
+//! Known candidate/reference qualifications are separate immutable records, indexed
+//! by document and owner. Ambiguity preserves each candidate's conditional/recovery
+//! facts; pending assessments describe unsupported matching rather than those facts.
 
 pub(crate) mod budget;
 pub(crate) mod byte_scan;
@@ -34,6 +37,7 @@ mod names;
 mod options;
 mod ordering;
 mod owners;
+mod qualifications;
 pub(crate) mod recognition;
 mod source;
 #[doc(hidden)]
@@ -44,6 +48,7 @@ pub use content::*;
 pub use index::*;
 pub use options::*;
 pub use owners::*;
+pub use qualifications::{Qualification, QualificationSubject};
 pub use source::*;
 
 /// Current-thread production work counters for source-path qualification.
@@ -68,7 +73,8 @@ pub struct Observations {
     pub renders: usize,
     /// Bounded source-to-text copy chunks.
     pub copy_chunks: usize,
-    /// Name bytes hashed or compared during indexed finalization.
+    /// Consumed tokenizer bytes, key hashing/copying bytes (including separators),
+    /// and spelling-comparison bytes. Each key output byte charges hash and copy.
     pub name_bytes: usize,
     /// Distinct name candidates compared inside hash buckets.
     pub name_candidates: usize,

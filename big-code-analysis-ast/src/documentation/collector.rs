@@ -9,6 +9,7 @@ use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
 
 mod assembly;
 mod projections;
+mod qualifications;
 
 enum Visit {
     Enter(NodeId, usize),
@@ -67,6 +68,10 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
             documents_ordered: Vec::new(),
             associations_ordered: Vec::new(),
             source_cleaned: Vec::new(),
+            qualifications: Vec::new(),
+            qualifications_ordered: Vec::new(),
+            qualifications_by_document: Vec::new(),
+            qualifications_by_owner: Vec::new(),
         },
         drafts: Vec::new(),
         pending_attributes: Vec::new(),
@@ -157,6 +162,7 @@ impl<'s> Builder<'s> {
         self.index.facts.owners.push(owner);
         self.index.associations_by_owner.push(Vec::new());
         self.index.assessments_by_owner.push(Vec::new());
+        self.index.qualifications_by_owner.push(Vec::new());
         self.index.owner_nodes.push(id);
         self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![owner_id]);
     }
@@ -374,9 +380,12 @@ impl<'s> Builder<'s> {
         }
         let record = &mut self.index.canonical.nodes[id.0];
         if node.is_error() || node.is_missing() {
-            record.qualification = Some(UnresolvedReason::GrammarBoundary);
-        } else if conditional_kind(node.kind()) && record.qualification.is_none() {
-            record.qualification = Some(UnresolvedReason::Conditional);
+            record
+                .qualification
+                .insert(UnresolvedReason::GrammarBoundary);
+        }
+        if conditional_kind(node.kind()) {
+            record.qualification.insert(UnresolvedReason::Conditional);
         }
     }
 
@@ -915,6 +924,7 @@ impl<'s> Builder<'s> {
                 self.index.associations_by_owner[owner.0].push(ordinal);
             }
         }
+        self.order_qualifications(&ranks, budget)?;
         Ok(())
     }
 }
@@ -997,6 +1007,8 @@ mod cancellation_tests;
 mod cost_tests;
 #[cfg(test)]
 mod form_tests;
+#[cfg(test)]
+mod named_tests;
 #[cfg(test)]
 mod projection_tests;
 #[cfg(test)]

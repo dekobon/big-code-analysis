@@ -125,6 +125,7 @@ impl<'s> Builder<'s> {
             Composition::CommentRun
         };
         let document = DocumentId(self.index.facts.documents.len());
+        self.index.qualifications_by_document.push(Vec::new());
         self.index.facts.documents.push(Document {
             fragments: std::mem::take(&mut draft.fragments),
             composition,
@@ -139,7 +140,11 @@ impl<'s> Builder<'s> {
             && !draft.gap
             && let Some(result) = self.named_document(document, draft.scope, budget)?
         {
-            owners = result.owners;
+            for candidate in result.owners {
+                budget.step()?;
+                self.candidate_qualifications(document, candidate, budget)?;
+                owners.push(candidate.owner);
+            }
             named_resolution = result
                 .reason
                 .map(Resolution::Unresolved)
@@ -149,9 +154,9 @@ impl<'s> Builder<'s> {
         if let Some(target) = draft.target {
             match &self.index.canonical.nodes[target.0].projection {
                 Projection::Ready(ids) => {
-                    draft.unresolved = draft
-                        .unresolved
-                        .or(self.index.canonical.nodes[target.0].qualification);
+                    draft.unresolved = draft.unresolved.or(self.index.canonical.nodes[target.0]
+                        .qualification
+                        .headline());
                     for &id in ids {
                         budget.step()?;
                         owners.push(id);
@@ -160,23 +165,12 @@ impl<'s> Builder<'s> {
                 Projection::Pending | Projection::Unsupported => pending = true,
             }
         }
+        if named_resolution == Some(Resolution::Unresolved(UnresolvedReason::Ambiguous)) {
+            draft.unresolved = None;
+        }
         if pending {
             self.pending_document(&draft, document, &owners, attribute, budget)?;
-            if self.index.profile == Profile::CsharpXml
-                && let Some(target) = draft.target
-                && conditional_kind(self.index.canonical.nodes[target.0].evidence.node().kind())
-            {
-                let assessment = self.index.assessments.len();
-                self.index.assessments.push(Assessment {
-                    axis: AssessmentAxis::Selection,
-                    reason: "Conditional XML documentation selection awaits branch interpretation",
-                    node: Some(self.index.canonical.nodes[target.0].evidence),
-                    document: Some(document),
-                });
-                self.index.canonical.nodes[target.0]
-                    .pending
-                    .push(assessment);
-            }
+            self.pending_conditional_selection(draft.target, document);
         }
         if (!owners.is_empty() && (!pending || draft.target.is_some()))
             || draft.unresolved.is_some()
@@ -216,6 +210,8 @@ impl<'s> Builder<'s> {
             },
             reason: if attribute {
                 "Rust doc/cfg_attr carrier awaits adapter composition"
+            } else if self.index.profile == Profile::Doxygen && draft.target.is_none() {
+                "Exact named matching awaits supported signature grammar"
             } else {
                 "Selected local or wrapper form awaits owner projection"
             },
@@ -235,8 +231,26 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
+    fn pending_conditional_selection(&mut self, target: Option<NodeId>, document: DocumentId) {
+        if self.index.profile == Profile::CsharpXml
+            && let Some(target) = target
+            && conditional_kind(self.index.canonical.nodes[target.0].evidence.node().kind())
+        {
+            let assessment = self.index.assessments.len();
+            self.index.assessments.push(Assessment {
+                axis: AssessmentAxis::Selection,
+                reason: "Conditional XML documentation selection awaits branch interpretation",
+                node: Some(self.index.canonical.nodes[target.0].evidence),
+                document: Some(document),
+            });
+            self.index.canonical.nodes[target.0]
+                .pending
+                .push(assessment);
+        }
+    }
+
     fn named_document(
-        &self,
+        &mut self,
         document: DocumentId,
         scope: NodeId,
         budget: &CollectionBudget,
@@ -277,9 +291,11 @@ impl<'s> Builder<'s> {
                 } else {
                     record.name_scope
                 };
+                let qualification = record.qualification;
                 let mut result = self.names.resolve_in(name, scope, budget)?;
-                if let Some(reason) = record.qualification {
-                    result.reason = Some(reason);
+                self.reference_qualifications(document, node, qualification, budget)?;
+                if result.reason != Some(UnresolvedReason::Ambiguous) && !result.pending {
+                    result.reason = qualification.headline().or(result.reason);
                 }
                 return Ok(Some(result));
             }

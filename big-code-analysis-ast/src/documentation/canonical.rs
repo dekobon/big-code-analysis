@@ -26,11 +26,12 @@ pub(super) struct CanonicalNode<'s> {
     pub(super) children: Range<usize>,
     pub(super) projection: Projection,
     pub(super) pending: Vec<usize>,
+    pub(super) qualifications: Vec<usize>,
     pub(super) pending_parent: Option<NodeId>,
     pub(super) following: Option<NodeId>,
     pub(super) owner_context: NodeId,
     pub(super) name_scope: NodeId,
-    pub(super) qualification: Option<super::UnresolvedReason>,
+    pub(super) qualification: super::qualifications::QualificationSet,
     pub(super) signature_complex: bool,
 }
 
@@ -71,11 +72,12 @@ impl<'s> CanonicalNodes<'s> {
             children: 0..0,
             projection: Projection::Unsupported,
             pending: Vec::new(),
+            qualifications: Vec::new(),
             pending_parent: None,
             following: None,
             owner_context: id,
             name_scope: NodeId(0),
-            qualification: None,
+            qualification: super::qualifications::QualificationSet::default(),
             signature_complex: false,
         });
         id

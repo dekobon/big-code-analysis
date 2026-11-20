@@ -77,6 +77,10 @@ pub struct DocumentationIndex<'s> {
     pub(super) documents_ordered: Vec<usize>,
     pub(super) associations_ordered: Vec<usize>,
     pub(super) source_cleaned: Vec<Option<Content<'s>>>,
+    pub(super) qualifications: Vec<Qualification<'s>>,
+    pub(super) qualifications_ordered: Vec<usize>,
+    pub(super) qualifications_by_document: Vec<Vec<usize>>,
+    pub(super) qualifications_by_owner: Vec<Vec<usize>>,
 }
 
 /// Prepared results for one semantic owner, including known associations and
@@ -87,6 +91,7 @@ pub struct OwnerAssociations<'i, 's> {
     assessments: &'i [usize],
     scope: Option<super::canonical::NodeId>,
     projection_pending: bool,
+    qualifications: &'i [usize],
 }
 
 /// A canonical syntax projection with its known owners and pending assessment.
@@ -149,6 +154,13 @@ crate::observation::counter!(
 );
 
 impl<'i, 's> OwnerAssociations<'i, 's> {
+    /// Known conditional/recovery facts for this candidate, independently of
+    /// association ambiguity and pending implementation assessments.
+    pub fn qualifications(
+        &self,
+    ) -> impl ExactSizeIterator<Item = FactRef<'i, Qualification<'s>>> + '_ {
+        self.index.qualification_refs(self.qualifications)
+    }
     /// Whether the queried syntax still requires a semantic owner projection.
     /// Known associations and pending assessment records remain accessible.
     #[must_use]
@@ -350,6 +362,7 @@ impl<'s> DocumentationIndex<'s> {
                 assessments: &[],
                 scope: Some(id),
                 projection_pending: true,
+                qualifications: &self.canonical.nodes[id.0].qualifications,
             }),
             Projection::Ready(owners) if owners.len() == 1 => {
                 let ordinal = owners[0].0;
@@ -418,6 +431,7 @@ impl<'s> DocumentationIndex<'s> {
             assessments: &self.assessments_by_owner[ordinal],
             scope,
             projection_pending: false,
+            qualifications: &self.qualifications_by_owner[ordinal],
         }
     }
 }
