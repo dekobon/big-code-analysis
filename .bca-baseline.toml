@@ -359,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 901.0
+value = 897.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 127.0
+value = 126.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -431,19 +431,19 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::order_results"
 metric = "abc"
-value = 53.600373133029585
+value = 50.635955604688654
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::order_results"
 metric = "halstead.effort"
-value = 121251.12650557018
+value = 113120.37181131
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::order_results"
 metric = "nexits"
-value = 13.0
+value = 12.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -575,31 +575,31 @@ value = 58161.637831875196
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 42.67317658670374
+value = 39.11521443121589
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cognitive"
-value = 20.0
+value = 18.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cyclomatic"
-value = 19.0
+value = 18.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 106857.85979066297
+value = 92864.2122735224
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "nexits"
-value = 6.0
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"

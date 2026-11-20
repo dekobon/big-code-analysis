@@ -114,11 +114,6 @@ impl<'s> Builder<'s> {
             self.pending_document(&draft, document, &owners, attribute, budget)?;
         }
         if !owners.is_empty() || draft.unresolved.is_some() || named_resolution.is_some() {
-            let association = self.index.facts.associations.len();
-            for owner in &owners {
-                budget.step()?;
-                self.index.associations_by_owner[owner.0].push(association);
-            }
             self.index.facts.associations.push(Association {
                 document,
                 owners,

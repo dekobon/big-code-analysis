@@ -1249,13 +1249,6 @@ fn collect_positional_prefix<'a, R: SourceRules, B: WorkBudget>(
     Ok(run)
 }
 
-/// The trailing comment that heads `first`'s LDoc group, when `first` sits
-/// directly under a row that ends in one: LDoc lexes a line comment with
-/// its newline and gathers every consecutive comment token into one group
-/// whose first token decides whether it is an LDoc block (`parse.lua`), so
-/// a `---` row under `x = 1 -- note` belongs to that `--` group. The run
-/// `leading_doc_run` hands over leaves such a comment out, as go/doc does,
-/// so it is looked up here.
 #[cfg(test)]
 mod tests {
     use super::*;

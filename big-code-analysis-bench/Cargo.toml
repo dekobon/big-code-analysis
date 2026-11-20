@@ -40,9 +40,6 @@ big-code-analysis-ast = { path = "../big-code-analysis-ast", features = ["test-s
 serde_json.workspace = true
 
 [dev-dependencies]
-# Test-only, path-only like the root dependency above: the shape tests
-# read `node::WIDE_PARENT` so a fixture sized to the walk's sibling-cache
-# threshold cannot go narrow if the threshold is raised.
 # `html_reports` writes `target/criterion/report/index.html`, which is
 # what makes a measurement reviewable after the fact rather than a
 # number pasted into a commit message.

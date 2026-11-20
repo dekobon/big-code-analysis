@@ -857,10 +857,6 @@ impl<'s> Builder<'s> {
             budget.step()?;
             self.index.associations_ordered.push(ordinal);
         }
-        for owners in &mut self.index.associations_by_owner {
-            budget.step()?;
-            owners.clear();
-        }
         for &ordinal in &self.index.associations_ordered {
             budget.step()?;
             for &owner in &self.index.facts.associations[ordinal].owners {
