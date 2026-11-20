@@ -21,7 +21,7 @@
       "name": "lua-prose-only-in-opener-member",
       "file": "big-code-analysis-ast/src/checker/lua.rs",
       "old": "if !text.text {",
-      "new": "if !{ let mut first_text = LdocText::default(); first_text.read(first, run.code); first_text.text } {",
+      "new": "if !{ let mut first_text = LdocText::default(); first_text.read_with_budget(first, run.code, budget)?; first_text.text } {",
       "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
     },
     {
@@ -112,7 +112,7 @@
       "name": "legacy-must-not-materialize-before-acceptance",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
       "old": "let Some(first) = run.first_eligible else {",
-      "new": "let _members = run.materialize(ancestors);\n    let Some(first) = run.first_eligible else {",
+      "new": "let _members = infallible(run.materialize_with_budget(ancestors, &NoBudget));\n    let Some(first) = run.first_eligible else {",
       "expect": ["documentation::streaming::positional::tests::remediation::go_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::ruby_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::lua_legacy_materializes_no_members", "metrics::loc::documentation_tests::documentation_go_positional_exact_rows"]
     },
     {
