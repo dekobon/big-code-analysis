@@ -137,6 +137,23 @@ mod tests {
     fn chunk_sort_cancellation_latches_without_corrupting_comparator_order() {
         let budget = StopAt {
             work: Cell::new(0),
+            stop: 2,
+        };
+        let comparisons = Comparisons {
+            budget: &budget,
+            error: RefCell::new(None),
+        };
+        assert_eq!(comparisons.compare(&1, &2), std::cmp::Ordering::Less);
+        assert_eq!(comparisons.compare(&2, &1), std::cmp::Ordering::Greater);
+        assert_eq!(comparisons.compare(&1, &2), std::cmp::Ordering::Less);
+        assert_eq!(comparisons.compare(&1, &1), std::cmp::Ordering::Equal);
+        assert_eq!(budget.work.get(), 2);
+        assert_eq!(
+            comparisons.check(),
+            Err(crate::documentation::SourceError::Cancelled)
+        );
+        let budget = StopAt {
+            work: Cell::new(0),
             stop: 3,
         };
         let input: Vec<_> = (0..3000).rev().collect();

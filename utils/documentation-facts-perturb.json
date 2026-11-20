@@ -27,15 +27,15 @@
     {
       "name": "empty-ranges-are-filtered-once",
       "file": "big-code-analysis-ast/src/documentation/source.rs",
-      "old": "included.retain(|range| range.start_byte < range.end_byte);",
-      "new": "included.retain(|_| true);",
+      "old": "if start == end {\n                continue;",
+      "new": "if false && start == end {\n                continue;",
       "expect": ["documentation::tests::ranges::empty_included_ranges_do_not_add_per_query_scan_work"]
     },
     {
       "name": "late-intersection-uses-indexed-start",
       "file": "big-code-analysis-ast/src/documentation/source.rs",
-      "old": "let first = self\n            .included\n            .partition_point(|range| range.end_byte <= spelling.start);",
-      "new": "let first = 0;",
+      "old": "for range in &self.included[first..] {",
+      "new": "for range in &self.included[0..] {",
       "expect": ["documentation::tests::ranges::late_intersection_seeks_past_earlier_nonempty_ranges"]
     },
     {

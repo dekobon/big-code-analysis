@@ -34,6 +34,17 @@ fn assert_pending_form(language: LANG, source: &str, owner_kind: &str) {
             .any(|assessment| assessment.get().axis == AssessmentAxis::Owner)
     );
     assert_eq!(index.associations().len(), 0, "{language:?}: {source}");
+    assert_eq!(index.documents().len(), 1, "{language:?}: {source}");
+    let document = index.documents().next().unwrap();
+    assert_eq!(document.get().fragment_count(), 1);
+    assert_eq!(
+        index.complete_text(document).unwrap().unwrap().text(),
+        "audit"
+    );
+    assert!(index.assessments().any(|assessment| {
+        assessment.get().axis == AssessmentAxis::Owner
+            && index.assessed_document(assessment).unwrap() == Some(document)
+    }));
 }
 
 #[cfg(feature = "java")]

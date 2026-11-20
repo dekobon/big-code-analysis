@@ -166,3 +166,40 @@ fn late_owner_queries_never_scan_other_owners_or_empty_ancestor_scopes() {
         assert_eq!(after.field_lookups - before.field_lookups, 0);
     }
 }
+
+#[cfg(feature = "c")]
+#[test]
+fn growing_text_at_fixed_fanout_is_built_once_in_bounded_chunks() {
+    use crate::documentation::budget::BYTE_INTERVAL;
+    for length in [BYTE_INTERVAL - 1, BYTE_INTERVAL, BYTE_INTERVAL * 2 + 1] {
+        let source = format!("/**{}*/\nint a, b;", "x".repeat(length));
+        let parser = AnyParser::parse(LANG::C, source.into_bytes(), None, None).unwrap();
+        let before = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(index.associations().len(), 1);
+        assert_eq!(index.associations().next().unwrap().get().owner_count(), 2);
+        let document = index.documents().next().unwrap();
+        let text = index.complete_text(document).unwrap().unwrap();
+        assert_eq!(text.text(), "x".repeat(length));
+        assert_eq!(text.mappings().len(), 1);
+        let after = observations();
+        assert_eq!(after.renders - before.renders, 1);
+        assert_eq!(
+            after.copy_chunks - before.copy_chunks,
+            length.div_ceil(BYTE_INTERVAL)
+        );
+        for _ in 0..32 {
+            let retained = index.complete_text(document).unwrap().unwrap();
+            assert!(std::ptr::eq(retained.text(), text.text()));
+            assert!(std::ptr::eq(retained.mappings(), text.mappings()));
+        }
+        assert_eq!(observations().renders, after.renders);
+        assert_eq!(observations().copy_chunks, after.copy_chunks);
+    }
+}

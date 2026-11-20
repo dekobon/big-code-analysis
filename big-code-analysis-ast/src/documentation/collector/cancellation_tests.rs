@@ -169,16 +169,16 @@ fn many_included_ranges_cancel_inside_normalization() {
         .collect();
     parser.set_included_ranges(&ranges).unwrap();
     let tree = parser.parse(&bytes, None).unwrap();
-    let result = cancel_in_phase(WorkPhase::Ranges, || {
-        collect(
-            LANG::Rust,
+    // The first two checkpoints bracket the dependency's range-array copy.
+    // The third must be reached by the normalization loop itself.
+    let result = crate::documentation::budget::cancel_after(3, || {
+        SourceContext::with_budget(
             &tree,
             &bytes,
-            &DocumentationContext::default(),
-            &DocumentationOptions::default(),
+            &crate::documentation::budget::CollectionBudget::default(),
         )
     });
-    assert!(matches!(result, Err(CollectionError::Cancelled)));
+    assert!(matches!(result, Err(SourceError::Cancelled)));
     assert_eq!(
         collect(
             LANG::Rust,

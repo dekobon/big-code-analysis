@@ -1055,3 +1055,128 @@ fn document_handles_are_index_qualified_even_for_one_shared_parse() {
         "audit"
     );
 }
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript"
+))]
+#[test]
+fn named_profiles_distinguish_deferred_incompatible_and_available() {
+    let defaults = [
+        (LANG::Rust, Profile::Rust),
+        (LANG::Python, Profile::Python),
+        (LANG::Java, Profile::Javadoc),
+        (LANG::Kotlin, Profile::Kdoc),
+        (LANG::Groovy, Profile::Groovydoc),
+        (LANG::Csharp, Profile::CsharpXml),
+        (LANG::Php, Profile::BcaPhpSource),
+        (LANG::Javascript, Profile::Jsdoc),
+        (LANG::Mozjs, Profile::Jsdoc),
+        (LANG::Typescript, Profile::BcaTypescriptSource),
+        (LANG::Tsx, Profile::BcaTypescriptSource),
+        (LANG::C, Profile::Doxygen),
+        (LANG::Cpp, Profile::Doxygen),
+        (LANG::Mozcpp, Profile::Doxygen),
+        (LANG::Objc, Profile::Doxygen),
+        (LANG::Go, Profile::GoDoc),
+        (LANG::Ruby, Profile::Yard),
+        (LANG::Lua, Profile::Ldoc),
+        (LANG::Perl, Profile::Pod),
+        (LANG::Elixir, Profile::Elixir),
+        (LANG::Bash, Profile::Shdoc),
+        (LANG::Tcl, Profile::Ruff),
+        (LANG::Irules, Profile::Irules),
+        (LANG::Ccomment, Profile::Helper),
+        (LANG::Preproc, Profile::Helper),
+    ];
+    assert_eq!(defaults.len(), LANG::into_enum_iter().count());
+    assert!(LANG::into_enum_iter().any(|language| language.is_enabled()));
+    let context = DocumentationContext::default();
+    for (language, default) in defaults {
+        let parser = language
+            .is_enabled()
+            .then(|| AnyParser::parse(language, Vec::new(), None, None).unwrap());
+        for requested in defaults.iter().map(|(_, profile)| *profile).chain([
+            Profile::Default,
+            Profile::Rdoc,
+            Profile::PhpDocumentor,
+        ]) {
+            let profile = if requested == Profile::Default {
+                default
+            } else {
+                requested
+            };
+            let alternate = (language == LANG::Ruby && profile == Profile::Rdoc)
+                || (language == LANG::Php && profile == Profile::PhpDocumentor);
+            let expected = if profile != default && !alternate {
+                Err(CollectionError::UnsupportedProfile { language, profile })
+            } else if alternate
+                || [
+                    LANG::Python,
+                    LANG::Perl,
+                    LANG::Elixir,
+                    LANG::Bash,
+                    LANG::Tcl,
+                    LANG::Irules,
+                ]
+                .contains(&language)
+            {
+                Err(CollectionError::AdapterUnavailable { language, profile })
+            } else {
+                Ok(profile)
+            };
+            assert_eq!(requested.resolve(language), expected);
+            if let Some(parser) = &parser {
+                let options = DocumentationOptions {
+                    profile: requested,
+                    ..DocumentationOptions::default()
+                };
+                assert_eq!(
+                    parser
+                        .documentation(&context, &options)
+                        .map(|index| index.profile()),
+                    expected
+                );
+                assert_eq!(
+                    collect(
+                        language,
+                        parser.ts_tree(),
+                        parser.code(),
+                        &context,
+                        &options
+                    )
+                    .map(|index| index.profile()),
+                    expected
+                );
+            }
+        }
+        if let Some(parser) = &parser {
+            for disabled in LANG::into_enum_iter().filter(|language| !language.is_enabled()) {
+                assert!(
+                    matches!(collect(disabled, parser.ts_tree(), parser.code(), &context, &DocumentationOptions::default()), Err(CollectionError::LanguageDisabled(actual)) if actual == disabled)
+                );
+            }
+        }
+    }
+}
