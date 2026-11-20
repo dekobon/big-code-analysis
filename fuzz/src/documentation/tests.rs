@@ -241,7 +241,20 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
         }
         "shared" => {
             assert_eq!(index.documents().len(), 1);
-            assert_eq!(index.associations().next().unwrap().get().owner_count(), 2);
+            let association = index.associations().next().unwrap();
+            assert_eq!(association.get().resolution, Resolution::Resolved);
+            assert_eq!(association.get().owner_count(), 2);
+            for position in 0..2 {
+                let owner = index
+                    .facts()
+                    .associated_owner(association, position)
+                    .unwrap();
+                let Owner::Slot(slot) = owner.get() else {
+                    panic!("shared Field slot")
+                };
+                assert_eq!(slot.role, SlotRole::Field);
+                assert_eq!(slot.ordinal, position);
+            }
             assert_eq!(text(index).text(), "audit");
         }
         "gathered" => {
@@ -254,6 +267,15 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
             assert_eq!(index.documents().len(), 1);
             assert_eq!(index.associations().len(), 1);
             let association = index.associations().next().unwrap();
+            assert_eq!(
+                association.get().resolution,
+                Resolution::Unresolved(if candidate {
+                    UnresolvedReason::Ambiguous
+                } else {
+                    UnresolvedReason::Conditional
+                }),
+                "seed association resolution"
+            );
             assert_eq!(
                 association.get().owner_count(),
                 if candidate { 2 } else { 1 }
@@ -292,9 +314,17 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                 if candidate {
                     let owner = index.facts().associated_owner(association, 0).unwrap();
                     assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));
-                    assert_eq!(&index.source()[node.byte_range()], b"void f(int x = );");
+                    assert_eq!(
+                        &index.source()[node.byte_range()],
+                        b"void f(int x = );",
+                        "candidate source evidence"
+                    );
                 } else {
-                    assert_eq!(&index.source()[node.byte_range()], b"/**@fn f*/");
+                    assert_eq!(
+                        &index.source()[node.byte_range()],
+                        b"/**@fn f*/",
+                        "reference source evidence"
+                    );
                 }
             }
         }
@@ -610,3 +640,5 @@ fn qualification_oracle_rejects_same_reasons_on_the_wrong_candidate() {
     });
     assert_eq!(result, Ok(Outcome::Checked));
 }
+
+mod remediation;

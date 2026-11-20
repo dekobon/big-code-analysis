@@ -1,8 +1,11 @@
 //! Bounded source-documentation properties shared by raw and tagged targets.
 
 mod header;
+mod identity;
 mod maps;
+mod observation;
 mod properties;
+mod repeat;
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +19,7 @@ use big_code_analysis_ast::{
     },
 };
 use header::{Input, Mode, expected_profile};
+use observation::Event;
 
 /// Maximum exact source length inspected by the additional documentation operation.
 pub const MAX_SOURCE: usize = 32 * 1024;
@@ -67,11 +71,15 @@ impl<'s> Parsed<'s> {
         options: DocumentationOptions,
     ) -> Result<DocumentationIndex<'s>, CollectionError> {
         let context = DocumentationContext::default();
-        if let Some(parser) = self.typed {
+        let result = if let Some(parser) = self.typed {
             parser.documentation(&context, &options)
         } else {
             collect(self.language, self.tree, self.source, &context, &options)
-        }
+        };
+        observation::record(Event::Collection(
+            result.as_ref().map(|_| ()).map_err(|error| *error),
+        ));
+        result
     }
 }
 
@@ -139,6 +147,7 @@ fn exercise_with(
         let tree = parser
             .parse(input.source, None)
             .ok_or("included parse aborted")?;
+        observation::record(Event::IncludedParse(tree.included_ranges().len()));
         return check_parse(
             &Parsed {
                 language: input.language,
@@ -154,14 +163,20 @@ fn exercise_with(
     }
     let parser = AnyParser::parse(input.language, input.source.to_vec(), None, None)
         .map_err(|_| "primary parse failed")?;
+    observation::record(Event::Parse);
     require(parser.code() == input.source, "tag payload changed")?;
-    let context = DocumentationContext::default();
+    let parsed = Parsed {
+        language: input.language,
+        tree: parser.ts_tree(),
+        source: parser.code(),
+        typed: Some(&parser),
+    };
     if input.mode == Mode::CancelledScope {
         let flag = ParseCancel::new();
         flag.cancel();
         require(
             matches!(
-                flag.run(|| parser.documentation(&context, &input.options)),
+                flag.run(|| parsed.collect(input.options)),
                 Err(CollectionError::Cancelled)
             ),
             "active cancellation not propagated",
@@ -169,12 +184,7 @@ fn exercise_with(
     }
     let check = || {
         check_parse(
-            &Parsed {
-                language: input.language,
-                tree: parser.ts_tree(),
-                source: parser.code(),
-                typed: Some(&parser),
-            },
+            &parsed,
             input.options,
             input.repeat,
             input.identity,
@@ -182,7 +192,13 @@ fn exercise_with(
         )
     };
     if input.mode == Mode::ActiveScope {
-        ParseCancel::new().run(check)
+        let flag = ParseCancel::new();
+        flag.run(|| {
+            let outcome = check()?;
+            #[cfg(test)]
+            observation::active_witness(&flag, &parsed, input.options)?;
+            Ok(outcome)
+        })
     } else {
         check()
     }

@@ -1,14 +1,15 @@
 use big_code_analysis_ast::documentation::{
-    Content, DocumentationIndex, FactError, FactRef, NodeEvidence, Owner, OwnerError,
-    QualificationSubject, SourceError, UnresolvedReason,
+    Content, DocumentationIndex, FactError, Owner, OwnerError, QualificationSubject, SourceError,
+    UnresolvedReason,
 };
 use std::collections::HashMap;
 
-use super::{Check, MAX_QUERIES, maps, require};
-
-fn address<T>(fact: FactRef<'_, T>) -> *const T {
-    std::ptr::from_ref(fact.get())
-}
+use super::observation::{self, Event, observed};
+use super::{
+    Check, MAX_QUERIES,
+    identity::{self, References, address},
+    maps, repeat as comparison, require,
+};
 
 fn selected(length: usize, count: usize, selector: u8) -> Vec<usize> {
     if length == 0 {
@@ -46,6 +47,7 @@ pub(super) fn check(
     }
     let mut last = None;
     let mut mapped = None;
+    let mut references = References::default();
     for document in index.documents() {
         let key = index
             .facts()
@@ -67,6 +69,9 @@ pub(super) fn check(
                 .document_fragment(document, at)
                 .map_err(|_| "document fragment navigation")?;
             let pieces = fragment.get().source().pieces();
+            if let Some(node) = fragment.get().node() {
+                references.insert(document, node);
+            }
             require(
                 pieces
                     .first()
@@ -132,7 +137,7 @@ pub(super) fn check(
         }
     }
     associations(index)?;
-    qualifications(index)?;
+    qualifications(index, &references)?;
     for assessment in index.assessments() {
         require(
             !assessment.get().reason.is_empty(),
@@ -210,7 +215,7 @@ fn associations(index: &DocumentationIndex<'_>) -> Check {
     Ok(())
 }
 
-fn qualifications(index: &DocumentationIndex<'_>) -> Check {
+fn qualifications<'s>(index: &DocumentationIndex<'s>, references: &References<'s>) -> Check {
     let mut by_document: HashMap<_, Vec<_>> = HashMap::new();
     let mut last = None;
     for qualification in index.qualifications() {
@@ -225,6 +230,11 @@ fn qualifications(index: &DocumentationIndex<'_>) -> Check {
             owner.is_some() == (fact.subject == QualificationSubject::Candidate),
             "qualification subject identity",
         )?;
+        if let Some(owner) = owner {
+            identity::candidate(owner.get(), fact.node)?;
+        } else {
+            references.validate(document, fact.node)?;
+        }
         let rank = match fact.reason {
             UnresolvedReason::Conditional => 0,
             UnresolvedReason::GrammarBoundary => 1,
@@ -269,8 +279,7 @@ fn owner_queries(index: &DocumentationIndex<'_>, selector: u8) -> Check {
     let owners: Vec<_> = index.facts().owners().collect();
     for at in selected(owners.len(), MAX_QUERIES / 2, selector) {
         let owner = owners[at];
-        let query = index
-            .owner_associations(owner)
+        let query = observed(Event::OwnerQuery, index.owner_associations(owner))
             .map_err(|_| "same-index owner rejected")?;
         let mut expected = Vec::new();
         for association in index.associations() {
@@ -342,17 +351,20 @@ fn selected_nodes(
 ) -> Check {
     for at in selected(nodes.len(), MAX_QUERIES / 2, selector) {
         let node = nodes[at];
-        match index.node_projection(node) {
+        match observed(Event::NodeProjection, index.node_projection(node)) {
             Err(OwnerError::UnsupportedOwner) => {
                 require(
                     matches!(
-                        index.node_associations(node),
+                        observed(Event::NodeAssociations, index.node_associations(node)),
                         Err(OwnerError::UnsupportedOwner)
                     ),
                     "unsupported projection query",
                 )?;
                 require(
-                    matches!(index.node_owners(node), Err(OwnerError::UnsupportedOwner)),
+                    matches!(
+                        observed(Event::NodeOwners, index.node_owners(node)),
+                        Err(OwnerError::UnsupportedOwner)
+                    ),
                     "unsupported owners query",
                 )?;
             }
@@ -362,11 +374,13 @@ fn selected_nodes(
                     "pending projection lost assessment",
                 )?;
                 require(
-                    matches!(index.node_owners(node), Err(OwnerError::PendingOwner)),
+                    matches!(
+                        observed(Event::NodeOwners, index.node_owners(node)),
+                        Err(OwnerError::PendingOwner)
+                    ),
                     "pending owners query",
                 )?;
-                let query = index
-                    .node_associations(node)
+                let query = observed(Event::NodeAssociations, index.node_associations(node))
                     .map_err(|_| "pending query must remain inspectable")?;
                 require(
                     query.projection_pending() && query.assessments().next().is_some(),
@@ -376,8 +390,7 @@ fn selected_nodes(
             Ok(projection) => {
                 let owners: Vec<_> = projection.owners().collect();
                 require(
-                    index
-                        .node_owners(node)
+                    observed(Event::NodeOwners, index.node_owners(node))
                         .map_err(|_| "known projection owners")?
                         .eq(owners.iter().copied()),
                     "projection owner enumeration",
@@ -385,18 +398,18 @@ fn selected_nodes(
                 match owners.len() {
                     0 => require(
                         matches!(
-                            index.node_associations(node),
+                            observed(Event::NodeAssociations, index.node_associations(node)),
                             Err(OwnerError::UnsupportedOwner)
                         ),
                         "empty projection query",
                     )?,
                     1 => {
-                        let query = index
-                            .node_associations(node)
-                            .map_err(|_| "known node query")?;
-                        let expected = index
-                            .owner_associations(owners[0])
-                            .map_err(|_| "known owner query")?;
+                        let query =
+                            observed(Event::NodeAssociations, index.node_associations(node))
+                                .map_err(|_| "known node query")?;
+                        let expected =
+                            observed(Event::OwnerQuery, index.owner_associations(owners[0]))
+                                .map_err(|_| "known owner query")?;
                         require(
                             query.associations().eq(expected.associations()),
                             "node-owner association agreement",
@@ -412,7 +425,7 @@ fn selected_nodes(
                     }
                     _ => require(
                         matches!(
-                            index.node_associations(node),
+                            observed(Event::NodeAssociations, index.node_associations(node)),
                             Err(OwnerError::MultipleOwners)
                         ),
                         "multi-owner projection query",
@@ -434,6 +447,7 @@ pub(super) fn negative_nodes(index: &DocumentationIndex<'_>, tree: &tree_sitter:
         ),
         "cloned tree accepted",
     )?;
+    observation::record(Event::CloneRejected);
     let shifted = tree.root_node_with_offset(1, tree_sitter::Point::new(0, 1));
     require(
         matches!(
@@ -442,6 +456,7 @@ pub(super) fn negative_nodes(index: &DocumentationIndex<'_>, tree: &tree_sitter:
         ),
         "shifted node accepted",
     )?;
+    observation::record(Event::ShiftRejected);
     let mut edited = tree.root_node();
     edited.edit(&tree_sitter::InputEdit {
         start_byte: 0,
@@ -457,11 +472,25 @@ pub(super) fn negative_nodes(index: &DocumentationIndex<'_>, tree: &tree_sitter:
             Err(OwnerError::Source(SourceError::NoncanonicalNode))
         ),
         "edited node accepted",
-    )
+    )?;
+    observation::record(Event::EditRejected);
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)] // Compare each public record family in observed order.
 pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationIndex<'s>) -> Check {
+    let a = first.options();
+    let b = second.options();
+    require(
+        first.source() == second.source()
+            && first.profile() == second.profile()
+            && first.capability() == second.capability()
+            && first.context().logical_filename == second.context().logical_filename
+            && a.profile == b.profile
+            && a.retain_unbound == b.retain_unbound
+            && a.retain_directives == b.retain_directives,
+        "nondeterministic index context/options",
+    )?;
     require(
         first.documents().len() == second.documents().len()
             && first.associations().len() == second.associations().len()
@@ -473,6 +502,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         "nondeterministic record count",
     )?;
     for (left, right) in first.facts().fragments().zip(second.facts().fragments()) {
+        identity::evidence(left.get().node(), right.get().node())?;
         require(
             left.get().source() == right.get().source() && left.get().form() == right.get().form(),
             "nondeterministic retained fragments",
@@ -490,13 +520,11 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         .enumerate()
         .map(|(at, owner)| (address(owner), at))
         .collect();
-    for (left, right) in first.facts().owners().zip(second.facts().owners()) {
-        require(
-            std::mem::discriminant(left.get()) == std::mem::discriminant(right.get())
-                && owner_anchor(left.get()) == owner_anchor(right.get()),
-            "nondeterministic owners",
-        )?;
-    }
+    comparison::owners(first, second, &first_owners, &second_owners)?;
+    let first_documents = comparison::ordinals(first.documents());
+    let second_documents = comparison::ordinals(second.documents());
+    let first_fragments = comparison::ordinals(first.facts().fragments());
+    let second_fragments = comparison::ordinals(second.facts().fragments());
     for (left, right) in first.documents().zip(second.documents()) {
         require(
             first
@@ -511,6 +539,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         )?;
         require(
             left.get().composition() == right.get().composition()
+                && left.get().role() == right.get().role()
                 && left.get().fragment_count() == right.get().fragment_count(),
             "nondeterministic composition",
         )?;
@@ -523,6 +552,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
                 .facts()
                 .document_fragment(right, at)
                 .map_err(|_| "second fragment")?;
+            comparison::corresponding(a, b, &first_fragments, &second_fragments)?;
             require(
                 a.get().source() == b.get().source() && a.get().form() == b.get().form(),
                 "nondeterministic fragments",
@@ -549,14 +579,28 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
                 "nondeterministic content state",
             )?,
         }
+        comparison::complete(
+            first
+                .source_cleaned_text(left)
+                .map_err(|_| "first cleaned text")?,
+            second
+                .source_cleaned_text(right)
+                .map_err(|_| "second cleaned text")?,
+        )?;
         require(
             second.complete_text(left).err() == Some(FactError::ForeignIndex),
             "foreign document accepted",
         )?;
     }
     for (left, right) in first.associations().zip(second.associations()) {
+        identity::evidence(left.get().binding, right.get().binding)?;
+        identity::evidence(
+            Some(left.get().lexical_scope),
+            Some(right.get().lexical_scope),
+        )?;
         require(
             left.get().resolution == right.get().resolution
+                && left.get().convention == right.get().convention
                 && left.get().publication == right.get().publication
                 && left.get().owner_count() == right.get().owner_count(),
             "nondeterministic association",
@@ -569,6 +613,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
             .facts()
             .associated_document(right)
             .map_err(|_| "second associated document")?;
+        comparison::corresponding(a, b, &first_documents, &second_documents)?;
         require(
             first
                 .facts()
@@ -603,9 +648,10 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         let a = left.get();
         let b = right.get();
         require(
-            a.subject == b.subject && a.reason == b.reason && a.node.node() == b.node.node(),
+            a.subject == b.subject && a.reason == b.reason,
             "nondeterministic qualifications",
         )?;
+        identity::evidence(Some(a.node), Some(b.node))?;
         let a = first
             .qualified_owner(left)
             .map_err(|_| "first qualified owner")?
@@ -621,6 +667,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         let b = second
             .qualified_document(right)
             .map_err(|_| "second qualified document")?;
+        comparison::corresponding(a, b, &first_documents, &second_documents)?;
         require(
             first
                 .facts()
@@ -637,11 +684,10 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         let a = left.get();
         let b = right.get();
         require(
-            a.axis == b.axis
-                && a.reason == b.reason
-                && a.node.map(NodeEvidence::node) == b.node.map(NodeEvidence::node),
+            a.axis == b.axis && a.reason == b.reason,
             "nondeterministic assessments",
         )?;
+        identity::evidence(a.node, b.node)?;
         let a = first
             .assessed_document(left)
             .map_err(|_| "first assessed document")?
@@ -667,6 +713,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
         let b = second
             .evidence_fragment(right)
             .map_err(|_| "second evidence fragment")?;
+        comparison::corresponding(a, b, &first_fragments, &second_fragments)?;
         require(
             a.get().source() == b.get().source(),
             "nondeterministic evidence source",
@@ -699,5 +746,6 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
             "foreign candidate evidence accepted",
         )?;
     }
+    observation::record(Event::Repeat);
     Ok(())
 }

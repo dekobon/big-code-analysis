@@ -326,6 +326,20 @@ alongside known associations; candidate and reference qualifications retain
 their distinct identities and reasons. Cross-index handles and noncanonical
 nodes must return the documented identity errors.
 
+Candidate qualifications linked to Node/File owners validate the owner's full
+`NodeEvidence`. Reference qualifications use document identity and `node.id()` to find
+fragment evidence, then validate the full node context. The checker never hashes a
+tree-sitter node or scans every fragment for each qualification. Building this index
+costs expected linear work in document-fragment memberships and qualifications, plus
+the actual comparisons within buckets whose node IDs coincide. Slot, Group, and Virtual
+owners retain link/source checks; their exact candidate-node relationship is not yet
+established by the supported adapters.
+
+Repeat checking compares borrowed public fields and linked record identities, including
+optional node evidence, slot roles and enclosure, association binding/scope, source-cleaned
+maps, context, and options. These are API-consistency checks. The registered seeds separately
+assert independent semantic outcomes, including ambiguous/conditional resolutions and field slots.
+
 Every complete document gets one map validation. Runs must cover its output;
 copied origins match source bytes, transformed queries retain all responsible
 token pieces, and synthetic output has no source. Stored runs may divide a
@@ -344,12 +358,16 @@ The resource limits are harness policy:
   Ordinary walk targets skip only documentation and continue their other checks.
   Neither path truncates source.
 - Perform at most two ordinary collections over the same parse.
-- Select at most eight owner/node positions and eight map ranges per input,
-  including late positions.
+- Select at most eight owner/node subjects and eight map ranges per input, including late
+  positions. Cross-checking the selected subjects uses up to 20 ordinary owner/node API calls.
+  Explicit identity modes add three rejection queries; cross-index handle checks are separate.
 - Limit structured included-range inputs to 256 ranges. Each non-NUL payload
   byte becomes one included range, so adjacent ranges can divide a scalar.
   NUL bytes create excluded gaps. Zero included bytes, including empty and all-NUL payloads,
   or more than 256 ranges skip the input. Parsing uses the original payload once.
+- Retain the existing `nested_depth` generator's 512-construct limit. The documentation
+  operation accepts its generated source when it fits the 32 KiB cap; the 256 limit applies
+  to newly constructed included ranges, not inherited nesting.
 
 The checker makes linear or output-proportional passes and uses expected
 constant-time hash indexing. Its included-byte prefix table costs linear
@@ -365,6 +383,14 @@ after the flag scope ends. Tagged modes check active collection cancellation,
 restoration, and an uncancelled flag. A tiny empty root is never evidence that
 the parse callback aborted. Large phase-budget cancellation tests remain in
 the AST crate; the fuzz target does not expose private phase hooks.
+
+Tests pin every low mode-byte combination independently and record actual parse, collection,
+repeat, identity, and query operations in a bounded thread-local recorder. The active-scope
+test first finishes normal collection, then cancels the same installed flag and requires raw
+collection to return `Cancelled` at entry. This test-only witness creates no additional
+successful index and performs no extra call in a fuzz campaign. Recorder scopes restore on
+success, rejection, and unwind. Removing scope installation must fail the witness's result
+assertion, not just an operation count.
 
 Run the finite documentation validation sequence one heavy operation at a time:
 
