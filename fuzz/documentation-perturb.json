@@ -29,6 +29,20 @@
       "old": "Err(CollectionError::AdapterUnavailable { language, profile })",
       "new": "Err(CollectionError::UnsupportedProfile { language, profile })",
       "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    },
+    {
+      "name": "lose-qualified-candidate-identity",
+      "file": "fuzz/src/documentation/tests.rs",
+      "old": "                    assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));",
+      "new": "                    let _ = owner;\n                    assert!(index.qualified_owner(qualification).unwrap().is_some());",
+      "expect": ["documentation::tests::qualification_oracle_rejects_same_reasons_on_the_wrong_candidate"]
+    },
+    {
+      "name": "attribute-local-pending-to-leading-document",
+      "file": "fuzz/src/documentation/tests.rs",
+      "old": "&& index.assessed_document(a).unwrap() == Some(local))",
+      "new": "&& index.assessed_document(a).unwrap() == index.documents().next())",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
     }
   ]
 }

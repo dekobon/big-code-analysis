@@ -251,6 +251,14 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
         }
         "candidate-qualification" | "reference-qualification" => {
             let candidate = class == "candidate-qualification";
+            assert_eq!(index.documents().len(), 1);
+            assert_eq!(index.associations().len(), 1);
+            let association = index.associations().next().unwrap();
+            assert_eq!(
+                association.get().owner_count(),
+                if candidate { 2 } else { 1 }
+            );
+            let document = index.facts().associated_document(association).unwrap();
             let expected = if candidate {
                 vec![
                     UnresolvedReason::Conditional,
@@ -279,6 +287,15 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                     index.qualified_owner(qualification).unwrap().is_some(),
                     candidate
                 );
+                assert_eq!(index.qualified_document(qualification).unwrap(), document);
+                let node = qualification.get().node.node();
+                if candidate {
+                    let owner = index.facts().associated_owner(association, 0).unwrap();
+                    assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));
+                    assert_eq!(&index.source()[node.byte_range()], b"void f(int x = );");
+                } else {
+                    assert_eq!(&index.source()[node.byte_range()], b"/**@fn f*/");
+                }
             }
         }
         "missing-name" => assert_eq!(
@@ -307,20 +324,15 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                 .unwrap();
             let query = index.node_associations(node).unwrap();
             assert_eq!(query.associations().len(), 1);
+            let local = index.documents().last().unwrap();
             assert!(
                 query
                     .assessments()
-                    .any(|a| a.get().axis == AssessmentAxis::Owner)
+                    .any(|a| a.get().axis == AssessmentAxis::Owner
+                        && index.assessed_document(a).unwrap() == Some(local))
             );
             assert_eq!(text(index).text(), "first");
-            assert_eq!(
-                index
-                    .complete_text(index.documents().last().unwrap())
-                    .unwrap()
-                    .unwrap()
-                    .text(),
-                "audit"
-            );
+            assert_eq!(index.complete_text(local).unwrap().unwrap().text(), "audit");
         }
         "invalid-encoding" => assert!(matches!(
             index.documents().next().unwrap().get().content(),
@@ -555,4 +567,46 @@ fn ordinary_fanout_borrows_the_preprocessed_ast_buffer() {
     .unwrap();
     assert_eq!(index.source(), ast.source());
     assert_eq!(text(&index).text(), "audit");
+}
+
+#[test]
+fn qualification_oracle_rejects_same_reasons_on_the_wrong_candidate() {
+    let bytes = b"\x0c\x01\0void f(void);\n#if FLAG\nvoid f(int x = );\n#endif\n/**@fn f*/";
+    let result = exercise_with(bytes, |index, tree| {
+        let index = index.unwrap();
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(index.associations().len(), 1);
+        let association = index.associations().next().unwrap();
+        assert_eq!(association.get().owner_count(), 2);
+        let document = index.facts().associated_document(association).unwrap();
+        let owner = index.facts().associated_owner(association, 1).unwrap();
+        assert_eq!(
+            index
+                .qualifications()
+                .map(|q| q.get().reason)
+                .collect::<Vec<_>>(),
+            [
+                UnresolvedReason::Conditional,
+                UnresolvedReason::GrammarBoundary
+            ]
+        );
+        for qualification in index.qualifications() {
+            assert_eq!(qualification.get().subject, QualificationSubject::Candidate);
+            assert_eq!(index.qualified_document(qualification).unwrap(), document);
+            assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));
+            assert_eq!(
+                &index.source()[qualification.get().node.node().byte_range()],
+                b"void f(int x = );"
+            );
+        }
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            edge("candidate-qualification", Some(index), tree);
+        }));
+        assert!(
+            rejected.is_err(),
+            "qualification identity oracle accepted the other candidate"
+        );
+        Ok(())
+    });
+    assert_eq!(result, Ok(Outcome::Checked));
 }
