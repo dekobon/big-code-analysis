@@ -392,6 +392,14 @@ successful index and performs no extra call in a fuzz campaign. Recorder scopes 
 success, rejection, and unwind. Removing scope installation must fail the witness's result
 assertion, not just an operation count.
 
+Run `python3 -B fuzz/check_documentation_producers.py --out "$out"` separately to
+verify the producer controls. Set `out` to a unique evidence directory created with
+`mktemp -d` under an owned location. The driver requires a clean tracked checkout,
+temporarily changes the producer, and restores its exact bytes in a `finally` block.
+Its `BCA_FUZZ_PRODUCER_CASE` environment variable selects expected outcomes only in
+the two `producer_*` tests; leave it unset for ordinary validation. This explicit
+verification command is not part of `make fuzz-check`.
+
 Run the finite documentation validation sequence one heavy operation at a time:
 
 ```bash

@@ -147,6 +147,7 @@ fn exercise_with(
         let tree = parser
             .parse(input.source, None)
             .ok_or("included parse aborted")?;
+        #[cfg(test)]
         observation::record(Event::IncludedParse(tree.included_ranges().len()));
         return check_parse(
             &Parsed {

@@ -313,7 +313,11 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                 let node = qualification.get().node.node();
                 if candidate {
                     let owner = index.facts().associated_owner(association, 0).unwrap();
-                    assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));
+                    assert_eq!(
+                        index.qualified_owner(qualification).unwrap(),
+                        Some(owner),
+                        "candidate owner identity"
+                    );
                     assert_eq!(
                         &index.source()[node.byte_range()],
                         b"void f(int x = );",
@@ -607,6 +611,11 @@ fn qualification_oracle_rejects_same_reasons_on_the_wrong_candidate() {
         assert_eq!(index.documents().len(), 1);
         assert_eq!(index.associations().len(), 1);
         let association = index.associations().next().unwrap();
+        assert_eq!(
+            association.get().resolution,
+            Resolution::Unresolved(UnresolvedReason::Ambiguous),
+            "wrong-candidate setup resolution"
+        );
         assert_eq!(association.get().owner_count(), 2);
         let document = index.facts().associated_document(association).unwrap();
         let owner = index.facts().associated_owner(association, 1).unwrap();
@@ -635,6 +644,17 @@ fn qualification_oracle_rejects_same_reasons_on_the_wrong_candidate() {
         assert!(
             rejected.is_err(),
             "qualification identity oracle accepted the other candidate"
+        );
+        let panic = rejected.unwrap_err();
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("");
+        assert_eq!(
+            message.lines().next(),
+            Some("assertion `left == right` failed: candidate owner identity"),
+            "wrong-candidate rejection site"
         );
         Ok(())
     });

@@ -10,6 +10,7 @@ use big_code_analysis_ast::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Event {
     Parse,
+    #[cfg(test)]
     IncludedParse(usize),
     Collection(Result<(), CollectionError>),
     Repeat,

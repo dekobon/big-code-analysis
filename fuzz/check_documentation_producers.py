@@ -148,6 +148,16 @@ def main():
                 and message in text
                 and f"{ordinary_test} ... FAILED" in text
             ), (name, "wrong ordinary failure")
+            setup_guard = None
+            if name == "candidate-resolution":
+                guard = "documentation::tests::qualification_oracle_rejects_same_reasons_on_the_wrong_candidate"
+                setup_guard, text = run(out, name + "-negative-setup", guard, None)
+                assert (
+                    setup_guard["exit"] == 101
+                    and f"{guard} ... FAILED" in text
+                    and "wrong-candidate setup resolution" in text
+                    and "candidate owner identity" not in text
+                ), (name, "negative control swallowed invalid resolution setup")
             records.append(
                 {
                     "name": name,
@@ -155,6 +165,7 @@ def main():
                     "baseline": baseline,
                     "controlled": controlled,
                     "ordinary": ordinary,
+                    "negative_setup_guard": setup_guard,
                     "rejection": message,
                     "original_sha256": hashlib.sha256(original).hexdigest(),
                 }

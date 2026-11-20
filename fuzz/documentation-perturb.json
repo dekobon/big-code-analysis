@@ -33,7 +33,7 @@
     {
       "name": "lose-qualified-candidate-identity",
       "file": "fuzz/src/documentation/tests.rs",
-      "old": "                    assert_eq!(index.qualified_owner(qualification).unwrap(), Some(owner));",
+      "old": "                    assert_eq!(\n                        index.qualified_owner(qualification).unwrap(),\n                        Some(owner),\n                        \"candidate owner identity\"\n                    );",
       "new": "                    let _ = owner;\n                    assert!(index.qualified_owner(qualification).unwrap().is_some());",
       "expect": ["documentation::tests::qualification_oracle_rejects_same_reasons_on_the_wrong_candidate"]
     },
@@ -99,6 +99,13 @@
       "old": "flag.run(|| {\n            let outcome = check()?;\n            #[cfg(test)]\n            observation::active_witness(&flag, &parsed, input.options)?;\n            Ok(outcome)\n        })",
       "new": "{\n            let outcome = check()?;\n            #[cfg(test)]\n            observation::active_witness(&flag, &parsed, input.options)?;\n            Ok(outcome)\n        }",
       "expect": ["documentation::tests::remediation::mode_calls_and_active_scope_are_observed"]
+    },
+    {
+      "name": "wrong-candidate-resolution-setup",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    Ok(builder.index)\n}",
+      "new": "    for association in &mut builder.index.facts.associations {\n        if association.resolution == Resolution::Unresolved(UnresolvedReason::Ambiguous) {\n            association.resolution = Resolution::Resolved;\n        }\n    }\n    Ok(builder.index)\n}",
+      "expect": ["documentation::tests::qualification_oracle_rejects_same_reasons_on_the_wrong_candidate", "documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
     }
   ]
 }
