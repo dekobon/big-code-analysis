@@ -390,6 +390,8 @@ fn large_fresh_render_preserves_bounded_copy_work() {
 
 #[test]
 fn evidence_pair_executes_both_off_and_on_collections() {
+    use big_code_analysis_ast::documentation::streaming::{markers, positional};
+
     for probe in REGISTRY
         .iter()
         .filter(|p| p.operation == fixtures::Operation::EvidencePair)
@@ -398,6 +400,8 @@ fn evidence_pair_executes_both_off_and_on_collections() {
         let index = parsed.collect(probe).unwrap();
         let prepared = Prepared::new(probe, 32, &parsed, &index).unwrap();
         let before = observations();
+        let marker_evidence = markers::evidence_built::observed();
+        let positional_evidence = positional::evidence_built::observed();
         prepared.execute().unwrap();
         let after = observations();
         assert_eq!(after.visits - before.visits, 2 * parsed.nodes().len());
@@ -408,6 +412,16 @@ fn evidence_pair_executes_both_off_and_on_collections() {
         assert_eq!(
             after.renders - before.renders,
             if probe.key == "rejected" { 2 } else { 0 }
+        );
+        // Off/on materializes one selected Java member plus all 32 members,
+        // or zero Go directives plus all 32 directives.
+        assert_eq!(
+            markers::evidence_built::observed() - marker_evidence,
+            if probe.key == "rejected" { 33 } else { 0 }
+        );
+        assert_eq!(
+            positional::evidence_built::observed() - positional_evidence,
+            if probe.key == "directives" { 32 } else { 0 }
         );
     }
 }

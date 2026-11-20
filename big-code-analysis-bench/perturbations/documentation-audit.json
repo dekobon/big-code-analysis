@@ -1,0 +1,36 @@
+{
+  "cwd": ".",
+  "provenance": {
+    "starting_checkpoint": "a4397339f872647d672e44e056a043502e13527f",
+    "status": "Pending execution after ordered source audit; requires the added test assertions.",
+    "usage": "Run from the repository root: python3 -B utils/perturb.py big-code-analysis-bench/perturbations/documentation-audit.json",
+    "discrimination": "The two evidence substitutions must leave the prior visits/render assertions unchanged and fail the new materialization assertions. Ignoring iteration division must fail the unequal-iteration ratio test. Build failures do not count."
+  },
+  "command": [
+    "cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast",
+    "--all-features", "--lib", "documentation", "--no-fail-fast"
+  ],
+  "cases": [
+    {
+      "name": "evidence pair repeats retention off",
+      "file": "big-code-analysis-bench/src/documentation/operation.rs",
+      "old": "self.parsed.collect_with(&self.context, &self.off_options)?,\n                ));\n                drop(black_box(\n                    self.parsed.collect_with(&self.context, &self.options)?,",
+      "new": "self.parsed.collect_with(&self.context, &self.off_options)?,\n                ));\n                drop(black_box(\n                    self.parsed.collect_with(&self.context, &self.off_options)?,",
+      "expect": ["documentation::tests::evidence_pair_executes_both_off_and_on_collections"]
+    },
+    {
+      "name": "evidence pair repeats retention on",
+      "file": "big-code-analysis-bench/src/documentation/operation.rs",
+      "old": "self.parsed.collect_with(&self.context, &self.off_options)?,",
+      "new": "self.parsed.collect_with(&self.context, &self.options)?,",
+      "expect": ["documentation::tests::evidence_pair_executes_both_off_and_on_collections"]
+    },
+    {
+      "name": "compare raw batch medians instead of per-operation times",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "let ns = median.as_secs_f64() * 1e9 / f64::from(raw.iterations);",
+      "new": "let ns = median.as_secs_f64() * 1e9;",
+      "expect": ["documentation::runner::tests::ratios_compare_per_operation_times_when_iterations_differ"]
+    }
+  ]
+}

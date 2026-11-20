@@ -686,6 +686,25 @@ mod tests {
     }
 
     #[test]
+    fn ratios_compare_per_operation_times_when_iterations_differ() {
+        let probe = REGISTRY[18];
+        for (batches, expected_ratio) in [([200_000, 400_000, 800_000], 1.0), ([200_000; 3], 4.0)] {
+            let mut cells = raw(&probe, batches);
+            for (cell, iterations) in cells.iter_mut().zip([1, 2, 4]) {
+                cell.iterations = iterations;
+            }
+            let report = reduce(&[probe], 3, Mode::Gate, cells).unwrap();
+            // Doubling both batch time and work keeps cost fixed; holding
+            // batch time fixed while quadrupling work gives a fourfold ratio.
+            assert!((report.results[0].statistic.value() - expected_ratio).abs() < 1e-12);
+            assert_eq!(report.failures().len(), usize::from(expected_ratio > 1.5));
+            for (cell, iterations) in report.results[0].cells.iter().zip([1, 2, 4]) {
+                assert_eq!(cell.iterations, iterations);
+            }
+        }
+    }
+
+    #[test]
     fn typed_statistics_reject_invalid_values_and_distinguish_growth() {
         let probe = REGISTRY[0];
         let report = reduce(
