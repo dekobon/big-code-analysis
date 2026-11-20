@@ -282,20 +282,31 @@ fn evidence_validation_rejects_same_id_changed_context_and_wrong_document() {
     let edited = SourceContext::new(parser.ts_tree(), parser.code())
         .node(edited)
         .unwrap();
-    let owner = Owner::Node(node);
-    assert_eq!(identity::candidate(&owner, node), Ok(()));
+    let owner = index
+        .facts()
+        .associated_owner(index.associations().next().unwrap(), 0)
+        .unwrap();
+    let Owner::Node(owner_node) = owner.get() else {
+        panic!("real declaration owner")
+    };
+    assert_eq!(identity::candidate(owner.get(), *owner_node), Ok(()));
     assert_eq!(
-        identity::candidate(&owner, edited),
+        identity::candidate(owner.get(), edited),
         Err("qualification candidate evidence differs from owner")
     );
     let root = SourceContext::new(parser.ts_tree(), parser.code())
         .node(parser.ts_tree().root_node())
         .unwrap();
     assert_eq!(
-        identity::candidate(&owner, root),
+        identity::candidate(owner.get(), root),
         Err("qualification candidate evidence differs from owner")
     );
-    assert_eq!(identity::candidate(&Owner::File(root), root), Ok(()));
+    let file = index
+        .facts()
+        .owners()
+        .find(|owner| matches!(owner.get(), Owner::File(_)))
+        .unwrap();
+    assert_eq!(identity::candidate(file.get(), root), Ok(()));
     assert_eq!(
         references.validate(documents[0], edited),
         Err("qualification reference evidence is not a document fragment")
