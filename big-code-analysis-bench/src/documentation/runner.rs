@@ -794,4 +794,28 @@ mod tests {
         );
         assert!(!report.to_string().contains(" ok"));
     }
+
+    #[test]
+    fn source_schedule_executes_calibration_warmup_and_measured_work() {
+        let probe = REGISTRY
+            .iter()
+            .find(|p| p.id == "documentation/cold/width")
+            .unwrap();
+        let before = big_code_analysis_ast::documentation::observations();
+        let report = run(&[*probe], 1, Mode::Smoke).unwrap();
+        let after = big_code_analysis_ast::documentation::observations();
+        // Per rung: one initial index, one calibration, two warmups and one
+        // measured collection. Each collection renders one document per sibling.
+        assert_eq!(
+            after.renders - before.renders,
+            5 * SMOKE_SIZES.iter().sum::<usize>()
+        );
+        assert_eq!(report.results[0].cells.len(), 3);
+        assert!(
+            report.results[0]
+                .cells
+                .iter()
+                .all(|c| c.batches.len() == 1 && c.iterations == 1)
+        );
+    }
 }
