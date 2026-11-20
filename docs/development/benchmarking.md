@@ -5,55 +5,61 @@ operations. It is for contributors changing AST traversal, a `Checker` or
 `Getter` predicate, a metric's `compute`, or documentation collection and queries.
 The harness makes performance claims reproducible and detects changes in complexity class.
 
-It has two halves, and they answer different questions.
+The gate and timing benchmarks answer different questions.
 
-- **The complexity-class gate** (`benches/scaling.rs`) answers "does
-  doubling the input (its nesting depth, or one parent's child count)
-  roughly double the cost?" It fails the process when a probe's
+- **The complexity-class gate** (`benches/scaling.rs`) answers "does cost
+  stay within the growth bound declared for this workload's input and output?"
+  It fails the process when a probe's
   class-specific statistic exceeds the bound that probe declares.
-- **The criterion benchmarks** (`benches/metric_walk.rs`) answer "how
-  fast is this, and did my change help?" They use
-  [criterion][criterion], which reports a confidence interval rather
-  than a point estimate and can compare two builds against a saved
-  baseline.
+- **The [Criterion][criterion] benchmarks** answer "how fast is this,
+  and did my change help?" `benches/metric_walk.rs` measures metric walks;
+  `benches/documentation.rs` measures source-documentation operations.
+  Criterion reports confidence intervals and compares builds against saved baselines.
 
 The combined gate also runs the [source-documentation registry](#source-documentation).
 Source construction uses a fitted exponent; fixed-output queries use ratios.
 
-Neither runs in per-PR CI. See [Why not in CI](#why-not-in-ci). The
-opening sections cover running the gates and reading their output. The
-per-probe histories after them record why each probe exists and what
-it was measured catching; read those when a probe fails or when adding
-one.
+Neither runs in per-PR CI. See [Why not in CI](#why-not-in-ci).
+Start with [source-documentation measurements](#source-documentation) or
+[legacy probes](#complexity-gate) for gate results. For cross-build timings, read
+[comparing two builds](#comparing-two-builds),
+[interleaving on a busy host](#interleaved-ab), and
+[measurement traps](#measurement-traps). The later probe histories explain why
+each legacy probe exists and which regression it detects.
 
 [criterion]: https://bheisler.github.io/criterion.rs/book/index.html
 
 ## Running it
 
 ```bash
-make bench-scaling                       # complexity-class gate
-make bench-walk                          # criterion measurements
-make bench                               # both
+make bench-scaling                       # combined legacy and source class gate
+make bench-walk                          # metric-walk Criterion measurements
+make bench-documentation                 # source-documentation Criterion measurements
+make bench                               # combined gate + metric-walk Criterion
 ```
 
-Or directly, which is what you want when passing criterion flags:
+`make bench` runs the combined scaling gate and metric-walk Criterion target.
+Run `make bench-documentation` separately for documentation Criterion measurements.
+
+Or directly, when passing Criterion flags:
 
 ```bash
 cargo bench -p big-code-analysis-bench --bench scaling
 cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11
 cargo bench -p big-code-analysis-bench --bench metric_walk
+cargo bench -p big-code-analysis-bench --bench documentation
 ```
 
 The crate is a workspace member but not a default member, so a bare
-`cargo build` at the repo root does not build it or pull in criterion.
+`cargo build` at the repo root does not build it or pull in Criterion.
 
-`cargo test --benches` also executes the benchmark targets, because a
+`cargo test -p big-code-analysis-bench --benches` also executes the benchmark targets, because a
 `harness = false` bench target runs its `main`. The gate detects that
 (cargo passes `--bench` only under `cargo bench`) and downgrades to a
 shallow smoke run with no performance verdict. Source smoke can fail for invalid
 fixtures, operations or samples. It makes no timing-resolution or performance claim.
 
-The criterion benchmarks read a slice of the corpus submodules under
+Metric-walk Criterion benchmarks read a slice of the corpus submodules under
 `tests/repositories/`. Without them the corpus group is skipped with a
 message and the synthetic shapes still run:
 
@@ -66,20 +72,27 @@ git submodule update --init --recursive
 Use these commands when changing documentation collection, rendering or prepared queries:
 
 ```bash
-make bench-source
-make bench-documentation
+make bench-source                         # source class gate
+make bench-documentation                  # source Criterion measurements
 cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --rounds 7
 cargo bench -p big-code-analysis-bench --bench scaling -- --scope legacy --rounds 7
 cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --no-gate
 cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --smoke
 ```
 
-The default scope is `all`. The entry point prints the selected membership.
-Unknown scopes and positional filters fail instead of silently selecting another set.
-Exit 0 means a successful gate, or a successful non-gating run when that mode is printed.
-Exit 1 means a performance bound failed. Exit 2 means invalid configuration, missing or invalid
-measurements, abandoned work, or an operation/fixture failure. Report-only suppresses performance
-failure; it still rejects harness errors.
+The scaling executable accepts `--scope source` for source-documentation workloads,
+`--scope legacy` for metric-walk and VCS ranking probes, and `--scope all` for both sets.
+The default is `all`. It prints the selected membership and rejects unknown scopes and
+positional filters. These scope options do not apply to the Criterion targets.
+
+The scaling executable uses these exit codes:
+
+- Exit 0 means a successful gate, or a successful non-gating run when that mode is printed.
+- Exit 1 means a declared bound failed or a legacy walk exceeded its budget.
+- Exit 2 means configuration, source measurement, operation, fixture or report validation failed.
+  Source `AbandonedCell` and `UnresolvedCell` failures use this code.
+
+Report-only suppresses exit 1 but still rejects harness errors.
 
 ### Registry and timed boundaries
 
@@ -89,6 +102,35 @@ varied and fixed dimensions, bound and policy provenance. Full-size fixture vali
 outside the timers at every rung. The original Criterion identities and source bytes stay in
 this registry, alongside a finite set of additional qualification, pending-query, combined
 structure, rejection, evidence and rendering axes.
+
+The [extraction traversal contract](documentation_extraction.md#traversal) defines the
+implementation cost boundaries. The registry uses `n` for a ladder's size parameter and these
+dimension labels:
+
+| Label | Meaning in the source benchmark registry |
+| --- | --- |
+| D | Logical documents |
+| F | Physical retained fragments |
+| E | Association-owner memberships (edges), including multiple owners of one document |
+| Q | Candidate/reference qualification records |
+| C | Named declaration candidates |
+| S | Complete output-map segments |
+| K | Query results consumed by one operation, including a retained text view |
+| R | Included source ranges |
+| `text` | Complete rendered bytes stored once per document |
+
+The report also emits visible node count, maximum depth and sibling width, actual source bytes,
+and retained fragment/source intersections. E counts owner memberships here; the extraction
+contract's general bound uses E for associations. Keep both owner fanout and qualification
+memberships explicit rather than treating them as source-byte size.
+
+Representative ladders separate input growth from output growth:
+
+- Grow text at fixed owner fanout, then grow owner fanout at fixed text size.
+- Grow candidates for one reference, then grow references with a fixed candidate count.
+- Grow lexical depth with fixed sibling width, or with a growing innermost comment run.
+- Grow pending ancestry whose query returns more records, then query fixed output near the end
+  of unrelated owners and empty scopes.
 
 Ordinary fixtures parse once through `Ast` and call the borrowed collector with
 `Ast::language`, `Ast::as_tree_sitter` and `Ast::source`. Deliberate included-range fixtures
@@ -120,6 +162,13 @@ therefore also enables it for other workspace consumers in the same build. Produ
 counter recording remains unconditional; only readers and the prepared seam are feature-gated.
 Match and record the actual feature sets for base/candidate legacy comparisons.
 
+To add a source workload, register it in
+`big-code-analysis-bench/src/documentation/fixtures.rs`. Declare the operation, size ladder,
+fixed and varied dimensions, statistic and policy before timing. Add independent expected
+shape/output validation in `validation.rs` and discriminating counter controls in `tests.rs`
+in the same directory. Both source timing runners consume this registry. The
+[legacy probe recipe](#adding-a-probe) uses `shapes.rs` instead.
+
 ### Source statistics and timing resolution
 
 The source gate uses the median of scheduled rounds after the same rotating warmup schedule as
@@ -128,13 +177,14 @@ the legacy runner. It keeps separate typed results:
 | Declared work | Statistic | Bound |
 | --- | --- | --- |
 | Collection or fresh rendering with linear/linearithmic output | Fitted slope of log time against log size | 1.50 |
-| Fixed-output owner, qualification, pending or retained query | Largest/smallest per-rung median | 1.50 |
-| Fixed-output late map query with S segments | Largest/smallest median after division by log2(S+1) | 1.50 |
+| Fixed-output owner, qualification, pending or retained query | Largest/smallest median nanoseconds per operation across rungs | 1.50 |
+| Fixed-output late map query with S segments | Largest/smallest median nanoseconds per operation after dividing each by log2(S+1) | 1.50 |
 | Pending ancestry returning growing K records | Linear-output fitted exponent | 1.50 |
 
-K is the number of records consumed by a query. Qualification construction holds references or
-candidates fixed while varying the other factor. It reports the legitimate association-edge and
-qualification growth separately; a references-times-candidates product is output work, not proof
+Each ratio compares per-operation medians. Raw batch durations cannot be compared directly when
+repetition counts differ. Qualification construction holds references or candidates fixed while
+varying the other factor. It reports legitimate association-edge and qualification growth
+separately; a references-times-candidates product is output work, not proof
 of excessive overhead.
 
 Each cell calibrates once before warmup. Its repetition count is
@@ -148,6 +198,13 @@ A shorter batch produces `UnresolvedCell` and exit 2, with its ID, size, iterati
 duration. A cold calibration call can overestimate later cost, so even an ordinary workload can
 fail this resolution check. The runner does not retry or increase repetitions after observing a
 short batch. Preserve the failed run for analysis.
+
+Inspect the cell's frozen repetition count and retained batches. Calibration may have
+overestimated steady-state cost or reached the repetition cap. More rounds do not directly
+change that count, and report-only still enforces source resolution. A new calibration or
+workload policy requires review before another qualification campaign; retain the failed run
+with the proposal. Do not repeat an unchanged campaign until it passes or adjust thresholds
+based on observed results.
 
 Reports include raw scheduled batches, iteration counts, batch minimum/median/maximum and
 floating-point nanoseconds per operation. Untimed counts report nodes, depth, width, fragments,
@@ -163,21 +220,29 @@ campaign; it does not provide per-operation cancellation.
 
 ### Controlled comparisons and coverage limits
 
-Run the maintained source gate and Criterion on one frozen revision and matching features on
-the same controlled host. Record the revision, toolchain, CPU assignment, commands, membership,
-raw batches and Criterion results. Keep the old Criterion mean/95% confidence-interval evidence
-separate from the new median statistic. Do not change bounds after observing a run. New
-optimization guards also need discriminating counter tests and controlled regressed/fixed pairs
-where a timing claim requires them.
+For each evaluated revision, run the maintained source gate and documentation Criterion on the
+same controlled host with matching features. Record the revision, toolchain, CPU assignment,
+exact commands, membership, raw batches and Criterion results. Earlier Criterion mean/95%
+confidence-interval evidence does not qualify the maintained median gate, even when fixture
+IDs and source bytes are preserved. The gate needs its own runner results under the predeclared
+policy. Do not change bounds after observing a run. New optimization guards also need
+discriminating counter tests and controlled regressed/fixed pairs where a timing claim requires
+them. Record both revisions explicitly for each regressed/fixed comparison.
 
-The visible array-declarator ladder measures visible nesting and field requests. It does not
-establish a bound on work inside a dependency's hidden-rule field lookup. Investigation is
-limited to the collector's implemented `fields_needed` parents: C-family declarations and
-declarators, JavaScript-family exports, and Ruby modifiers. No hidden-only growing source path
-has been established by this registry. A later adapter must add a positive probe for any new
-reachable path; deferred Tcl support cannot serve as a successful empty control.
+The visible array-declarator ladder measures visible nesting and requests to
+`TreeCursor::field_name`. It does not bound hidden-rule work inside each dependency call.
+Investigation is limited to the collector's implemented `fields_needed` parent kinds:
 
-## The complexity-class gate {#complexity-gate}
+- [Doxygen](https://www.doxygen.nl/): `declaration`, `field_declaration`, `function_definition`, and kinds ending in
+  `declarator`.
+- JavaScript-family profiles: `export_statement`.
+- [YARD](https://yardoc.org/): `if_modifier` and `unless_modifier`.
+
+No hidden-only growing source path has been established by this registry. A later adapter must
+add a positive probe for any new reachable path; deferred Tcl support cannot serve as a
+successful empty control.
+
+## Legacy complexity-class probes {#complexity-gate}
 
 Each probe pairs a generated source shape with the workload that
 exercises one hot path: a metric selection through `Ast::metrics`,
@@ -234,7 +299,7 @@ Read it as follows.
 - `median ms` is what the fit uses. `min` and `max` bracket the
   rounds. A wide spread means the host was busy and the run should be
   repeated, not interpreted.
-- `bytes` grows linearly with `size` for every shape, by
+- `bytes` grows linearly with `size` for every legacy shape, by
   construction. If it did not, a walk that is linear in input size
   would read as superlinear in its size parameter.
 - `ns/byte` drifts up with size on a depth shape even for a linear
@@ -325,8 +390,8 @@ Read it as follows.
 | `loc/python-block-comments-paren-strings` | Python | width | the same question where each asker's own statement answers and the block above it is a long scan: the levels above the nearest answer are never read (#1863) | linear |
 | `loc/go-nested-doc-fields` | Go | depth | Go's package-level scope test over nested struct fields (#1597) | linear |
 | `loc/ruby-nested-doc-constants` | Ruby | depth | YARD's namespace scope test through nested `if`s (#1597) | linear |
-| `loc/lua-tagless-blocks` | Lua | width | LDoc's first-block test, scanning back to the previous block (#1597) | linear |
-| `loc/perl-data-pod` | Perl | width | the one-pass POD scan of the data section after `__END__` (#1608) | linear |
+| `loc/lua-tagless-blocks` | Lua | width | [LDoc](https://lunarmodules.github.io/ldoc/)'s first-block test, scanning back to the previous block (#1597) | linear |
+| `loc/perl-data-pod` | Perl | width | the one-pass [POD](https://perldoc.perl.org/perlpod) scan of the data section after `__END__` (#1608) | linear |
 | `loc/bash-nested-continued-fn` | Bash | depth | the bare-`\`-row gap scan (`credit_bare_continuation_rows`), each padding byte read by one node however deep the spaces nest (#1445) | linear |
 | `loc/tcl-wide-continued-comment` | Tcl | width | the comment lookup for a bare row continuing a comment, from the child before the row's gap (#1445) | linear |
 | `loc/tcl-unclosed-continued-comments` | Tcl | width | the same lookup when an unclosed opener per unit leaves every unit a direct child of one flat `ERROR` (#1445) | linear |
@@ -452,7 +517,7 @@ The control probes are what make the other readings mean something.
   source under a metric that does not ask for a parent, is the metric
   control that stands in for one.
 
-### Adding a probe {#adding-a-probe}
+### Adding a legacy probe {#adding-a-probe}
 
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
@@ -527,7 +592,7 @@ questions sort a climb before any timing:
 [The climbs #1868 audited](#climb-audit-1868) are listed with what
 bounds each.
 
-### Why each probe exists
+### Why each probe exists {#why-each-probe-exists}
 
 Each probe below is paired with the issue that added it and the
 measurement that showed it failing. Four of the probes in the table
@@ -1471,11 +1536,11 @@ alone.
 
 ### The ranking pass {#ranking-pass}
 
-`vcs::score::apply_percentile` re-ranks every file's ten signals to a
+`vcs::score::apply_percentile` re-ranks every file's signals to a
 mid-rank percentile within the analyzed set. Until [#1267][ranking-pass]
-it took both tie counts — how many files sit strictly below a value,
-how many within the tie tolerance of it — by scanning the whole
-population per file, per signal: `O(signals × n²)`, re-paid on every
+it took both tie counts (files strictly below a value and files within
+its tie tolerance) by scanning the whole population per file, per signal:
+`O(signals × n²)`, re-paid on every
 cache hit and on every `bca vcs trend` point. Measured on the three
 `vcs/*` shapes before the fix: exponents **2.00 / 1.98 / 1.98**, with
 the 8 000-file cell at ~100 ms in release. The pass now sorts once per
@@ -1491,18 +1556,18 @@ on `all-equal` and quadratic on `spread`. All three on the ladder is
 what pins the class rather than one shape's constant.
 
 The reading is the number of distinct `risk_score` values the pass
-produced, taken once per cell outside the timed repetitions — it
-sorts, and inside the loop it would fold a second `O(n log n)` term into
-every sample. A reading of 1 on `spread` would mean the pass collapsed
+produces. The harness counts these once per cell outside the timed repetitions.
+Counting requires sorting, which would add `O(n log n)` to the measured work.
+A reading of 1 on `spread` would mean the pass collapsed
 every file to one score; `readings_follow_the_tie_structure` in
 `big-code-analysis-bench/src/vcs.rs` asserts the three readings grow
 with the shape.
 
 [ranking-pass]: https://github.com/dekobon/big-code-analysis/issues/1267
 
-## Criterion measurements
+## Metric-walk Criterion measurements {#criterion-measurements}
 
-Three groups:
+The `metric_walk` target has these groups:
 
 - `corpus/parse` is `tree_sitter` parse cost over the corpus slice,
   the baseline the walk sits on top of.
@@ -1535,11 +1600,11 @@ measurement from the #1052 / #1062 work described its input as "2862
 Python files" when the tree it walked was 78% C/C++, and nobody could
 check it because the input was never reported.
 
-Not every supported language appears. The three corpus submodules
+Not every supported language appears. The selected corpus submodules
 carry no Elixir, Lua, PHP, Ruby, or Tcl, so those languages are
 covered by the synthetic shapes only.
 
-### Comparing two builds
+### Comparing two builds {#comparing-two-builds}
 
 ```bash
 git switch main
@@ -1569,7 +1634,9 @@ Interleave instead. Keep a binary per side. A paired series is
 usually compared across sessions, and the base binary is slow to
 rebuild, so the copy goes under `/var/tmp/bca/<issue>/` rather than
 `/tmp` (see
-[`AGENTS.md`](../../AGENTS.md), "Temporary files"):
+[`AGENTS.md`](../../AGENTS.md), "Temporary files").
+
+Use [jq](https://jqlang.org/manual/) to extract the executable path from Cargo's JSON output:
 
 ```bash
 mkdir -p /var/tmp/bca/<issue>
@@ -1593,7 +1660,9 @@ tool call.
 
 Then alternate them round by round, flipping which side goes first so
 a one-way drift does not always land on the same arm, and narrow each
-run to the benchmarks under test:
+run to the benchmarks under test.
+[taskset](https://www.kernel.org/pub/linux/utils/util-linux/man/taskset.1.html)
+pins each command to the selected CPU:
 
 ```bash
 taskset -c 3 "$bin_dir/metric_walk_before" --bench --discard-baseline --noplot \
@@ -1613,26 +1682,28 @@ interleaving that removes the load.
 
 [interleave]: https://github.com/dekobon/big-code-analysis/issues/1069
 
-## Measurement traps
+## Measurement traps {#measurement-traps}
 
-Every one of these produced a misleading measurement in this
-repository. The first four predate the harness, which defends against
-the first three structurally. The fourth is on you, and so is most of
-the fifth.
+These cases produced misleading measurements in this repository. Legacy fixture
+checks and interleaved sampling address some causes. Controls and reachability
+checks still require deliberate experiments.
 
 1. **An indented generator makes the input grow quadratically.** A
    Python nested-`def` generator produced 32 MB at depth 4000, so
    time-per-byte was flat while the headline number looked
-   superlinear. Two separate measurements were invalidated. Every
-   shape here emits a constant number of bytes per level, and
-   `byte_growth_is_affine` fails if one stops doing so.
+   superlinear. Two separate measurements were invalidated. Legacy
+   shapes in `shapes.rs` emit a constant number of bytes per size unit;
+   `byte_growth_is_affine` guards that property. Source ladders report
+   their declared dimensions and actual bytes. Variable-width generated
+   names can cross digit boundaries, so byte growth is not universally affine.
 2. **`fd -e py | wc -l` is not the corpus.** Report what was
    analysed, which `CorpusSlice::summary` does for you.
 3. **A ratio between two sizes is host-independent but not
    load-independent.** The two measurements are sequential, so a load
    spike between them skews the ratio by itself; best-of-three sheds
-   bursty contention but not sustained overhead. The gate interleaves
-   cells across rounds and fits three points instead of comparing two.
+   bursty contention but not sustained overhead. The runners rotate
+   cells across rounds. Legacy probes fit exponents; source probes use
+   the statistic declared for their input/output growth.
 4. **Use a control.** Without one, a cross-build code-layout shift
    reads as a real effect. An independent replication of a #1062
    measurement saw the control move 1.02% on its own.
@@ -1682,7 +1753,7 @@ environments:
 | `test (windows-latest)` in CI | 10.9 s | absolute 8 s budget |
 | local `make pre-commit` | 5.6x | ratio, single measurement |
 | local, heavy parallel load | 3.9x | ratio, single measurement |
-| `cargo llvm-cov` | 3.5x | ratio, best-of-three |
+| [`cargo llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) | 3.5x | ratio, best-of-three |
 
 The last one is the decisive one: the `coverage` job runs in CI, so
 instrumentation overhead alone redded the build.
@@ -1698,9 +1769,10 @@ traversal, `Checker`, `Getter`, or a metric's `compute`.
 `.github/workflows/benchmark.yml` runs the gate quarterly and on
 `workflow_dispatch`, mirroring
 [mutation testing](mutation_testing.md). It files an issue on a
-sustained failure. The gate is ratio-based and therefore portable, but
-a runner is still a runner: confirm any failure on an idle host before
-treating it as a regression.
+sustained performance failure. The growth statistics reduce sensitivity to host speed,
+but load still affects them. Confirm a performance-bound failure on an idle host before
+treating it as a regression. For source harness errors, follow the
+[resolution and validation guidance](#source-documentation) before another campaign.
 
 ## Related
 
@@ -1710,7 +1782,7 @@ treating it as a regression.
   per-probe rationale.
 - `big-code-analysis-bench/src/scaling.rs`: the measurement and fit,
   with the reasoning behind interleaving and three-point fitting.
-- `big-code-analysis-bench/src/verbatim.rs`: not a benchmark — the
+- `big-code-analysis-bench/src/verbatim.rs`: the
   `verbatim-oracle` binary (`cargo build -p big-code-analysis-bench
   --bin verbatim-oracle`) that `utils/drift-oracle.py` and
   `utils/recovery-oracle.py` drive for the library-level zero-drift
