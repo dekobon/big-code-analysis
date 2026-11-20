@@ -1,0 +1,56 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "raw-grammar-validation-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if *tree.language() != grammar {",
+      "new": "if false && *tree.language() != grammar {",
+      "expect": ["documentation::collector::tests::mismatched_raw_grammar_is_rejected_before_predicates"]
+    },
+    {
+      "name": "pending-composition-becomes-empty-complete",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "let content = if attribute {\n            Content::PendingAdapter",
+      "new": "let content = if attribute {\n            Content::Complete { text: String::new(), mappings: Vec::new() }",
+      "expect": ["documentation::collector::tests::rust_pending_attributes_never_report_complete_partial_text"]
+    },
+    {
+      "name": "foreign-document-handles-accepted",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "        self.facts.check_scope(document)?;",
+      "new": "        let _ = document;",
+      "expect": ["documentation::collector::tests::document_handles_are_index_qualified_even_for_one_shared_parse"]
+    },
+    {
+      "name": "copied-origins-not-clipped",
+      "file": "big-code-analysis-ast/src/documentation/content.rs",
+      "old": "let start = piece.range().start + output.start - mapping.output.0.start;",
+      "new": "let start = piece.range().start;",
+      "expect": ["documentation::text::tests::copied_decoded_expanded_and_synthetic_origins_keep_exact_responsibility"]
+    },
+    {
+      "name": "single-chunk-sort-cancellation-ignored",
+      "file": "big-code-analysis-ast/src/documentation/ordering.rs",
+      "old": "            *self.error.borrow_mut() = self.budget.step().err();",
+      "new": "            let _ = self.budget.step();",
+      "expect": ["documentation::ordering::tests::chunk_sort_cancellation_latches_without_corrupting_comparator_order"]
+    },
+    {
+      "name": "explicit-name-collision-selects-first",
+      "file": "big-code-analysis-ast/src/documentation/names.rs",
+      "old": "            _ => Some(UnresolvedReason::Ambiguous),",
+      "new": "            _ => None,",
+      "expect": ["documentation::collector::tests::doxygen_static_names_resolve_unique_missing_and_ambiguous_targets"]
+    },
+    {
+      "name": "crlf-splice-retained",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "if bytes[at..].starts_with(b\"\\\\\\r\\n\") {\n        3",
+      "new": "if bytes[at..].starts_with(b\"\\\\\\r\\n\") {\n        0",
+      "expect": ["documentation::text::tests::comment_cleanup_preserves_markup_hard_breaks_and_phase_two_splices"]
+    }
+  ]
+}

@@ -146,6 +146,9 @@ impl Tree {
 pub struct Node<'a>(OtherNode<'a>);
 
 impl<'a> Node<'a> {
+    pub(crate) fn from_tree_sitter(node: OtherNode<'a>) -> Self {
+        Self(node)
+    }
     /// Returns the underlying [`tree_sitter::Node`] for callers that
     /// want to drive their own traversal alongside the metric walker.
     ///

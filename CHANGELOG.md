@@ -26,6 +26,12 @@ for historical reference.
 
 ### Added
 
+- Added an unstable borrowed AST documentation collector with prepared canonical
+  owner queries, explicit pending-adapter assessments, and retained local text and
+  forward-origin views. Basic comment paths cover the 17 streamed language
+  variants; deferred source adapters return an explicit availability error.
+  (#1660, #1661)
+
 - Added unstable AST positional-run evidence for Go, Ruby and Lua, including
   ordered comments, directive members, candidate targets and opener reasons.
   Marker and positional runs retain excluded-prefix and suffix composition

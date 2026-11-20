@@ -3,18 +3,95 @@
 //! Role/context predicates recognize candidates; they do not supply semantic
 //! owners. Fragments add included source spelling, documents add composition
 //! and content state, and associations add profile-qualified attachment.
-//! This module supplies storage and identity primitives, not a collector.
+//! Collection retains immutable source facts, local text and prepared owner queries.
 //! All items are unstable direct-AST plumbing; no root facade is introduced.
 
+pub(crate) mod budget;
+mod canonical;
+pub(crate) mod collector;
 mod content;
+mod index;
+mod names;
+mod options;
+mod ordering;
 mod owners;
 mod source;
 #[doc(hidden)]
 pub mod streaming;
+mod text;
 
 pub use content::*;
+pub use index::*;
+pub use options::*;
 pub use owners::*;
 pub use source::*;
+
+/// Current-thread production work counters for source-path qualification.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone, Copy, Debug)]
+pub struct Observations {
+    /// Actual collector cancellation checkpoints.
+    pub polls: usize,
+    /// Canonical lookup candidates validated.
+    pub identity_probes: usize,
+    /// Primary structural visits.
+    pub visits: usize,
+    /// Primary source-owner classification requests.
+    pub target_classifications: usize,
+    /// Materialized owner projections.
+    pub owner_projections: usize,
+    /// Enumerated child batches.
+    pub child_batches: usize,
+    /// Required cursor-field requests.
+    pub field_requests: usize,
+    /// Completed text renders.
+    pub renders: usize,
+    /// Bounded source-to-text copy chunks.
+    pub copy_chunks: usize,
+}
+
+/// Read qualification counters without resetting other consumers' observations.
+#[cfg(any(test, feature = "test-support"))]
+#[must_use]
+pub fn observations() -> Observations {
+    Observations {
+        polls: budget::polls::observed(),
+        identity_probes: canonical::identity_probes::observed(),
+        visits: collector::visits::observed(),
+        target_classifications: collector::target_classifications::observed(),
+        owner_projections: collector::owner_projections::observed(),
+        child_batches: collector::child_batches::observed(),
+        field_requests: collector::field_requests::observed(),
+        renders: text::renders::observed(),
+        copy_chunks: text::copy_chunks::observed(),
+    }
+}
+
+/// Collect source-attached documentation from a borrowed parse.
+///
+/// The tree must be a complete parse of these exact bytes with the selected
+/// grammar. Grammar and buffer bounds are checked, but same-length substituted
+/// source, shared-grammar dialect identity, inaccurate source points and historical
+/// parse cancellation cannot be reconstructed from a raw tree. Prefer a typed
+/// parser's documentation method when retained completion provenance is available.
+/// Tree-sitter's included-range bulk copy, individual FFI calls and allocation
+/// calls cannot be interrupted internally.
+///
+/// # Errors
+/// Returns cancellation, disabled-language, profile/adapter availability, grammar
+/// mismatch and detectable source-context failures before publishing an index.
+pub fn collect<'s>(
+    language: crate::LANG,
+    tree: &'s tree_sitter::Tree,
+    source: &'s [u8],
+    context: &DocumentationContext,
+    options: &DocumentationOptions,
+) -> Result<DocumentationIndex<'s>, CollectionError> {
+    if crate::cancel::requested() {
+        return Err(CollectionError::Cancelled);
+    }
+    crate::langs::collect_documentation(language, tree, source, context, options)
+}
 
 /// One physical occurrence, whose spelling may be narrower than its syntax node.
 #[derive(Debug)]

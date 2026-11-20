@@ -204,6 +204,14 @@ pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
     false
 }
 
+pub(crate) fn jsdoc_file(s: &[u8]) -> bool {
+    jsdoc_lines(s).filter_map(jsdoc_tag_open).any(|(title, _)| {
+        [b"file".as_slice(), b"fileoverview", b"overview", b"module"]
+            .iter()
+            .any(|name| title.eq_ignore_ascii_case(name))
+    })
+}
+
 /// A TypeDoc module comment: one carrying `@module` or
 /// `@packageDocumentation`, which `getCommentImpl` withholds from any
 /// declaration and reads as the file's documentation (#1613).

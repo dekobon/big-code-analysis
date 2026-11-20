@@ -395,6 +395,21 @@ macro_rules! mk_action {
                 $crate::with_any_parser!(self, |p| p.parse_completion())
             }
 
+            /// Collect source documentation while checking retained parse completion.
+            ///
+            /// # Errors
+            /// Rejects cancelled parses and raw collection/profile failures.
+            pub fn documentation(
+                &self,
+                context: &$crate::documentation::DocumentationContext,
+                options: &$crate::documentation::DocumentationOptions,
+            ) -> Result<$crate::documentation::DocumentationIndex<'_>, $crate::documentation::CollectionError> {
+                if self.parse_completion() == $crate::parser::ParseCompletion::Cancelled {
+                    return Err($crate::documentation::CollectionError::Cancelled);
+                }
+                $crate::documentation::collect(self.language(), self.ts_tree(), self.code(), context, options)
+            }
+
             /// The root [`Node`] of the held tree.
             #[must_use]
             pub fn root_node(&self) -> Node<'_> {
@@ -722,6 +737,22 @@ macro_rules! mk_langs {
         mk_extensions!($( ($camel, [ $( $ext ),* ]) ),*);
         mk_emacs_mode!($( ($camel, [ $( $emacs_mode ),* ]) ),*);
         mk_code!($( ($camel, $code, $parser, $name, stringify!($camel)) ),*);
+        pub(crate) fn collect_documentation<'s>(
+            language: LANG,
+            tree: &'s tree_sitter::Tree,
+            source: &'s [u8],
+            context: &crate::documentation::DocumentationContext,
+            options: &crate::documentation::DocumentationOptions,
+        ) -> Result<crate::documentation::DocumentationIndex<'s>, crate::documentation::CollectionError> {
+            $(
+                #[cfg(feature = $feature)]
+                if language == LANG::$camel {
+                    return crate::documentation::collector::collect_typed::<$code>(language, tree, source, context, options);
+                }
+            )*
+            let _ = (tree, source, context, options);
+            Err(crate::documentation::CollectionError::LanguageDisabled(language))
+        }
     };
 }
 

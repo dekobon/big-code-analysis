@@ -300,6 +300,39 @@ fn kotlin_last_reads_across_plain_comments() {
     );
 }
 
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_source_signature_comment_emits_local_placement() {
+    use crate::KotlinCode;
+    let source = b"fun f() /**audit*/ {}";
+    let parser = AnyParser::parse(LANG::Kotlin, source.to_vec(), None, None).unwrap();
+    assert!(!parser.root_node().has_error());
+    let context = SourceContext::new(parser.ts_tree(), parser.code());
+    let mut runs = Vec::new();
+    parser.root_node().act_on_node(&mut |node, ancestors| {
+        if KotlinCode::is_comment(node) {
+            source_comment::<KotlinCode>(
+                node,
+                ancestors,
+                &mut SourceRequest {
+                    context: &context,
+                    retain_unbound: false,
+                    sink: &mut |run| runs.push(run),
+                },
+            )
+            .unwrap();
+        }
+    });
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].members.len(), 1);
+    assert_eq!(runs[0].members[0].source.pieces()[0].range(), 8..18);
+    assert_eq!(runs[0].members[0].selection, MarkerSelection::Selected);
+    assert!(matches!(
+        runs[0].members[0].placement,
+        MarkerPlacement::Local
+    ));
+}
+
 #[cfg(feature = "groovy")]
 #[test]
 fn groovy_nearest_plain_comment_detaches() {

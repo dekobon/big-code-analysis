@@ -40,6 +40,24 @@ pub(crate) fn doxygen_member_after(s: &[u8]) -> bool {
 /// does.
 #[must_use]
 pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
+    structural_command_at(s).is_some()
+}
+
+pub(crate) fn structural_command(s: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (word, at) = structural_command_at(s)?;
+    let end = s[at..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(s.len(), |end| at + end);
+    let argument = s[at..end].trim_ascii();
+    let argument = argument
+        .strip_suffix(b"*/")
+        .unwrap_or(argument)
+        .trim_ascii_end();
+    Some((word, argument))
+}
+
+fn structural_command_at(s: &[u8]) -> Option<(&[u8], usize)> {
     const ALWAYS: &[&[u8]] = &[
         b"file",
         b"mainpage",
@@ -82,10 +100,10 @@ pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
         };
         at += 1 + word.len();
         if ALWAYS.contains(&word) || (NAMED.contains(&word) && names_something(&s[at..])) {
-            return true;
+            return Some((word, at));
         }
     }
-    false
+    None
 }
 
 /// Where the text Doxygen does not read for commands ends, when such text

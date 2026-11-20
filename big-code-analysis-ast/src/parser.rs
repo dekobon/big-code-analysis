@@ -275,6 +275,23 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> Parser<T> {
     pub fn parse_completion(&self) -> ParseCompletion {
         self.tree.completion()
     }
+
+    /// Collect a borrowed immutable documentation index from this parse.
+    /// Adopted trees retain the matching-source and complete-parse preconditions.
+    ///
+    /// # Errors
+    /// Rejects retained parse cancellation and every raw collection failure.
+    pub fn documentation(
+        &self,
+        context: &crate::documentation::DocumentationContext,
+        options: &crate::documentation::DocumentationOptions,
+    ) -> Result<crate::documentation::DocumentationIndex<'_>, crate::documentation::CollectionError>
+    {
+        if self.parse_completion() == ParseCompletion::Cancelled {
+            return Err(crate::documentation::CollectionError::Cancelled);
+        }
+        crate::documentation::collect(T::lang(), self.ts_tree(), &self.code, context, options)
+    }
 }
 
 #[cfg(test)]

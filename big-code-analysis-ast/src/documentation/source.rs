@@ -2,6 +2,8 @@
 
 use std::ops::Range;
 
+use super::budget::{NoBudget, WorkBudget, infallible};
+
 // Output alone cannot reveal scanning empty ranges or seeking from the start.
 crate::observation::counter!(
     included_range_visits,
@@ -16,6 +18,12 @@ pub struct SourcePiece<'s> {
 }
 
 impl<'s> SourcePiece<'s> {
+    pub(super) fn slice(&self, range: Range<usize>) -> Self {
+        Self {
+            bytes: &self.bytes[range.start - self.range.start..range.end - self.range.start],
+            range,
+        }
+    }
     /// Half-open byte coordinates in the actual parsed buffer.
     #[must_use]
     pub fn range(&self) -> Range<usize> {
@@ -37,6 +45,12 @@ pub struct SourcePieces<'s> {
 }
 
 impl<'s> SourcePieces<'s> {
+    pub(super) fn single(piece: SourcePiece<'s>) -> Self {
+        Self {
+            pieces: vec![piece],
+            has_excluded_gap: false,
+        }
+    }
     /// The individual pieces; intervening excluded bytes are never returned.
     #[must_use]
     pub fn pieces(&self) -> &[SourcePiece<'s>] {
@@ -71,24 +85,43 @@ impl<'s> SourceContext<'s> {
     /// infer completion; adopted/raw inputs retain the caller's precondition.
     #[must_use]
     pub fn new(tree: &'s tree_sitter::Tree, bytes: &'s [u8]) -> Self {
-        let mut included = tree.included_ranges();
-        included.retain(|range| range.start_byte < range.end_byte);
+        infallible(Self::with_budget(tree, bytes, &NoBudget))
+    }
+
+    pub(crate) fn with_budget<B: WorkBudget>(
+        tree: &'s tree_sitter::Tree,
+        bytes: &'s [u8],
+        budget: &B,
+    ) -> Result<Self, B::Error> {
+        budget.checkpoint()?;
+        // The safe dependency copies the range array atomically. Only our
+        // subsequent normalization loop can be interrupted internally.
+        let raw = tree.included_ranges();
+        budget.checkpoint()?;
+        let mut included = Vec::new();
         let mut continuous: Vec<Range<usize>> = Vec::new();
-        for range in &included {
+        for range in raw {
+            budget.step()?;
+            let start = range.start_byte.min(bytes.len());
+            let end = range.end_byte.min(bytes.len());
+            if start == end {
+                continue;
+            }
+            included.push(range);
             if let Some(last) = continuous.last_mut()
-                && last.end == range.start_byte
+                && last.end == start
             {
-                last.end = range.end_byte;
+                last.end = end;
             } else {
-                continuous.push(range.start_byte..range.end_byte);
+                continuous.push(start..end);
             }
         }
-        Self {
+        Ok(Self {
             tree,
             bytes,
             included,
             continuous,
-        }
+        })
     }
 
     /// Intersect a nonempty spelling in `O(log R + I)` work for R included
@@ -97,16 +130,33 @@ impl<'s> SourceContext<'s> {
     /// # Errors
     /// Rejects empty, reversed, out-of-buffer and wholly excluded spellings.
     pub fn pieces(&self, spelling: Range<usize>) -> Result<SourcePieces<'s>, SourceError> {
+        self.pieces_with_budget(spelling, &NoBudget)
+    }
+
+    pub(crate) fn pieces_with_budget<B: WorkBudget>(
+        &self,
+        spelling: Range<usize>,
+        budget: &B,
+    ) -> Result<SourcePieces<'s>, SourceError> {
         // bca: suppress(halstead) -- one interval-intersection loop retains raw slices and excluded-gap evidence together.
         if spelling.start >= spelling.end || spelling.end > self.bytes.len() {
             return Err(SourceError::InvalidRange);
         }
-        let first = self
-            .included
-            .partition_point(|range| range.end_byte <= spelling.start);
+        let mut first = 0;
+        let mut end = self.included.len();
+        while first < end {
+            budget.step().map_err(Into::into)?;
+            let middle = first + (end - first) / 2;
+            if self.included[middle].end_byte <= spelling.start {
+                first = middle + 1;
+            } else {
+                end = middle;
+            }
+        }
         let mut pieces = Vec::new();
         let mut included_bytes = 0;
         for range in &self.included[first..] {
+            budget.step().map_err(Into::into)?;
             included_range_visits::record();
             if range.start_byte >= spelling.end {
                 break;
@@ -233,6 +283,8 @@ impl<'s> NodeEvidence<'s> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SourceError {
+    /// Active collection cancellation; no successful partial result is returned.
+    Cancelled,
     /// Empty, reversed or out-of-buffer spelling.
     InvalidRange,
     /// No requested bytes were included in the parse.

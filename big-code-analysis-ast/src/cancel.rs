@@ -89,6 +89,17 @@ pub(crate) fn requested() -> bool {
 }
 
 #[cfg(test)]
+pub(crate) fn cancel_installed_for_test() {
+    INSTALLED.with(|slot| {
+        let flag = slot.take();
+        if let Some(flag) = &flag {
+            flag.cancel();
+        }
+        slot.set(flag);
+    });
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

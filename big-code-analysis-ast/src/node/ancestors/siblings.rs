@@ -227,24 +227,45 @@ impl<'tree> SiblingCache<'tree> {
         depth: usize,
         children: impl IntoIterator<Item = Node<'tree>>,
     ) {
+        crate::documentation::budget::infallible(self.record_with_budget(
+            node,
+            depth,
+            children,
+            &crate::documentation::budget::NoBudget,
+        ));
+    }
+
+    pub(crate) fn record_with_budget<B: crate::documentation::budget::WorkBudget>(
+        &mut self,
+        node: &Node<'tree>,
+        depth: usize,
+        children: impl IntoIterator<Item = Node<'tree>>,
+        budget: &B,
+    ) -> Result<(), B::Error> {
         if node.child_count() <= WIDE_PARENT {
-            return;
+            return Ok(());
         }
-        if self.0.len() <= depth {
-            self.0.resize_with(depth + 1, Default::default);
+        while self.0.len() <= depth {
+            budget.step()?;
+            self.0.push(Default::default());
         }
         // An unused slot's id is 0, which no node has: tree-sitter's id
         // is the address of the node's subtree.
         let (id, recorded) = &mut self.0[depth];
-        *id = node.id();
+        *id = 0;
         recorded.clear();
-        recorded.extend(children);
+        for child in children {
+            budget.step()?;
+            recorded.push(child);
+        }
         debug_assert_eq!(
             recorded.len(),
             node.child_count(),
             "a walk must record every child of a wide {}, in one batch (#1871)",
             node.kind()
         );
+        *id = node.id();
+        Ok(())
     }
 
     /// Whether no node is recorded. Test-only: the record is otherwise
