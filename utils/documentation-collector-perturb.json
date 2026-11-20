@@ -35,7 +35,7 @@
       "name": "pending-slots-are-not-unsupported",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
       "old": "if qualifies || super::forms::slot_candidate(self.index.profile, node.kind()) {",
-      "new": "if qualifies {",
+      "new": "if qualifies && !super::forms::slot_candidate(self.index.profile, node.kind()) {",
       "expect": ["documentation::collector::form_tests::kotlin_parameter_form_is_pending_in_default_queries", "documentation::collector::form_tests::php_promoted_form_is_pending_in_default_queries"]
     },
     {
