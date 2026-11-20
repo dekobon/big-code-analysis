@@ -1,4 +1,5 @@
 {
+  "cwd": ".",
   "command": ["cargo", "+nightly", "test", "--manifest-path", "fuzz/Cargo.toml", "--locked", "--lib", "--no-fail-fast"],
   "cases": [
     {
