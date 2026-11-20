@@ -4,6 +4,41 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
   "cases": [
     {
+      "name": "partial-c-declarator-projection-is-not-complete",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "let Some(declared) = self.declared_name(child, budget)? else {\n                    return Ok(());",
+      "new": "let Some(declared) = self.declared_name(child, budget)? else {\n                    continue;",
+      "expect": ["documentation::collector::projection_tests::c_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::cpp_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::mozcpp_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::objc_incomplete_declarators_and_gathered_names"]
+    },
+    {
+      "name": "gathered-name-reference-is-not-first-fragment-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "for id in self.index.facts.documents[document.0]\n            .fragments\n            .iter()\n            .rev()",
+      "new": "for id in self.index.facts.documents[document.0]\n            .fragments\n            .iter()\n            .take(1)",
+      "expect": ["documentation::collector::projection_tests::c_incomplete_declarators_and_gathered_names"]
+    },
+    {
+      "name": "tcl-hex-is-variable-width",
+      "file": "big-code-analysis-ast/src/documentation/text/literals.rs",
+      "old": "if python && count != width {",
+      "new": "if count != width {",
+      "expect": ["documentation::text::literals::tests::tcl_variable_width_escapes_preserve_token_origins", "documentation::text::literals::tests::irules_variable_width_escapes_preserve_token_origins"]
+    },
+    {
+      "name": "python-cleanup-applies-whole-document-margin",
+      "file": "big-code-analysis-ast/src/documentation/text/cleanup.rs",
+      "old": "if margin != usize::MAX {",
+      "new": "if false && margin != usize::MAX {",
+      "expect": ["documentation::text::cleanup::tests::whole_python_document_cleanup_keeps_escape_and_tab_origins", "documentation::text::cleanup::tests::python_cleanup_counts_unicode_margin_in_characters"]
+    },
+    {
+      "name": "pending-slots-are-not-unsupported",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if qualifies || super::forms::slot_candidate(self.index.profile, node.kind()) {",
+      "new": "if qualifies {",
+      "expect": ["documentation::collector::form_tests::kotlin_parameter_form_is_pending_in_default_queries", "documentation::collector::form_tests::php_promoted_form_is_pending_in_default_queries"]
+    },
+    {
       "name": "collector-bypasses-fallible-marker-kernel",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
       "old": "markers::source_comment_with_budget::<NativeRules<T>, _>(",

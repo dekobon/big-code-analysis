@@ -231,6 +231,10 @@ fn rust_cleanup_keeps_unicode_blank_lines_and_removes_only_assembly_newline() {
         ("/**\n * a  \n *   b\n */\nfn f() {}", "a  \n  b"),
         ("///   a\n///\u{a0}\n///     b\nfn f() {}", "a\n\u{a0}\n  b"),
         ("/**a /* nested */ b*/\nfn f() {}", "a /* nested */ b"),
+        ("/**a\n\n*/\nfn f() {}", "a\n"),
+        ("/**\n\n*/\nfn f() {}", ""),
+        ("/**\n *a\n *b\n */\nfn f() {}", "*a\n*b"),
+        ("/**\n * a\n ***/\nfn f() {}", " a\n*"),
     ] {
         let parser = AnyParser::parse(LANG::Rust, source.as_bytes().to_vec(), None, None).unwrap();
         let index = parser

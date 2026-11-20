@@ -309,17 +309,7 @@ fn render_local<'s, B: WorkBudget>(
         blocks.push(prepare(profile, context, fragment, budget, source_cleaned)?);
     }
     if profile == Profile::Rust {
-        for block in &mut blocks {
-            beautify(block, context.bytes(), budget)?;
-            if block.lines.len() > 1
-                && block
-                    .lines
-                    .last()
-                    .is_some_and(|line| line.content.is_empty())
-            {
-                block.lines.pop();
-            }
-        }
+        rust_fragments(&mut blocks, context.bytes(), budget)?;
     }
     if profile == Profile::Rust || blocks.first().is_some_and(|block| block.markdown) {
         let mut minimum = usize::MAX;
@@ -404,6 +394,9 @@ fn render_local<'s, B: WorkBudget>(
 }
 
 fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool, TextError> {
+    budget
+        .step()
+        .map_err(|error| TextError::Source(error.into()))?;
     if !unicode {
         return Ok(crate::documentation::byte_scan::position(
             bytes,
@@ -438,9 +431,47 @@ fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool,
     Ok(true)
 }
 
-fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Result<(), TextError> {
-    if block.lines.len() < 2 {
-        return Ok(());
+fn rust_fragments<B: WorkBudget>(
+    blocks: &mut [Block],
+    bytes: &[u8],
+    budget: &B,
+) -> Result<(), TextError> {
+    for block in blocks {
+        budget
+            .step()
+            .map_err(|error| TextError::Source(error.into()))?;
+        // str::lines omits a terminal empty line both before beautification
+        // and when rustdoc reads the changed, joined fragment.
+        if block.lines.len() > 1
+            && block
+                .lines
+                .last()
+                .is_some_and(|line| line.content.is_empty())
+        {
+            block.lines.pop();
+        }
+        let changed = beautify(block, bytes, budget)?;
+        if changed
+            && block.lines.len() > 1
+            && block
+                .lines
+                .last()
+                .is_some_and(|line| line.content.is_empty())
+        {
+            block.lines.pop();
+        }
+    }
+    Ok(())
+}
+
+fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Result<bool, TextError> {
+    if block.lines.len() < 2
+        && block
+            .lines
+            .first()
+            .is_none_or(|line| line.ending.is_empty())
+    {
+        return Ok(false);
     }
     let all_stars = |range: Range<usize>| -> Result<bool, TextError> {
         for byte in &bytes[range] {
@@ -459,6 +490,7 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
     {
         end -= 1;
     }
+    let changed = first != 0 || end != block.lines.len();
     let mut selected = Vec::new();
     for line in block.lines.drain(..).skip(first).take(end - first) {
         budget
@@ -489,15 +521,15 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
         if line.content.start + indent >= line.content.end
             || bytes[line.content.start + indent] != b'*'
         {
-            return Ok(());
+            return Ok(changed);
         }
         if star_column.is_some_and(|column| column != indent) {
-            return Ok(());
+            return Ok(changed);
         }
         star_column = Some(indent);
     }
     let Some(column) = star_column else {
-        return Ok(());
+        return Ok(changed);
     };
     let prefix =
         &bytes[block.lines[start].content.start..block.lines[start].content.start + column];
@@ -524,5 +556,5 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
             }
         }
     }
-    Ok(())
+    Ok(true)
 }

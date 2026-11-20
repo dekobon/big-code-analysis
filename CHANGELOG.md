@@ -33,6 +33,9 @@ for historical reference.
   Source recognition uses fallible work-budget kernels shared with legacy
   wrappers. Kotlin local KDoc retains complete text with pending owner evidence;
   Java prelexing limitations retain separately labeled source-cleaned spelling.
+  Prepared node projections expose multi-owner and pending forms. Complex
+  declarators remain pending, and gathered Doxygen references use their
+  structural member. Reusable Python/Tcl cleanup preserves token origins.
   (#1660, #1661)
 
 - Added unstable AST positional-run evidence for Go, Ruby and Lua, including

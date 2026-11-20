@@ -5,6 +5,17 @@
 //! and content state, and associations add profile-qualified attachment.
 //! Collection retains immutable source facts, local text and prepared owner queries.
 //! All items are unstable direct-AST plumbing; no root facade is introduced.
+//!
+//! The collector stores flat node, occurrence and membership arenas. Text and
+//! maps are materialized once per document. Structural work is linear in visits,
+//! contributing bytes and memberships, with separate range lookups
+//! `O((N + F) log(R + 1) + I)`, cached sibling-position searches, and dependency
+//! field-lookup costs. Numeric document/association/fragment ordering adds its
+//! respective `O(M log M)` terms. Name indexing hashes and compares spelling bytes
+//! incrementally; equal spellings share a bucket entry. Prepared owner queries
+//! inspect only their indexed associations and linked pending scopes. Individual
+//! dependency calls and allocation are not internally interruptible; crate-owned
+//! scans use the collection work budget.
 
 pub(crate) mod budget;
 pub(crate) mod byte_scan;
@@ -61,6 +72,18 @@ pub struct Observations {
     pub target_computations: usize,
     /// Byte visits in shared classifier scans.
     pub classifier_bytes: usize,
+    /// Pending-scope query links and records visited.
+    pub assessment_scope_reads: usize,
+    /// Dependency field lookups made by recognition callbacks.
+    pub field_lookups: usize,
+    /// Dependency indexed child lookups made by recognition callbacks.
+    pub child_lookups: usize,
+    /// Cached per-node answers probed, including source classification.
+    pub memo_probes: usize,
+    /// Ancestor fold state slots examined.
+    pub fold_slot_probes: usize,
+    /// Recorded sibling positions compared.
+    pub sibling_slot_probes: usize,
 }
 
 /// Read qualification counters without resetting other consumers' observations.
@@ -82,6 +105,12 @@ pub fn observations() -> Observations {
         target_queries: recognition::target_queries::observed(),
         target_computations: recognition::target_computations::observed(),
         classifier_bytes: byte_scan::bytes_read::observed(),
+        assessment_scope_reads: index::assessment_scope_reads::observed(),
+        field_lookups: crate::node::field_lookups::observed(),
+        child_lookups: crate::node::child_lookups::observed(),
+        memo_probes: crate::node::memo_probes::observed(),
+        fold_slot_probes: crate::node::fold_slot_probes::observed(),
+        sibling_slot_probes: crate::node::sibling_slot_probes::observed(),
     }
 }
 

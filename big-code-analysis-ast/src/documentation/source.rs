@@ -45,6 +45,26 @@ pub struct SourcePieces<'s> {
 }
 
 impl<'s> SourcePieces<'s> {
+    pub(in crate::documentation) fn from_included_pieces(pieces: Vec<SourcePiece<'s>>) -> Self {
+        Self {
+            pieces,
+            has_excluded_gap: false,
+        }
+    }
+    pub(in crate::documentation) fn copy_with_budget<B: WorkBudget>(
+        &self,
+        budget: &B,
+    ) -> Result<Self, B::Error> {
+        let mut pieces = Vec::new();
+        for piece in &self.pieces {
+            budget.step()?;
+            pieces.push(piece.clone());
+        }
+        Ok(Self {
+            pieces,
+            has_excluded_gap: self.has_excluded_gap,
+        })
+    }
     pub(super) fn single(piece: SourcePiece<'s>) -> Self {
         Self {
             pieces: vec![piece],

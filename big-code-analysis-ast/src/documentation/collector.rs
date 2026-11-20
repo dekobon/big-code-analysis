@@ -303,7 +303,7 @@ impl<'s> Builder<'s> {
         } else {
             NativeRules::<T>::target(node, self.index.source.bytes(), ancestors, budget)?
         };
-        if qualifies {
+        if qualifies || super::forms::slot_candidate(self.index.profile, node.kind()) {
             if is_wrapper(self.index.profile, node.kind())
                 || needs_slot(self.index.profile, node.kind())
                 || super::forms::owner_pending(self.index.profile, node, ancestors)
@@ -319,7 +319,7 @@ impl<'s> Builder<'s> {
                             | "template_declaration"
                             | "expression_statement"
                     ))
-                || node.is_error()
+                || node.has_error()
                 || node.is_missing()
             {
                 self.index.canonical.nodes[id.0].projection = Projection::Pending;
@@ -659,31 +659,8 @@ impl<'s> Builder<'s> {
         node: &Node<'s>,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
-        let mut is_doc = false;
-        for child in node.children() {
-            budget.step()?;
-            if child.kind() != "attribute" {
-                continue;
-            }
-            let mut cursor = child.cursor();
-            for path in child.children_with(&mut cursor) {
-                budget.step()?;
-                if !path.is_named() {
-                    continue;
-                }
-                if path.kind() == "identifier"
-                    && self
-                        .index
-                        .source
-                        .covers_with_budget(path.start_byte()..path.end_byte(), budget)?
-                {
-                    let bytes = &self.index.source.bytes()[path.start_byte()..path.end_byte()];
-                    is_doc = matches!(bytes, b"doc" | b"cfg_attr");
-                }
-                break;
-            }
-        }
-        if !is_doc {
+        let carrier = self.rust_carrier(node, budget)?;
+        if carrier == Some(false) {
             return Ok(());
         }
         let mut target = if node.kind() == "attribute_item" {
@@ -717,7 +694,11 @@ impl<'s> Builder<'s> {
         let assessment = self.index.assessments.len();
         self.index.assessments.push(Assessment {
             axis: AssessmentAxis::Occurrence,
-            reason: "Structured Rust doc/cfg_attr carrier awaits interpretation",
+            reason: if carrier.is_none() {
+                "Excluded or recovered Rust attribute path may carry documentation"
+            } else {
+                "Structured Rust doc/cfg_attr carrier awaits interpretation"
+            },
             node: Some(self.index.canonical.nodes[id.0].evidence),
             document: None,
         });
@@ -737,6 +718,9 @@ impl<'s> Builder<'s> {
         self.index.canonical.nodes[pending_scope.0]
             .pending
             .push(publication);
+        if carrier.is_none() {
+            return Ok(());
+        }
         let source = self
             .index
             .source
@@ -748,6 +732,42 @@ impl<'s> Builder<'s> {
         );
         self.pending_attributes.push((id, fragment, target));
         Ok(())
+    }
+
+    fn rust_carrier(
+        &self,
+        node: &Node<'s>,
+        budget: &CollectionBudget,
+    ) -> Result<Option<bool>, CollectionError> {
+        for child in node.children() {
+            budget.step()?;
+            bounds(child.as_tree_sitter(), self.index.source.bytes().len())?;
+            if child.kind() != "attribute" {
+                continue;
+            }
+            for path in child.children() {
+                budget.step()?;
+                bounds(path.as_tree_sitter(), self.index.source.bytes().len())?;
+                if !path.is_named() {
+                    continue;
+                }
+                if !self
+                    .index
+                    .source
+                    .covers_with_budget(path.start_byte()..path.end_byte(), budget)?
+                {
+                    return Ok(None);
+                }
+                return Ok(Some(
+                    path.kind() == "identifier"
+                        && matches!(
+                            &self.index.source.bytes()[path.start_byte()..path.end_byte()],
+                            b"doc" | b"cfg_attr"
+                        ),
+                ));
+            }
+        }
+        Ok((!node.has_error()).then_some(false))
     }
 
     fn finish(&mut self, budget: &CollectionBudget) -> Result<(), CollectionError> {
@@ -918,6 +938,8 @@ mod assessment_tests;
 mod cancellation_tests;
 #[cfg(test)]
 mod cost_tests;
+#[cfg(test)]
+mod form_tests;
 #[cfg(test)]
 mod projection_tests;
 #[cfg(test)]

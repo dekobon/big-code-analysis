@@ -10,7 +10,12 @@ impl<'s> Builder<'s> {
         let mut by_target = std::collections::HashMap::new();
         for (index, draft) in self.drafts.iter().enumerate() {
             budget.step()?;
-            if let Some(target) = draft.target && matches!(draft.role, DocumentRole::Primary | DocumentRole::FilePackage) {
+            if let Some(target) = draft.target
+                && matches!(
+                    draft.role,
+                    DocumentRole::Primary | DocumentRole::FilePackage
+                )
+            {
                 by_target.insert(target, index);
             }
         }
@@ -85,21 +90,14 @@ impl<'s> Builder<'s> {
         let mut owners = Vec::new();
         let mut pending = draft.pending;
         let mut named_resolution = None;
-        if self.index.profile == Profile::Doxygen && draft.target.is_none() {
-            let fragment =
-                &self.index.facts.fragments[self.index.facts.documents[document.0].fragments[0].0];
-            if let Some(node) = fragment.node {
-                let raw = &self.index.source.bytes()[node.node().byte_range()];
-                if let Some((b"fn", name)) =
-                    crate::lang_helpers::doxygen::structural_command_with_budget(raw, budget)?
-                {
-                    let (found, reason) = self.names.resolve(name, budget)?;
-                    owners = found;
-                    named_resolution =
-                        Some(reason.map_or(Resolution::Resolved, Resolution::Unresolved));
-                    pending = false;
-                }
-            }
+        if self.index.profile == Profile::Doxygen
+            && draft.target.is_none()
+            && !draft.gap
+            && let Some((found, resolution)) = self.named_document(document, budget)?
+        {
+            owners = found;
+            named_resolution = Some(resolution);
+            pending = false;
         }
         if let Some(target) = draft.target {
             match &self.index.canonical.nodes[target.0].projection {
@@ -124,11 +122,11 @@ impl<'s> Builder<'s> {
             self.index.facts.associations.push(Association {
                 document,
                 owners,
-                resolution: named_resolution.unwrap_or_else(|| {
-                    draft
-                        .unresolved
-                        .map_or(Resolution::Resolved, Resolution::Unresolved)
-                }),
+                resolution: draft
+                    .unresolved
+                    .map(Resolution::Unresolved)
+                    .or(named_resolution)
+                    .unwrap_or(Resolution::Resolved),
                 convention: Convention(self.index.profile.name()),
                 binding: draft.binding,
                 lexical_scope: self.index.canonical.nodes[draft.scope.0].evidence,
@@ -171,6 +169,45 @@ impl<'s> Builder<'s> {
                 .push(assessment);
         }
         Ok(())
+    }
+
+    fn named_document(
+        &self,
+        document: DocumentId,
+        budget: &CollectionBudget,
+    ) -> Result<Option<(Vec<OwnerId>, Resolution)>, CollectionError> {
+        for id in self.index.facts.documents[document.0]
+            .fragments
+            .iter()
+            .rev()
+        {
+            budget.step()?;
+            let fragment = &self.index.facts.fragments[id.0];
+            let Some(node) = fragment.node else {
+                continue;
+            };
+            if !self
+                .index
+                .source
+                .covers_with_budget(node.node().byte_range(), budget)?
+            {
+                return Ok(None);
+            }
+            let raw = &self.index.source.bytes()[node.node().byte_range()];
+            if let Some((command, name)) =
+                crate::lang_helpers::doxygen::structural_command_with_budget(raw, budget)?
+            {
+                if command != b"fn" {
+                    return Ok(None);
+                }
+                let (owners, reason) = self.names.resolve(name, budget)?;
+                return Ok(Some((
+                    owners,
+                    reason.map_or(Resolution::Resolved, Resolution::Unresolved),
+                )));
+            }
+        }
+        Ok(None)
     }
 
     fn render_draft(

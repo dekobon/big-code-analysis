@@ -89,6 +89,65 @@ pub struct OwnerAssociations<'i, 's> {
     projection_pending: bool,
 }
 
+/// A canonical syntax projection with its known owners and pending assessment.
+/// Multi-slot declarations retain all owners without choosing one implicitly.
+pub struct NodeProjection<'i, 's> {
+    index: &'i DocumentationIndex<'s>,
+    id: super::canonical::NodeId,
+    owners: &'i [OwnerId],
+    pending: bool,
+}
+
+impl<'i, 's> NodeProjection<'i, 's> {
+    /// Whether semantic normalization remains incomplete.
+    #[must_use]
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
+
+    /// Known semantic owners, in stored source/slot order.
+    pub fn owners(&self) -> impl ExactSizeIterator<Item = FactRef<'i, Owner<'s>>> + '_ {
+        self.owners.iter().map(|id| FactRef {
+            scope: &self.index.facts.scope,
+            ordinal: id.0,
+            fact: &self.index.facts.owners[id.0],
+        })
+    }
+
+    /// Scope assessments affecting the queried syntax, including pending owners.
+    pub fn assessments(&self) -> impl Iterator<Item = FactRef<'i, Assessment<'s>>> + '_ {
+        scope_assessments(self.index, Some(self.id)).map(|ordinal| FactRef {
+            scope: &self.index.facts.scope,
+            ordinal,
+            fact: &self.index.assessments[ordinal],
+        })
+    }
+}
+
+fn scope_assessments<'i>(
+    index: &'i DocumentationIndex<'_>,
+    mut scope: Option<super::canonical::NodeId>,
+) -> impl Iterator<Item = usize> + 'i {
+    let mut at = 0;
+    std::iter::from_fn(move || {
+        loop {
+            assessment_scope_reads::record();
+            let node = &index.canonical.nodes[scope?.0];
+            if let Some(&assessment) = node.pending.get(at) {
+                at += 1;
+                return Some(assessment);
+            }
+            scope = node.pending_parent;
+            at = 0;
+        }
+    })
+}
+
+crate::observation::counter!(
+    assessment_scope_reads,
+    cfg(any(test, feature = "test-support"))
+);
+
 impl<'i, 's> OwnerAssociations<'i, 's> {
     /// Whether the queried syntax still requires a semantic owner projection.
     /// Known associations and pending assessment records remain accessible.
@@ -107,22 +166,10 @@ impl<'i, 's> OwnerAssociations<'i, 's> {
 
     /// Pending assessments affecting this owner, visible under default options.
     pub fn assessments(&self) -> impl Iterator<Item = FactRef<'i, Assessment<'s>>> + '_ {
-        let mut scope = self.scope;
-        let mut at = 0;
         self.assessments
             .iter()
             .copied()
-            .chain(std::iter::from_fn(move || {
-                loop {
-                    let node = &self.index.canonical.nodes[scope?.0];
-                    if let Some(&assessment) = node.pending.get(at) {
-                        at += 1;
-                        return Some(assessment);
-                    }
-                    scope = node.pending_parent;
-                    at = 0;
-                }
-            }))
+            .chain(scope_assessments(self.index, self.scope))
             .map(|ordinal| FactRef {
                 scope: &self.index.facts.scope,
                 ordinal,
@@ -333,6 +380,28 @@ impl<'s> DocumentationIndex<'s> {
             ordinal: id.0,
             fact: &self.facts.owners[id.0],
         }))
+    }
+
+    /// Inspect a canonical node's complete or pending owner projection.
+    ///
+    /// # Errors
+    /// Rejects foreign/noncanonical nodes and syntax outside the declaration model.
+    pub fn node_projection(
+        &self,
+        node: tree_sitter::Node<'_>,
+    ) -> Result<NodeProjection<'_, 's>, OwnerError> {
+        let id = self.canonical.lookup(node).map_err(OwnerError::Source)?;
+        let (owners, pending) = match &self.canonical.nodes[id.0].projection {
+            Projection::Ready(owners) => (owners.as_slice(), false),
+            Projection::Pending => (&[][..], true),
+            Projection::Unsupported => return Err(OwnerError::UnsupportedOwner),
+        };
+        Ok(NodeProjection {
+            index: self,
+            id,
+            owners,
+            pending,
+        })
     }
 
     fn prepared_owner(&self, ordinal: usize) -> OwnerAssociations<'_, 's> {

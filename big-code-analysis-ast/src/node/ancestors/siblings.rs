@@ -223,6 +223,7 @@ fn position_with_budget<B: WorkBudget>(
     let mut end = children.len();
     while first < end {
         budget.step()?;
+        sibling_slot_probes::record();
         let middle = first + (end - first) / 2;
         if children[middle].start_byte() < node.start_byte() {
             first = middle + 1;
@@ -232,6 +233,7 @@ fn position_with_budget<B: WorkBudget>(
     }
     for (at, child) in children.iter().enumerate().skip(first) {
         budget.step()?;
+        sibling_slot_probes::record();
         if child.start_byte() != node.start_byte() {
             break;
         }
@@ -241,6 +243,11 @@ fn position_with_budget<B: WorkBudget>(
     }
     Ok(None)
 }
+
+crate::observation::counter!(
+    sibling_slot_probes,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// The children of each wide node on a walk's chain, recorded as the
 /// walk pushes them, so that [`Ancestors::siblings_after`] and

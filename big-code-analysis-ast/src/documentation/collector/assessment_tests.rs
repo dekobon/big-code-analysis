@@ -351,3 +351,47 @@ fn nested_collection_cancellation_restores_outer_flag_after_unwind() {
         );
     });
 }
+
+#[cfg(feature = "rust")]
+#[test]
+fn excluded_attribute_name_keeps_pending_occurrence_without_establishing_doc_text() {
+    let source = b"#[doc = \"audit\"]\nfn f() {}";
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Rust.tree_sitter_language().unwrap())
+        .unwrap();
+    parser
+        .set_included_ranges(&[
+            tree_sitter::Range {
+                start_byte: 0,
+                end_byte: 3,
+                start_point: tree_sitter::Point::new(0, 0),
+                end_point: tree_sitter::Point::new(0, 3),
+            },
+            tree_sitter::Range {
+                start_byte: 4,
+                end_byte: source.len(),
+                start_point: tree_sitter::Point::new(0, 4),
+                end_point: tree_sitter::Point::new(1, 9),
+            },
+        ])
+        .unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    let index = collect(
+        LANG::Rust,
+        &tree,
+        source,
+        &DocumentationContext::default(),
+        &DocumentationOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(index.documents().len(), 0);
+    let function = tree.root_node().named_child(1).unwrap();
+    assert_eq!(function.kind(), "function_item");
+    let query = index.node_associations(function).unwrap();
+    assert!(
+        query
+            .assessments()
+            .any(|assessment| assessment.get().axis == AssessmentAxis::Occurrence)
+    );
+}

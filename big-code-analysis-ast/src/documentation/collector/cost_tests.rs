@@ -84,3 +84,85 @@ fn pending_scope_relations_are_shared_instead_of_copied_per_owner() {
     assert_eq!(query.associations().count(), 0);
     assert_eq!(query.assessments().count(), 2);
 }
+
+#[cfg(feature = "java")]
+#[test]
+fn java_undocumented_registry_charges_actual_memo_queries() {
+    for size in [16, 32, 64] {
+        let source = format!(
+            "{}void f() {{}}{}",
+            "class C {".repeat(size),
+            "}".repeat(size)
+        );
+        let parser = AnyParser::parse(LANG::Java, source.into_bytes(), None, None).unwrap();
+        let nodes = parser.root_node().preorder().count();
+        let before = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let after = observations();
+        assert_eq!(index.facts().owners().len(), size + 2);
+        assert_eq!(
+            after.target_computations - before.target_computations,
+            nodes - 1
+        );
+        assert_eq!(after.memo_probes - before.memo_probes, nodes - 1);
+        assert_eq!(after.field_lookups - before.field_lookups, 0);
+        assert_eq!(after.fold_slot_probes - before.fold_slot_probes, 0);
+    }
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn hidden_declarator_fields_are_read_once_per_child_batch() {
+    for size in [16, 32, 64] {
+        let source = format!("/**audit*/\nint a{};", "[1]".repeat(size));
+        let parser = AnyParser::parse(LANG::C, source.into_bytes(), None, None).unwrap();
+        let before = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let after = observations();
+        // Each array declarator has four children; the declaration has three.
+        assert_eq!(after.field_requests - before.field_requests, size * 4 + 3);
+        assert_eq!(index.associations().len(), 1);
+        assert_eq!(after.renders - before.renders, 1);
+    }
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn late_owner_queries_never_scan_other_owners_or_empty_ancestor_scopes() {
+    for size in [16, 32, 64] {
+        let source = format!(
+            "#![doc(hidden)]\n{}///audit\nfn last() {{}}",
+            "fn f() {}\n".repeat(size)
+        );
+        let parser = AnyParser::parse(LANG::Rust, source.into_bytes(), None, None).unwrap();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let node = parser.root_node().children().last().unwrap();
+        let before = observations();
+        let query = index.node_associations(node.as_tree_sitter()).unwrap();
+        assert_eq!(query.associations().len(), 1);
+        assert_eq!(query.assessments().count(), 2);
+        let after = observations();
+        assert_eq!(after.identity_probes - before.identity_probes, 1);
+        assert_eq!(
+            after.assessment_scope_reads - before.assessment_scope_reads,
+            4
+        );
+        assert_eq!(after.renders - before.renders, 0);
+        assert_eq!(after.field_lookups - before.field_lookups, 0);
+    }
+}

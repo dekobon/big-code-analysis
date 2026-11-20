@@ -12,7 +12,9 @@ fn main() {
     let options = DocumentationOptions::default();
     for size in [256, 512, 1024] {
         cold(&mut criterion, size, &context, options);
+        secondary(&mut criterion, size, &context, options);
         prepared(&mut criterion, size, &context, options);
+        late_owner(&mut criterion, size, &context, options);
         included_ranges(&mut criterion, size, &context, options);
     }
     criterion.final_summary();
@@ -142,6 +144,120 @@ fn cold(
             });
         });
     }
+    group.finish();
+}
+
+fn secondary(
+    criterion: &mut Criterion,
+    size: usize,
+    context: &DocumentationContext,
+    options: DocumentationOptions,
+) {
+    let slots = (0..size)
+        .map(|at| format!("v{at}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let workloads = [
+        (
+            "single-line-php",
+            LANG::Php,
+            format!("<?php\n/** {}*/\nfunction f() {{}}", "audit ".repeat(size)),
+        ),
+        (
+            "single-line-ruby",
+            LANG::Ruby,
+            format!("# {}\ndef f\nend", "audit ".repeat(size)),
+        ),
+        (
+            "single-line-doxygen",
+            LANG::Cpp,
+            format!("/**{}*/\nvoid f() {{}}", "audit ".repeat(size)),
+        ),
+        (
+            "text-fixed-fanout",
+            LANG::C,
+            format!("/**{}*/\nint a,b;", "audit ".repeat(size)),
+        ),
+        (
+            "fanout-fixed-text",
+            LANG::C,
+            format!("/**{}*/\nint {slots};", "audit ".repeat(1024)),
+        ),
+        (
+            "hidden-fields",
+            LANG::C,
+            format!("/**audit*/\nint a{};", "[1]".repeat(size)),
+        ),
+        (
+            "ruby-modifiers",
+            LANG::Ruby,
+            format!("# audit\ndef f; end{}", " if true".repeat(size)),
+        ),
+        (
+            "java-undocumented",
+            LANG::Java,
+            format!(
+                "{}void f() {{}}{}",
+                "class C {".repeat(size),
+                "}".repeat(size)
+            ),
+        ),
+        (
+            "pending-scope",
+            LANG::Rust,
+            format!("#![doc(hidden)]\n{}", "fn f() {}\n".repeat(size)),
+        ),
+    ];
+    let mut group = criterion.benchmark_group("documentation/secondary");
+    for (name, language, source) in workloads {
+        let parser = AnyParser::parse(language, source.into_bytes(), None, None)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        group.bench_with_input(BenchmarkId::new(name, size), &parser, |bencher, parser| {
+            bencher.iter(|| {
+                black_box(
+                    parser
+                        .documentation(context, &options)
+                        .unwrap_or_else(|error| panic!("{name}: {error:?}")),
+                )
+            });
+        });
+    }
+    group.finish();
+}
+
+fn late_owner(
+    criterion: &mut Criterion,
+    size: usize,
+    context: &DocumentationContext,
+    options: DocumentationOptions,
+) {
+    let parser = AnyParser::parse(
+        LANG::Rust,
+        "///audit\nfn f() {}\n".repeat(size).into_bytes(),
+        None,
+        None,
+    )
+    .unwrap_or_else(|error| panic!("parse: {error}"));
+    let index = parser
+        .documentation(context, &options)
+        .unwrap_or_else(|error| panic!("collect: {error:?}"));
+    let node = parser
+        .root_node()
+        .children()
+        .last()
+        .unwrap_or_else(|| panic!("last function"));
+    let mut group = criterion.benchmark_group("documentation/prepared");
+    group.bench_function(BenchmarkId::new("late-owner", size), |bencher| {
+        bencher.iter(|| {
+            black_box(
+                index
+                    .node_associations(node.as_tree_sitter())
+                    .unwrap_or_else(|error| panic!("owner: {error:?}"))
+                    .associations()
+                    .count(),
+            )
+        });
+    });
     group.finish();
 }
 

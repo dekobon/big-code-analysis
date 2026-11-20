@@ -179,3 +179,88 @@ fn doxygen_file_gathering_is_one_document_and_page_remains_pending() {
         }
     }
 }
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn incomplete_declarators(language: LANG) {
+    for source in [
+        "/**audit*/\nint a, (*callback)(void);",
+        "/**audit*/\nint (*only)(void);",
+        "/**audit*/\nint a, f(void);",
+    ] {
+        let parser = AnyParser::parse(language, source.as_bytes().to_vec(), None, None).unwrap();
+        assert!(!parser.root_node().has_error());
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let declaration = parser.root_node().children().last().unwrap();
+        assert!(
+            index
+                .node_associations(declaration.as_tree_sitter())
+                .unwrap()
+                .projection_pending(),
+            "{source}"
+        );
+        assert_eq!(index.associations().len(), 0, "{source}");
+        assert_eq!(
+            index.facts().owners().len(),
+            1,
+            "only the file owner is established"
+        );
+        let document = index.documents().next().unwrap();
+        assert_eq!(
+            index.complete_text(document).unwrap().unwrap().text(),
+            "audit"
+        );
+        assert!(
+            index
+                .assessments()
+                .any(|assessment| index.assessed_document(assessment).unwrap() == Some(document))
+        );
+    }
+    for source in [
+        "void f(void);\n/**lead*/\n/**@fn void f(void)*/",
+        "void f(void) {}\n/**lead*/\n/**@fn void f(void)*/",
+    ] {
+        let parser = AnyParser::parse(language, source.as_bytes().to_vec(), None, None).unwrap();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(index.documents().len(), 1);
+        let document = index.documents().next().unwrap();
+        assert_eq!(document.get().fragment_count(), 2);
+        assert_eq!(
+            index.complete_text(document).unwrap().unwrap().text(),
+            "lead\n@fn void f(void)"
+        );
+        let association = index.associations().next().unwrap();
+        assert_eq!(association.get().resolution, Resolution::Resolved);
+        assert_eq!(association.get().owner_count(), 1);
+    }
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_incomplete_declarators_and_gathered_names() {
+    incomplete_declarators(LANG::C);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_incomplete_declarators_and_gathered_names() {
+    incomplete_declarators(LANG::Cpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_incomplete_declarators_and_gathered_names() {
+    incomplete_declarators(LANG::Mozcpp);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_incomplete_declarators_and_gathered_names() {
+    incomplete_declarators(LANG::Objc);
+}

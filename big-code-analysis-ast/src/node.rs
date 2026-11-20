@@ -13,6 +13,8 @@
 //! Tree-sitter wrappers: `Tree`, [`Node`], [`Ancestors`], and the cursors.
 
 mod ancestors;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use ancestors::{memo_probes, sibling_slot_probes};
 mod parser_cache;
 
 pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
@@ -491,6 +493,7 @@ impl<'a> Node<'a> {
     /// [`children`]: Self::children
     #[inline]
     pub fn child_by_field_name(&self, name: &str) -> Option<Node<'a>> {
+        field_lookups::record();
         self.0.child_by_field_name(name).map(Node)
     }
 
@@ -506,6 +509,7 @@ impl<'a> Node<'a> {
     #[doc(hidden)]
     #[inline]
     pub fn child_by_field_id(&self, field: u16) -> Option<Node<'a>> {
+        field_lookups::record();
         self.0.child_by_field_id(field).map(Node)
     }
 
@@ -543,6 +547,7 @@ impl<'a> Node<'a> {
     #[inline]
     #[must_use]
     pub fn child(&self, pos: usize) -> Option<Node<'a>> {
+        child_lookups::record();
         self.0.child(pos as u32).map(Node)
     }
 
@@ -780,6 +785,9 @@ impl<'a> Node<'a> {
             .collect()
     }
 }
+
+crate::observation::counter!(field_lookups, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(child_lookups, cfg(any(test, feature = "test-support")));
 
 /// Pre-order iterator over a node and its descendants, returned by
 /// [`Node::preorder`].

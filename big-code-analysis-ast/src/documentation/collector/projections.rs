@@ -10,6 +10,15 @@ impl Builder<'_> {
     ) -> Result<(), CollectionError> {
         budget.step()?;
         let node = self.index.canonical.nodes[id.0].evidence.node();
+        if node.has_error()
+            || node.is_missing()
+            || !self
+                .index
+                .source
+                .covers_with_budget(node.byte_range(), budget)?
+        {
+            return Ok(());
+        }
         if self.index.profile == Profile::Doxygen && node.kind() == "function_definition" {
             self.index_function_definition(id, budget)?;
         }
@@ -100,33 +109,34 @@ impl Builder<'_> {
     }
 
     fn c_slots(&mut self, id: NodeId, budget: &CollectionBudget) -> Result<(), CollectionError> {
-        let enclosing = OwnerId(self.index.facts.owners.len());
-        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
-        let mut slots = Vec::new();
         let mut work = Vec::new();
         for &child in
             &self.index.canonical.children[self.index.canonical.nodes[id.0].children.clone()]
         {
             budget.step()?;
             if self.index.canonical.nodes[child.0].field == Some("declarator") {
-                work.push(child);
+                let Some(declared) = self.declared_name(child, budget)? else {
+                    return Ok(());
+                };
+                work.push(declared);
             }
         }
+        if work.is_empty() {
+            return Ok(());
+        }
         if work.len() > 1 {
-            for &child in &work {
-                if self
-                    .declared_name(child, budget)?
-                    .is_some_and(|(_, function)| function)
-                {
-                    self.index.canonical.nodes[id.0].projection = Projection::Pending;
+            for &(_, function) in &work {
+                budget.step()?;
+                if function {
                     return Ok(());
                 }
             }
         }
-        for child in work {
-            let Some((name, function)) = self.declared_name(child, budget)? else {
-                continue;
-            };
+        let enclosing = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        let mut slots = Vec::new();
+        for (name, function) in work {
+            budget.step()?;
             let node = self.index.canonical.nodes[name.0].evidence.node();
             if function {
                 slots.push(enclosing);
@@ -159,11 +169,7 @@ impl Builder<'_> {
                 slots.push(slot);
             }
         }
-        self.index.canonical.nodes[id.0].projection = if slots.is_empty() {
-            Projection::Pending
-        } else {
-            Projection::Ready(slots)
-        };
+        self.index.canonical.nodes[id.0].projection = Projection::Ready(slots);
         Ok(())
     }
 

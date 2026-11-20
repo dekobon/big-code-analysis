@@ -762,6 +762,7 @@ pub(crate) struct NodeMemo(RefCell<HashMap<usize, bool>>);
 impl NodeMemo {
     /// The stored answer for `node`, if any.
     pub(crate) fn get(&self, node: &Node<'_>) -> Option<bool> {
+        memo_probes::record();
         self.0.borrow().get(&node.id()).copied()
     }
 
@@ -842,6 +843,7 @@ impl FoldCache {
 // crate's tests through `test-support`, since most walks that lend the
 // cache live there.
 crate::observation::counter!(fold_steps, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(memo_probes, cfg(any(test, feature = "test-support")));
 
 // Stored states a memoised fold compares against the chain to find where
 // to resume. `fold_steps` cannot see a search that reads more slots than

@@ -8,6 +8,8 @@ use super::{
     UnavailableReason,
 };
 
+#[allow(dead_code)]
+pub(super) mod cleanup;
 pub(super) mod comments;
 #[allow(dead_code)]
 pub(super) mod literals;

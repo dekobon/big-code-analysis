@@ -24,6 +24,15 @@ pub(super) fn assess<'s, B: super::budget::WorkBudget>(
         ));
     }
     let bytes = &source.bytes()[node.start_byte()..node.end_byte()];
+    if profile == Profile::Groovydoc
+        && bytes.starts_with(b"/**")
+        && let Some(next) = ancestors.siblings_after_with_budget(node, budget)?.next()
+        && next.start_row() == node.end_row()
+    {
+        return Ok(CommentAssessment::Pending(
+            "Groovydoc same-row declaration placement awaits source selection",
+        ));
+    }
     Ok(match profile {
         Profile::Rust if matches!(parent, Some("ordered_field_declaration_list")) => {
             CommentAssessment::Pending(
@@ -103,9 +112,14 @@ pub(super) fn owner_pending(
                     "field_declaration" | "enum_variant" | "associated_type"
                 )
         }
+        Profile::Javadoc => matches!(node.kind(), "field_declaration" | "constant_declaration"),
+        Profile::Groovydoc => matches!(node.kind(), "field_declaration"),
+        Profile::CsharpXml => {
+            matches!(node.kind(), "field_declaration" | "event_field_declaration")
+        }
         Profile::Kdoc => matches!(
             node.kind(),
-            "class_parameter" | "parameter" | "primary_constructor"
+            "class_parameter" | "parameter" | "primary_constructor" | "property_declaration"
         ),
         Profile::BcaPhpSource => matches!(
             node.kind(),
@@ -113,11 +127,33 @@ pub(super) fn owner_pending(
                 | "simple_parameter"
                 | "variadic_parameter"
                 | "expression_statement"
+                | "property_declaration"
+                | "const_declaration"
         ),
         Profile::GoDoc => matches!(
             node.kind(),
             "field_declaration" | "method_elem" | "type_elem"
         ),
+        Profile::Yard => matches!(node.kind(), "call" | "assignment" | "alias"),
+        Profile::Ldoc => matches!(
+            node.kind(),
+            "assignment_statement" | "variable_declaration" | "return_statement" | "field"
+        ),
+        _ => false,
+    }
+}
+
+pub(super) fn slot_candidate(profile: Profile, kind: &str) -> bool {
+    match profile {
+        Profile::Kdoc => matches!(
+            kind,
+            "class_parameter" | "parameter" | "primary_constructor"
+        ),
+        Profile::BcaPhpSource => matches!(
+            kind,
+            "property_promotion_parameter" | "simple_parameter" | "variadic_parameter"
+        ),
+        Profile::BcaTypescriptSource => matches!(kind, "required_parameter" | "optional_parameter"),
         _ => false,
     }
 }
