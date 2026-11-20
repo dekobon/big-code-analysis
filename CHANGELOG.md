@@ -30,6 +30,9 @@ for historical reference.
   owner queries, explicit pending-adapter assessments, and retained local text and
   forward-origin views. Basic comment paths cover the 17 streamed language
   variants; deferred source adapters return an explicit availability error.
+  Source recognition uses fallible work-budget kernels shared with legacy
+  wrappers. Kotlin local KDoc retains complete text with pending owner evidence;
+  Java prelexing limitations retain separately labeled source-cleaned spelling.
   (#1660, #1661)
 
 - Added unstable AST positional-run evidence for Go, Ruby and Lua, including

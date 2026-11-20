@@ -2,7 +2,8 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::ruby::{YardScope, ruby_source_yard_reads, ruby_yard_reads};
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::lang_helpers::ruby::YardScope;
 
 /// The statement a comment run directly above `node` documents: `node`
 /// itself, or the statement a wrapper stands for. A statement modifier
@@ -25,22 +26,29 @@ use crate::lang_helpers::ruby::{YardScope, ruby_source_yard_reads, ruby_yard_rea
 /// was an `O(depth)` copy before #1805, which a documented statement at
 /// each nesting level made quadratic (`loc/ruby-nested-doc-constants`);
 /// it is one small allocation now.
-fn ruby_documented_core<'a, 'c>(
+fn ruby_documented_core<'a, 'c, B: WorkBudget>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, 'c>,
-) -> Option<(Node<'a>, Option<ChildAncestors<'a, 'c>>)> {
+    budget: &B,
+    mut visit: impl FnMut(Node<'a>),
+) -> Result<Option<(Node<'a>, Option<ChildAncestors<'a, 'c>>)>, B::Error> {
     let mut node = *node;
     let mut chain: Option<ChildAncestors<'a, 'c>> = None;
     loop {
+        budget.step()?;
+        visit(node);
         let inner = match node.kind_id().into() {
             // role-bypass: allow(Branch) — the modifier's body is the
             // documented item; doc attachment, not membership
             // The `?`s are defensive: the grammar requires a modifier's
             // `body`, and an empty body is no node at all rather than an
             // empty wrapper, so neither arm's `None` has a spelling.
-            Ruby::IfModifier | Ruby::UnlessModifier => node.child_by_field_name("body")?,
-            Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0)?,
-            _ => return Some((node, chain)),
+            Ruby::IfModifier | Ruby::UnlessModifier => node.child_by_field_name("body"),
+            Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0),
+            _ => return Ok(Some((node, chain))),
+        };
+        let Some(inner) = inner else {
+            return Ok(None);
         };
         match &mut chain {
             Some(chain) => chain.descend(&node),
@@ -53,9 +61,27 @@ fn ruby_documented_core<'a, 'c>(
 /// The first statement of a `then` wrapper (`Then`, 243 — `Then2`, 55, is
 /// the keyword token, never a wrapper), or `None` for any other node.
 fn ruby_then_first_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    (node.kind_id() == Ruby::Then)
-        .then(|| node.children().find(Node::is_named))
-        .flatten()
+    infallible(ruby_then_with_budget(node, &NoBudget))
+}
+
+pub(crate) fn start_row_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<usize, B::Error> {
+    Ok(ruby_then_with_budget(node, budget)?
+        .unwrap_or(*node)
+        .start_row())
+}
+
+fn ruby_then_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    budget: &B,
+) -> Result<Option<Node<'a>>, B::Error> {
+    if node.kind_id() == Ruby::Then {
+        crate::documentation::budget::child(node, Node::is_named, budget)
+    } else {
+        Ok(None)
+    }
 }
 
 fn ruby_doc_target<'a>(
@@ -64,23 +90,137 @@ fn ruby_doc_target<'a>(
     ancestors: Ancestors<'a, '_>,
     source: bool,
 ) -> bool {
-    let (statement, chain) = match ruby_then_first_statement(node) {
+    infallible(ruby_doc_target_with_budget(
+        node, code, ancestors, source, &NoBudget,
+    ))
+}
+
+#[allow(clippy::similar_names)]
+pub(crate) fn ruby_doc_target_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let (target, namespace) = ruby_core_answer(node, code, ancestors, source, budget)?;
+    Ok(target
+        && crate::lang_helpers::ruby::yard_reads_with_budget(
+            if namespace {
+                YardScope::Namespace
+            } else {
+                YardScope::DefBody
+            },
+            node,
+            ancestors,
+            source,
+            budget,
+        )?)
+}
+
+#[allow(clippy::similar_names)]
+fn ruby_core_answer<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+    budget: &B,
+) -> Result<(bool, bool), B::Error> {
+    use crate::node::MemoQuestion;
+    let target_memo = source
+        .then(|| ancestors.node_memo(MemoQuestion::DocCoreTarget))
+        .flatten();
+    let namespace_memo = source
+        .then(|| ancestors.node_memo(MemoQuestion::DocCoreNamespace))
+        .flatten();
+    if let Some(target) = target_memo.and_then(|memo| memo.get(node)) {
+        return Ok((
+            target,
+            namespace_memo
+                .and_then(|memo| memo.get(node))
+                .unwrap_or(false),
+        ));
+    }
+    let (statement, chain) = match ruby_then_with_budget(node, budget)? {
         Some(first) => (first, Some(ancestors.of_children(node))),
         None => (*node, None),
     };
     let statement_chain = chain.as_ref().map_or(ancestors, ChildAncestors::get);
-    ruby_documented_core(&statement, statement_chain).is_some_and(|(core, core_chain)| {
-        let core_chain = core_chain
-            .as_ref()
-            .map_or(statement_chain, ChildAncestors::get);
-        let reads = if source {
-            ruby_source_yard_reads
-        } else {
-            ruby_yard_reads
-        };
+    let mut wrappers = Vec::new();
+    let Some((core, core_chain)) =
+        ruby_documented_core(&statement, statement_chain, budget, |node| {
+            if source {
+                wrappers.push(node);
+            }
+        })?
+    else {
+        return Ok((false, false));
+    };
+    let core_chain = core_chain
+        .as_ref()
+        .map_or(statement_chain, ChildAncestors::get);
+    let target = if crate::roles::ruby::call::lists_kind(core.kind_id()) {
+        crate::lang_helpers::ruby::ruby_documented_call_with_budget(&core, code, budget)?
+    } else {
         crate::roles::ruby::doc_target::owns(&core, code, core_chain)
-            && reads(YardScope::of(&core), node, ancestors)
-    })
+    };
+    let namespace = matches!(YardScope::of(&core), YardScope::Namespace);
+    if let Some(memo) = target_memo {
+        memo.set(node, target);
+    }
+    if let Some(memo) = namespace_memo {
+        memo.set(node, namespace);
+    }
+    for wrapper in wrappers {
+        budget.step()?;
+        if let Some(memo) = target_memo {
+            memo.set(&wrapper, target);
+        }
+        if let Some(memo) = namespace_memo {
+            memo.set(&wrapper, namespace);
+        }
+    }
+    Ok((target, namespace))
+}
+
+pub(crate) fn source_opener_with_budget<'a, B: WorkBudget>(
+    run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<Option<crate::documentation::streaming::positional::OpenerReason>, B::Error> {
+    let Some(first) = run.members.first() else {
+        return Ok(None);
+    };
+    let mut opens = crate::lang_helpers::doc_text::ruby_directive_opener_with_budget(
+        crate::lang_helpers::doc_comment::node_bytes(first, run.code),
+        budget,
+    )? && crate::lang_helpers::ruby::yard_reads_with_budget(
+        YardScope::Namespace,
+        first,
+        ancestors,
+        false,
+        budget,
+    )?;
+    if !opens {
+        for member in run.members.iter().skip(1) {
+            budget.step()?;
+            if crate::lang_helpers::ruby::source_yard_directive_with_budget(
+                member, run.code, budget,
+            )? {
+                opens = true;
+                break;
+            }
+        }
+    }
+    Ok((opens
+        && crate::lang_helpers::ruby::yard_reads_with_budget(
+            YardScope::Namespace,
+            first,
+            ancestors,
+            true,
+            budget,
+        )?)
+    .then_some(crate::documentation::streaming::positional::OpenerReason::Explicit))
 }
 
 impl Checker for RubyCode {
@@ -102,17 +242,9 @@ impl Checker for RubyCode {
         Option<crate::documentation::streaming::positional::OpenerReason>,
         crate::documentation::UnresolvedReason,
     > {
-        Ok(run
-            .members
-            .first()
-            .filter(|first| {
-                (crate::roles::ruby::doc_run_opener::owns(first, run.code, ancestors)
-                    || run.members.iter().skip(1).any(|member| {
-                        crate::lang_helpers::ruby::source_yard_directive(member, run.code)
-                    }))
-                    && ruby_source_yard_reads(YardScope::Namespace, first, ancestors)
-            })
-            .map(|_| crate::documentation::streaming::positional::OpenerReason::Explicit))
+        Ok(infallible(source_opener_with_budget(
+            run, ancestors, &NoBudget,
+        )))
     }
     // The `Comment` row of `roles/ruby.rs` (#1699); no `DocComment`.
     impl_comment_from_rows!(ruby);
@@ -240,7 +372,12 @@ mod tests {
                 None => (*node, None),
             };
             let statement_chain = then_chain.as_ref().map_or(ancestors, ChildAncestors::get);
-            let Some((core, core_chain)) = ruby_documented_core(&statement, statement_chain) else {
+            let Some((core, core_chain)) = infallible(ruby_documented_core(
+                &statement,
+                statement_chain,
+                &NoBudget,
+                |_| {},
+            )) else {
                 return;
             };
             let asked = core_chain

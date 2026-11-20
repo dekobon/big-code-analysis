@@ -25,6 +25,9 @@
 //! comments they accept document, and what, is the binding walk's
 //! question in [`super::doc_comment`] (#1649).
 
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::byte_scan as scan;
+
 /// `/**` opened by a byte that is neither `*` nor `/`: the Javadoc /
 /// JSDoc / Doxygen block form. Rejects the empty `/**/` and the banner
 /// `/***`, as JSDoc ("more than 3 stars will be ignored"), Doxygen
@@ -101,10 +104,10 @@ pub(crate) fn csharp_doc(s: &[u8]) -> bool {
 
 /// A doc comment's line with the delimiters JSDoc's `unwrap` strips: the
 /// indent, one leading `*` and the space after it.
-fn jsdoc_line(line: &[u8]) -> &[u8] {
-    let line = line.trim_ascii_start();
+fn jsdoc_line<'s, B: WorkBudget>(line: &'s [u8], budget: &B) -> Result<&'s [u8], B::Error> {
+    let line = scan::trim_start(line, budget)?;
     let line = line.strip_prefix(b"*").unwrap_or(line);
-    line.strip_prefix(b" ").unwrap_or(line)
+    Ok(line.strip_prefix(b" ").unwrap_or(line))
 }
 
 /// The lines of a `/** … */` body, delimiters and the extra stars at
@@ -112,48 +115,66 @@ fn jsdoc_line(line: &[u8]) -> &[u8] {
 /// ([`jsdoc_line`]). `Clone`, so a tag's text — every line up to the next
 /// tag, as JSDoc's `toTags` reads it — can be read in place from the line
 /// that opened it.
-fn jsdoc_lines(s: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
+fn jsdoc_lines<'s, 'b, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &'b B,
+) -> Result<impl Iterator<Item = Result<&'s [u8], B::Error>> + Clone + use<'s, 'b, B>, B::Error> {
     let body = s.strip_prefix(b"/**").unwrap_or(s);
     let body = body.strip_suffix(b"*/").unwrap_or(body);
-    let start = body.iter().position(|&b| b != b'*').unwrap_or(body.len());
-    let end = body
-        .iter()
-        .rposition(|&b| b != b'*')
-        .map_or(start, |at| at + 1);
-    body[start..end].split(|&b| b == b'\n').map(jsdoc_line)
+    let start = scan::position(body, |b| b != b'*', budget)?.unwrap_or(body.len());
+    let end = scan::rposition(body, |b| b != b'*', budget)?.map_or(start, |at| at + 1);
+    Ok(scan::lines(&body[start..end], budget).map(move |line| jsdoc_line(line?, budget)))
 }
 
 /// The `(title, text)` a line opens when it starts a tag.
-fn jsdoc_tag_open(line: &[u8]) -> Option<(&[u8], &[u8])> {
-    let tag = line.trim_ascii_start().strip_prefix(b"@")?;
-    let title = tag.iter().take_while(|b| !b.is_ascii_whitespace()).count();
-    (title > 0).then(|| tag.split_at(title))
+#[allow(clippy::type_complexity)]
+fn jsdoc_tag_open<'s, B: WorkBudget>(
+    line: &'s [u8],
+    budget: &B,
+) -> Result<Option<(&'s [u8], &'s [u8])>, B::Error> {
+    let Some(tag) = scan::trim_start(line, budget)?.strip_prefix(b"@") else {
+        return Ok(None);
+    };
+    let title =
+        scan::position(tag, |byte| byte.is_ascii_whitespace(), budget)?.unwrap_or(tag.len());
+    Ok((title > 0).then(|| tag.split_at(title)))
 }
 
 /// Whether a JSDoc tag's text names a symbol: anything left once the
 /// `{type}` that may lead it is set aside.
-fn jsdoc_names<'a>(lines: impl IntoIterator<Item = &'a [u8]>) -> bool {
+fn jsdoc_names<'a, B: WorkBudget>(
+    lines: impl IntoIterator<Item = Result<&'a [u8], B::Error>>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // The lines joined, read once without joining them: a `{type}` is
     // skipped by brace depth, and anything non-blank after it names.
-    let mut bytes = lines
-        .into_iter()
-        .flat_map(|line| line.iter().copied())
-        .skip_while(u8::is_ascii_whitespace)
-        .peekable();
-    if bytes.peek() == Some(&b'{') {
-        let mut depth = 0_usize;
-        for b in bytes.by_ref() {
-            match b {
-                b'{' => depth += 1,
-                b'}' => depth -= 1,
-                _ => {}
+    let mut leading = true;
+    let mut depth = 0_usize;
+    for line in lines {
+        for &byte in line? {
+            budget.bytes(1)?;
+            if leading && byte.is_ascii_whitespace() {
+                continue;
             }
-            if depth == 0 {
-                break;
+            if leading {
+                leading = false;
+                if byte == b'{' {
+                    depth = 1;
+                    continue;
+                }
+            }
+            if depth > 0 {
+                match byte {
+                    b'{' => depth += 1,
+                    b'}' => depth -= 1,
+                    _ => {}
+                }
+            } else if !byte.is_ascii_whitespace() {
+                return Ok(true);
             }
         }
     }
-    bytes.any(|b| !b.is_ascii_whitespace())
+    Ok(false)
 }
 
 /// A JSDoc *virtual* comment, which stands alone: it documents the symbol
@@ -165,6 +186,13 @@ fn jsdoc_names<'a>(lines: impl IntoIterator<Item = &'a [u8]>) -> bool {
 /// Titles match in any case, as the tag dictionary's `normalize` does.
 #[must_use]
 pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
+    infallible(jsdoc_virtual_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn jsdoc_virtual_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     const ALWAYS: [&[u8]; 4] = [b"file", b"fileoverview", b"overview", b"module"];
     const NAMING: [&[u8]; 18] = [
         b"name",
@@ -187,29 +215,56 @@ pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
         b"callback",
     ];
     let is = |title: &[u8], names: &[&[u8]]| names.iter().any(|n| title.eq_ignore_ascii_case(n));
-    let mut lines = jsdoc_lines(s);
+    let mut lines = jsdoc_lines(s, budget)?;
     while let Some(line) = lines.next() {
-        let Some((title, text)) = jsdoc_tag_open(line) else {
+        budget.step()?;
+        let Some((title, text)) = jsdoc_tag_open(line?, budget)? else {
             continue;
         };
         if is(title, &ALWAYS) {
-            return true;
+            return Ok(true);
         }
         // The tag's text runs over every line up to the next tag.
-        let rest = lines.clone().take_while(|l| jsdoc_tag_open(l).is_none());
-        if is(title, &NAMING) && jsdoc_names(std::iter::once(text).chain(rest)) {
-            return true;
+        if is(title, &NAMING) {
+            let mut ended = false;
+            let rest = lines.clone().scan(&mut ended, |ended, line| {
+                if **ended {
+                    return None;
+                }
+                match line.and_then(|line| Ok((line, jsdoc_tag_open(line, budget)?.is_some()))) {
+                    Ok((_, true)) => {
+                        **ended = true;
+                        None
+                    }
+                    Ok((line, false)) => Some(Ok(line)),
+                    Err(error) => {
+                        **ended = true;
+                        Some(Err(error))
+                    }
+                }
+            });
+            if jsdoc_names(std::iter::once(Ok(text)).chain(rest), budget)? {
+                return Ok(true);
+            }
         }
     }
-    false
+    Ok(false)
 }
 
-pub(crate) fn jsdoc_file(s: &[u8]) -> bool {
-    jsdoc_lines(s).filter_map(jsdoc_tag_open).any(|(title, _)| {
-        [b"file".as_slice(), b"fileoverview", b"overview", b"module"]
-            .iter()
-            .any(|name| title.eq_ignore_ascii_case(name))
-    })
+pub(crate) fn jsdoc_file_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for line in jsdoc_lines(s, budget)? {
+        if let Some((title, _)) = jsdoc_tag_open(line?, budget)?
+            && [b"file".as_slice(), b"fileoverview", b"overview", b"module"]
+                .iter()
+                .any(|name| title.eq_ignore_ascii_case(name))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A TypeDoc module comment: one carrying `@module` or
@@ -217,9 +272,21 @@ pub(crate) fn jsdoc_file(s: &[u8]) -> bool {
 /// declaration and reads as the file's documentation (#1613).
 #[must_use]
 pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
-    jsdoc_lines(s)
-        .filter_map(jsdoc_tag_open)
-        .any(|(title, _)| title == b"module" || title == b"packageDocumentation")
+    infallible(tsdoc_module_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn tsdoc_module_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for line in jsdoc_lines(s, budget)? {
+        if let Some((title, _)) = jsdoc_tag_open(line?, budget)?
+            && (title == b"module" || title == b"packageDocumentation")
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A go/doc directive line, part of a lead comment group but not of
@@ -228,21 +295,30 @@ pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
 /// `//[a-z0-9]+:[a-z0-9]` form. A directive has no space after `//`.
 #[must_use]
 pub(crate) fn go_directive(s: &[u8]) -> bool {
+    infallible(go_directive_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn go_directive_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     let Some(rest) = s.strip_prefix(b"//") else {
-        return false;
+        return Ok(false);
     };
     if rest.starts_with(b"line ") || rest.starts_with(b"extern ") || rest.starts_with(b"export ") {
-        return true;
+        return Ok(true);
     }
-    let word = rest
-        .iter()
-        .take_while(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-        .count();
-    word > 0
+    let word = scan::position(
+        rest,
+        |b| !b.is_ascii_lowercase() && !b.is_ascii_digit(),
+        budget,
+    )?
+    .unwrap_or(rest.len());
+    Ok(word > 0
         && rest.get(word) == Some(&b':')
         && rest
             .get(word.saturating_add(1))
-            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
 /// A Ruby comment that opens a documentation block whatever follows it:
@@ -254,14 +330,21 @@ pub(crate) fn go_directive(s: &[u8]) -> bool {
 /// `####…` banner or a `##### Helpers #####` divider opens nothing.
 #[must_use]
 pub(crate) fn ruby_directive_opener(s: &[u8]) -> bool {
+    infallible(ruby_directive_opener_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn ruby_directive_opener_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     if s.starts_with(b"##") && s.get(2) != Some(&b'#') {
-        return true;
+        return Ok(true);
     }
-    s.strip_prefix(b"#").is_some_and(|rest| {
-        rest.iter()
-            .position(|b| *b != b' ' && *b != b'\t')
-            .is_some_and(|at| rest[at..].starts_with(b"@!"))
-    })
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    Ok(scan::position(rest, |b| b != b' ' && b != b'\t', budget)?
+        .is_some_and(|at| rest[at..].starts_with(b"@!")))
 }
 
 /// The comment lines YARD drops before documenting: a shebang, an
@@ -276,52 +359,63 @@ pub(crate) fn ruby_directive_opener(s: &[u8]) -> bool {
 /// comment that repeats a magic line mid-file.
 #[must_use]
 pub(crate) fn ruby_magic_comment(s: &[u8]) -> bool {
-    if s.starts_with(b"#!") {
-        return true;
-    }
-    s.strip_prefix(b"#")
-        .map(<[u8]>::trim_ascii)
-        .is_some_and(|body| ruby_modeline(body) || ruby_magic_setting(body))
+    infallible(ruby_magic_comment_with_budget(s, &NoBudget))
 }
 
-fn contains_ci(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle))
+pub(crate) fn ruby_magic_comment_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if s.starts_with(b"#!") {
+        return Ok(true);
+    }
+    let Some(body) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    let body = scan::trim(body, budget)?;
+    Ok(ruby_modeline(body, budget)? || ruby_magic_setting(body, budget)?)
 }
 
 /// An Emacs (`-*- … -*-`) or Vim (`vim: …`) modeline that carries the
 /// magic setting among others: an encoding, or for Emacs the
 /// frozen-string flag. A modeline's key is never a magic one, so
 /// `ruby_magic_setting` cannot also match it.
-fn ruby_modeline(body: &[u8]) -> bool {
+fn ruby_modeline<B: WorkBudget>(body: &[u8], budget: &B) -> Result<bool, B::Error> {
     if body.len() >= 6 && body.starts_with(b"-*-") && body.ends_with(b"-*-") {
-        return contains_ci(body, b"coding") || contains_ci(body, b"frozen");
+        return Ok(scan::contains_ci(body, b"coding", budget)?
+            || scan::contains_ci(body, b"frozen", budget)?);
     }
-    body.get(..4)
+    Ok(body
+        .get(..4)
         .is_some_and(|head| head.eq_ignore_ascii_case(b"vim:"))
-        && contains_ci(body, b"coding")
+        && scan::contains_ci(body, b"coding", budget)?)
 }
 
 /// A comment that is one magic setting and nothing else: `key: value`
 /// or `key=value`, the key a magic one and the value a single word.
-fn ruby_magic_setting(body: &[u8]) -> bool {
-    let Some(separator) = body.iter().position(|b| matches!(b, b':' | b'=')) else {
-        return false;
+fn ruby_magic_setting<B: WorkBudget>(body: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let Some(separator) = scan::position(body, |b| matches!(b, b':' | b'='), budget)? else {
+        return Ok(false);
     };
     let (key, value) = body.split_at(separator);
-    let value = value.get(1..).unwrap_or_default().trim_ascii_start();
-    [
+    let value = scan::trim_start(value.get(1..).unwrap_or_default(), budget)?;
+    let key = scan::trim_end(key, budget)?;
+    let known = [
         &b"coding"[..],
         b"encoding",
         b"frozen_string_literal",
         b"frozen-string-literal",
     ]
     .iter()
-    .any(|known| key.trim_ascii_end().eq_ignore_ascii_case(known))
+    .any(|known| key.eq_ignore_ascii_case(known));
+    Ok(known
         && !value.is_empty()
-        && value
-            .iter()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && scan::position(
+            value,
+            |b| !b.is_ascii_alphanumeric() && !matches!(b, b'-' | b'_' | b'.'),
+            budget,
+        )?
+        .is_none())
 }
 
 /// A POD block that is nothing but `comment` regions — `=begin comment`
@@ -389,39 +483,50 @@ fn is_comment_format(format: &[u8]) -> bool {
 /// non-dash (`end_comment_ = '[^%-]%-%-+[^-]*\n$'` — `--- x ---` is an
 /// end marker), or a long comment whose body opens with a dash
 /// (`block_comment = '^%-%-%[=*%[%-+'`).
-#[must_use]
-pub(crate) fn ldoc_opener(s: &[u8]) -> bool {
-    if let Some(body) = lua_long_comment_body(s) {
-        return body.first() == Some(&b'-');
+pub(crate) fn ldoc_opener_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if let Some(body) = lua_long_comment_body(s, budget)? {
+        return Ok(body.first() == Some(&b'-'));
     }
-    s.starts_with(b"---") && !ldoc_end_marker(s)
+    Ok(s.starts_with(b"---") && !ldoc_end_marker(s, budget)?)
 }
 
 /// A Lua long comment, `--[[ … ]]` or a levelled `--[==[ … ]==]`, as
 /// opposed to a line comment that merely starts `--[`.
 #[must_use]
 pub(crate) fn lua_long_comment(s: &[u8]) -> bool {
-    lua_long_comment_body(s).is_some()
+    infallible(lua_long_comment_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn lua_long_comment_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(lua_long_comment_body(s, budget)?.is_some())
 }
 
 /// The text after a long comment's opening bracket, or `None` when `s`
 /// is not a long comment.
-fn lua_long_comment_body(s: &[u8]) -> Option<&[u8]> {
-    let rest = s.strip_prefix(b"--[")?;
-    let levels = rest.iter().take_while(|b| **b == b'=').count();
-    rest.get(levels..)?.strip_prefix(b"[")
+fn lua_long_comment_body<'s, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &B,
+) -> Result<Option<&'s [u8]>, B::Error> {
+    let Some(rest) = s.strip_prefix(b"--[") else {
+        return Ok(None);
+    };
+    let levels = scan::position(rest, |b| b != b'=', budget)?.unwrap_or(rest.len());
+    Ok(rest[levels..].strip_prefix(b"["))
 }
 
 /// `[^-]--+[^-]*$`: the line's final dash run has two or more dashes and
 /// something other than a dash before it.
-fn ldoc_end_marker(s: &[u8]) -> bool {
-    let trimmed = s.len() - s.iter().rev().take_while(|b| **b != b'-').count();
-    let dashes = s[..trimmed]
-        .iter()
-        .rev()
-        .take_while(|b| **b == b'-')
-        .count();
-    dashes >= 2 && trimmed > dashes
+fn ldoc_end_marker<B: WorkBudget>(s: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let trimmed = scan::rposition(s, |b| b == b'-', budget)?.map_or(0, |at| at + 1);
+    let start = scan::rposition(&s[..trimmed], |b| b != b'-', budget)?.map_or(0, |at| at + 1);
+    let dashes = trimmed - start;
+    Ok(dashes >= 2 && trimmed > dashes)
 }
 
 #[cfg(test)]

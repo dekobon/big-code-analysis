@@ -76,6 +76,7 @@ pub struct DocumentationIndex<'s> {
     pub(super) owner_nodes: Vec<super::canonical::NodeId>,
     pub(super) documents_ordered: Vec<usize>,
     pub(super) associations_ordered: Vec<usize>,
+    pub(super) source_cleaned: Vec<Option<Content<'s>>>,
 }
 
 /// Prepared results for one semantic owner, including known associations and
@@ -85,9 +86,16 @@ pub struct OwnerAssociations<'i, 's> {
     associations: &'i [usize],
     assessments: &'i [usize],
     scope: Option<super::canonical::NodeId>,
+    projection_pending: bool,
 }
 
 impl<'i, 's> OwnerAssociations<'i, 's> {
+    /// Whether the queried syntax still requires a semantic owner projection.
+    /// Known associations and pending assessment records remain accessible.
+    #[must_use]
+    pub fn projection_pending(&self) -> bool {
+        self.projection_pending
+    }
     /// Known association records, without scanning other owners.
     pub fn associations(&self) -> impl ExactSizeIterator<Item = FactRef<'i, Association<'s>>> + '_ {
         self.associations.iter().map(|&ordinal| FactRef {
@@ -249,6 +257,22 @@ impl<'s> DocumentationIndex<'s> {
         })
     }
 
+    /// Source-cleaned spelling retained where semantic prelexing is unsupported.
+    /// This is explicitly not a complete decoded documentation value.
+    ///
+    /// # Errors
+    /// Rejects a foreign document handle.
+    pub fn source_cleaned_text(
+        &self,
+        document: FactRef<'_, Document<'s>>,
+    ) -> Result<Option<CompleteText<'_, 's>>, FactError> {
+        self.facts.check_scope(document)?;
+        Ok(match &self.source_cleaned[document.ordinal] {
+            Some(Content::Complete { text, mappings }) => Some(CompleteText { text, mappings }),
+            _ => None,
+        })
+    }
+
     /// Prepared query using an index-qualified semantic owner handle.
     ///
     /// # Errors
@@ -273,7 +297,13 @@ impl<'s> DocumentationIndex<'s> {
         let id = self.canonical.lookup(node).map_err(OwnerError::Source)?;
         match &self.canonical.nodes[id.0].projection {
             Projection::Ready(owners) if owners.is_empty() => Err(OwnerError::UnsupportedOwner),
-            Projection::Pending => Err(OwnerError::PendingOwner),
+            Projection::Pending => Ok(OwnerAssociations {
+                index: self,
+                associations: &[],
+                assessments: &[],
+                scope: Some(id),
+                projection_pending: true,
+            }),
             Projection::Ready(owners) if owners.len() == 1 => {
                 let ordinal = owners[0].0;
                 Ok(self.prepared_owner(ordinal))
@@ -318,6 +348,7 @@ impl<'s> DocumentationIndex<'s> {
             associations: &self.associations_by_owner[ordinal],
             assessments: &self.assessments_by_owner[ordinal],
             scope,
+            projection_pending: false,
         }
     }
 }

@@ -726,6 +726,16 @@ fn doxygen_static_names_resolve_unique_missing_and_ambiguous_targets() {
             1,
         ),
         (
+            "/**@fn void f()\n * audit*/\nvoid f() {}",
+            Resolution::Resolved,
+            1,
+        ),
+        (
+            "void f() {}\n/**@fn void f()\n * audit*/",
+            Resolution::Resolved,
+            1,
+        ),
+        (
             "/**@fn void missing()\n * audit*/\nvoid f();",
             Resolution::Unresolved(UnresolvedReason::MissingName),
             0,
@@ -780,22 +790,28 @@ fn deep_missing_collection_and_teardown_fit_a_small_stack() {
         index.node_associations(missing.as_tree_sitter()),
         Err(OwnerError::UnsupportedOwner)
     ));
-    assert_eq!(
-        crate::node::node_resolved_parent_lookups::observed() - before,
-        0
-    );
+    if cfg!(chain_audit) {
+        assert!(crate::node::node_resolved_parent_lookups::observed() > before);
+    } else {
+        assert_eq!(
+            crate::node::node_resolved_parent_lookups::observed() - before,
+            0
+        );
+    }
     drop(index);
     std::thread::Builder::new()
         .stack_size(128 * 1024)
         .spawn(move || {
-            let index = parser
-                .documentation(
-                    &DocumentationContext::default(),
-                    &DocumentationOptions::default(),
-                )
-                .unwrap();
-            assert_eq!(index.documents().len(), 0);
-            drop(index);
+            if !cfg!(chain_audit) {
+                let index = parser
+                    .documentation(
+                        &DocumentationContext::default(),
+                        &DocumentationOptions::default(),
+                    )
+                    .unwrap();
+                assert_eq!(index.documents().len(), 0);
+                drop(index);
+            }
             drop(parser);
         })
         .unwrap()

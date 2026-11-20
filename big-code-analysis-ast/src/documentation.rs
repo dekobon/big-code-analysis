@@ -7,14 +7,17 @@
 //! All items are unstable direct-AST plumbing; no root facade is introduced.
 
 pub(crate) mod budget;
+pub(crate) mod byte_scan;
 mod canonical;
 pub(crate) mod collector;
 mod content;
+mod forms;
 mod index;
 mod names;
 mod options;
 mod ordering;
 mod owners;
+pub(crate) mod recognition;
 mod source;
 #[doc(hidden)]
 pub mod streaming;
@@ -48,6 +51,16 @@ pub struct Observations {
     pub renders: usize,
     /// Bounded source-to-text copy chunks.
     pub copy_chunks: usize,
+    /// Name bytes hashed or compared during indexed finalization.
+    pub name_bytes: usize,
+    /// Distinct name candidates compared inside hash buckets.
+    pub name_candidates: usize,
+    /// Actual source-target requests, including binding callbacks.
+    pub target_queries: usize,
+    /// Source-target cache misses that execute classification.
+    pub target_computations: usize,
+    /// Byte visits in shared classifier scans.
+    pub classifier_bytes: usize,
 }
 
 /// Read qualification counters without resetting other consumers' observations.
@@ -64,6 +77,11 @@ pub fn observations() -> Observations {
         field_requests: collector::field_requests::observed(),
         renders: text::renders::observed(),
         copy_chunks: text::copy_chunks::observed(),
+        name_bytes: names::name_bytes::observed(),
+        name_candidates: names::name_candidates::observed(),
+        target_queries: recognition::target_queries::observed(),
+        target_computations: recognition::target_computations::observed(),
+        classifier_bytes: byte_scan::bytes_read::observed(),
     }
 }
 

@@ -53,6 +53,15 @@ impl<K: Ord, B: WorkBudget> Ord for Entry<'_, K, B> {
 }
 
 pub(super) fn ordered<K: Copy + Ord, B: WorkBudget>(
+    keys: Vec<K>,
+    budget: &B,
+) -> Result<Vec<K>, B::Error> {
+    super::budget::in_phase(budget, super::budget::WorkPhase::Ordering, || {
+        sort_and_merge(keys, budget)
+    })
+}
+
+fn sort_and_merge<K: Copy + Ord, B: WorkBudget>(
     mut keys: Vec<K>,
     budget: &B,
 ) -> Result<Vec<K>, B::Error> {

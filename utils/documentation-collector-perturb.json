@@ -4,6 +4,48 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
   "cases": [
     {
+      "name": "collector-bypasses-fallible-marker-kernel",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "markers::source_comment_with_budget::<NativeRules<T>, _>(",
+      "new": "markers::source_comment_with_budget::<crate::documentation::recognition::PublicRules<T>, _>(",
+      "expect": ["documentation::collector::cancellation_tests::jsdoc_single_line_cancels_inside_virtual_classifier"]
+    },
+    {
+      "name": "collector-bypasses-fallible-positional-kernel",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "positional::source_comment_with_budget::<NativeRules<T>, _>(",
+      "new": "positional::source_comment_with_budget::<crate::documentation::recognition::PublicRules<T>, _>(",
+      "expect": ["documentation::collector::cancellation_tests::lua_single_line_cancels_inside_content_classifier"]
+    },
+    {
+      "name": "source-target-cache-disabled",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "ancestors.try_memoised(crate::node::MemoQuestion::SourceDocTarget, node, || {",
+      "new": "Ancestors::known(&[]).try_memoised(crate::node::MemoQuestion::SourceDocTarget, node, || {",
+      "expect": ["documentation::collector::cost_tests::deep_and_wide_source_walks_visit_every_node_once"]
+    },
+    {
+      "name": "kotlin-owner-pending-hides-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "let content = if attribute {",
+      "new": "let content = if attribute || draft.pending {",
+      "expect": ["documentation::collector::assessment_tests::kotlin_local_pending_owner_keeps_complete_text_and_known_leading_association"]
+    },
+    {
+      "name": "definition-name-index-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if self.index.profile == Profile::Doxygen && node.kind() == \"function_definition\" {",
+      "new": "if false && self.index.profile == Profile::Doxygen && node.kind() == \"function_definition\" {",
+      "expect": ["documentation::collector::tests::doxygen_static_names_resolve_unique_missing_and_ambiguous_targets"]
+    },
+    {
+      "name": "java-prelex-fabricates-resolved-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "draft.unresolved = Some(UnresolvedReason::GrammarBoundary);",
+      "new": "draft.unresolved = None;",
+      "expect": ["documentation::collector::assessment_tests::java_prelex_keeps_source_cleaned_evidence_and_uncertain_association"]
+    },
+    {
       "name": "raw-grammar-validation-disabled",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
       "old": "if *tree.language() != grammar {",
@@ -12,7 +54,7 @@
     },
     {
       "name": "pending-composition-becomes-empty-complete",
-      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
       "old": "let content = if attribute {\n            Content::PendingAdapter",
       "new": "let content = if attribute {\n            Content::Complete { text: String::new(), mappings: Vec::new() }",
       "expect": ["documentation::collector::tests::rust_pending_attributes_never_report_complete_partial_text"]
@@ -20,8 +62,8 @@
     {
       "name": "foreign-document-handles-accepted",
       "file": "big-code-analysis-ast/src/documentation/index.rs",
-      "old": "        self.facts.check_scope(document)?;",
-      "new": "        let _ = document;",
+      "old": "        self.facts.check_scope(document)?;\n        Ok(match &self.facts.documents[document.ordinal].content {",
+      "new": "        let _ = document;\n        Ok(match &self.facts.documents[document.ordinal].content {",
       "expect": ["documentation::collector::tests::document_handles_are_index_qualified_even_for_one_shared_parse"]
     },
     {

@@ -6,14 +6,14 @@
     {
       "name": "ruby-source-opener-leaks-call-block-scope",
       "file": "big-code-analysis-ast/src/checker/ruby.rs",
-      "old": "&& ruby_source_yard_reads(YardScope::Namespace, first, ancestors)",
-      "new": "&& ruby_yard_reads(YardScope::Namespace, first, ancestors)",
+      "old": "            ancestors,\n            true,\n            budget,\n        )?)",
+      "new": "            ancestors,\n            false,\n            budget,\n        )?)",
       "expect": ["documentation::streaming::positional::tests::ruby_yard_scope_uses_actual_wrapper_context"]
     },
     {
       "name": "lua-first-file-scan-crosses-excluded-siblings",
       "file": "big-code-analysis-ast/src/checker/lua.rs",
-      "old": "        if source.is_some_and(|source| !source.covers(sibling.start_byte()..earliest.end_byte())) {\n            return Err(crate::documentation::UnresolvedReason::ExcludedGap);\n        }\n        if source.is_some_and(|source| {\n            before\n                .peek()\n                .is_some_and(|above| !source.covers(above.start_byte()..sibling.end_byte()))\n        }) {\n            return Err(crate::documentation::UnresolvedReason::ExcludedGap);\n        }\n",
+      "old": "        if let Some(source) = source\n            && !source.covers_with_budget(sibling.start_byte()..earliest.end_byte(), budget)?\n        {\n            return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));\n        }\n        if let Some(source) = source\n            && let Some(above) = before.peek()\n            && !source.covers_with_budget(above.start_byte()..sibling.end_byte(), budget)?\n        {\n            return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));\n        }\n",
       "new": "",
       "expect": ["documentation::streaming::positional::tests::lua_gap_never_fabricates_first_file_context"]
     },
@@ -34,8 +34,8 @@
     {
       "name": "source-drop-recovered-candidate",
       "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
-      "old": ".filter(|n| T::is_source_doc_target(n, source.bytes(), ancestors));",
-      "new": ".filter(|n| !n.has_error() && T::is_source_doc_target(n, source.bytes(), ancestors));",
+      "old": "&& R::target(&node, source.bytes(), ancestors, budget)?",
+      "new": "&& !node.has_error() && R::target(&node, source.bytes(), ancestors, budget)?",
       "expect": ["documentation::streaming::positional::tests::go_missing_target_retains_uncertain_canonical_candidate"]
     },
     {
@@ -55,8 +55,8 @@
     {
       "name": "positional-final-member-deferral",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "if continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {",
-      "new": "if false && continuous && next.is_some_and(|n| run_continues_to::<T>(comment, &n, code)) {",
+      "old": "if continuous\n        && let Some(next) = next",
+      "new": "if false && continuous\n        && let Some(next) = next",
       "expect": ["documentation::streaming::positional::tests::go_completed_run_is_scanned_once", "documentation::streaming::positional::tests::ruby_completed_run_is_scanned_once", "documentation::streaming::positional::tests::lua_completed_run_is_scanned_once"]
     },
     {
@@ -76,7 +76,7 @@
     {
       "name": "lua-ordinary-comment-is-not-inference",
       "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
-      "old": "Ok(None) if T::SOURCE_POSITIONAL_TARGETS && decision.target.is_some() => {",
+      "old": "Ok(None) if R::Checker::SOURCE_POSITIONAL_TARGETS && decision.target.is_some() => {",
       "new": "Ok(None) if decision.target.is_some() => {",
       "expect": ["documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"]
     },
@@ -125,8 +125,8 @@
     {
       "name": "exhausted-positional-suffix-is-not-eof",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "!view.covers(last_examined_end..scope_end)",
-      "new": "false && !view.covers(last_examined_end..scope_end)",
+      "old": "!view.covers_with_budget(last_examined_end..scope_end, budget)?",
+      "new": "false && !view.covers_with_budget(last_examined_end..scope_end, budget)?",
       "expect": ["documentation::streaming::positional::tests::remediation::go_exhaustion_reports_unknown_suffix", "documentation::streaming::positional::tests::remediation::ruby_exhaustion_preserves_explicit_selection", "documentation::streaming::positional::tests::remediation::lua_exhaustion_preserves_known_file_and_tagged_selection"]
     },
     {
@@ -139,8 +139,8 @@
     {
       "name": "yard-later-member-is-not-first-only",
       "file": "big-code-analysis-ast/src/checker/ruby.rs",
-      "old": "|| run.members.iter().skip(1).any(|member| {",
-      "new": "|| run.members.iter().skip(1).take(0).any(|member| {",
+      "old": "for member in run.members.iter().skip(1) {",
+      "new": "for member in run.members.iter().skip(1).take(0) {",
       "expect": ["documentation::streaming::positional::tests::remediation::yard_later_directives_follow_trivia_or_prose"]
     },
     {
@@ -181,7 +181,7 @@
     {
       "name": "uncertain-prefix-must-cover-the-first-multiline-ending-row",
       "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
-      "old": "let mut connected_end_row = nodes[eligible_start].end_row();\n            while let Some(node) = nodes.get(eligible_start)\n                && node.start_row() <= connected_end_row\n            {\n                connected_end_row = connected_end_row.max(node.end_row());\n                eligible_start += 1;\n            }",
+      "old": "let mut connected_end_row = nodes[eligible_start].end_row();\n            while let Some(node) = nodes.get(eligible_start)\n                && node.start_row() <= connected_end_row\n            {\n                budget.step().map_err(Into::into)?;\n                connected_end_row = connected_end_row.max(node.end_row());\n                eligible_start += 1;\n            }",
       "new": "let row = nodes[eligible_start].start_row();\n            eligible_start += nodes[eligible_start..].iter().take_while(|node| node.start_row() == row).count();",
       "expect": ["documentation::streaming::positional::tests::cycle2::uncertain_multiline_prefix_excludes_all_row_connected_members"]
     },
@@ -195,8 +195,8 @@
     {
       "name": "trailing-only-keeps-its-known-candidate",
       "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
-      "old": "if collected.eligible_start == collected.nodes.len() {\n            return decision;",
-      "new": "if collected.eligible_start == collected.nodes.len() {\n            decision.target = None;\n            return decision;",
+      "old": "if collected.eligible_start == collected.nodes.len() {\n            return Ok(decision);",
+      "new": "if collected.eligible_start == collected.nodes.len() {\n            decision.target = None;\n            return Ok(decision);",
       "expect": ["documentation::streaming::positional::tests::cycle2::go_trailing_only_keeps_candidate_without_selection", "documentation::streaming::positional::tests::cycle2::ruby_trailing_only_keeps_candidate_without_selection", "documentation::streaming::positional::tests::cycle2::lua_trailing_only_keeps_candidate_without_selection"]
     },
     {
@@ -209,8 +209,8 @@
     {
       "name": "legacy-exhaustion-must-bypass-source-scope-bounds",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "if matches!(view, CandidateView::Legacy) {\n        return false;",
-      "new": "if false && matches!(view, CandidateView::Legacy) {\n        return false;",
+      "old": "if matches!(view, CandidateView::Legacy) {\n        return Ok(false);",
+      "new": "if false && matches!(view, CandidateView::Legacy) {\n        return Ok(false);",
       "expect": ["documentation::streaming::positional::tests::remediation::go_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::ruby_legacy_materializes_no_members", "documentation::streaming::positional::tests::remediation::lua_legacy_materializes_no_members"]
     }
   ]

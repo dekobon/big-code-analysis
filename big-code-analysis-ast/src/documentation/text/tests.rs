@@ -143,7 +143,7 @@ fn comment_cleanup_preserves_markup_hard_breaks_and_phase_two_splices() {
         (Profile::Javadoc, "/**/", ""),
         (Profile::Javadoc, "////", "/"),
         (Profile::Rust, "/*!*/", ""),
-        (Profile::Rust, "/**\n * a  \n *   b\n */", "a  \n  b\n"),
+        (Profile::Rust, "/**\n * a  \n *   b\n */", "a  \n  b"),
         (Profile::GoDoc, "/* a\n * b */", "a\n * b"),
         (Profile::Doxygen, "///a\\\nb", "ab"),
         (Profile::Doxygen, "/**a\\\r\nb*/", "ab"),
@@ -173,5 +173,77 @@ fn comment_cleanup_preserves_markup_hard_breaks_and_phase_two_splices() {
             }
         }
         assert_eq!(offset, expected.len());
+    }
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn copied_utf8_scalar_can_cross_adjacent_included_pieces() {
+    let source = "é".as_bytes();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Rust.tree_sitter_language().unwrap())
+        .unwrap();
+    parser
+        .set_included_ranges(&[
+            tree_sitter::Range {
+                start_byte: 0,
+                end_byte: 1,
+                start_point: tree_sitter::Point::new(0, 0),
+                end_point: tree_sitter::Point::new(0, 1),
+            },
+            tree_sitter::Range {
+                start_byte: 1,
+                end_byte: 2,
+                start_point: tree_sitter::Point::new(0, 1),
+                end_point: tree_sitter::Point::new(0, 2),
+            },
+        ])
+        .unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    let context = SourceContext::new(&tree, source);
+    let pieces = context.pieces(0..2).unwrap();
+    assert_eq!(pieces.pieces().len(), 2);
+    let mut builder = TextBuilder::default();
+    builder.copied(&pieces, &NoBudget).unwrap();
+    let content = builder.finish();
+    let view = complete(&content);
+    assert_eq!(view.text(), "é");
+    let portions: Vec<_> = view.origins(0..2).unwrap().collect();
+    assert_eq!(portions.len(), 2);
+    for (portion, expected) in portions.iter().zip([0..1, 1..2]) {
+        let OriginView::Copied(piece) = &portion.origin else {
+            panic!("copied piece")
+        };
+        assert_eq!(piece.range(), expected);
+        assert_eq!(portion.output, expected);
+    }
+    assert_eq!(
+        view.origins(0..1).unwrap_err(),
+        TextRangeError::ScalarBoundary
+    );
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn rust_cleanup_keeps_unicode_blank_lines_and_removes_only_assembly_newline() {
+    for (source, expected) in [
+        ("/**\n * a  \n *   b\n */\nfn f() {}", "a  \n  b"),
+        ("///   a\n///\u{a0}\n///     b\nfn f() {}", "a\n\u{a0}\n  b"),
+        ("/**a /* nested */ b*/\nfn f() {}", "a /* nested */ b"),
+    ] {
+        let parser = AnyParser::parse(LANG::Rust, source.as_bytes().to_vec(), None, None).unwrap();
+        let index = parser
+            .documentation(
+                &crate::documentation::DocumentationContext::default(),
+                &crate::documentation::DocumentationOptions::default(),
+            )
+            .unwrap();
+        let document = index.documents().next().unwrap();
+        assert_eq!(
+            index.complete_text(document).unwrap().unwrap().text(),
+            expected,
+            "{source}"
+        );
     }
 }

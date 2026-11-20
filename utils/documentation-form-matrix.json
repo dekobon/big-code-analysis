@@ -1,0 +1,93 @@
+{
+  "contract": "documentation_extraction_cases.md plus PROPOSAL_V3 and approved Kotlin erratum",
+  "publication": "Unknown for every implemented profile; Rust doc/cfg_attr additionally retains pending publication assessment",
+  "variants": {
+    "Rust": {
+      "implemented": ["basic outer line/block", "adjacent comment composition", "inner root/module/function", "macro Expansion", "comments across ordinary attributes", "raw fragments and exact local comment maps"],
+      "ineligible": ["plain comments", "document/test/rustfmt::skip attribute paths"],
+      "pending": ["doc assignment/raw/cooked/metadata attributes", "cfg_attr", "mixed comment/attribute composition", "field/variant/tuple slots", "other local contexts"]
+    },
+    "Java": {
+      "implemented": ["traditional/Markdown basic declaration", "empty block", "four-slash Markdown", "last selection", "annotation-bearing declaration", "prelex unavailable plus source-cleaned evidence"],
+      "ineligible": ["ordinary comments", "signature/accessor trivia without a target", "body working notes"],
+      "pending": ["filename publication", "full module/record/constructor inventory", "semantic Unicode prelexing"]
+    },
+    "Kotlin": {
+      "implemented": ["basic KDoc function", "last selection across plain comments", "annotation-bearing function", "selected Local raw/text/maps"],
+      "ineligible": ["ordinary comments", "line-comment documentation"],
+      "pending": ["Local signature/modifier/accessor/constructor projection", "parameter/property slots", "full declaration inventory"]
+    },
+    "Groovy": {
+      "implemented": ["basic Groovydoc type", "nearest selection", "annotation-bearing type"],
+      "ineligible": ["ordinary comments", "plain comment detaches nearest block", "Local placement is not emitted"],
+      "pending": ["full member/constructor/record inventory", "publication"]
+    },
+    "Csharp": {
+      "implemented": ["basic XML type", "leading trivia selection", "attribute-bearing declaration", "literal XML markup"],
+      "ineligible": ["ordinary comments", "four-slash banner", "accessor trivia", "Local placement is not emitted"],
+      "pending": ["full field/event/property/indexer/operator inventory", "conditional member projections", "publication"]
+    },
+    "Php": {
+      "implemented": ["basic function/class", "one/two/three-block precedence", "enum declaration-before-file", "file preamble", "last selection"],
+      "ineligible": ["non-PHPDoc markers", "superseded blocks", "unsupported qualified call spellings"],
+      "pending": ["signature/promoted slots", "define constant slots and imported callees", "PhpDocumentor alternate", "publication"]
+    },
+    "Javascript": {
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection"],
+      "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
+      "pending": ["virtual naming directives", "variable/assignment/member slots", "full export/member inventory", "publication"]
+    },
+    "Mozjs": {
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection"],
+      "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
+      "pending": ["virtual naming directives", "variable/assignment/member slots", "full export/member inventory", "publication"]
+    },
+    "Typescript": {
+      "implemented": ["basic function", "export/ambient declaration projection", "module/packageDocumentation file precedence", "leading selection"],
+      "ineligible": ["ordinary comments", "after-code non-parameter comments", "destructuring declarations", "unsupported assignments"],
+      "pending": ["parameter/binding slots", "virtual forms", "full overload/namespace/type/member inventory", "publication"]
+    },
+    "Tsx": {
+      "implemented": ["basic JSX-returning function", "export/ambient declaration projection", "module/packageDocumentation file precedence", "leading selection"],
+      "ineligible": ["ordinary comments", "after-code non-parameter comments", "destructuring declarations", "unsupported assignments"],
+      "pending": ["parameter/binding slots", "virtual forms", "full overload/namespace/type/member inventory", "publication"]
+    },
+    "C": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "complex declarators", "publication"]
+    },
+    "Cpp": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures including definitions", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery/template projections", "complex declarators", "publication"]
+    },
+    "Mozcpp": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery/template projections", "complex declarators", "publication"]
+    },
+    "Objc": {
+      "implemented": ["basic C definition", "simple multi-declarator slots", "simple trailing field", "file gathering", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "full method/property/protocol inventory", "publication"]
+    },
+    "Go": {
+      "implemented": ["basic function/package", "declaration group and spec", "positional runs", "directive filtering", "literal block stars"],
+      "ineligible": ["local declarations", "ordinary trailing comments", "source blank-line-separated run", "directive-only prose"],
+      "pending": ["multi-name field slots", "interface elements", "publication"]
+    },
+    "Ruby": {
+      "implemented": ["basic method/type", "modifier/body wrapper projections", "native YARD scope", "magic/directive filtering", "begin/end block cleanup"],
+      "ineligible": ["call-block source scope", "magic/shebang prose", "source blank-line-separated run"],
+      "pending": ["Explicit virtual/## owners", "attribute/alias/visibility slots", "RDoc alternate", "publication"]
+    },
+    "Lua": {
+      "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps"],
+      "ineligible": ["ordinary standalone leading run", "empty marked block", "function-body annotation"],
+      "pending": ["tagged virtual/table forms", "native table-field/parameter comments", "full assignment/return inventory", "publication"]
+    }
+  },
+  "deferred": ["Python", "Perl", "Elixir", "Bash", "Tcl", "Irules"],
+  "helpers": ["Ccomment", "Preproc"]
+}

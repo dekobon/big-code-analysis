@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use super::Ancestors;
 use super::chain::Chain;
 use crate::checker::Checker;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
 use crate::node::Node;
 
 impl<'tree, 'chain> Ancestors<'tree, 'chain> {
@@ -51,8 +52,27 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         init: u8,
         step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> u8,
     ) -> u8 {
+        infallible(self.fold_down_with_budget(
+            node,
+            skip,
+            lane,
+            init,
+            |state, ancestor, outer, below| Ok(step(state, ancestor, outer, below)),
+            &NoBudget,
+        ))
+    }
+
+    pub(crate) fn fold_down_with_budget<B: WorkBudget>(
+        self,
+        node: &Node<'tree>,
+        skip: usize,
+        lane: FoldLane,
+        init: u8,
+        step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> Result<u8, B::Error>,
+        budget: &B,
+    ) -> Result<u8, B::Error> {
         let Some(chain) = self.chain else {
-            return fold_climbed(node, skip, init, step);
+            return fold_climbed(node, skip, init, step, budget);
         };
         let end = chain.len().saturating_sub(skip);
         // The cache travels into `outer`, as it does through
@@ -69,8 +89,11 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             )
         };
         match self.folds {
-            Some(cache) => cache.fold(lane, chain, end, init, step_at),
-            None => (0..end).fold(init, step_at),
+            Some(cache) => cache.fold(lane, chain, end, init, step_at, budget),
+            None => (0..end).try_fold(init, |state, depth| {
+                budget.step()?;
+                step_at(state, depth)
+            }),
         }
     }
 
@@ -278,15 +301,24 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         node: &Node<'_>,
         answer: impl FnOnce() -> bool,
     ) -> bool {
+        infallible(self.try_memoised(question, node, || Ok(answer())))
+    }
+
+    pub(crate) fn try_memoised<E>(
+        self,
+        question: MemoQuestion,
+        node: &Node<'_>,
+        answer: impl FnOnce() -> Result<bool, E>,
+    ) -> Result<bool, E> {
         let memo = self.node_memo(question);
         if let Some(known) = memo.and_then(|memo| memo.get(node)) {
-            return known;
+            return Ok(known);
         }
-        let answer = answer();
+        let answer = answer()?;
         if let Some(memo) = memo {
             memo.set(node, answer);
         }
-        answer
+        Ok(answer)
     }
 
     /// [`memoised`](Self::memoised) on a [`NodeQuestion`], for the metric
@@ -319,6 +351,15 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         node: &Node<'_>,
         classify: impl FnOnce() -> u8,
     ) -> u8 {
+        infallible(self.try_classified(slot, node, || Ok(classify())))
+    }
+
+    pub(crate) fn try_classified<E>(
+        self,
+        slot: WordSlot,
+        node: &Node<'_>,
+        classify: impl FnOnce() -> Result<u8, E>,
+    ) -> Result<u8, E> {
         let Some(cache) = self.folds.filter(|cache| cache.visited.get() == node.id()) else {
             return classify();
         };
@@ -327,11 +368,11 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         // Id 0 marks an empty slot: a tree-sitter node id is its address,
         // never 0.
         if id == node.id() {
-            return answer;
+            return Ok(answer);
         }
-        let answer = classify();
+        let answer = classify()?;
         cell.set((node.id(), answer));
-        answer
+        Ok(answer)
     }
 
     /// Whether [`fold_down`](Self::fold_down) is memoised on this chain:
@@ -346,30 +387,43 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
 // The deepest depth at or above `from` whose slot still holds the state of
 // the ancestor the chain has there, or 0 when none does: a node fixes its
 // ancestry, so a matching id is an exact state.
-fn deepest_stored(slots: &[(usize, u8)], chain: Chain<'_, '_>, from: usize) -> usize {
-    (1..=from)
-        .rev()
-        .find(|&depth| {
-            fold_slot_probes::record();
-            slots[depth].0 == chain[depth].id()
-        })
-        .unwrap_or(0)
+fn deepest_stored<B: WorkBudget>(
+    slots: &[(usize, u8)],
+    chain: Chain<'_, '_>,
+    from: usize,
+    budget: &B,
+) -> Result<usize, B::Error> {
+    for depth in (1..=from).rev() {
+        budget.step()?;
+        fold_slot_probes::record();
+        if slots[depth].0 == chain[depth].id() {
+            return Ok(depth);
+        }
+    }
+    Ok(0)
 }
 
 // `Ancestors::fold_down` for a caller that holds no chain: the ancestry is
 // climbed first and folded unmemoised.
-fn fold_climbed<'tree, 'chain>(
+fn fold_climbed<'tree, 'chain, B: WorkBudget>(
     node: &Node<'tree>,
     skip: usize,
     init: u8,
-    step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> u8,
-) -> u8
+    step: impl Fn(u8, &Node<'tree>, Ancestors<'tree, 'chain>, &Node<'tree>) -> Result<u8, B::Error>,
+    budget: &B,
+) -> Result<u8, B::Error>
 where
     'tree: 'chain,
 {
-    let climbed = climbed_chain(node);
+    let mut climbed = Vec::new();
+    for ancestor in std::iter::successors(node.parent(), Node::parent) {
+        budget.step()?;
+        climbed.push(ancestor);
+    }
+    crate::documentation::budget::reverse(&mut climbed, budget)?;
     let end = climbed.len().saturating_sub(skip);
-    (0..end).fold(init, |state, depth| {
+    (0..end).try_fold(init, |state, depth| {
+        budget.step()?;
         let below = climbed.get(depth + 1).unwrap_or(node);
         step(state, &climbed[depth], Ancestors::unknown(), below)
     })
@@ -378,6 +432,7 @@ where
 // `node`'s ancestors, root first, climbed with `Node::parent` for a caller
 // that holds no chain. tree-sitter finds a parent by descending from the
 // root, so the climb is `O(depth²)`.
+#[cfg(test)]
 pub(super) fn climbed_chain<'tree>(node: &Node<'tree>) -> Vec<Node<'tree>> {
     let mut climbed: Vec<_> = std::iter::successors(node.parent(), Node::parent).collect();
     climbed.reverse();
@@ -540,14 +595,20 @@ pub(crate) enum MemoQuestion {
     CodeBeforeOnLine,
     /// [`LevelQuestion::InConstBinding`].
     InConstBinding,
+    /// Source-only documentation target; never shared with legacy selection.
+    SourceDocTarget,
+    /// Ruby's wrapper-normalized candidate, independent of source scope.
+    DocCoreTarget,
+    /// Whether the wrapper-normalized Ruby candidate needs namespace scope.
+    DocCoreNamespace,
 }
 
 impl MemoQuestion {
     /// How many memos a [`FoldCache`] holds; one per variant above.
-    const COUNT: usize = 11;
+    const COUNT: usize = 14;
 }
 
-const _: () = assert!(MemoQuestion::InConstBinding as usize + 1 == MemoQuestion::COUNT);
+const _: () = assert!(MemoQuestion::DocCoreNamespace as usize + 1 == MemoQuestion::COUNT);
 
 /// The per-node questions the metric crate memoises through
 /// [`Ancestors::memoised_answer`], one per [`MemoQuestion`] memo of the
@@ -730,41 +791,48 @@ impl FoldCache {
     // can store cuts the recursion short. Neither shows as a wrong answer,
     // so debug builds refuse the shape: the whole test corpus then guards
     // the contract.
-    fn fold(
+    fn fold<B: WorkBudget>(
         &self,
         lane: FoldLane,
         chain: Chain<'_, '_>,
         end: usize,
         init: u8,
-        step: impl Fn(u8, usize) -> u8,
-    ) -> u8 {
+        step: impl Fn(u8, usize) -> Result<u8, B::Error>,
+        budget: &B,
+    ) -> Result<u8, B::Error> {
         let Ok(mut slots) = self.lanes[lane as usize].try_borrow_mut() else {
             debug_assert!(
                 same_lane_reentry::allowed(),
                 "a fold step re-entered its own lane {lane:?}"
             );
-            return (0..end).fold(init, step);
+            return (0..end).try_fold(init, |state, depth| {
+                budget.step()?;
+                step(state, depth)
+            });
         };
         // `slots[d]` is the state at `chain[d]`: folded over `chain[..d]`.
         // Depth 0 is `init`; the state at `node` itself is never stored.
         let memo_end = end.min(chain.len().saturating_sub(1));
-        if slots.len() <= memo_end {
+        while slots.len() <= memo_end {
             // Id 0 marks an empty slot: a tree-sitter node id is its
             // address, never 0.
-            slots.resize(memo_end + 1, (0, 0));
+            budget.step()?;
+            slots.push((0, 0));
         }
-        let mut depth = deepest_stored(&slots, chain, memo_end);
+        let mut depth = deepest_stored(&slots, chain, memo_end, budget)?;
         let mut state = if depth == 0 { init } else { slots[depth].1 };
         while depth < memo_end {
+            budget.step()?;
             fold_steps::record();
-            state = step(state, depth);
+            state = step(state, depth)?;
             depth += 1;
             slots[depth] = (chain[depth].id(), state);
         }
         if end > memo_end {
-            state = step(state, memo_end);
+            budget.step()?;
+            state = step(state, memo_end)?;
         }
-        state
+        Ok(state)
     }
 }
 

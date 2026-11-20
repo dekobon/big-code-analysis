@@ -81,7 +81,23 @@ const DOC_MARKERS: [u16; 4] = [
 /// at most its two delimiters as children, so the count spares every
 /// one of them the cursor the child scan allocates.
 fn has_doc_marker_child(node: &Node<'_>) -> bool {
-    node.child_count() > 2 && node.wraps_any(&DOC_MARKERS)
+    crate::documentation::budget::infallible(doc_marker_with_budget(
+        node,
+        &crate::documentation::budget::NoBudget,
+    ))
+}
+
+pub(crate) fn doc_marker_with_budget<B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(node.child_count() > 2
+        && crate::documentation::budget::child(
+            node,
+            |child| DOC_MARKERS.contains(&child.kind_id()),
+            budget,
+        )?
+        .is_some())
 }
 
 role_table! {

@@ -9,6 +9,8 @@ use super::{
 };
 
 pub(super) mod comments;
+#[allow(dead_code)]
+pub(super) mod literals;
 
 #[derive(Debug)]
 pub(super) enum TextError {
@@ -41,11 +43,52 @@ impl<'s> TextBuilder<'s> {
         if pieces.has_excluded_gap() {
             return Err(TextError::Unavailable(UnavailableReason::ExcludedGap));
         }
+        if pieces.pieces().len() > 1 {
+            return self.copied_pieces(pieces, budget);
+        }
         for piece in pieces.pieces() {
             budget.step().map_err(Into::into)?;
             let start = self.text.len();
             self.append_utf8(piece.bytes(), budget)?;
             self.push_mapping(start, Origin::Copied(SourcePieces::single(piece.clone())));
+        }
+        Ok(())
+    }
+
+    fn copied_pieces<B: WorkBudget>(
+        &mut self,
+        pieces: &SourcePieces<'s>,
+        budget: &B,
+    ) -> Result<(), TextError> {
+        let mut buffer = Vec::with_capacity(BYTE_INTERVAL);
+        let mut output = self.text.len();
+        for piece in pieces.pieces() {
+            budget.step().map_err(Into::into)?;
+            for chunk in piece.bytes().chunks(BYTE_INTERVAL - 4) {
+                budget.checkpoint().map_err(Into::into)?;
+                budget.bytes(chunk.len()).map_err(Into::into)?;
+                buffer.extend_from_slice(chunk);
+                budget.checkpoint().map_err(Into::into)?;
+                budget.bytes(buffer.len()).map_err(Into::into)?;
+                let valid = match std::str::from_utf8(&buffer) {
+                    Ok(text) => text.len(),
+                    Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                    Err(_) => {
+                        return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding));
+                    }
+                };
+                self.append_utf8(&buffer[..valid], budget)?;
+                buffer.drain(..valid);
+            }
+            let end = output + piece.bytes().len();
+            self.mappings.push(Mapping {
+                output: TextRange::validated(output..end),
+                origin: Origin::Copied(SourcePieces::single(piece.clone())),
+            });
+            output = end;
+        }
+        if !buffer.is_empty() {
+            return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding));
         }
         Ok(())
     }
@@ -75,6 +118,12 @@ impl<'s> TextBuilder<'s> {
     }
 
     fn append_utf8<B: WorkBudget>(&mut self, bytes: &[u8], budget: &B) -> Result<(), TextError> {
+        super::budget::in_phase(budget, super::budget::WorkPhase::Text, || {
+            self.append_chunks(bytes, budget)
+        })
+    }
+
+    fn append_chunks<B: WorkBudget>(&mut self, bytes: &[u8], budget: &B) -> Result<(), TextError> {
         // bca: suppress(nexits, halstead) -- validation, scalar carry and copying each require a separate fallible checkpoint.
         let mut at = 0;
         while at < bytes.len() {

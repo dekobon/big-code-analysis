@@ -28,6 +28,7 @@ pub(super) struct CanonicalNode<'s> {
     pub(super) pending: Vec<usize>,
     pub(super) pending_parent: Option<NodeId>,
     pub(super) following: Option<NodeId>,
+    pub(super) owner_context: NodeId,
 }
 
 #[derive(Debug)]
@@ -69,6 +70,7 @@ impl<'s> CanonicalNodes<'s> {
             pending: Vec::new(),
             pending_parent: None,
             following: None,
+            owner_context: id,
         });
         id
     }

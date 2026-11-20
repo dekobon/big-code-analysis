@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use super::budget::{NoBudget, WorkBudget, infallible};
+use super::budget::{NoBudget, WorkBudget, WorkPhase, in_phase, infallible};
 
 // Output alone cannot reveal scanning empty ranges or seeking from the start.
 crate::observation::counter!(
@@ -93,6 +93,16 @@ impl<'s> SourceContext<'s> {
         bytes: &'s [u8],
         budget: &B,
     ) -> Result<Self, B::Error> {
+        in_phase(budget, WorkPhase::Ranges, || {
+            Self::prepare(tree, bytes, budget)
+        })
+    }
+
+    fn prepare<B: WorkBudget>(
+        tree: &'s tree_sitter::Tree,
+        bytes: &'s [u8],
+        budget: &B,
+    ) -> Result<Self, B::Error> {
         budget.checkpoint()?;
         // The safe dependency copies the range array atomically. Only our
         // subsequent normalization loop can be interrupted internally.
@@ -134,6 +144,16 @@ impl<'s> SourceContext<'s> {
     }
 
     pub(crate) fn pieces_with_budget<B: WorkBudget>(
+        &self,
+        spelling: Range<usize>,
+        budget: &B,
+    ) -> Result<SourcePieces<'s>, SourceError> {
+        in_phase(budget, WorkPhase::Ranges, || {
+            self.intersect(spelling, budget)
+        })
+    }
+
+    fn intersect<B: WorkBudget>(
         &self,
         spelling: Range<usize>,
         budget: &B,
@@ -181,20 +201,32 @@ impl<'s> SourceContext<'s> {
     }
 
     /// Whether the whole interval is available, without joining across a gap.
+    #[cfg(test)]
     pub(crate) fn covers(&self, span: Range<usize>) -> bool {
+        infallible(self.covers_with_budget(span, &NoBudget))
+    }
+
+    pub(crate) fn covers_with_budget<B: WorkBudget>(
+        &self,
+        span: Range<usize>,
+        budget: &B,
+    ) -> Result<bool, B::Error> {
         if span.start > span.end || span.end > self.bytes.len() {
-            return false;
+            return Ok(false);
         }
         if span.is_empty() {
-            return true;
+            return Ok(true);
         }
-        let first = self
-            .continuous
-            .partition_point(|range| range.end <= span.start);
+        let first = super::budget::binary_search_end(
+            self.continuous.len(),
+            |at| self.continuous[at].end <= span.start,
+            budget,
+        )?;
         included_range_visits::record();
-        self.continuous
+        Ok(self
+            .continuous
             .get(first)
-            .is_some_and(|range| range.start <= span.start && range.end >= span.end)
+            .is_some_and(|range| range.start <= span.start && range.end >= span.end))
     }
 
     /// Record a node reached canonically by a collector cursor. The caller

@@ -5,6 +5,8 @@ use crate::{Ancestors, Checker, Node};
 
 use super::super::{NodeEvidence, SourceContext, SourceError, SourcePieces, UnresolvedReason};
 use super::markers::CandidateView;
+use crate::documentation::budget::{NoBudget, WorkBudget};
+use crate::documentation::recognition::{PublicRules, SourceRules};
 
 pub use doc_comment::{
     members_materialized, positional_predecessors, positional_runs_collected, source_scope_reads,
@@ -129,26 +131,40 @@ pub fn source_comment<'s, T: Checker>(
     ancestors: Ancestors<'s, '_>,
     request: &mut SourceRequest<'_, 's>,
 ) -> Result<(), SourceError> {
+    source_comment_with_budget::<PublicRules<T>, _>(comment, ancestors, request, &NoBudget)
+}
+
+pub(crate) fn source_comment_with_budget<'s, R: SourceRules, B: WorkBudget>(
+    comment: &Node<'s>,
+    ancestors: Ancestors<'s, '_>,
+    request: &mut SourceRequest<'_, 's>,
+    budget: &B,
+) -> Result<(), SourceError> {
     // bca: suppress(nexits) -- defer or reject before canonicalizing a complete run; every identity failure precedes the sink.
-    if !T::SOURCE_POSITIONAL_DOCS {
+    if !R::Checker::SOURCE_POSITIONAL_DOCS {
         return Ok(());
     }
     request.context.node(comment.as_tree_sitter())?;
     let code = request.context.bytes();
-    let Some(run) = doc_comment::positional_run::<T>(
+    let Some(run) = doc_comment::positional_run_with_budget::<R, B>(
         comment,
         code,
         ancestors,
         CandidateView::Source(request.context),
-    ) else {
+        budget,
+    )
+    .map_err(Into::into)?
+    else {
         return Ok(());
     };
-    let collected = SourceMembers::collect(&run, ancestors, request.context);
-    let decision = SourceDecision::new::<T>(&run, &collected, ancestors, request.context);
+    let collected = SourceMembers::collect(&run, ancestors, request.context, budget)?;
+    let decision =
+        SourceDecision::new::<R, B>(&run, &collected, ancestors, request.context, budget)
+            .map_err(Into::into)?;
     if decision.selection == RunSelection::Unattached && !request.retain_unbound {
         return Ok(());
     }
-    let members = source_members::<T>(&collected, decision.selection, request)?;
+    let members = source_members::<R, B>(&collected, decision.selection, request, budget)?;
     if !members.is_empty() {
         let canonical = |node: Node<'s>| request.context.node(node.as_tree_sitter());
         (request.sink)(SourceRun {
@@ -180,53 +196,70 @@ struct SourceMembers<'t> {
 }
 
 impl<'t> SourceMembers<'t> {
-    fn collect(
+    fn collect<B: WorkBudget>(
         run: &PositionalRun<'t>,
         ancestors: Ancestors<'t, '_>,
         source: &SourceContext<'t>,
-    ) -> Self {
-        let nodes = run.materialize(ancestors);
+        budget: &B,
+    ) -> Result<Self, SourceError> {
+        let nodes = run
+            .materialize_with_budget(ancestors, budget)
+            .map_err(Into::into)?;
         let mut eligible_start = run.first_eligible.map_or(nodes.len(), |first| {
             nodes.partition_point(|node| node.start_byte() < first.start_byte())
         });
-        let prefix_placement_gap = run.prefix_gap
-            && nodes
-                .get(eligible_start)
-                .is_some_and(|first| !complete_row_prefix(first, source));
+        let prefix_placement_gap = if run.prefix_gap
+            && let Some(first) = nodes.get(eligible_start)
+        {
+            !complete_row_prefix(first, source, budget).map_err(Into::into)?
+        } else {
+            false
+        };
         if prefix_placement_gap {
             let mut connected_end_row = nodes[eligible_start].end_row();
             while let Some(node) = nodes.get(eligible_start)
                 && node.start_row() <= connected_end_row
             {
+                budget.step().map_err(Into::into)?;
                 connected_end_row = connected_end_row.max(node.end_row());
                 eligible_start += 1;
             }
         }
-        Self {
+        Ok(Self {
             nodes,
             eligible_start,
             prefix_placement_gap,
-        }
+        })
     }
 }
 
-fn complete_row_prefix(first: &Node<'_>, source: &SourceContext<'_>) -> bool {
+fn complete_row_prefix<B: WorkBudget>(
+    first: &Node<'_>,
+    source: &SourceContext<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     let start = first
         .start_byte()
         .saturating_sub(first.as_tree_sitter().start_position().column);
-    source.covers(start..first.start_byte())
-        && source.bytes()[start..first.start_byte()]
-            .iter()
-            .all(u8::is_ascii_whitespace)
+    Ok(
+        source.covers_with_budget(start..first.start_byte(), budget)?
+            && crate::documentation::byte_scan::position(
+                &source.bytes()[start..first.start_byte()],
+                |byte| !byte.is_ascii_whitespace(),
+                budget,
+            )?
+            .is_none(),
+    )
 }
 
 impl<'t> SourceDecision<'t> {
-    fn new<T: Checker>(
+    fn new<R: SourceRules, B: WorkBudget>(
         run: &PositionalRun<'t>,
         collected: &SourceMembers<'t>,
         ancestors: Ancestors<'t, '_>,
         source: &SourceContext<'t>,
-    ) -> Self {
+        budget: &B,
+    ) -> Result<Self, B::Error> {
         let mut decision = Self {
             selection: RunSelection::Unattached,
             target: None,
@@ -234,14 +267,16 @@ impl<'t> SourceDecision<'t> {
                 .then_some(UnresolvedReason::ExcludedGap),
         };
         if run.end == RunEnd::ExcludedGap
-            || !source.covers(run.first.start_byte()..run.last.end_byte())
+            || !source.covers_with_budget(run.first.start_byte()..run.last.end_byte(), budget)?
         {
             decision.uncertainty = Some(UnresolvedReason::ExcludedGap);
-            return decision;
+            return Ok(decision);
         }
-        decision.target = run
-            .below
-            .filter(|n| T::is_source_doc_target(n, source.bytes(), ancestors));
+        if let Some(node) = run.below
+            && R::target(&node, source.bytes(), ancestors, budget)?
+        {
+            decision.target = Some(node);
+        }
         if decision.uncertainty.is_none() {
             decision.uncertainty = run
                 .next
@@ -249,7 +284,7 @@ impl<'t> SourceDecision<'t> {
                 .map(|_| UnresolvedReason::GrammarBoundary);
         }
         if collected.eligible_start == collected.nodes.len() {
-            return decision;
+            return Ok(decision);
         }
         let context = RunContext {
             members: &collected.nodes[collected.eligible_start..],
@@ -257,40 +292,47 @@ impl<'t> SourceDecision<'t> {
             code: source.bytes(),
             source: Some(source),
         };
-        match T::source_doc_run_opener(&context, ancestors) {
+        match R::opener(&context, ancestors, budget)? {
             Ok(Some(reason)) => decision.selection = RunSelection::Opener(reason),
-            Ok(None) if T::SOURCE_POSITIONAL_TARGETS && decision.target.is_some() => {
+            Ok(None) if R::Checker::SOURCE_POSITIONAL_TARGETS && decision.target.is_some() => {
                 decision.selection = RunSelection::FollowingTarget;
             }
             Ok(None) => {}
             Err(reason) => decision.uncertainty = Some(reason),
         }
-        decision
+        Ok(decision)
     }
 }
 
-fn source_members<'s, T: Checker>(
+fn source_members<'s, R: SourceRules, B: WorkBudget>(
     collected: &SourceMembers<'s>,
     selection: RunSelection,
     request: &SourceRequest<'_, 's>,
+    budget: &B,
 ) -> Result<Vec<RunMember<'s>>, SourceError> {
     let mut members = Vec::new();
     for (index, node) in collected.nodes.iter().enumerate() {
+        budget.step().map_err(Into::into)?;
         let ineligible = index < collected.eligible_start;
         if ineligible && !request.retain_unbound {
             continue;
         }
-        let directive = request.context.covers(node.start_byte()..node.end_byte())
-            && T::is_doc_run_directive(node, request.context.bytes());
+        let directive = request
+            .context
+            .covers_with_budget(node.start_byte()..node.end_byte(), budget)
+            .map_err(Into::into)?
+            && R::directive(node, request.context.bytes(), budget).map_err(Into::into)?;
         if directive && !request.retain_directives {
             continue;
         }
         evidence_built::record();
         members.push(RunMember {
             node: request.context.node(node.as_tree_sitter())?,
-            source: request
-                .context
-                .pieces(node.start_byte()..spelling_end(request.context, node))?,
+            source: request.context.pieces_with_budget(
+                node.start_byte()
+                    ..spelling_end(request.context, node, budget).map_err(Into::into)?,
+                budget,
+            )?,
             directive,
             selected: !ineligible && !directive && selection != RunSelection::Unattached,
         });
@@ -298,15 +340,20 @@ fn source_members<'s, T: Checker>(
     Ok(members)
 }
 
-fn spelling_end(context: &SourceContext<'_>, node: &Node<'_>) -> usize {
+fn spelling_end<B: WorkBudget>(
+    context: &SourceContext<'_>,
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<usize, B::Error> {
     let bytes = doc_comment::node_bytes(node, context.bytes());
     if bytes.starts_with(b"//")
         || bytes.starts_with(b"#")
-        || (bytes.starts_with(b"--") && !doc_comment::lua_long_comment(bytes))
+        || (bytes.starts_with(b"--")
+            && !crate::lang_helpers::doc_text::lua_long_comment_with_budget(bytes, budget)?)
     {
-        super::markers::line_spelling_end(context, node)
+        super::markers::line_spelling_end(context, node, budget)
     } else {
-        node.end_byte()
+        Ok(node.end_byte())
     }
 }
 

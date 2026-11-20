@@ -2,9 +2,13 @@
 
 use super::budget::{CollectionBudget, WorkBudget};
 use super::canonical::{CanonicalNodes, NodeId, Projection};
+use super::recognition::{NativeRules, SourceRules};
 use super::streaming::{markers, positional};
 use super::*;
 use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
+
+mod assembly;
+mod projections;
 
 enum Visit {
     Enter(NodeId, usize),
@@ -62,6 +66,7 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
             owner_nodes: Vec::new(),
             documents_ordered: Vec::new(),
             associations_ordered: Vec::new(),
+            source_cleaned: Vec::new(),
         },
         drafts: Vec::new(),
         pending_attributes: Vec::new(),
@@ -107,17 +112,29 @@ struct Builder<'s> {
 }
 
 trait OwnerCandidates: Checker {
-    fn owner_candidate<'s>(node: &Node<'s>, code: &[u8], ancestors: Ancestors<'s, '_>) -> bool;
+    fn owner_candidate<'s>(
+        node: &Node<'s>,
+        code: &[u8],
+        ancestors: Ancestors<'s, '_>,
+        budget: &CollectionBudget,
+    ) -> Result<bool, SourceError>;
 }
 
 impl<T: Checker + crate::traits::LanguageInfo> OwnerCandidates for T {
-    fn owner_candidate<'s>(node: &Node<'s>, code: &[u8], ancestors: Ancestors<'s, '_>) -> bool {
+    fn owner_candidate<'s>(
+        node: &Node<'s>,
+        code: &[u8],
+        ancestors: Ancestors<'s, '_>,
+        budget: &CollectionBudget,
+    ) -> Result<bool, SourceError> {
         match T::lang() {
             crate::LANG::Typescript => {
-                crate::roles::typescript::doc_target::owns(node, code, ancestors)
+                crate::roles::typescript::doc_target_with_budget(node, code, ancestors, budget)
             }
-            crate::LANG::Tsx => crate::roles::tsx::doc_target::owns(node, code, ancestors),
-            _ => T::is_source_doc_target(node, code, ancestors),
+            crate::LANG::Tsx => {
+                crate::roles::tsx::doc_target_with_budget(node, code, ancestors, budget)
+            }
+            _ => NativeRules::<T>::target(node, code, ancestors, budget),
         }
     }
 }
@@ -167,55 +184,22 @@ impl<'s> Builder<'s> {
                     let node =
                         Node::from_tree_sitter(self.index.canonical.nodes[id.0].evidence.node());
                     bounds(node.as_tree_sitter(), self.index.source.bytes().len())?;
+                    if transparent_doc_context(node.kind())
+                        && let Some(parent) = self.index.canonical.nodes[id.0].parent
+                    {
+                        self.index.canonical.nodes[id.0].owner_context =
+                            self.index.canonical.nodes[parent.0].owner_context;
+                    }
                     let ancestors = Ancestors::for_walk(&chain, &node, &folds, &siblings);
-                    self.register::<T>(id, &node, ancestors, budget)?;
-                    self.recognize::<T>(id, &node, ancestors, budget)?;
-                    children.clear();
-                    fields.clear();
-                    cursor.reset(node.as_tree_sitter());
-                    if cursor.goto_first_child() {
-                        loop {
-                            budget.step()?;
-                            let child = cursor.node();
-                            bounds(child, self.index.source.bytes().len())?;
-                            children.push(Node::from_tree_sitter(child));
-                            fields.push(if fields_needed(self.index.profile, node.kind()) {
-                                field_requests::record();
-                                cursor.field_name()
-                            } else {
-                                None
-                            });
-                            if !cursor.goto_next_sibling() {
-                                break;
-                            }
-                        }
-                    }
-                    child_batches::record();
-                    self.index
-                        .canonical
-                        .batch(id, &children, &self.index.source, budget)?;
-                    let mut following = None;
-                    for &child in self.index.canonical.children
-                        [self.index.canonical.nodes[id.0].children.clone()]
-                    .iter()
-                    .rev()
-                    {
-                        budget.step()?;
-                        let record = &mut self.index.canonical.nodes[child.0];
-                        record.following = following;
-                        let child_node = Node::from_tree_sitter(record.evidence.node());
-                        if !T::is_comment(&child_node) && child_node.kind() != "attribute_item" {
-                            following = Some(child);
-                        }
-                    }
-                    for (&child, field) in self.index.canonical.children
-                        [self.index.canonical.nodes[id.0].children.clone()]
-                    .iter()
-                    .zip(&fields)
-                    {
-                        budget.step()?;
-                        self.index.canonical.nodes[child.0].field = *field;
-                    }
+                    super::budget::in_phase(
+                        budget,
+                        super::budget::WorkPhase::Classification,
+                        || {
+                            self.register::<T>(id, &node, ancestors, budget)?;
+                            self.recognize::<T>(id, &node, ancestors, budget)
+                        },
+                    )?;
+                    self.record_children::<T>(id, &mut cursor, &mut children, &mut fields, budget)?;
                     siblings.record_with_budget(&node, depth, children.iter().copied(), budget)?;
                     stack.push(Visit::Exit(id, depth));
                     for &child in self.index.canonical.children
@@ -234,6 +218,58 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
+    fn record_children<T: Checker>(
+        &mut self,
+        id: NodeId,
+        cursor: &mut tree_sitter::TreeCursor<'s>,
+        children: &mut Vec<Node<'s>>,
+        fields: &mut Vec<Option<&'static str>>,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let node = self.index.canonical.nodes[id.0].evidence.node();
+        children.clear();
+        fields.clear();
+        cursor.reset(node);
+        if cursor.goto_first_child() {
+            loop {
+                budget.step()?;
+                let child = cursor.node();
+                bounds(child, self.index.source.bytes().len())?;
+                children.push(Node::from_tree_sitter(child));
+                fields.push(if fields_needed(self.index.profile, node.kind()) {
+                    field_requests::record();
+                    cursor.field_name()
+                } else {
+                    None
+                });
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+        child_batches::record();
+        self.index
+            .canonical
+            .batch(id, children, &self.index.source, budget)?;
+        let mut following = None;
+        for (&child, field) in self.index.canonical.children
+            [self.index.canonical.nodes[id.0].children.clone()]
+        .iter()
+        .zip(fields)
+        .rev()
+        {
+            budget.step()?;
+            let record = &mut self.index.canonical.nodes[child.0];
+            record.field = *field;
+            record.following = following;
+            let child_node = Node::from_tree_sitter(record.evidence.node());
+            if !T::is_comment(&child_node) && child_node.kind() != "attribute_item" {
+                following = Some(child);
+            }
+        }
+        Ok(())
+    }
+
     fn register<T: Checker + crate::traits::LanguageInfo>(
         &mut self,
         id: NodeId,
@@ -246,6 +282,16 @@ impl<'s> Builder<'s> {
         }
         budget.step()?;
         target_classifications::record();
+        if !self
+            .index
+            .source
+            .covers_with_budget(node.start_byte()..node.end_byte(), budget)?
+        {
+            if node.is_named() && !T::is_comment(node) {
+                self.index.canonical.nodes[id.0].projection = Projection::Pending;
+            }
+            return Ok(());
+        }
         let wrapper_child = matches!(
             self.index.profile,
             Profile::Jsdoc | Profile::BcaTypescriptSource
@@ -253,13 +299,14 @@ impl<'s> Builder<'s> {
             .parent(node)
             .is_some_and(|parent| is_wrapper(self.index.profile, parent.kind()));
         let qualifies = if wrapper_child {
-            T::owner_candidate(node, self.index.source.bytes(), ancestors)
+            T::owner_candidate(node, self.index.source.bytes(), ancestors, budget)?
         } else {
-            T::is_source_doc_target(node, self.index.source.bytes(), ancestors)
+            NativeRules::<T>::target(node, self.index.source.bytes(), ancestors, budget)?
         };
         if qualifies {
             if is_wrapper(self.index.profile, node.kind())
                 || needs_slot(self.index.profile, node.kind())
+                || super::forms::owner_pending(self.index.profile, node, ancestors)
                 || (self.index.profile == Profile::Doxygen
                     && matches!(
                         node.kind(),
@@ -283,7 +330,7 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
-    fn recognize<T: Checker>(
+    fn recognize<T: Checker + crate::traits::LanguageInfo>(
         &mut self,
         id: NodeId,
         node: &Node<'s>,
@@ -299,8 +346,26 @@ impl<'s> Builder<'s> {
         if !T::is_comment(node) {
             return Ok(());
         }
+        if let super::forms::CommentAssessment::Pending(reason) = super::forms::assess(
+            self.index.profile,
+            node,
+            ancestors,
+            &self.index.source,
+            budget,
+        )? {
+            let assessment = self.index.assessments.len();
+            self.index.assessments.push(Assessment {
+                axis: AssessmentAxis::Selection,
+                reason,
+                node: Some(self.index.canonical.nodes[id.0].evidence),
+                document: None,
+            });
+            let parent = self.index.canonical.nodes[id.0].parent.unwrap_or(NodeId(0));
+            let scope = self.index.canonical.nodes[parent.0].owner_context;
+            self.index.canonical.nodes[scope.0].pending.push(assessment);
+        }
         let mut marker_runs = Vec::new();
-        markers::source_comment::<T>(
+        markers::source_comment_with_budget::<NativeRules<T>, _>(
             node,
             ancestors,
             &mut markers::SourceRequest {
@@ -308,12 +373,13 @@ impl<'s> Builder<'s> {
                 retain_unbound: self.index.options.retain_unbound,
                 sink: &mut |run| marker_runs.push(run),
             },
+            budget,
         )?;
         for run in marker_runs {
             self.marker_run(run, budget)?;
         }
         let mut positional_runs = Vec::new();
-        positional::source_comment::<T>(
+        positional::source_comment_with_budget::<NativeRules<T>, _>(
             node,
             ancestors,
             &mut positional::SourceRequest {
@@ -322,24 +388,10 @@ impl<'s> Builder<'s> {
                 retain_directives: self.index.options.retain_directives,
                 sink: &mut |run| positional_runs.push(run),
             },
+            budget,
         )?;
         for run in positional_runs {
             self.positional_run(run, budget)?;
-        }
-        if self.index.profile == Profile::Ldoc
-            && ancestors.parent(node).is_some_and(|parent| {
-                matches!(parent.kind(), "parameters" | "field" | "table_constructor")
-            })
-        {
-            let assessment = self.index.assessments.len();
-            self.index.assessments.push(Assessment {
-                axis: AssessmentAxis::Selection,
-                reason: "Native LDoc parameter/table comment awaits adapter context",
-                node: Some(self.index.canonical.nodes[id.0].evidence),
-                document: None,
-            });
-            let scope = self.index.canonical.nodes[id.0].parent.unwrap_or(NodeId(0));
-            self.index.canonical.nodes[scope.0].pending.push(assessment);
         }
         Ok(())
     }
@@ -424,6 +476,17 @@ impl<'s> Builder<'s> {
                         member.node
                     };
                 self.local_target(&mut draft, local_node, member.placement, budget)?;
+                if self.index.profile == Profile::BcaPhpSource
+                    && draft.role == DocumentRole::FilePackage
+                    && let Some(target) = target
+                {
+                    let kind = self.index.canonical.nodes[target.0].evidence.node().kind();
+                    if matches!(kind, "enum_declaration" | "expression_statement") {
+                        draft.target = Some(target);
+                        draft.role = DocumentRole::Primary;
+                        draft.pending = kind == "expression_statement";
+                    }
+                }
                 if self.index.profile == Profile::Doxygen {
                     let raw = &self.index.source.bytes()[member.node.node().byte_range()];
                     if matches!(raw.get(..4), Some(b"///<" | b"//!<" | b"/**<" | b"/*!<")) {
@@ -527,7 +590,9 @@ impl<'s> Builder<'s> {
         }
         if self.index.profile == Profile::Doxygen {
             let raw = &self.index.source.bytes()[node.node().byte_range()];
-            if let Some((command, _)) = crate::lang_helpers::doxygen::structural_command(raw) {
+            if let Some((command, _)) =
+                crate::lang_helpers::doxygen::structural_command_with_budget(raw, budget)?
+            {
                 if command == b"file" {
                     draft.target = Some(NodeId(0));
                     draft.role = DocumentRole::FilePackage;
@@ -572,9 +637,9 @@ impl<'s> Builder<'s> {
             Profile::Jsdoc | Profile::BcaTypescriptSource => {
                 let raw = &self.index.source.bytes()[node.node().byte_range()];
                 let file = if self.index.profile == Profile::BcaTypescriptSource {
-                    crate::lang_helpers::doc_text::tsdoc_module(raw)
+                    crate::lang_helpers::doc_text::tsdoc_module_with_budget(raw, budget)?
                 } else {
-                    crate::lang_helpers::doc_text::jsdoc_file(raw)
+                    crate::lang_helpers::doc_text::jsdoc_file_with_budget(raw, budget)?
                 };
                 if file {
                     draft.target = Some(NodeId(0));
@@ -607,7 +672,10 @@ impl<'s> Builder<'s> {
                     continue;
                 }
                 if path.kind() == "identifier"
-                    && self.index.source.covers(path.start_byte()..path.end_byte())
+                    && self
+                        .index
+                        .source
+                        .covers_with_budget(path.start_byte()..path.end_byte(), budget)?
                 {
                     let bytes = &self.index.source.bytes()[path.start_byte()..path.end_byte()];
                     is_doc = matches!(bytes, b"doc" | b"cfg_attr");
@@ -641,7 +709,7 @@ impl<'s> Builder<'s> {
                 && !self
                     .index
                     .source
-                    .covers(node.end_byte()..target_node.start_byte())
+                    .covers_with_budget(node.end_byte()..target_node.start_byte(), budget)?
             {
                 target = None;
             }
@@ -679,142 +747,6 @@ impl<'s> Builder<'s> {
             FragmentForm::Attribute,
         );
         self.pending_attributes.push((id, fragment, target));
-        Ok(())
-    }
-
-    fn finalize_projection(
-        &mut self,
-        id: NodeId,
-        budget: &CollectionBudget,
-    ) -> Result<(), CollectionError> {
-        budget.step()?;
-        let node = self.index.canonical.nodes[id.0].evidence.node();
-        if self.index.profile == Profile::Doxygen
-            && matches!(node.kind(), "declaration" | "field_declaration")
-            && matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return self.c_slots(id, budget);
-        }
-        if !is_wrapper(self.index.profile, node.kind())
-            || !matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return Ok(());
-        }
-        let range = self.index.canonical.nodes[id.0].children.clone();
-        let mut owners = Vec::new();
-        for &child in &self.index.canonical.children[range] {
-            budget.step()?;
-            let record = &self.index.canonical.nodes[child.0];
-            if matches!(
-                self.index.profile,
-                Profile::Jsdoc | Profile::BcaTypescriptSource
-            ) && node.kind() == "export_statement"
-                && !matches!(record.field, Some("declaration" | "value"))
-            {
-                continue;
-            }
-            if self.index.profile == Profile::Yard
-                && matches!(node.kind(), "if_modifier" | "unless_modifier")
-                && record.field != Some("body")
-            {
-                continue;
-            }
-            if let Projection::Ready(ids) = &self.index.canonical.nodes[child.0].projection {
-                for &owner in ids {
-                    budget.step()?;
-                    owners.push(owner);
-                }
-                break;
-            }
-        }
-        if !owners.is_empty() {
-            self.index.canonical.nodes[id.0].projection = Projection::Ready(owners);
-            self.index.canonical.nodes[id.0].pending.clear();
-        }
-        Ok(())
-    }
-
-    fn c_slots(&mut self, id: NodeId, budget: &CollectionBudget) -> Result<(), CollectionError> {
-        let enclosing = OwnerId(self.index.facts.owners.len());
-        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
-        let mut slots = Vec::new();
-        let mut work = Vec::new();
-        for &child in
-            &self.index.canonical.children[self.index.canonical.nodes[id.0].children.clone()]
-        {
-            budget.step()?;
-            if self.index.canonical.nodes[child.0].field == Some("declarator") {
-                work.push(child);
-            }
-        }
-        let mut ordinal = 0;
-        for mut child in work {
-            let mut function = false;
-            loop {
-                budget.step()?;
-                let record = &self.index.canonical.nodes[child.0];
-                let node = record.evidence.node();
-                if matches!(node.kind(), "identifier" | "field_identifier") {
-                    if function {
-                        slots.push(enclosing);
-                        let declaration = self.index.canonical.nodes[id.0].evidence.node();
-                        let mut end = declaration.end_byte();
-                        if self.index.source.bytes().get(end.saturating_sub(1)) == Some(&b';') {
-                            end -= 1;
-                        }
-                        self.names.insert(
-                            &self.index.source.bytes()[node.byte_range()],
-                            &self.index.source.bytes()[declaration.start_byte()..end],
-                            enclosing,
-                            budget,
-                        )?;
-                    } else {
-                        let source = self
-                            .index
-                            .source
-                            .pieces_with_budget(node.byte_range(), budget)?;
-                        let slot = OwnerId(self.index.facts.owners.len());
-                        self.index.facts.owners.push(Owner::Slot(Slot {
-                            enclosing,
-                            role: SlotRole::Field,
-                            ordinal,
-                            source,
-                        }));
-                        self.index.associations_by_owner.push(Vec::new());
-                        self.index.assessments_by_owner.push(Vec::new());
-                        self.index.owner_nodes.push(id);
-                        slots.push(slot);
-                        ordinal += 1;
-                    }
-                    break;
-                }
-                function |= node.kind() == "function_declarator";
-                let mut inner = None;
-                for &candidate in &self.index.canonical.children[record.children.clone()] {
-                    budget.step()?;
-                    if self.index.canonical.nodes[candidate.0].field == Some("declarator") {
-                        inner = Some(candidate);
-                        break;
-                    }
-                }
-                let Some(next) = inner else {
-                    break;
-                };
-                child = next;
-            }
-        }
-        self.index.canonical.nodes[id.0].projection = if slots.is_empty() {
-            Projection::Pending
-        } else {
-            self.index.canonical.nodes[id.0].pending.clear();
-            Projection::Ready(slots)
-        };
         Ok(())
     }
 
@@ -918,190 +850,6 @@ impl<'s> Builder<'s> {
         }
         Ok(())
     }
-
-    fn combine_pending(&mut self, budget: &CollectionBudget) -> Result<(), CollectionError> {
-        let mut by_target = std::collections::HashMap::new();
-        for (index, draft) in self.drafts.iter().enumerate() {
-            budget.step()?;
-            if let Some(target) = draft.target {
-                by_target.insert(target, index);
-            }
-        }
-        for (node, fragment, target) in std::mem::take(&mut self.pending_attributes) {
-            budget.step()?;
-            if let Some(&index) = target.as_ref().and_then(|target| by_target.get(target)) {
-                self.drafts[index].fragments.push(fragment);
-                self.drafts[index].pending = true;
-            } else {
-                let scope = self.index.canonical.nodes[node.0]
-                    .parent
-                    .unwrap_or(NodeId(0));
-                if let Some(target) = target {
-                    by_target.insert(target, self.drafts.len());
-                }
-                self.drafts.push(Draft {
-                    fragments: vec![fragment],
-                    target,
-                    scope,
-                    binding: target.map(|id| self.index.canonical.nodes[id.0].evidence),
-                    role: if target.is_some_and(|id| {
-                        id.0 == 0
-                            || self.index.canonical.nodes[id.0].evidence.node().kind() == "mod_item"
-                    }) {
-                        DocumentRole::FilePackage
-                    } else {
-                        DocumentRole::Primary
-                    },
-                    unresolved: None,
-                    pending: true,
-                    gap: false,
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn document(
-        &mut self,
-        mut draft: Draft<'s>,
-        budget: &CollectionBudget,
-    ) -> Result<(), CollectionError> {
-        let (content, attribute) = self.render_draft(&mut draft, budget)?;
-        let composition = if attribute {
-            Composition::AttributeSequence
-        } else if draft.fragments.len() == 1 {
-            Composition::Single
-        } else {
-            Composition::CommentRun
-        };
-        let document = DocumentId(self.index.facts.documents.len());
-        self.index.facts.documents.push(Document {
-            fragments: draft.fragments,
-            composition,
-            role: draft.role,
-            content,
-        });
-        let mut owners = Vec::new();
-        let mut pending = draft.pending;
-        let mut named_resolution = None;
-        if self.index.profile == Profile::Doxygen && draft.target.is_none() {
-            let fragment =
-                &self.index.facts.fragments[self.index.facts.documents[document.0].fragments[0].0];
-            if let Some(node) = fragment.node {
-                let raw = &self.index.source.bytes()[node.node().byte_range()];
-                if let Some((b"fn", name)) = crate::lang_helpers::doxygen::structural_command(raw) {
-                    let (found, reason) = self.names.resolve(name, budget)?;
-                    owners = found;
-                    named_resolution =
-                        Some(reason.map_or(Resolution::Resolved, Resolution::Unresolved));
-                    pending = false;
-                }
-            }
-        }
-        if let Some(target) = draft.target {
-            match &self.index.canonical.nodes[target.0].projection {
-                Projection::Ready(ids) => {
-                    for &id in ids {
-                        budget.step()?;
-                        owners.push(id);
-                    }
-                }
-                Projection::Pending | Projection::Unsupported => pending = true,
-            }
-        }
-        if pending {
-            let assessment = self.index.assessments.len();
-            self.index.assessments.push(Assessment {
-                axis: if attribute {
-                    AssessmentAxis::Composition
-                } else {
-                    AssessmentAxis::Owner
-                },
-                reason: if attribute {
-                    "Rust doc/cfg_attr carrier awaits adapter composition"
-                } else {
-                    "Selected local or wrapper form awaits owner projection"
-                },
-                node: draft.binding,
-                document: Some(document),
-            });
-            for owner in &owners {
-                budget.step()?;
-                self.index.assessments_by_owner[owner.0].push(assessment);
-            }
-            if owners.is_empty() {
-                self.index.canonical.nodes[draft.target.unwrap_or(draft.scope).0]
-                    .pending
-                    .push(assessment);
-            }
-        }
-        if !owners.is_empty() || draft.unresolved.is_some() || named_resolution.is_some() {
-            let association = self.index.facts.associations.len();
-            for owner in &owners {
-                budget.step()?;
-                self.index.associations_by_owner[owner.0].push(association);
-            }
-            self.index.facts.associations.push(Association {
-                document,
-                owners,
-                resolution: named_resolution.unwrap_or_else(|| {
-                    draft
-                        .unresolved
-                        .map_or(Resolution::Resolved, Resolution::Unresolved)
-                }),
-                convention: Convention(self.index.profile.name()),
-                binding: draft.binding,
-                lexical_scope: self.index.canonical.nodes[draft.scope.0].evidence,
-                publication: Publication::Unknown,
-            });
-        }
-        Ok(())
-    }
-
-    fn render_draft(
-        &self,
-        draft: &mut Draft<'s>,
-        budget: &CollectionBudget,
-    ) -> Result<(Content<'s>, bool), CollectionError> {
-        let mut keys = Vec::new();
-        for id in &draft.fragments {
-            budget.step()?;
-            let start = self.index.facts.fragments[id.0].source.pieces()[0]
-                .range()
-                .start;
-            keys.push((start, id.0));
-        }
-        draft.fragments.clear();
-        for (_, id) in super::ordering::ordered(keys, budget)? {
-            budget.step()?;
-            draft.fragments.push(FragmentId(id));
-        }
-        let mut fragments = Vec::new();
-        let mut attribute = false;
-        for id in &draft.fragments {
-            budget.step()?;
-            let fragment = &self.index.facts.fragments[id.0];
-            attribute |= fragment.form == FragmentForm::Attribute;
-            fragments.push(fragment);
-        }
-        let content = if attribute {
-            Content::PendingAdapter
-        } else if draft.gap {
-            Content::Unavailable(UnavailableReason::ExcludedGap)
-        } else {
-            match super::text::comments::render(
-                self.index.profile,
-                &self.index.source,
-                &fragments,
-                budget,
-            ) {
-                Ok(content) => content,
-                Err(super::text::TextError::Source(error)) => return Err(error.into()),
-                Err(super::text::TextError::Unavailable(reason)) => Content::Unavailable(reason),
-            }
-        };
-        Ok((content, attribute))
-    }
 }
 
 fn is_wrapper(profile: Profile, kind: &str) -> bool {
@@ -1136,13 +884,41 @@ fn needs_slot(profile: Profile, kind: &str) -> bool {
 
 fn fields_needed(profile: Profile, kind: &str) -> bool {
     (profile == Profile::Doxygen
-        && (matches!(kind, "declaration" | "field_declaration") || kind.ends_with("declarator")))
+        && (matches!(
+            kind,
+            "declaration" | "field_declaration" | "function_definition"
+        ) || kind.ends_with("declarator")))
         || (matches!(profile, Profile::Jsdoc | Profile::BcaTypescriptSource)
             && kind == "export_statement")
         || (profile == Profile::Yard && matches!(kind, "if_modifier" | "unless_modifier"))
 }
 
+fn transparent_doc_context(kind: &str) -> bool {
+    matches!(
+        kind,
+        "parameters"
+            | "formal_parameters"
+            | "function_value_parameters"
+            | "class_parameters"
+            | "class_parameter"
+            | "parameter"
+            | "required_parameter"
+            | "optional_parameter"
+            | "simple_parameter"
+            | "property_promotion_parameter"
+            | "modifiers"
+    )
+}
+
 crate::observation::counter!(field_requests, cfg(any(test, feature = "test-support")));
 
+#[cfg(test)]
+mod assessment_tests;
+#[cfg(test)]
+mod cancellation_tests;
+#[cfg(test)]
+mod cost_tests;
+#[cfg(test)]
+mod projection_tests;
 #[cfg(test)]
 mod tests;

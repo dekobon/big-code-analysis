@@ -2,6 +2,7 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
 use crate::documentation::streaming::markers::CandidateView;
 use crate::lang_helpers::doc_comment::never_joins;
 
@@ -30,6 +31,18 @@ fn php_file_docblock<'a>(
     ancestors: Ancestors<'a, '_>,
     view: CandidateView,
 ) -> Option<bool> {
+    infallible(php_file_docblock_with_budget(
+        comment, code, ancestors, view, &NoBudget,
+    ))
+}
+
+fn php_file_docblock_with_budget<'a, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
+    budget: &B,
+) -> Result<Option<bool>, B::Error> {
     let marker = |n: &Node| match view {
         CandidateView::Legacy => PhpCode::is_doc_comment(n, code),
         CandidateView::Source(_) => view.marker::<PhpCode>(n, code, ancestors),
@@ -38,31 +51,33 @@ fn php_file_docblock<'a>(
         |n: Node| php_file_preamble(&n) || (PhpCode::is_comment(&n) && !marker(&n));
     let mut boundary = comment.start_byte();
     if !ancestors.parent_has_kind(comment, Php::Program as u16) {
-        return Some(false);
+        return Ok(Some(false));
     }
-    for node in ancestors.siblings_before(comment) {
-        if !view.covers(node.start_byte()..boundary) {
-            return None;
+    for node in ancestors.siblings_before_with_budget(comment, budget)? {
+        budget.step()?;
+        if !view.covers_with_budget(node.start_byte()..boundary, budget)? {
+            return Ok(None);
         }
         boundary = node.start_byte();
         if !preamble_or_plain(node) {
-            return Some(false);
+            return Ok(Some(false));
         }
     }
-    if !view.covers(0..boundary) {
-        return None;
+    if !view.covers_with_budget(0..boundary, budget)? {
+        return Ok(None);
     }
     let mut docs = 1_usize;
     let mut boundary = comment.end_byte();
-    for node in ancestors.siblings_after(comment) {
-        if !view.covers(boundary..node.end_byte()) {
-            return None;
+    for node in ancestors.siblings_after_with_budget(comment, budget)? {
+        budget.step()?;
+        if !view.covers_with_budget(boundary..node.end_byte(), budget)? {
+            return Ok(None);
         }
         boundary = node.end_byte();
         if marker(&node) {
             docs += 1;
         } else if !PhpCode::is_comment(&node) && !php_file_preamble(&node) {
-            return Some(
+            return Ok(Some(
                 docs == 2
                 // role-bypass: allow(DocTarget, FuncOpener, Container, Member) — the subset
                 // of targets `createFileDocBlock` treats as the file's first element: a
@@ -76,10 +91,31 @@ fn php_file_docblock<'a>(
                         | Php::InterfaceDeclaration
                         | Php::TraitDeclaration
                 ),
-            );
+            ));
         }
     }
-    view.covers(boundary..code.len()).then_some(true)
+    Ok(view
+        .covers_with_budget(boundary..code.len(), budget)?
+        .then_some(true))
+}
+
+pub(crate) fn source_forward_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    context: &crate::documentation::SourceContext<'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<Option<bool>, B::Error> {
+    if php_doc_in_signature(node, ancestors) {
+        return Ok(Some(false));
+    }
+    Ok(php_file_docblock_with_budget(
+        node,
+        context.bytes(),
+        ancestors,
+        CandidateView::Source(context),
+        budget,
+    )?
+    .map(|file| !file))
 }
 
 fn php_doc_in_signature<'a>(comment: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
@@ -115,16 +151,9 @@ impl Checker for PhpCode {
         context: &crate::documentation::SourceContext<'a>,
         ancestors: Ancestors<'a, '_>,
     ) -> Option<bool> {
-        if php_doc_in_signature(node, ancestors) {
-            return Some(false);
-        }
-        php_file_docblock(
-            node,
-            context.bytes(),
-            ancestors,
-            CandidateView::Source(context),
-        )
-        .map(|file| !file)
+        infallible(source_forward_with_budget(
+            node, context, ancestors, &NoBudget,
+        ))
     }
 
     // phpDocumentor gives an element PHP-Parser's `getDocComment`: the

@@ -34,6 +34,7 @@ workspace = true
 # `vcs` is on so the harness can time `vcs::score::apply_percentile`
 # (#1267), the one hot path here that is not a walk over an AST.
 big-code-analysis = { path = "..", features = ["vcs"] }
+big-code-analysis-ast = { path = "../big-code-analysis-ast", features = ["test-support"] }
 # For the `verbatim-oracle` record lines (#1744); the root's own
 # serialisers are what the record carries.
 serde_json.workspace = true
@@ -42,7 +43,6 @@ serde_json.workspace = true
 # Test-only, path-only like the root dependency above: the shape tests
 # read `node::WIDE_PARENT` so a fixture sized to the walk's sibling-cache
 # threshold cannot go narrow if the threshold is raised.
-big-code-analysis-ast = { path = "../big-code-analysis-ast", default-features = false }
 # `html_reports` writes `target/criterion/report/index.html`, which is
 # what makes a measurement reviewable after the fact rather than a
 # number pasted into a commit message.
@@ -65,4 +65,8 @@ harness = false
 
 [[bench]]
 name = "scaling"
+harness = false
+
+[[bench]]
+name = "documentation"
 harness = false

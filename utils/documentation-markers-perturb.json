@@ -27,8 +27,8 @@
     {
       "name": "source-candidates-precede-last-selection",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "Self::Source(_) => T::is_source_doc_comment(node, code),",
-      "new": "Self::Source(_) => T::is_doc_comment(node, code),",
+      "old": "Self::Source(_) => R::marker(node, code, budget)?,",
+      "new": "Self::Source(_) => R::Checker::is_doc_comment(node, code),",
       "expect": ["documentation::streaming::markers::tests::java_source_selects_empty_new_block_before_legacy_selection"]
     },
     {
@@ -90,15 +90,15 @@
     {
       "name": "source-included-byte-barriers-precede-selection",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "Self::Source(context) => context.covers(span),",
-      "new": "Self::Source(_context) => true,",
+      "old": "Self::Source(context) => context.covers_with_budget(span, budget),",
+      "new": "Self::Source(_context) => Ok(true),",
       "expect": ["documentation::streaming::markers::regressions::excluded_marker_cannot_supersede_genuine_documentation", "documentation::streaming::markers::regressions::excluded_attachment_and_target_bytes_are_barriers", "documentation::streaming::markers::regressions::excluded_code_keeps_unrelated_later_docs_and_splits_comment_runs"]
     },
     {
       "name": "opaque-token-retains-unknown-evidence",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "if request.retain_unbound && T::is_comment(node) {",
-      "new": "if false && request.retain_unbound && T::is_comment(node) {",
+      "old": "if request.retain_unbound && R::Checker::is_comment(node) {",
+      "new": "if false && request.retain_unbound && R::Checker::is_comment(node) {",
       "expect": ["documentation::streaming::markers::regressions::excluded_marker_byte_never_becomes_a_native_marker"]
     },
     {
@@ -111,15 +111,15 @@
     {
       "name": "lone-cr-is-source-content",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "let lf = if context.covers(end - 1..end) && code.get(end - 1) == Some(&b'\\n') {",
-      "new": "let lf = if code.get(end - 1) == Some(&b'\\r') { return end - 1; } else if context.covers(end - 1..end) && code.get(end - 1) == Some(&b'\\n') {",
+      "old": "let lf = if context.covers_with_budget(end.saturating_sub(1)..end, budget)?",
+      "new": "let lf = if code.get(end.wrapping_sub(1)) == Some(&b'\\r') { return Ok(end - 1); } else if context.covers_with_budget(end.saturating_sub(1)..end, budget)?",
       "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
     },
     {
       "name": "excluded-lf-does-not-strip-included-cr",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "if context.covers(lf..lf + 1) && code.get(lf) == Some(&b'\\n') {\n        if context.covers(lf - 1..lf + 1) && code.get(lf - 1) == Some(&b'\\r') {",
-      "new": "if code.get(lf) == Some(&b'\\n') {\n        if code.get(lf - 1) == Some(&b'\\r') {",
+      "old": "if context.covers_with_budget(lf..lf + 1, budget)? && code.get(lf) == Some(&b'\\n') {\n        if context.covers_with_budget(lf.saturating_sub(1)..lf + 1, budget)?\n            && code.get(lf.wrapping_sub(1)) == Some(&b'\\r')\n        {",
+      "new": "if code.get(lf) == Some(&b'\\n') {\n        if code.get(lf.wrapping_sub(1)) == Some(&b'\\r') {",
       "expect": ["documentation::streaming::markers::regressions::rust_verbatim_line_terminators", "documentation::streaming::markers::regressions::java_verbatim_line_terminators"]
     },
     {
@@ -132,8 +132,8 @@
     {
       "name": "gatherer-search-must-not-repeat",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": ".map(|gathers| doc_comment::bind_gathered(stretch, code, gathers, marker, forward));",
-      "new": ".map(|gathers| { let _ = doc_comment::bind_gathered(stretch, code, gathers, marker, forward); doc_comment::bind_gathered(stretch, code, gathers, marker, forward) });",
+      "old": "let result = if binding.gathers.is_some() {\n            Some(doc_comment::bind_gathered_with_budget(",
+      "new": "let result = if binding.gathers.is_some() {\n            let _ = doc_comment::bind_gathered_with_budget(stretch, code, |node| R::gathers(node, code, budget), &marker, &forward, budget)?;\n            Some(doc_comment::bind_gathered_with_budget(",
       "expect": ["documentation::streaming::markers::regressions::c_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::cpp_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::mozcpp_gatherer_search_is_once_per_stretch", "documentation::streaming::markers::regressions::objc_gatherer_search_is_once_per_stretch"]
     },
     {
@@ -160,8 +160,8 @@
     {
       "name": "first-source-token-keeps-excluded-prefix",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "prefix_gap = !view.covers(start..boundary);",
-      "new": "prefix_gap = false && !view.covers(start..boundary);",
+      "old": "prefix_gap = !view.covers_with_budget(start..boundary, budget)?;",
+      "new": "prefix_gap = false && !view.covers_with_budget(start..boundary, budget)?;",
       "expect": ["documentation::streaming::markers::regressions::typescript_source_prefix_gap_is_not_preceding_code", "documentation::streaming::markers::regressions::tsx_source_prefix_gap_is_not_preceding_code"]
     },
     {
@@ -181,8 +181,8 @@
     {
       "name": "php-file-scan-checks-before-first-node",
       "file": "big-code-analysis-ast/src/checker/php.rs",
-      "old": "if !view.covers(0..boundary) {",
-      "new": "if false && !view.covers(0..boundary) {",
+      "old": "if !view.covers_with_budget(0..boundary, budget)? {",
+      "new": "if false && !view.covers_with_budget(0..boundary, budget)? {",
       "expect": ["documentation::streaming::markers::regressions::php_source_prefix_gap_keeps_unknown_direction_out_of_selection"]
     },
     {
@@ -195,7 +195,7 @@
     {
       "name": "marker-exhaustion-after-skipped-trivia-is-not-eof",
       "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
-      "old": "None => exhausted_stretch(comment, boundary, code, ancestors, view),",
+      "old": "None => exhausted_stretch(comment, boundary, code, ancestors, view, budget)?,",
       "new": "None => StretchEnd::Elsewhere,",
       "expect": ["documentation::streaming::markers::regressions::suffix::marker_exhaustion_checks_after_final_skipped_trivia"]
     },

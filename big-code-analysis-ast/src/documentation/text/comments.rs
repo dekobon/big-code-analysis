@@ -181,6 +181,7 @@ fn prepare<B: WorkBudget>(
     context: &SourceContext<'_>,
     fragment: &Fragment<'_>,
     budget: &B,
+    source_cleaned: bool,
 ) -> Result<Block, TextError> {
     if fragment.source.has_excluded_gap() {
         return Err(TextError::Unavailable(UnavailableReason::ExcludedGap));
@@ -194,7 +195,7 @@ fn prepare<B: WorkBudget>(
     };
     let raw = first.range().start..last.range().end;
     let bytes = context.bytes();
-    if profile == Profile::Javadoc {
+    if profile == Profile::Javadoc && !source_cleaned {
         for pair in bytes[raw.clone()].windows(2) {
             charge(budget)?;
             if pair == b"\\u" {
@@ -281,16 +282,43 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
     fragments: &[&Fragment<'s>],
     budget: &B,
 ) -> Result<Content<'s>, TextError> {
+    render_local(profile, context, fragments, budget, false)
+}
+
+pub(in crate::documentation) fn render_source_cleaned<'s, B: WorkBudget>(
+    profile: Profile,
+    context: &SourceContext<'s>,
+    fragments: &[&Fragment<'s>],
+    budget: &B,
+) -> Result<Content<'s>, TextError> {
+    render_local(profile, context, fragments, budget, true)
+}
+
+fn render_local<'s, B: WorkBudget>(
+    profile: Profile,
+    context: &SourceContext<'s>,
+    fragments: &[&Fragment<'s>],
+    budget: &B,
+    source_cleaned: bool,
+) -> Result<Content<'s>, TextError> {
     let mut blocks = Vec::new();
     for fragment in fragments {
         budget
             .step()
             .map_err(|error| TextError::Source(error.into()))?;
-        blocks.push(prepare(profile, context, fragment, budget)?);
+        blocks.push(prepare(profile, context, fragment, budget, source_cleaned)?);
     }
     if profile == Profile::Rust {
         for block in &mut blocks {
             beautify(block, context.bytes(), budget)?;
+            if block.lines.len() > 1
+                && block
+                    .lines
+                    .last()
+                    .is_some_and(|line| line.content.is_empty())
+            {
+                block.lines.pop();
+            }
         }
     }
     if profile == Profile::Rust || blocks.first().is_some_and(|block| block.markdown) {
@@ -301,7 +329,11 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
                     .step()
                     .map_err(|error| TextError::Source(error.into()))?;
                 let indent = margin(&context.bytes()[line.content.clone()], budget)?;
-                if indent < line.content.len() {
+                if !blank(
+                    &context.bytes()[line.content.clone()],
+                    profile == Profile::Rust,
+                    budget,
+                )? {
                     minimum = minimum.min(indent);
                 }
             }
@@ -312,8 +344,11 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
                     budget
                         .step()
                         .map_err(|error| TextError::Source(error.into()))?;
-                    let indent = margin(&context.bytes()[line.content.clone()], budget)?;
-                    if indent < line.content.len() {
+                    if !blank(
+                        &context.bytes()[line.content.clone()],
+                        profile == Profile::Rust,
+                        budget,
+                    )? {
                         line.content.start += minimum;
                     }
                 }
@@ -368,6 +403,41 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
     Ok(builder.finish())
 }
 
+fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool, TextError> {
+    if !unicode {
+        return Ok(crate::documentation::byte_scan::position(
+            bytes,
+            |byte| !matches!(byte, b' ' | b'\t'),
+            budget,
+        )
+        .map_err(|error| TextError::Source(error.into()))?
+        .is_none());
+    }
+    let mut at = 0;
+    while at < bytes.len() {
+        let width = match bytes[at] {
+            0..=0x7f => 1,
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding)),
+        };
+        budget
+            .bytes(width)
+            .map_err(|error| TextError::Source(error.into()))?;
+        let scalar = bytes
+            .get(at..at + width)
+            .ok_or(TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
+        let text = std::str::from_utf8(scalar)
+            .map_err(|_| TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
+        if text.chars().any(|character| !character.is_whitespace()) {
+            return Ok(false);
+        }
+        at += width;
+    }
+    Ok(true)
+}
+
 fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Result<(), TextError> {
     if block.lines.len() < 2 {
         return Ok(());
@@ -406,16 +476,10 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
                 start = 1;
             }
         }
-        while start < end
-            && margin(&bytes[block.lines[start].content.clone()], budget)?
-                == block.lines[start].content.len()
-        {
+        while start < end && blank(&bytes[block.lines[start].content.clone()], true, budget)? {
             start += 1;
         }
-        while end > start
-            && margin(&bytes[block.lines[end - 1].content.clone()], budget)?
-                == block.lines[end - 1].content.len()
-        {
+        while end > start && blank(&bytes[block.lines[end - 1].content.clone()], true, budget)? {
             end -= 1;
         }
     }
