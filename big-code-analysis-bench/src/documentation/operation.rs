@@ -110,6 +110,7 @@ impl Parsed {
         self.collect_with(&DocumentationContext::default(), &probe.options())
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)] // Preserve the borrowed production options boundary inside timing.
     fn collect_with(
         &self,
         context: &DocumentationContext,

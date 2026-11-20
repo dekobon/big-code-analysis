@@ -262,7 +262,7 @@ mod tests {
     #[cfg(feature = "rust")]
     #[test]
     fn valid_preparation_borrows_adjacent_range_intersections() {
-        let source = b"///audit\nfn f() {}";
+        let source = "///é\nfn f() {}".as_bytes();
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&LANG::Rust.tree_sitter_language().unwrap())
@@ -297,10 +297,46 @@ mod tests {
         let Content::Complete { text, mappings } = prepared.render().unwrap() else {
             panic!("complete")
         };
-        assert_eq!(text, "audit");
+        assert_eq!(text, "é");
         assert_eq!(
             mappings,
             index.complete_text(document).unwrap().unwrap().mappings()
         );
+    }
+
+    #[cfg(all(feature = "c", feature = "go", feature = "java"))]
+    #[test]
+    fn production_comment_profiles_share_the_prepared_render_seam() {
+        for (language, source, expected) in [
+            (LANG::C, "/**audit*/\nint a, b;", "audit"),
+            (
+                LANG::Go,
+                "package p\n// first\n// second\nfunc F() {}",
+                "first\nsecond",
+            ),
+            (LANG::Java, "/**\n * audit\n */\nclass C {}", "audit"),
+        ] {
+            let parser =
+                AnyParser::parse(language, source.as_bytes().to_vec(), None, None).unwrap();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
+                .unwrap();
+            assert_eq!(index.documents().len(), 1);
+            let document = index.documents().next().unwrap();
+            let prepared = PreparedRender::new(&index, document).unwrap();
+            let before = observations();
+            let Content::Complete { text, mappings } = prepared.render().unwrap() else {
+                panic!("complete")
+            };
+            assert_eq!(text, expected);
+            assert_eq!(
+                mappings,
+                index.complete_text(document).unwrap().unwrap().mappings()
+            );
+            assert_eq!(observations().renders - before.renders, 1);
+        }
     }
 }

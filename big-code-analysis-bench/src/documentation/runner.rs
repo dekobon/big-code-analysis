@@ -397,6 +397,7 @@ fn batch(operation: &Prepared<'_, '_>, iterations: u32) -> Result<Duration, Harn
     Ok(start.elapsed())
 }
 
+#[allow(clippy::needless_pass_by_value)] // map_err transfers ownership of the original diagnostic.
 fn context(id: &str, size: usize, error: HarnessError) -> HarnessError {
     HarnessError(format!("{id} size {size}: {error}"))
 }

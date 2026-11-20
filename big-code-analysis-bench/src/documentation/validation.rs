@@ -191,7 +191,7 @@ fn additional_fixture(
                 .join("\n"),
         )?,
         "qualified-candidates" | "qualified-references" | "qualified-unrelated" => {
-            qualifications(probe, size, index)?
+            qualifications(probe, size, index)?;
         }
         "pending-ancestry" | "pending-late" => {
             let leaf = nodes
@@ -238,12 +238,19 @@ fn additional_fixture(
             require(count("mod_item") == size, "comment-run depth")?;
         }
         "recovery-depth" => {
-            require(count("field_declaration") == 32, "recovery sibling width")?;
+            require(
+                count("field_declaration") == size + 31,
+                "nested struct fields plus recovery sibling width",
+            )?;
+            require(count("struct_specifier") == size, "recovery struct depth")?;
             require(
                 nodes.iter().any(|(node, depth)| {
-                    node.is_error() && node.child_count() >= 32 && *depth >= size
+                    node.kind() == "field_declaration_list"
+                        && node.has_error()
+                        && node.child_count() >= 64
+                        && *depth >= size
                 }),
-                "deep wide recovery parent absent",
+                "deep recovered sibling parent absent",
             )?;
             require(index.documents().len() == 32, "recovery document count")?;
         }
@@ -363,7 +370,7 @@ fn evidence(
         "retained evidence count",
     )?;
     require(
-        index.documents().len() == if probe.key == "rejected" { 1 } else { 0 },
+        index.documents().len() == usize::from(probe.key == "rejected"),
         "evidence document count",
     )?;
     if probe.key == "directives" {
@@ -409,7 +416,7 @@ fn shape(name: &str, size: usize, parser: &Parsed) -> Result<(), HarnessError> {
         "width" => require(root.child_count() == size * 2, "sibling width")?,
         "fragments" => require(count("comment") == size, "comment fragments")?,
         "c-slots" | "fanout-fixed-text" => {
-            require(count("identifier") == size, "declaration slots")?
+            require(count("identifier") == size, "declaration slots")?;
         }
         "visible-declarator-depth" => {
             require(

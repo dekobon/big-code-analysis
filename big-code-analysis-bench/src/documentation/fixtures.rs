@@ -2,6 +2,7 @@
 
 use big_code_analysis_ast::LANG;
 use big_code_analysis_ast::documentation::{DocumentationOptions, Profile};
+use std::fmt::Write;
 
 use super::{HarnessError, require};
 
@@ -413,7 +414,7 @@ pub const REGISTRY: &[SourceProbe] = &[
         LANG::C,
         false,
         Operation::Collect,
-        "grow enclosing struct depth; innermost recovery sibling width=32 fixed; parse/error shape validated at every rung",
+        "grow enclosing struct depth; innermost recovered field-list has 32 documented siblings and one invalid token",
     ),
     probe(
         "documentation/structure/comment-run-depth",
@@ -497,6 +498,7 @@ impl SourceProbe {
     ///
     /// # Errors
     /// Rejects sizes outside 1..=2^20 or unregistered fixture keys.
+    #[allow(clippy::too_many_lines)] // One explicit spelling per registered fixture keeps byte preservation reviewable.
     pub fn source(&self, size: usize) -> Result<Vec<u8>, HarnessError> {
         require(
             size > 0 && size <= 1 << 20,
@@ -504,45 +506,135 @@ impl SourceProbe {
         )?;
         let depth = size / 16;
         let source = match self.key {
-            "depth" => format!("{}///audit\nfn leaf() {{}}{}", "mod m {".repeat(size), "}".repeat(size)),
+            "depth" => format!(
+                "{}///audit\nfn leaf() {{}}{}",
+                "mod m {".repeat(size),
+                "}".repeat(size)
+            ),
             "width" | "ranges" => "///audit\nfn f() {}\n".repeat(size),
             "fragments" => format!("package p\n{}func F() {{}}", "// audit\n".repeat(size)),
-            "single-line-lua" => format!("module(\"m\")\n---{}\nfunction f() end", "audit ".repeat(size)),
+            "single-line-lua" => format!(
+                "module(\"m\")\n---{}\nfunction f() end",
+                "audit ".repeat(size)
+            ),
             "single-line-jsdoc" => format!("/**{}*/\nfunction f() {{}}", "audit ".repeat(size)),
             "c-slots" => format!("/**audit*/\nint {};", slots(size)),
             "wide-error" => format!("/**audit*/\nstruct {{\n{}", "int x;\n".repeat(size)),
-            "missing" => format!("fn f() {{ {}0{}; }}", "(".repeat(size), ")".repeat(size - 1)),
-            "names" => (0..size).map(|at| format!("/** @fn void f{at}() */\nvoid f{at}() {{}}\n")).collect(),
-            "single-line-php" => format!("<?php\n/** {}*/\nfunction f() {{}}", "audit ".repeat(size)),
+            "missing" => format!(
+                "fn f() {{ {}0{}; }}",
+                "(".repeat(size),
+                ")".repeat(size - 1)
+            ),
+            "names" => (0..size).fold(String::new(), |mut source, at| {
+                let _ = writeln!(source, "/** @fn void f{at}() */\nvoid f{at}() {{}}");
+                source
+            }),
+            "single-line-php" => {
+                format!("<?php\n/** {}*/\nfunction f() {{}}", "audit ".repeat(size))
+            }
             "single-line-ruby" => format!("# {}\ndef f\nend", "audit ".repeat(size)),
             "single-line-doxygen" => format!("/**{}*/\nvoid f() {{}}", "audit ".repeat(size)),
             "text-fixed-fanout" => format!("/**{}*/\nint a,b;", "audit ".repeat(size)),
             "fanout-fixed-text" => format!("/**{}*/\nint {};", "audit ".repeat(1024), slots(size)),
             "visible-declarator-depth" => format!("/**audit*/\nint a{};", "[1]".repeat(size)),
             "ruby-modifiers" => format!("# audit\ndef f; end{}", " if true".repeat(size)),
-            "java-undocumented" => format!("{}void f() {{}}{}", "class C {".repeat(size), "}".repeat(size)),
+            "java-undocumented" => format!(
+                "{}void f() {{}}{}",
+                "class C {".repeat(size),
+                "}".repeat(size)
+            ),
             "pending-scope" => format!("#![doc(hidden)]\n{}", "fn f() {}\n".repeat(size)),
             "prepared" => format!("{}fn f() {{}}", "///a\n".repeat(size)),
             "inline-spans" => format!("/**{}*/\nvoid f() {{}}", "`x` ".repeat(size)),
-            "gathered-disposition" => format!("{}/**{}@file*/", "/**a*/\n".repeat(size), "x ".repeat(size)),
-            "complex-signatures" => format!("{}void leaf();{}", "void f(int x = [] { ".repeat(depth), " return 1; }());".repeat(depth)),
+            "gathered-disposition" => {
+                format!("{}/**{}@file*/", "/**a*/\n".repeat(size), "x ".repeat(size))
+            }
+            "complex-signatures" => format!(
+                "{}void leaf();{}",
+                "void f(int x = [] { ".repeat(depth),
+                " return 1; }());".repeat(depth)
+            ),
             "text-budget-boundary" => format!("///{}\nfn f() {{}}", "abcd".repeat(size * 2)),
-            "go-fold" => format!("package p\ntype S struct {{\n{}X int\n{} }}\n", "X struct {\n".repeat(depth), "}\n".repeat(depth)),
-            "ruby-fold" => format!("{}# audit\ndef f; end\n{}", "class C\n".repeat(depth), "end\n".repeat(depth)),
-            "multiline-adjacent-ranges" => format!("/**\n{}*/\nclass C {{}}", " * audit\n".repeat(size)),
-            "qualified-candidates" => format!("#if FLAG\n{}#endif\n/**@fn f*/", "void f(void);\n".repeat(size)),
-            "qualified-references" => format!("#if FLAG\nvoid f(void);\nvoid f(void);\n#endif\n{}", "/**@fn f*/\nint separator;\n".repeat(size)),
-            "qualified-unrelated" => (0..size).map(|at| format!("#if FLAG\nvoid f{at:08}(void);\n#endif\n/**@fn f{at:08}*/\nint separator;\n")).collect(),
-            "pending-ancestry" => format!("{}fn leaf() {{}}{}", "mod m {\n#![doc(hidden)]\n".repeat(size), "}\n".repeat(size)),
-            "pending-late" => format!("#![doc(hidden)]\n{}{}fn leaf() {{}}{}", "fn f() {}\n".repeat(size), "mod m {".repeat(size), "}".repeat(size)),
-            "wide-depth" => format!("{}{}{}", "mod m {".repeat(size), "///audit\nfn f() {}\n".repeat(32), "}".repeat(size)),
-            "recovery-depth" => format!("{}struct {{\n{}{}", "struct S {\n".repeat(size), "/**audit*/\nint x;\n".repeat(32), "};\n".repeat(size)),
-            "comment-run-depth" => format!("{}{}fn f() {{}}{}", "mod m {".repeat(size), "///a\n".repeat(size), "}".repeat(size)),
-            "conditional-depth" => format!("{}/**audit*/\nvoid f();\n{}", "struct S {\n#if FLAG\n".repeat(size), "#endif\n};\n".repeat(size)),
-            "missing-name" => format!("{}/**@fn absent*/", (0..size).map(|at| format!("void f{at:08}(void);\n")).collect::<String>()),
+            "go-fold" => format!(
+                "package p\ntype S struct {{\n{}X int\n{} }}\n",
+                "X struct {\n".repeat(depth),
+                "}\n".repeat(depth)
+            ),
+            "ruby-fold" => format!(
+                "{}# audit\ndef f; end\n{}",
+                "class C\n".repeat(depth),
+                "end\n".repeat(depth)
+            ),
+            "multiline-adjacent-ranges" => {
+                format!("/**\n{}*/\nclass C {{}}", " * audit\n".repeat(size))
+            }
+            "qualified-candidates" => format!(
+                "#if FLAG\n{}#endif\n/**@fn f*/",
+                "void f(void);\n".repeat(size)
+            ),
+            "qualified-references" => format!(
+                "#if FLAG\nvoid f(void);\nvoid f(void);\n#endif\n{}",
+                "/**@fn f*/\nint separator;\n".repeat(size)
+            ),
+            "qualified-unrelated" => (0..size).fold(String::new(), |mut source, at| {
+                let _ = writeln!(
+                    source,
+                    "#if FLAG\nvoid f{at:08}(void);\n#endif\n/**@fn f{at:08}*/\nint separator;"
+                );
+                source
+            }),
+            "pending-ancestry" => format!(
+                "{}fn leaf() {{}}{}",
+                "mod m {\n#![doc(hidden)]\n".repeat(size),
+                "}\n".repeat(size)
+            ),
+            "pending-late" => format!(
+                "#![doc(hidden)]\n{}{}fn leaf() {{}}{}",
+                "fn f() {}\n".repeat(size),
+                "mod m {".repeat(size),
+                "}".repeat(size)
+            ),
+            "wide-depth" => format!(
+                "{}{}{}",
+                "mod m {".repeat(size),
+                "///audit\nfn f() {}\n".repeat(32),
+                "}".repeat(size)
+            ),
+            "recovery-depth" => format!(
+                "{}@ {}{}",
+                "struct S {\n".repeat(size),
+                "/**audit*/\nint x;\n".repeat(32),
+                "};\n".repeat(size)
+            ),
+            "comment-run-depth" => format!(
+                "{}{}fn f() {{}}{}",
+                "mod m {".repeat(size),
+                "///a\n".repeat(size),
+                "}".repeat(size)
+            ),
+            "conditional-depth" => format!(
+                "{}/**audit*/\nvoid f();\n{}",
+                "struct S {\n#if FLAG\n".repeat(size),
+                "#endif\n};\n".repeat(size)
+            ),
+            "missing-name" => format!(
+                "{}/**@fn absent*/",
+                (0..size).fold(String::new(), |mut source, at| {
+                    let _ = writeln!(source, "void f{at:08}(void);");
+                    source
+                })
+            ),
             "rejected" => format!("{}class C {{}}", "/**audit*/\n".repeat(size)),
-            "directives" => format!("package p\n{}func F() {{}}", "//go:generate command\n".repeat(size)),
-            _ => return Err(HarnessError(format!("unregistered source fixture {}", self.key))),
+            "directives" => format!(
+                "package p\n{}func F() {{}}",
+                "//go:generate command\n".repeat(size)
+            ),
+            _ => {
+                return Err(HarnessError(format!(
+                    "unregistered source fixture {}",
+                    self.key
+                )));
+            }
         };
         Ok(source.into_bytes())
     }
