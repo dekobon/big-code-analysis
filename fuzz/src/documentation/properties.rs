@@ -1,4 +1,7 @@
-use big_code_analysis_ast::documentation::*;
+use big_code_analysis_ast::documentation::{
+    Content, DocumentationIndex, FactError, FactRef, NodeEvidence, Owner, OwnerError,
+    QualificationSubject, SourceError, UnresolvedReason,
+};
 use std::collections::HashMap;
 
 use super::{Check, MAX_QUERIES, maps, require};
@@ -539,7 +542,7 @@ pub(super) fn repeat<'s>(first: &DocumentationIndex<'s>, second: &DocumentationI
                 },
             ) => require(a == b && am == bm, "nondeterministic complete content")?,
             (Content::Unavailable(a), Content::Unavailable(b)) => {
-                require(a == b, "nondeterministic unavailable reason")?
+                require(a == b, "nondeterministic unavailable reason")?;
             }
             (a, b) => require(
                 std::mem::discriminant(a) == std::mem::discriminant(b),

@@ -1,4 +1,6 @@
-use big_code_analysis_ast::documentation::*;
+use big_code_analysis_ast::documentation::{
+    CompleteText, Origin, OriginView, SourcePiece, TextRangeError,
+};
 use std::ops::Range;
 
 use super::{Check, MAX_QUERIES, require};
@@ -74,7 +76,7 @@ pub(super) fn validate(complete: CompleteText<'_, '_>, coverage: &Coverage<'_>) 
                 )?;
             }
             Origin::Decoded(pieces) | Origin::Expanded(pieces) => {
-                coverage.pieces(pieces.pieces())?
+                coverage.pieces(pieces.pieces())?;
             }
             Origin::Synthetic => {}
             _ => return Err("unhandled origin variant"),
@@ -120,7 +122,7 @@ pub(super) fn queries(complete: CompleteText<'_, '_>, selector: u8) -> Check {
         };
         match (expected, complete.origins(query.clone())) {
             (Err(expected), Err(actual)) => {
-                require(expected == actual, "wrong map query rejection")?
+                require(expected == actual, "wrong map query rejection")?;
             }
             (Ok(()), Ok(mut actual)) => {
                 if !query.is_empty() {

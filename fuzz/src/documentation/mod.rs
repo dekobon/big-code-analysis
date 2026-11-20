@@ -7,7 +7,14 @@ mod properties;
 mod tests;
 
 use big_code_analysis::{Ast, LANG};
-use big_code_analysis_ast::{AnyParser, cancel::ParseCancel, documentation::*};
+use big_code_analysis_ast::{
+    AnyParser,
+    cancel::ParseCancel,
+    documentation::{
+        Capability, CollectionError, DocumentationContext, DocumentationIndex,
+        DocumentationOptions, collect,
+    },
+};
 use header::{Input, Mode, expected_profile};
 
 /// Maximum exact source length inspected by the additional documentation operation.
@@ -57,13 +64,13 @@ struct Parsed<'s> {
 impl<'s> Parsed<'s> {
     fn collect(
         &self,
-        options: &DocumentationOptions,
+        options: DocumentationOptions,
     ) -> Result<DocumentationIndex<'s>, CollectionError> {
         let context = DocumentationContext::default();
         if let Some(parser) = self.typed {
-            parser.documentation(&context, options)
+            parser.documentation(&context, &options)
         } else {
-            collect(self.language, self.tree, self.source, &context, options)
+            collect(self.language, self.tree, self.source, &context, &options)
         }
     }
 }
@@ -87,7 +94,7 @@ pub fn check_ast(ast: &Ast) -> Result<Outcome, &'static str> {
             source: ast.source(),
             typed: None,
         },
-        &DocumentationOptions::default(),
+        DocumentationOptions::default(),
         false,
         false,
         |_, _| Ok(()),
@@ -139,7 +146,7 @@ fn exercise_with(
                 source: input.source,
                 typed: None,
             },
-            &input.options,
+            input.options,
             input.repeat,
             input.identity,
             inspect,
@@ -168,7 +175,7 @@ fn exercise_with(
                 source: parser.code(),
                 typed: Some(&parser),
             },
-            &input.options,
+            input.options,
             input.repeat,
             input.identity,
             inspect,
@@ -183,7 +190,7 @@ fn exercise_with(
 
 fn check_parse(
     parsed: &Parsed<'_>,
-    options: &DocumentationOptions,
+    options: DocumentationOptions,
     repeat: bool,
     identity: bool,
     inspect: impl FnOnce(Option<&DocumentationIndex<'_>>, &tree_sitter::Tree) -> Check,

@@ -103,6 +103,9 @@ pub fn walk_all(lang: LANG, data: Vec<u8>) {
 /// Split out from [`walk_all`] so a target that builds its own
 /// [`Source`] — the preprocessor one has to — reuses the same fan-out
 /// rather than keeping a second copy of it in step.
+///
+/// # Panics
+/// Panics when a documentation property fails, so libFuzzer preserves the input.
 pub fn walk_parsed(ast: &Ast) {
     let documentation = documentation::check_ast(ast);
     assert!(documentation.is_ok(), "{documentation:?}");

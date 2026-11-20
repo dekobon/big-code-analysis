@@ -1,7 +1,9 @@
 use super::*;
+use big_code_analysis_ast::documentation::*;
 use big_code_analysis_ast::parser::ParseCompletion;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::fmt::Write;
 use std::{collections::BTreeSet, path::Path};
 
 fn number(value: &Value) -> usize {
@@ -106,7 +108,12 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             .collect();
         assert_eq!(&bytes[..3], header);
         assert_eq!(
-            format!("{:x}", Sha256::digest(&bytes[3..])),
+            Sha256::digest(&bytes[3..])
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    write!(hex, "{byte:02x}").unwrap();
+                    hex
+                }),
             seed["sha256"].as_str().unwrap()
         );
         if let Some(fixture) = seed["fixture"].as_str() {
@@ -125,10 +132,18 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             assert_eq!(
                 tree.root_node().has_error(),
                 seed["has_error"].as_bool().unwrap(),
-                "{name}"
+                "{name}: {}",
+                tree.root_node().to_sexp()
             );
             if let Some(language) = seed["inventory"].as_str() {
                 let row = &inventory[language];
+                if matches!(language, "tcl" | "irules") {
+                    assert!(
+                        nodes(tree)
+                            .iter()
+                            .any(|node| node.is_missing() && node.kind() == "\n")
+                    );
+                }
                 assert_eq!(
                     format!("{:?}", Input::decode(&bytes).unwrap().language).to_lowercase(),
                     language
@@ -345,16 +360,28 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
             assert_eq!(portion.origin, OriginView::Decoded(pieces.pieces()));
         }
         "source-gap" => {
-            assert!(
-                index
-                    .facts()
-                    .fragments()
-                    .any(|fragment| fragment.get().source().has_excluded_gap())
+            assert_eq!(index.documents().len(), 0);
+            assert_eq!(index.assessments().len(), 1);
+            let assessment = index.assessments().next().unwrap();
+            assert_eq!(assessment.get().axis, AssessmentAxis::Selection);
+            assert_eq!(
+                assessment.get().reason,
+                "Excluded bytes prevent complete native-carrier assessment"
             );
-            assert!(index.documents().any(|document| matches!(
-                document.get().content(),
-                Content::Unavailable(UnavailableReason::ExcludedGap)
-            )));
+            let node = assessment.get().node.unwrap().node();
+            assert_eq!(node.byte_range(), 0..8);
+            let pieces = SourceContext::new(tree, index.source())
+                .pieces(node.byte_range())
+                .unwrap();
+            assert!(pieces.has_excluded_gap());
+            assert_eq!(
+                pieces
+                    .pieces()
+                    .iter()
+                    .map(SourcePiece::range)
+                    .collect::<Vec<_>>(),
+                vec![0..1, 1..2, 2..3, 3..4, 5..6, 6..7, 7..8]
+            );
         }
         "empty" | "evidence" => {
             assert_eq!(text(index).text(), "");
@@ -392,7 +419,7 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
 
 #[test]
 fn header_roster_skips_and_resource_boundaries_are_explicit() {
-    let actual: BTreeSet<_> = header::LANGUAGES.iter().map(|lang| lang.name()).collect();
+    let actual: BTreeSet<_> = header::LANGUAGES.iter().map(LANG::name).collect();
     let expected: BTreeSet<_> = LANG::into_enum_iter().map(|lang| lang.name()).collect();
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), header::LANGUAGES.len());
@@ -422,6 +449,10 @@ fn header_roster_skips_and_resource_boundaries_are_explicit() {
     assert!(included_ranges(&vec![b'a'; MAX_STRUCTURE + 1]).is_none());
     assert_eq!(
         exercise(&[0, 4, 0, 0]),
+        Ok(Outcome::Skipped(Skip::IncludedRangeLimit))
+    );
+    assert_eq!(
+        exercise(&[0, 4, 0]),
         Ok(Outcome::Skipped(Skip::IncludedRangeLimit))
     );
 }

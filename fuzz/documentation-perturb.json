@@ -1,0 +1,33 @@
+{
+  "command": ["cargo", "+nightly", "test", "--manifest-path", "fuzz/Cargo.toml", "--locked", "--lib", "--no-fail-fast"],
+  "cases": [
+    {
+      "name": "swap-rust-python-tags",
+      "file": "fuzz/src/documentation/header.rs",
+      "old": "    LANG::Rust,\n    LANG::Python,",
+      "new": "    LANG::Python,\n    LANG::Rust,",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    },
+    {
+      "name": "skip-source-at-inclusive-cap",
+      "file": "fuzz/src/documentation/mod.rs",
+      "old": "if input.source.len() > MAX_SOURCE {",
+      "new": "if input.source.len() >= MAX_SOURCE {",
+      "expect": ["documentation::tests::header_roster_skips_and_resource_boundaries_are_explicit"]
+    },
+    {
+      "name": "reject-stored-scalar-split",
+      "file": "fuzz/src/documentation/maps.rs",
+      "old": "range.start == end && range.start < range.end && range.end <= complete.text().len(),",
+      "new": "range.start == end && range.start < range.end && range.end <= complete.text().len() && complete.text().is_char_boundary(range.end),",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    },
+    {
+      "name": "lose-deferred-profile-distinction",
+      "file": "fuzz/src/documentation/header.rs",
+      "old": "Err(CollectionError::AdapterUnavailable { language, profile })",
+      "new": "Err(CollectionError::UnsupportedProfile { language, profile })",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    }
+  ]
+}

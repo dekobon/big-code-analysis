@@ -27,7 +27,8 @@ You also need an
 [`llvm-symbolizer`](https://llvm.org/docs/CommandGuide/llvm-symbolizer.html)
 on `PATH` or under
 `/usr/lib/llvm-*/bin` (Debian/Ubuntu: `apt-get install llvm`; macOS: it
-comes with Xcode's clang). `rustup component add llvm-tools` ships the
+comes with Xcode's [Clang](https://clang.llvm.org/)).
+[`rustup`](https://rust-lang.github.io/rustup/) component `llvm-tools` ships the
 rest of the LLVM binutils but **not** this one.
 
 It is a hard requirement, not a nicety:
@@ -70,7 +71,7 @@ slowest *legitimate* input measured so far (`nested_depth`'s 5-byte
 seed decoding to 508 alternating `Block`/`Lambda` levels of
 JavaScript) takes **11 s** when run solo under
 [AddressSanitizer](https://clang.llvm.org/docs/AddressSanitizer.html)
-(ASan) plus the harness's ten-walk fan-out, while the 4.8 KB JavaScript
+(ASan) plus the harness's walk fan-out, while the 4.8 KB JavaScript
 file it generates costs
 0.06 s through `bca metrics` in a plain release build. The default of
 60 seconds is that measurement plus ~5x headroom (#1308; the previous
@@ -142,6 +143,21 @@ Promoting a discovery to a committed seed is therefore a deliberate `cp`,
 which is the right bar: seeds are read by every future contributor and
 should each be explicable.
 
+For `documentation`, register the seed's header, payload, provenance, and assertion
+class in `fuzz/generate_documentation_seeds.py`. Add or reuse the matching assertions
+in `fuzz/src/documentation/tests.rs`, then regenerate the corpus and registry:
+
+```bash
+python3 -B fuzz/generate_documentation_seeds.py
+cargo +nightly test --manifest-path fuzz/Cargo.toml --locked --lib documentation::tests
+```
+
+Copying a discovery into this corpus alone is insufficient: the generator rejects
+unregistered files, and registration tests require every seed to execute its assertion class.
+The Rust recovery seeds form a fixed valid/missing-expression pair. Both retain the same
+documented neighboring function and assert its unchanged owner spelling and text.
+That constructed oracle does not claim documentation parity under arbitrary source edits.
+
 `bca` never analyses either directory: `.bcaignore` excludes them from
 the walk, because deliberately malformed source measures nothing and
 would put ERROR-node parses into `bca report`.
@@ -167,13 +183,15 @@ run` / `tmin` directly. They carry the `CFLAGS_<host-triple>` /
 `CXXFLAGS_<host-triple>` settings described under
 [The targets](#the-targets), and [`cc`](https://docs.rs/cc) emits
 `cargo:rerun-if-env-changed` for those variables, so a bare invocation
-rebuilds every tree-sitter grammar *without* ASan, which is precisely
+rebuilds every [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammar
+*without* ASan, which is precisely
 the instrumentation that found the C-scanner class in the first place.
 
 They also pass `--target <host-triple>` explicitly, which matters more
 than it looks. cargo-fuzz defaults its target to the triple *it* was
 built for, not the host's: `cargo install cargo-fuzz` gives you the
-host, while a binstall-backed install (what `taiki-e/install-action`
+host, while a [cargo-binstall](https://github.com/cargo-bins/cargo-binstall)-backed
+install (what [`taiki-e/install-action`](https://github.com/taiki-e/install-action)
 does in the workflow) hands you the prebuilt musl artifact, which then
 builds the targets for a statically-linked libc the sanitizer refuses.
 Pinning it also keeps the CFLAGS triple and the build triple the same
@@ -200,9 +218,8 @@ drive a subprocess and assert it does not die by signal.
 
 ### Leak suppressions
 
-Leak detection stays on. `fuzz/lsan-suppressions.txt` currently holds one
-entry, and adding a second should feel expensive: every suppression is a
-leak nothing will report again. Suppress by symbol rather than passing
+Leak detection stays on. Every entry in `fuzz/lsan-suppressions.txt` needs a diagnosis
+because it hides future leak reports matching that symbol. Suppress by symbol rather than passing
 `-detect_leaks=0`, so other leaks on the same path still fail.
 
 ## The targets {#the-targets}
@@ -245,7 +262,7 @@ bounded by #1056, after nested input was found able to abort the process
 from `Serialize`.
 
 **The C grammars are instrumented too.** cargo-fuzz sanitizes the Rust
-side; the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammars are C
+side; the tree-sitter grammars are C
 compiled by build scripts and need separate instrumentation.
 `make fuzz-check` sets `CFLAGS_<host-triple>`. It has to be the triple-qualified
 spelling: `cc` resolves `<VAR>_<target>`, then `<VAR>_<target_with_underscores>`,
@@ -254,6 +271,13 @@ than `TARGET_` for the build kind when it is not cross-compiling, so
 `TARGET_CFLAGS` is silently inert for a native fuzz build.
 
 ### Documentation properties {#documentation-properties}
+
+The [source-bound index](documentation_extraction.md#index) retains physical fragments,
+logical documents, and associations with owners. An owner is the entity being documented;
+a profile selects the documentation convention. Qualifications record known conditional
+or recovery facts, while assessments record unfinished adapter work. Included ranges select
+which original source bytes the parser reads. Source maps relate extracted text to those bytes;
+a map run describes one contiguous output range.
 
 The documentation target has a handwritten version-one three-byte header.
 The payload after byte 2 reaches the parser unchanged, including invalid
@@ -285,9 +309,10 @@ discriminants or iteration order:
 | 20–24 | Bash, Tcl, Irules, Ccomment, Preproc |
 
 Registration tests compare the table with the `LANG` roster and execute every
-registered seed through the real target. Positive seeds assert exact fragment
-and owner ranges, parsed declaration kinds, text, and copied mappings from
-`tests/fixtures/documentation/inventory.json`. Deferred adapters require
+registered seed through the real target. Positive seeds obtain exact fragment
+and owner ranges, parsed declaration kinds, and text from
+`tests/fixtures/documentation/inventory.json`. They separately require copied origins
+whose bytes equal the extracted text. Deferred adapters require
 `AdapterUnavailable`; helper grammars require `NoDeclarationModel`.
 Recognized deferred profiles differ from `UnsupportedProfile`.
 These outcomes do not count as positive source extraction. Future adapters
@@ -296,7 +321,7 @@ must add their own positive seeds when their source paths become available.
 The checker validates raw pieces against the exact source and included ranges.
 It checks observed document, association, and qualification ordering without
 sorting the results. Bounded owner and canonical-cursor queries compare
-prepared adjacency with enumeration. Pending assessments remain inspectable
+indexed results with the corresponding enumerated records. Pending assessments remain inspectable
 alongside known associations; candidate and reference qualifications retain
 their distinct identities and reasons. Cross-index handles and noncanonical
 nodes must return the documented identity errors.
@@ -315,14 +340,16 @@ arms do not establish positive coverage of those forms.
 
 The resource limits are harness policy:
 
-- Inspect source buffers up to 32 KiB. Larger inputs skip only the added
-  documentation operation in the ordinary walk fanout; no source is truncated.
+- Inspect source buffers up to 32 KiB. The tagged target skips larger payloads before parsing.
+  Ordinary walk targets skip only documentation and continue their other checks.
+  Neither path truncates source.
 - Perform at most two ordinary collections over the same parse.
 - Select at most eight owner/node positions and eight map ranges per input,
   including late positions.
 - Limit structured included-range inputs to 256 ranges. Each non-NUL payload
   byte becomes one included range, so adjacent ranges can divide a scalar.
-  NUL bytes create excluded gaps. Parsing uses the original payload once.
+  NUL bytes create excluded gaps. Zero included bytes, including empty and all-NUL payloads,
+  or more than 256 ranges skip the input. Parsing uses the original payload once.
 
 The checker makes linear or output-proportional passes and uses expected
 constant-time hash indexing. Its included-byte prefix table costs linear
@@ -352,9 +379,7 @@ Record the revision, nightly and cargo-fuzz versions, input timeout, registered
 seed inventory, and actual run counts. A printed tool-availability skip is a
 skipped stage. Preserve a failing input and stop investigation runs when a
 production crash appears; follow [crash triage](#triaging-a-crash) before
-promoting it to a seed. Local recovery seeds use a constructed valid/error pair
-with an independently documented neighbor. Arbitrary random inputs do not
-imply equivalent documentation after an unspecified source edit.
+promoting it to a seed.
 
 ### Fuzzing an order-dependent function
 
@@ -400,7 +425,7 @@ The target set is deliberately narrow. Two pieces of evidence bound it.
 `clippy::indexing_slicing` on `big-code-analysis-ast/src/c_macro.rs`,
 and would have caught the five-byte input that panicked the library
 (#1051) at compile time. What a lint cannot check is the residue it
-could not discharge: the nine per-function
+could not discharge: the per-function
 `#[allow(clippy::indexing_slicing)]` sites in
 `big-code-analysis-ast/src/c_macro.rs`, each a computed index into
 attacker-controlled bytes whose bound is asserted by a human comment. That population is what

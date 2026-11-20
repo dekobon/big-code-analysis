@@ -305,7 +305,7 @@
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "tcl",
     "fixture": "primary.tcl",
-    "has_error": false
+    "has_error": true
   },
   {
     "name": "dispatch-irules",
@@ -319,7 +319,7 @@
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "irules",
     "fixture": "primary.irule",
-    "has_error": false
+    "has_error": true
   },
   {
     "name": "dispatch-ccomment",

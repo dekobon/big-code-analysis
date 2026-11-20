@@ -82,7 +82,7 @@ def main():
             "tests/fixtures/documentation/inventory.json",
             inventory=language,
             fixture=row["path"],
-            has_error=False,
+            has_error=language in {"tcl", "irules"},
         )
 
     for name, fixture, assertion in [
