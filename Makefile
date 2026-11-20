@@ -196,6 +196,8 @@ help:
 	@echo "  bench                                bench-scaling + bench-walk (out-of-band; never in ci)"
 	@echo "  bench-scaling                        Complexity-class gate for the metric walk"
 	@echo "  bench-walk                           Criterion metric-walk benchmarks over a corpus slice"
+	@echo "  bench-documentation                  Criterion source-documentation benchmarks"
+	@echo "  bench-source                         Source-only class gate"
 	@echo "  fuzz-check                           Lint, test + build the cargo-fuzz targets (out-of-band)"
 	@echo "  fuzz-smoke                           Short bounded fuzz run over the committed corpora"
 	@echo "  fuzz-replay                          Replay the committed seeds only (regression check)"
@@ -1402,12 +1404,19 @@ BENCH_ARGS ?=
 bench: bench-scaling bench-walk
 
 bench-scaling:
-	@echo "Running the metric-walk complexity-class gate..."
+	@echo "Running the legacy and source complexity-class gates..."
 	@cargo bench -p big-code-analysis-bench --bench scaling -- $(BENCH_ARGS)
 
 bench-walk:
 	@echo "Running criterion metric-walk benchmarks..."
 	@cargo bench -p big-code-analysis-bench --bench metric_walk -- $(BENCH_ARGS)
+
+.PHONY: bench-documentation bench-source
+bench-documentation:
+	@cargo bench -p big-code-analysis-bench --bench documentation -- $(BENCH_ARGS)
+
+bench-source:
+	@cargo bench -p big-code-analysis-bench --bench scaling -- --scope source $(BENCH_ARGS)
 
 # ---------------------------------------------------------------------------
 # Fuzzing harness (#1154)

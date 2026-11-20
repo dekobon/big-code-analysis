@@ -1,26 +1,27 @@
-# Benchmarking the metric walk
+# Benchmarking analysis operations
 
-`big-code-analysis-bench` is the benchmark harness for the metric
-walk. It is for contributors changing AST traversal, a `Checker` or
-`Getter` predicate, or a metric's `compute`. It exists so that a
-performance claim about this project can be reproduced by someone who
-did not make it, and so that a change in *complexity class* fails
-loudly instead of quietly making deeply nested files unanalysable.
+`big-code-analysis-bench` measures metric walks and source-documentation
+operations. It is for contributors changing AST traversal, a `Checker` or
+`Getter` predicate, a metric's `compute`, or documentation collection and queries.
+The harness makes performance claims reproducible and detects changes in complexity class.
 
 It has two halves, and they answer different questions.
 
 - **The complexity-class gate** (`benches/scaling.rs`) answers "does
   doubling the input (its nesting depth, or one parent's child count)
   roughly double the cost?" It fails the process when a probe's
-  measured exponent exceeds the bound that probe declares.
+  class-specific statistic exceeds the bound that probe declares.
 - **The criterion benchmarks** (`benches/metric_walk.rs`) answer "how
   fast is this, and did my change help?" They use
   [criterion][criterion], which reports a confidence interval rather
   than a point estimate and can compare two builds against a saved
   baseline.
 
+The combined gate also runs the [source-documentation registry](#source-documentation).
+Source construction uses a fitted exponent; fixed-output queries use ratios.
+
 Neither runs in per-PR CI. See [Why not in CI](#why-not-in-ci). The
-first two sections cover running the gate and reading its output. The
+opening sections cover running the gates and reading their output. The
 per-probe histories after them record why each probe exists and what
 it was measured catching; read those when a probe fails or when adding
 one.
@@ -46,11 +47,11 @@ cargo bench -p big-code-analysis-bench --bench metric_walk
 The crate is a workspace member but not a default member, so a bare
 `cargo build` at the repo root does not build it or pull in criterion.
 
-`cargo test --benches` also executes both targets, because a
+`cargo test --benches` also executes the benchmark targets, because a
 `harness = false` bench target runs its `main`. The gate detects that
 (cargo passes `--bench` only under `cargo bench`) and downgrades to a
-shallow smoke run with no verdict, so an unoptimised build never
-produces a number or a failure.
+shallow smoke run with no performance verdict. Source smoke can fail for invalid
+fixtures, operations or samples. It makes no timing-resolution or performance claim.
 
 The criterion benchmarks read a slice of the corpus submodules under
 `tests/repositories/`. Without them the corpus group is skipped with a
@@ -59,6 +60,122 @@ message and the synthetic shapes still run:
 ```bash
 git submodule update --init --recursive
 ```
+
+## Source-documentation measurements {#source-documentation}
+
+Use these commands when changing documentation collection, rendering or prepared queries:
+
+```bash
+make bench-source
+make bench-documentation
+cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --rounds 7
+cargo bench -p big-code-analysis-bench --bench scaling -- --scope legacy --rounds 7
+cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --no-gate
+cargo bench -p big-code-analysis-bench --bench scaling -- --scope source --smoke
+```
+
+The default scope is `all`. The entry point prints the selected membership.
+Unknown scopes and positional filters fail instead of silently selecting another set.
+Exit 0 means a successful gate, or a successful non-gating run when that mode is printed.
+Exit 1 means a performance bound failed. Exit 2 means invalid configuration, missing or invalid
+measurements, abandoned work, or an operation/fixture failure. Report-only suppresses performance
+failure; it still rejects harness errors.
+
+### Registry and timed boundaries
+
+`big-code-analysis-bench/src/documentation/` supplies one registry to the source gate and
+`benches/documentation.rs`. Each entry declares its language, options, size ladder, operation,
+varied and fixed dimensions, bound and policy provenance. Full-size fixture validation runs
+outside the timers at every rung. The original Criterion identities and source bytes stay in
+this registry, alongside a finite set of additional qualification, pending-query, combined
+structure, rejection, evidence and rendering axes.
+
+Ordinary fixtures parse once through `Ast` and call the borrowed collector with
+`Ast::language`, `Ast::as_tree_sitter` and `Ast::source`. Deliberate included-range fixtures
+retain their exact tree and byte buffer. Storage has three lifetime layers: owned parses,
+indexes borrowing those parses, then prepared query/render state borrowing the indexes.
+The runner drops those layers in reverse order after measurement.
+
+| Operation | Prepared outside timing | Work inside timing |
+| --- | --- | --- |
+| Cold collection | Parsed tree and exact source | Collection, eager text/maps, index destruction |
+| Evidence off/on pair | Parsed tree and exact source | Collection and destruction with retention off, then on; one pair per iteration |
+| Fresh rendering | Immutable index, validated document and ordered fragment references | Production comment rendering with a fresh budget, new content destruction |
+| Owner or pending lookup | Index and canonical query node | Lookup and consumption of each declared association or assessment |
+| Qualification lookup | Index and index-qualified owner/document handle | Lookup and consumption of each qualification |
+| Late map query | Complete text and mappings | Last-byte lookup and consumption of every returned portion |
+| Retained text access | Index and document handle | Borrowed complete-text access; no rendering or output copy |
+
+The `test-support`-gated `documentation::render_probe::PreparedRender` accepts only a document
+from a real immutable index. Preparation rejects foreign handles, unsupported composition,
+non-comment fragments and unavailable content. It validates retained source intersections before
+timing. Each measured call uses the production renderer and checks active cancellation at entry,
+including empty text. Cancellation, source errors and unsupported preparation remain distinct.
+Counter controls distinguish a fresh render from retained access and shared text from per-owner
+copies.
+
+The benchmark library enables `test-support` on its ordinary AST dependency.
+[Cargo feature unification](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification)
+therefore also enables it for other workspace consumers in the same build. Production
+counter recording remains unconditional; only readers and the prepared seam are feature-gated.
+Match and record the actual feature sets for base/candidate legacy comparisons.
+
+### Source statistics and timing resolution
+
+The source gate uses the median of scheduled rounds after the same rotating warmup schedule as
+the legacy runner. It keeps separate typed results:
+
+| Declared work | Statistic | Bound |
+| --- | --- | --- |
+| Collection or fresh rendering with linear/linearithmic output | Fitted slope of log time against log size | 1.50 |
+| Fixed-output owner, qualification, pending or retained query | Largest/smallest per-rung median | 1.50 |
+| Fixed-output late map query with S segments | Largest/smallest median after division by log2(S+1) | 1.50 |
+| Pending ancestry returning growing K records | Linear-output fitted exponent | 1.50 |
+
+K is the number of records consumed by a query. Qualification construction holds references or
+candidates fixed while varying the other factor. It reports the legitimate association-edge and
+qualification growth separately; a references-times-candidates product is output work, not proof
+of excessive overhead.
+
+Each cell calibrates once before warmup. Its repetition count is
+`ceil(2 ms / max(single-operation time, 1 ns))`, clamped to `1..=2^20`. The runner freezes this
+count for all warmup and measured rounds. It stores actual batch durations and derives fractional
+nanoseconds per operation only during reduction. It never reconstructs a batch from rounded
+per-operation durations or applies the legacy fit's timing floor to a ratio.
+
+Full-size gate and report modes require a measured median batch of at least 200 microseconds.
+A shorter batch produces `UnresolvedCell` and exit 2, with its ID, size, iterations and actual
+duration. A cold calibration call can overestimate later cost, so even an ordinary workload can
+fail this resolution check. The runner does not retry or increase repetitions after observing a
+short batch. Preserve the failed run for analysis.
+
+Reports include raw scheduled batches, iteration counts, batch minimum/median/maximum and
+floating-point nanoseconds per operation. Untimed counts report nodes, depth, width, fragments,
+documents, owner edges, qualifications, rendered bytes, map segments, included ranges,
+intersections and query output. Missing cells or rounds, duplicate identities, zero
+durations, wrong membership and nonfinite statistics are harness errors. Smoke uses small
+inputs and bounded repetitions, skips the resolution requirement and prints no performance
+verdict. Structural and malformed-data checks still apply.
+
+The per-operation budget detects excessive time after an operation or batch finishes. It cannot
+interrupt the first execution or a dependency call. An external deadline can bound the whole
+campaign; it does not provide per-operation cancellation.
+
+### Controlled comparisons and coverage limits
+
+Run the maintained source gate and Criterion on one frozen revision and matching features on
+the same controlled host. Record the revision, toolchain, CPU assignment, commands, membership,
+raw batches and Criterion results. Keep the old Criterion mean/95% confidence-interval evidence
+separate from the new median statistic. Do not change bounds after observing a run. New
+optimization guards also need discriminating counter tests and controlled regressed/fixed pairs
+where a timing claim requires them.
+
+The visible array-declarator ladder measures visible nesting and field requests. It does not
+establish a bound on work inside a dependency's hidden-rule field lookup. Investigation is
+limited to the collector's implemented `fields_needed` parents: C-family declarations and
+declarators, JavaScript-family exports, and Ruby modifiers. No hidden-only growing source path
+has been established by this registry. A later adapter must add a positive probe for any new
+reachable path; deferred Tcl support cannot serve as a successful empty control.
 
 ## The complexity-class gate {#complexity-gate}
 

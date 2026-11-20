@@ -1,6 +1,10 @@
 //! Known source qualifications, separate from unfinished adapter assessments.
 
 use super::*;
+crate::observation::counter!(
+    qualification_reads,
+    cfg(any(test, feature = "test-support"))
+);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct QualificationSet(u8);
@@ -109,10 +113,13 @@ impl<'s> DocumentationIndex<'s> {
         &'i self,
         ids: &'i [usize],
     ) -> impl ExactSizeIterator<Item = FactRef<'i, Qualification<'s>>> {
-        ids.iter().map(|&ordinal| FactRef {
-            scope: &self.facts.scope,
-            ordinal,
-            fact: &self.qualifications[ordinal],
+        ids.iter().map(|&ordinal| {
+            qualification_reads::record();
+            FactRef {
+                scope: &self.facts.scope,
+                ordinal,
+                fact: &self.qualifications[ordinal],
+            }
         })
     }
 }
