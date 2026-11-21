@@ -6,15 +6,15 @@ use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Fragment, Origin, Profile, SourceContext, UnavailableReason};
 use std::ops::Range;
 
-struct Line {
-    content: Range<usize>,
-    ending: Range<usize>,
+pub(super) struct Line {
+    pub(super) content: Range<usize>,
+    pub(super) ending: Range<usize>,
 }
 
-struct Block {
-    lines: Vec<Line>,
-    rust_decoration: bool,
-    markdown: bool,
+pub(super) struct Block {
+    pub(super) lines: Vec<Line>,
+    pub(super) rust_decoration: bool,
+    pub(super) markdown: bool,
 }
 
 fn charge<B: WorkBudget>(budget: &B) -> Result<(), TextError> {
@@ -23,7 +23,7 @@ fn charge<B: WorkBudget>(budget: &B) -> Result<(), TextError> {
         .map_err(|error| TextError::Source(error.into()))
 }
 
-fn margin<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<usize, TextError> {
+pub(super) fn margin<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<usize, TextError> {
     let mut count = 0;
     for byte in bytes {
         charge(budget)?;
@@ -45,7 +45,7 @@ fn splice(bytes: &[u8], at: usize) -> usize {
     }
 }
 
-fn lines<B: WorkBudget>(
+pub(super) fn lines<B: WorkBudget>(
     bytes: &[u8],
     range: Range<usize>,
     splices: bool,
@@ -177,7 +177,7 @@ fn delimiters<B: WorkBudget>(
     Ok((start.min(end)..end, block, raw.starts_with(b"/*")))
 }
 
-fn prepare<B: WorkBudget>(
+pub(super) fn prepare<B: WorkBudget>(
     profile: Profile,
     context: &SourceContext<'_>,
     fragment: &Fragment<'_>,
@@ -431,7 +431,11 @@ fn empty_block<B: WorkBudget>(block: &Block, budget: &B) -> Result<bool, TextErr
     Ok(true)
 }
 
-fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool, TextError> {
+pub(super) fn blank<B: WorkBudget>(
+    bytes: &[u8],
+    unicode: bool,
+    budget: &B,
+) -> Result<bool, TextError> {
     budget
         .step()
         .map_err(|error| TextError::Source(error.into()))?;
@@ -469,7 +473,7 @@ fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool,
     Ok(true)
 }
 
-fn rust_fragments<B: WorkBudget>(
+pub(super) fn rust_fragments<B: WorkBudget>(
     blocks: &mut [Block],
     bytes: &[u8],
     budget: &B,

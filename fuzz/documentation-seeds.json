@@ -383,9 +383,81 @@
       0
     ],
     "sha256": "aac39c7cc5bc121b5a806cc7e48af010226c50176197ef51fd62cef6ce0f45d5",
-    "class": "pending-content",
+    "class": "rust-literal-mixed",
     "provenance": "tests/fixtures/documentation/forms.json",
     "fixture": "rust-attribute.rs",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-empty",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "c26860901119f987717d9e5d68326c7328d17c9f1eb7cd5c0b16084c5d2fa4f8",
+    "class": "rust-literal-empty",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-raw",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "f4958c10dba07edbcb03772333194a2c97812f5243a5a58a21b0247c9923e9b3",
+    "class": "rust-literal-raw",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-scalar",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "05cff0ff398c6b754572b486133e967ca77298f1feb6770420f9d0e7e7ebc0a2",
+    "class": "rust-literal-scalar",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-continuation",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "63a7d593904affe3e0166eddbdf49e2a37576f09e51553cfb322980a3248379c",
+    "class": "rust-literal-continuation",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-margin",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "52986541aa9c95a35b72265d66bb2ef0f67119ce375b530f1a66edea63a74039",
+    "class": "rust-literal-margin",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-pending-metadata",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "ce15503ce0bec5bbe8a14dc49bcf8bae27823c6d866d5669cc44e2c2a1edaeaf",
+    "class": "pending-content",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::rust_pending_attributes_never_report_complete_partial_text",
     "has_error": false
   },
   {

@@ -310,15 +310,15 @@ fn rust_joint_smoke_pins_exact_composition_and_maps() {
 fn rust_pending_attributes_never_report_complete_partial_text() {
     for (source, forms) in [
         (
-            "#[doc = \"audit\"]\nfn f() {}",
+            "#[doc = concat!(\"audit\")]\nfn f() {}",
             vec![FragmentForm::Attribute],
         ),
         (
-            "/// first\n#[doc = \"second\"]\nfn f() {}",
+            "/// first\n#[doc(alias = \"second\")]\nfn f() {}",
             vec![FragmentForm::Comment, FragmentForm::Attribute],
         ),
         (
-            "#[doc = \"first\"]\n/// second\nfn f() {}",
+            "#[doc = include_str!(\"first\")]\n/// second\nfn f() {}",
             vec![FragmentForm::Attribute, FragmentForm::Comment],
         ),
         ("#[doc(hidden)]\nfn f() {}", vec![FragmentForm::Attribute]),

@@ -25,6 +25,9 @@
 //! Known candidate/reference qualifications are separate immutable records, indexed
 //! by document and owner. Ambiguity preserves each candidate's conditional/recovery
 //! facts; pending assessments describe unsupported matching rather than those facts.
+//! Rust direct cooked/raw doc attributes share whole-document cleanup with comments.
+//! Decoded-coordinate cleanup composes retained escape origins; metadata and computed
+//! carriers remain pending, independently of existing owner projections and publication.
 
 pub(crate) mod budget;
 pub(crate) mod byte_scan;
@@ -212,7 +215,7 @@ pub enum FragmentForm {
     Preamble,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct FragmentId(pub(crate) usize);
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DocumentId(pub(crate) usize);

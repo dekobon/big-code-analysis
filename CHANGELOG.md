@@ -26,6 +26,13 @@ for historical reference.
 
 ### Added
 
+- The unstable Rust AST documentation collector now decodes direct cooked/raw
+  `doc` strings and composes them with comments using Rust 1.99.0 cleanup and
+  exact forward origins. Invalid encoding, unsupported byte/C prefixes, recovery
+  and excluded source retain explicit unavailable states. Metadata and computed
+  carriers, additional owner projections and publication interpretation remain
+  pending. Legacy documentation rows and test pruning are preserved. (#1664, Unit1)
+
 - Added an unstable borrowed AST documentation collector with prepared canonical
   owner queries, explicit pending-adapter assessments, and retained local text and
   forward-origin views. Basic comment paths cover the 17 streamed language

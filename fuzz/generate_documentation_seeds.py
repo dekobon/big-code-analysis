@@ -88,7 +88,7 @@ def main():
     for name, fixture, assertion in [
         ("rust-eof", "rust-eof.rs", "eof"),
         ("rust-crlf", "rust-crlf.rs", "crlf"),
-        ("rust-attribute", "rust-attribute.rs", "pending-content"),
+        ("rust-attribute", "rust-attribute.rs", "rust-literal-mixed"),
     ]:
         add(
             name,
@@ -101,6 +101,12 @@ def main():
         )
 
     cases = [
+        ("rust-literal-empty", [0, 3, 0], b'#[doc = ""] fn f() {}', "rust-literal-empty", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-literal-raw", [0, 3, 0], b'#[doc = r###"a"#b"###] fn f() {}', "rust-literal-raw", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-literal-scalar", [0, 7, 0], b'#[doc = "\\u{1F600}"] fn f() {}', "rust-literal-scalar", "rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup", False),
+        ("rust-literal-continuation", [0, 3, 0], b'#[doc = "a\\\r\n \t\nb"] fn f() {}', "rust-literal-continuation", "rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup", False),
+        ("rust-literal-margin", [0, 3, 0], b'///     hello\n#[doc = "another"]\nfn f() {}', "rust-literal-margin", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-pending-metadata", [0, 3, 0], b'#[doc(hidden)] fn f() {}', "pending-content", "tests.rs::rust_pending_attributes_never_report_complete_partial_text", False),
         (
             "rust-join",
             [0, 3, 0],

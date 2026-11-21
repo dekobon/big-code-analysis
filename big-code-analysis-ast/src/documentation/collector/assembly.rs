@@ -67,9 +67,10 @@ impl<'s> Builder<'s> {
         }
         for (node, fragment, target) in std::mem::take(&mut self.pending_attributes) {
             budget.step()?;
+            let pending = matches!(self.rust_values.get(&fragment), Some(rust::Value::Pending));
             if let Some(&index) = target.as_ref().and_then(|target| by_target.get(target)) {
                 self.drafts[index].fragments.push(fragment);
-                self.drafts[index].pending = true;
+                self.drafts[index].pending |= pending;
             } else {
                 let scope = self.index.canonical.nodes[target.unwrap_or(node).0]
                     .parent
@@ -89,7 +90,7 @@ impl<'s> Builder<'s> {
                         .map(|id| self.index.canonical.nodes[id.0].evidence),
                     role: target.map_or(DocumentRole::Primary, |id| self.rust_role(id)),
                     unresolved: None,
-                    pending: true,
+                    pending: pending || target.is_none(),
                     gap: false,
                 });
             }
@@ -169,7 +170,17 @@ impl<'s> Builder<'s> {
             draft.unresolved = None;
         }
         if pending {
-            self.pending_document(&draft, document, &owners, attribute, budget)?;
+            let unassessed_content = matches!(
+                self.index.facts.documents[document.0].content,
+                Content::PendingAdapter
+            );
+            self.pending_document(
+                &draft,
+                document,
+                &owners,
+                attribute && unassessed_content,
+                budget,
+            )?;
             self.pending_conditional_selection(draft.target, document);
         }
         if (!owners.is_empty() && (!pending || draft.target.is_some()))
@@ -331,24 +342,25 @@ impl<'s> Builder<'s> {
             attribute |= fragment.form == FragmentForm::Attribute;
             fragments.push(fragment);
         }
-        let content = if attribute {
-            Content::PendingAdapter
+        let result = if attribute {
+            self.rust_content(draft, budget)
         } else if draft.gap {
-            Content::Unavailable(UnavailableReason::ExcludedGap)
+            Ok(Content::Unavailable(UnavailableReason::ExcludedGap))
         } else {
-            match crate::documentation::text::comments::render(
+            crate::documentation::text::comments::render(
                 self.index.profile,
                 &self.index.source,
                 &fragments,
                 budget,
-            ) {
-                Ok(content) => content,
-                Err(crate::documentation::text::TextError::Source(error)) => {
-                    return Err(error.into());
-                }
-                Err(crate::documentation::text::TextError::Unavailable(reason)) => {
-                    Content::Unavailable(reason)
-                }
+            )
+        };
+        let content = match result {
+            Ok(content) => content,
+            Err(crate::documentation::text::TextError::Source(error)) => {
+                return Err(error.into());
+            }
+            Err(crate::documentation::text::TextError::Unavailable(reason)) => {
+                Content::Unavailable(reason)
             }
         };
         Ok((content, attribute))

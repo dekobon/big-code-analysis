@@ -1,0 +1,28 @@
+{
+  "scope": "Direct cooked/raw Rust doc attributes and mixed mapped text on existing owners; Unit1 of #1664",
+  "base": "04dc92190555aa5ca6be55f95babd12f74a14a89",
+  "grammar": {"runtime": "0.26.13", "rust": "0.24.2"},
+  "grammar_evidence": "big-code-analysis-ast/tests/rust_documentation_grammar.rs",
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifest": "utils/documentation-rust-literal-perturb.json",
+  "preserved_rust_attribute_payload_sha256": "aac39c7cc5bc121b5a806cc7e48af010226c50176197ef51fd62cef6ce0f45d5",
+  "cleanup_sources": [
+    "https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_ast/src/util/comments.rs",
+    "https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_resolve/src/rustdoc.rs"
+  ],
+  "independent_derivations": {
+    "mixed_margin": "Sugared '     hello' has margin five; nonsugared 'another' participates with add=1. Global minimum one removes one from the comment and zero from the attribute: four spaces remain.",
+    "empty_join": "Each empty prose fragment contributes an assembly LF; one final assembly LF is removed. Two empty attributes produce one LF.",
+    "same_row": "Single-line interiors ' a ' and ' b ' lose their common left space, preserving both right spaces: 'a \\nb '. Physical legacy DLOC remains one.",
+    "decoded_crlf": "Cooked a\\r\\nb decodes CR and LF separately. str::lines removes CR; LF output maps only to the complete \\n escape. Physical CRLF instead maps to both physical bytes.",
+    "unicode_underscores": "Pinned grammar recovers \\u{1_f600} into ERROR plus a missing-delimiter value. Production content is GrammarBoundary; the decoder's valid underscore syntax cannot establish lost supplied-tree boundaries."
+  },
+  "pending": [
+    "Additional field, variant, associated-type and tuple-slot owner projections",
+    "Metadata, computed/conditional carriers and publication interpretation",
+    "Macro attribute-token evidence and inner impl normalization",
+    "Parent-ordered simplification, optimization, test audit and seven review roles",
+    "Coordinated adapter performance fixtures and finite fuzz campaigns"
+  ]
+}

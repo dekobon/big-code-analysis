@@ -5,25 +5,37 @@ use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Mapping, Origin, SourcePieces, TextRange, UnavailableReason};
 use std::ops::Range;
 
-struct Projection<'i, 's> {
+pub(super) struct Projection<'i, 's> {
     text: &'i str,
     mappings: &'i [Mapping<'s>],
     at: usize,
 }
 
 impl<'s> Projection<'_, 's> {
-    fn copy<B: WorkBudget>(
+    pub(super) fn new<'i>(value: &'i TextBuilder<'s>) -> Projection<'i, 's> {
+        Projection {
+            text: &value.text,
+            mappings: &value.mappings,
+            at: 0,
+        }
+    }
+
+    pub(super) fn copy<B: WorkBudget>(
         &mut self,
         range: Range<usize>,
         output: &mut TextBuilder<'s>,
         budget: &B,
     ) -> Result<(), TextError> {
+        if range.is_empty() {
+            return Ok(());
+        }
         let start = output.text.len();
         output.append_utf8(self.text[range.clone()].as_bytes(), budget)?;
         while let Some(mapping) = self.mappings.get(self.at) {
             budget
                 .step()
                 .map_err(|error| TextError::Source(error.into()))?;
+            projection_visits::record();
             let span = mapping.output.range();
             if span.start >= range.end {
                 break;
@@ -118,6 +130,8 @@ impl<'s> Projection<'_, 's> {
         )
     }
 }
+
+crate::observation::counter!(projection_visits, cfg(any(test, feature = "test-support")));
 
 fn copy_pieces<'s, B: WorkBudget>(
     pieces: &SourcePieces<'s>,

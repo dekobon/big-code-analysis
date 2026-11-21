@@ -203,6 +203,74 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
     assert_eq!(actual, names);
 }
 
+#[allow(clippy::single_range_in_vec_init)]
+fn rust_literal_seed(class: &str, index: &DocumentationIndex<'_>) {
+    let (expected, fragments, origins) = match class {
+        "rust-literal-mixed" => (
+            "first\nsecond",
+            2,
+            vec![
+                (0..5, false, vec![4..9]),
+                (5..6, false, vec![]),
+                (6..12, false, vec![20..26]),
+            ],
+        ),
+        "rust-literal-empty" => ("", 1, vec![]),
+        "rust-literal-raw" => ("a\"#b", 1, vec![(0..4, false, vec![13..17])]),
+        "rust-literal-scalar" => (
+            "😀",
+            1,
+            vec![(0..4, true, (9..18).map(|at| at..at + 1).collect())],
+        ),
+        "rust-literal-continuation" => (
+            "ab",
+            1,
+            vec![(0..1, false, vec![9..10]), (1..2, false, vec![16..17])],
+        ),
+        "rust-literal-margin" => (
+            "    hello\nanother",
+            2,
+            vec![
+                (0..9, false, vec![4..13]),
+                (9..10, false, vec![]),
+                (10..17, false, vec![23..30]),
+            ],
+        ),
+        _ => panic!("registered literal class"),
+    };
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let document = index.documents().next().unwrap();
+    assert_eq!(document.get().fragment_count(), fragments);
+    assert_eq!(text(index).text(), expected);
+    let actual: Vec<_> = text(index)
+        .mappings()
+        .iter()
+        .map(|mapping| {
+            let (decoded, pieces) = match &mapping.origin {
+                Origin::Copied(pieces) => (false, pieces.pieces()),
+                Origin::Decoded(pieces) => (true, pieces.pieces()),
+                Origin::Synthetic => (false, &[][..]),
+                Origin::Expanded(_) => panic!("Rust does not expand indentation"),
+                _ => panic!("unexpected Rust origin"),
+            };
+            (
+                mapping.output.range(),
+                decoded,
+                pieces.iter().map(SourcePiece::range).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(actual, origins);
+    let association = index.associations().next().unwrap();
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().publication, Publication::Unknown);
+    assert!(!index.assessments().any(|a| matches!(
+        a.get().axis,
+        AssessmentAxis::Occurrence | AssessmentAxis::Composition
+    )));
+}
+
 #[allow(clippy::too_many_lines)] // Independent expected outcomes for the finite registered edge families.
 fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter::Tree) {
     if matches!(class, "incompatible-profile" | "deferred-profile") {
@@ -230,6 +298,14 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                     .assessments()
                     .any(|a| a.get().axis == AssessmentAxis::Composition)
             );
+        }
+        "rust-literal-mixed"
+        | "rust-literal-empty"
+        | "rust-literal-raw"
+        | "rust-literal-scalar"
+        | "rust-literal-continuation"
+        | "rust-literal-margin" => {
+            rust_literal_seed(class, index);
         }
         "join" => {
             assert_eq!(text(index).text(), "a\nb");
@@ -550,7 +626,7 @@ fn registry_oracles_reject_actual_wrong_payloads_and_foreign_nodes() {
         result.is_err(),
         "same-shaped wrong text must fail the real positive oracle"
     );
-    let bytes = b"\0\x01\0#[doc = \"audit\"]\nfn f() {}";
+    let bytes = b"\0\x01\0#[doc(hidden)]\nfn f() {}";
     let result = std::panic::catch_unwind(|| {
         exercise_with(bytes, |index, tree| {
             edge("active-scope", index, tree);

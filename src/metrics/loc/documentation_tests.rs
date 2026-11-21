@@ -5,6 +5,89 @@ use serde_json::{Value, json};
 
 use crate::{LANG, Metric, MetricsOptions, Source, analyze};
 
+#[cfg(feature = "rust")]
+#[test]
+fn documentation_rust_literal_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+    let source = b"/// first\n#[doc = r\"second\"]\nfn f() {}";
+    let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(
+        index
+            .complete_text(index.documents().next().unwrap())
+            .unwrap()
+            .unwrap()
+            .text(),
+        "first\nsecond"
+    );
+    for exclude in [false, true] {
+        let before = observations();
+        let space = analyze(
+            Source::new(LANG::Rust, source),
+            MetricsOptions::default()
+                .with_only(&[Metric::Loc, Metric::Tokens])
+                .with_exclude_tests(exclude),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            [3, 2, 0, 1, 0, 1]
+        );
+        // Raw attribute: # [ doc = string_content ]; function: fn f ( ) { }.
+        assert_eq!(space.metrics.tokens.tokens_sum(), 12);
+        assert_eq!(observations().renders, before.renders);
+        assert_eq!(observations().visits, before.visits);
+    }
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn documentation_rust_literal_test_pruning_changes_only_legacy_population() {
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+    let source = b"#[doc = \"removed\"] #[test]\nfn t() {}\n/// kept\nfn k() {}";
+    let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        index
+            .documents()
+            .map(|doc| index.complete_text(doc).unwrap().unwrap().text())
+            .collect::<Vec<_>>(),
+        ["removed", "kept"]
+    );
+    for (exclude, tokens, functions) in [(false, 24, 2), (true, 6, 1)] {
+        let space = analyze(
+            Source::new(LANG::Rust, source),
+            MetricsOptions::default()
+                .with_only(&[Metric::Loc, Metric::Tokens])
+                .with_exclude_tests(exclude),
+        )
+        .unwrap();
+        assert_eq!(space.spaces.len(), functions);
+        assert_eq!(space.metrics.tokens.tokens_sum(), tokens);
+        assert_eq!(space.metrics.loc.cloc(), 1);
+        assert_eq!(space.metrics.loc.dloc(), 1);
+    }
+}
+
 #[cfg(any(feature = "go", feature = "ruby", feature = "lua"))]
 #[derive(Clone, Copy)]
 struct PositionalRows<'a> {
