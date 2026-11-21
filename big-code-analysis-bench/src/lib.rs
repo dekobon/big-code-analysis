@@ -1,6 +1,6 @@
 //! Benchmark harness for the `big-code-analysis` metric walk (#1068).
 //!
-//! The crate is split three ways:
+//! The crate contains these benchmark and validation modules:
 //!
 //! - [`shapes`] generates the synthetic scaling inputs — nesting on
 //!   one axis, sibling count on the other — and pairs each with the
@@ -13,14 +13,16 @@
 //! - [`vcs`] grows a ranked population instead of a tree, for the one
 //!   hot path that is not a walk: the change-history percentile pass
 //!   (#1267). It fits the same exponent and joins the same gate.
+//! - [`documentation`] shares source fixtures and untimed validation between
+//!   Criterion and the class-specific raw-batch source gate.
 //! - [`verbatim`] is not a benchmark at all: the `verbatim-oracle`
 //!   binary behind `utils/drift-oracle.py` (#1744), housed here because
 //!   this is the one dev-only crate that depends on the root with every
 //!   grammar and never ships.
 //!
-//! Two bench targets drive them: `benches/scaling.rs` (the
-//! complexity-class gate) and `benches/metric_walk.rs` (criterion
-//! measurements over the corpus slice, per metric). [`cli`] holds the
+//! The targets are `benches/scaling.rs` (the combined class gate),
+//! `benches/metric_walk.rs` (Criterion over the corpus slice, per metric), and
+//! `benches/documentation.rs` (Criterion over the source registry). [`cli`] holds the
 //! former's argument handling, which lives here rather than in the
 //! bench target so it is covered by tests that actually run.
 //!
@@ -34,6 +36,7 @@
 
 pub mod cli;
 pub mod corpus;
+pub mod documentation;
 pub mod scaling;
 pub mod shapes;
 pub mod vcs;

@@ -3,6 +3,7 @@
 use super::*;
 use crate::documentation::names::NamedOwner;
 use crate::documentation::qualifications::QualificationSet;
+crate::observation::counter!(memberships, cfg(any(test, feature = "test-support")));
 
 impl<'s> Builder<'s> {
     pub(super) fn candidate_qualifications(
@@ -68,11 +69,14 @@ impl<'s> Builder<'s> {
             let qualification = &self.index.qualifications[ordinal];
             self.index.qualifications_ordered.push(ordinal);
             self.index.qualifications_by_document[qualification.document.0].push(ordinal);
+            memberships::record();
             if let Some(owner) = qualification.owner {
                 self.index.qualifications_by_owner[owner.0].push(ordinal);
+                memberships::record();
                 self.index.canonical.nodes[self.index.owner_nodes[owner.0].0]
                     .qualifications
                     .push(ordinal);
+                memberships::record();
             }
         }
         Ok(())

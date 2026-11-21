@@ -9,7 +9,7 @@ use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
 
 mod assembly;
 mod projections;
-mod qualifications;
+pub(super) mod qualifications;
 mod rust;
 
 enum Visit {

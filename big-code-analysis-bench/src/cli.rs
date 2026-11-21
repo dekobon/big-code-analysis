@@ -12,9 +12,10 @@ use crate::scaling::DEFAULT_ROUNDS;
 pub const USAGE: &str = "\
 usage: cargo bench -p big-code-analysis-bench --bench scaling -- [options]
 
-  --rounds N   measurement rounds per cell (default 7, must be odd)
-  --no-gate    measure at full size, report the exponents, never fail
+  --rounds N   measurement rounds per cell (default 7, odd in 1..=1023)
+  --no-gate    full-size report, no performance verdict; harness failures still fail
   --smoke      small sizes, no verdict (the `cargo test` path)
+  --scope S    all (default), legacy, or source
   --help       this message
 ";
 
@@ -24,7 +25,7 @@ pub enum Mode {
     /// Measure at the probes' declared sizes and fail on a probe that
     /// left its complexity class.
     Gate,
-    /// Measure at the probes' declared sizes, report, never fail.
+    /// Full-size measurements without a performance verdict; harness errors still fail.
     ReportOnly,
     /// Small sizes, no verdict: enough to prove the harness still
     /// runs, not enough to mean anything.
@@ -38,6 +39,19 @@ pub struct Args {
     pub rounds: usize,
     /// What the run is for.
     pub mode: Mode,
+    /// Explicit registry selection; no positional filter is silently ignored.
+    pub scope: Scope,
+}
+
+/// Which registered workloads the combined entry point runs.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum Scope {
+    /// All legacy and source workloads.
+    All,
+    /// The unchanged metric-walk and VCS ladders.
+    Legacy,
+    /// Source-documentation ladders only.
+    Source,
 }
 
 /// What the caller should do with a parsed command line.
@@ -62,19 +76,18 @@ pub enum Action {
 /// of order, because cargo appends `--bench` itself and the caller
 /// does not control where it lands.
 ///
-/// A bare positional is criterion's benchmark filter, which arrives
-/// here too when `cargo bench` runs every target in the package. It
-/// selects nothing in this harness and is ignored.
+/// Positional filters are rejected: ignoring one would measure the wrong set.
 ///
 /// # Errors
 ///
 /// Returns a message suitable for printing above [`USAGE`] when an
 /// option is unknown, or when `--rounds` is missing its value or given
-/// something that is not a positive odd integer.
+/// something outside the odd integers in 1..=1023.
 pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, String> {
     let mut rounds = DEFAULT_ROUNDS;
     let mut cargo_bench = false;
     let mut requested: Option<Mode> = None;
+    let mut scope = Scope::All;
     let mut argv = argv.into_iter();
 
     while let Some(arg) = argv.next() {
@@ -85,13 +98,25 @@ pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, Stri
             // gets nothing, but the alias costs nothing either.
             "--smoke" | "--test" => requested = Some(Mode::Smoke),
             "--no-gate" => requested = Some(Mode::ReportOnly),
+            "--scope" => {
+                scope = match argv.next().as_deref() {
+                    Some("all") => Scope::All,
+                    Some("legacy") => Scope::Legacy,
+                    Some("source") => Scope::Source,
+                    other => {
+                        return Err(format!(
+                            "--scope requires all, legacy, or source; got {other:?}"
+                        ));
+                    }
+                };
+            }
             "--rounds" => {
                 let value = argv.next().ok_or("--rounds needs a value")?;
                 rounds = value
                     .parse()
                     .map_err(|_| format!("--rounds: not a positive integer: {value}"))?;
-                if rounds == 0 {
-                    return Err("--rounds must be at least 1".to_owned());
+                if rounds == 0 || rounds > 1023 {
+                    return Err("--rounds must be in 1..=1023".to_owned());
                 }
                 // Same invariant the `DEFAULT_ROUNDS` const assert
                 // holds: an even count makes every median the average
@@ -109,7 +134,7 @@ pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, Stri
             other if other.starts_with('-') => {
                 return Err(format!("unknown option: {other}"));
             }
-            _ => {}
+            _ => return Err(format!("unsupported positional filter: {arg}; use --scope")),
         }
     }
 
@@ -117,12 +142,13 @@ pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, Stri
     Ok(Action::Run(Args {
         rounds,
         mode: requested.unwrap_or(default),
+        scope,
     }))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, Args, Mode, parse_args};
+    use super::{Action, Args, Mode, Scope, parse_args};
 
     fn parse(args: &[&str]) -> Args {
         match parse_args(args.iter().map(|a| (*a).to_owned())) {
@@ -155,11 +181,18 @@ mod tests {
         assert_eq!(parse(&["--smoke", "--bench"]).mode, Mode::Smoke);
     }
 
-    /// A positional is criterion's filter, forwarded to every bench
-    /// target in the package. It must not be mistaken for an error.
     #[test]
-    fn positional_filter_is_ignored() {
-        assert_eq!(parse(&["--bench", "cognitive"]).mode, Mode::Gate);
+    fn scope_is_explicit_and_unknown_filters_fail_closed() {
+        assert_eq!(parse(&[]).scope, Scope::All);
+        assert_eq!(parse(&["--scope", "source"]).scope, Scope::Source);
+        assert_eq!(parse(&["--scope", "legacy"]).scope, Scope::Legacy);
+        for argv in [
+            vec!["cognitive"],
+            vec!["--scope"],
+            vec!["--scope", "soruce"],
+        ] {
+            assert!(parse_args(argv.into_iter().map(str::to_owned)).is_err());
+        }
     }
 
     #[test]
@@ -180,6 +213,7 @@ mod tests {
             // which `USAGE` forbids and `DEFAULT_ROUNDS` asserts.
             vec!["--rounds", "10"],
             vec!["--rounds", "many"],
+            vec!["--rounds", "1025"],
             vec!["--unknown"],
         ] {
             assert!(

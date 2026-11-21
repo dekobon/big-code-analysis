@@ -12,6 +12,8 @@ use super::{OwnerId, SourceError, UnresolvedReason};
 #[cfg(test)]
 mod budget_tests;
 mod grammar;
+#[cfg(test)]
+mod miss_tests;
 mod tokens;
 
 #[derive(Default)]

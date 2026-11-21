@@ -42,6 +42,8 @@ mod ordering;
 mod owners;
 mod qualifications;
 pub(crate) mod recognition;
+#[cfg(any(test, feature = "test-support"))]
+pub mod render_probe;
 mod source;
 #[doc(hidden)]
 pub mod streaming;
@@ -109,6 +111,16 @@ pub struct Observations {
     pub fold_slot_probes: usize,
     /// Recorded sibling positions compared.
     pub sibling_slot_probes: usize,
+    /// Association records consumed by prepared queries.
+    pub association_reads: usize,
+    /// Qualification records consumed by prepared queries.
+    pub qualification_reads: usize,
+    /// Qualification memberships indexed during collection.
+    pub qualification_memberships: usize,
+    /// Output-map binary-search comparisons.
+    pub map_searches: usize,
+    /// Output-map runs consumed by a query.
+    pub map_runs_visited: usize,
 }
 
 /// Read qualification counters without resetting other consumers' observations.
@@ -141,6 +153,11 @@ pub fn observations() -> Observations {
         memo_probes: crate::node::memo_probes::observed(),
         fold_slot_probes: crate::node::fold_slot_probes::observed(),
         sibling_slot_probes: crate::node::sibling_slot_probes::observed(),
+        association_reads: index::association_reads::observed(),
+        qualification_reads: qualifications::qualification_reads::observed(),
+        qualification_memberships: collector::qualifications::memberships::observed(),
+        map_searches: content::map_searches::observed(),
+        map_runs_visited: content::map_runs_visited::observed(),
     }
 }
 
