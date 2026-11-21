@@ -187,3 +187,6 @@ fn unicode<B: WorkBudget>(bytes: &[u8], at: &mut usize, budget: &B) -> Result<ch
 }
 
 crate::observation::counter!(decoded_units, cfg(test));
+
+#[cfg(test)]
+mod tests;

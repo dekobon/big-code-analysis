@@ -3,6 +3,10 @@
 use super::*;
 use std::ops::Range;
 
+// Count actual child examinations; duplicate carrier work preserves every output.
+crate::observation::counter!(carrier_children, cfg(test));
+crate::observation::counter!(attribute_children, cfg(test));
+
 pub(super) enum Carrier {
     Other,
     Unknown,
@@ -31,6 +35,7 @@ impl<'s> AttributeFields<'s> {
         let mut fields = Self::default();
         for &child in &canonical.children[canonical.nodes[attribute.0].children.clone()] {
             budget.step()?;
+            attribute_children::record();
             let record = &canonical.nodes[child.0];
             let node = record.evidence.node();
             match record.field {
@@ -76,6 +81,7 @@ impl<'s> Builder<'s> {
         let item = &canonical.nodes[id.0];
         for &child in &canonical.children[item.children.clone()] {
             budget.step()?;
+            carrier_children::record();
             let attribute = &canonical.nodes[child.0];
             if attribute.evidence.node().kind() != "attribute" {
                 continue;

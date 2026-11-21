@@ -10,6 +10,9 @@ crate::observation::counter!(
     cfg(any(test, feature = "test-support"))
 );
 
+// Responsible-piece cloning is work that retained-map equality cannot reveal.
+crate::observation::counter!(piece_copies, cfg(test));
+
 /// A nonempty, half-open source byte range and its borrowed raw bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourcePiece<'s> {
@@ -59,6 +62,7 @@ impl<'s> SourcePieces<'s> {
         for piece in &self.pieces {
             budget.step()?;
             pieces.push(piece.clone());
+            piece_copies::record();
         }
         Ok(Self {
             pieces,

@@ -369,14 +369,29 @@ fn rust_literal_state_priority_is_pending_gap_boundary_then_source_order() {
 
 #[test]
 #[cfg(feature = "rust")]
+#[allow(clippy::too_many_lines)] // Recovery controls keep content, exact neighbor links and pending-owner evidence together.
 fn rust_literal_recovery_keeps_a_valid_neighbor_and_owner_uncertainty() {
     indexes(b"#[doc = \"tail\"]", |index| {
         assert_eq!(text(index).text(), "tail");
         assert_eq!(index.associations().len(), 0);
+        let document = index.documents().next().unwrap();
+        let linked: Vec<_> = index
+            .assessments()
+            .filter(|a| {
+                a.get().axis == AssessmentAxis::Owner
+                    && index.assessed_document(*a).unwrap() == Some(document)
+            })
+            .collect();
+        assert_eq!(linked.len(), 1);
+        assert!(linked[0].get().node.is_none());
+        let root = index.canonical.nodes[0].evidence.node();
+        assert_eq!(root.byte_range(), 0..15);
         assert!(
             index
+                .node_associations(root)
+                .unwrap()
                 .assessments()
-                .any(|a| a.get().axis == AssessmentAxis::Owner)
+                .any(|a| a == linked[0])
         );
     });
     for broken in [
@@ -398,6 +413,54 @@ fn rust_literal_recovery_keeps_a_valid_neighbor_and_owner_uncertainty() {
             );
             let last = index.documents().last().unwrap();
             assert_eq!(index.complete_text(last).unwrap().unwrap().text(), "good");
+            // expected: the fixed suffix places the good comment at B+11 and g at B+20.
+            let comment = index.facts().document_fragment(last, 0).unwrap();
+            assert_eq!(
+                comment.get().source().pieces()[0].range(),
+                broken.len() + 11..broken.len() + 19
+            );
+            let good: Vec<_> = index
+                .associations()
+                .filter(|association| {
+                    association.get().binding.is_some_and(|node| {
+                        node.node().byte_range() == (broken.len() + 20..broken.len() + 29)
+                    })
+                })
+                .collect();
+            assert_eq!(good.len(), 1);
+            let association = good[0];
+            assert_eq!(
+                index.facts().associated_document(association).unwrap(),
+                last
+            );
+            assert_eq!(
+                association.get().lexical_scope.node().byte_range(),
+                0..source.len()
+            );
+            let owner = index.facts().associated_owner(association, 0).unwrap();
+            let Owner::Node(node) = owner.get() else {
+                panic!("good function")
+            };
+            assert_eq!(
+                node.node().byte_range(),
+                broken.len() + 20..broken.len() + 29
+            );
+            assert_eq!(
+                index
+                    .node_associations(node.node())
+                    .unwrap()
+                    .associations()
+                    .collect::<Vec<_>>(),
+                good
+            );
+            assert_eq!(
+                index
+                    .owner_associations(owner)
+                    .unwrap()
+                    .associations()
+                    .collect::<Vec<_>>(),
+                good
+            );
         });
     }
     indexes(b"struct S(#[doc = \"slot\"] u32);", |index| {
@@ -408,6 +471,22 @@ fn rust_literal_recovery_keeps_a_valid_neighbor_and_owner_uncertainty() {
                 .assessments()
                 .any(|a| a.get().axis == AssessmentAxis::Owner)
         );
+        let document = index.documents().next().unwrap();
+        let linked: Vec<_> = index
+            .assessments()
+            .filter(|a| {
+                a.get().axis == AssessmentAxis::Owner
+                    && index.assessed_document(*a).unwrap() == Some(document)
+            })
+            .collect();
+        assert_eq!(linked.len(), 1);
+        let candidate = linked[0].get().node.unwrap().node();
+        assert_eq!(candidate.byte_range(), 25..28);
+        assert_eq!(candidate.kind(), "primitive_type");
+        let query = index.node_associations(candidate).unwrap();
+        assert!(query.projection_pending());
+        assert_eq!(query.associations().len(), 0);
+        assert!(query.assessments().any(|a| a == linked[0]));
         assert!(
             !index
                 .assessments()
@@ -476,6 +555,7 @@ fn included(
 
 #[test]
 #[cfg(feature = "rust")]
+#[allow(clippy::too_many_lines)] // Both gap orderings pin contributor ranges, state priority and graph links.
 fn rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes() {
     let source = b"#[doc = \"\\x80\"] #[doc = \"bXc\"] fn f() {}";
     included(source, &[26..27], false, |index| {
@@ -496,6 +576,7 @@ fn rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes() {
                     .assessments()
                     .any(|a| a.get().axis == AssessmentAxis::Occurrence)
             );
+            assert_path_gap_links(index, 6..19, 20..29, 0..5);
         },
     );
     included(
@@ -510,6 +591,7 @@ fn rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes() {
                     .assessments()
                     .any(|a| a.get().axis == AssessmentAxis::Occurrence)
             );
+            assert_path_gap_links(index, 0..13, 20..29, 14..19);
         },
     );
     included(
@@ -546,6 +628,29 @@ fn rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes() {
                     .collect::<Vec<_>>(),
                 vec![6..16, 17..20]
             );
+            let attribute = fragment.get().node().unwrap().node();
+            let attribute = attribute.named_child(0).unwrap();
+            let path = attribute.named_child(0).unwrap();
+            assert_eq!(path.byte_range(), 8..11);
+            assert!(index.source.covers(path.byte_range()));
+            assert_eq!(&index.source()[path.byte_range()], b"doc");
+            let value = attribute.child_by_field_name("value").unwrap();
+            assert_eq!(value.byte_range(), 14..19);
+            assert!(!index.source.covers(value.byte_range()));
+            assert_eq!(index.associations().len(), 1);
+            let association = index.associations().next().unwrap();
+            assert_eq!(
+                index.facts().associated_document(association).unwrap(),
+                index.documents().next().unwrap()
+            );
+            assert_eq!(
+                association.get().binding.unwrap().node().byte_range(),
+                21 + suffix.len()..30 + suffix.len()
+            );
+            assert_eq!(
+                association.get().lexical_scope.node().byte_range(),
+                0..source.len()
+            );
         });
     }
     for (source, gap) in [
@@ -578,35 +683,119 @@ fn rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes() {
     );
 }
 
+#[cfg(feature = "rust")]
+fn assert_path_gap_links(
+    index: &DocumentationIndex<'_>,
+    attribute: Range<usize>,
+    owner_span: Range<usize>,
+    comment: Range<usize>,
+) {
+    // bca: suppress(halstead) -- the same occurrence/document/owner handles are checked through both prepared views.
+    let occurrences: Vec<_> = index
+        .assessments()
+        .filter(|a| a.get().axis == AssessmentAxis::Occurrence)
+        .collect();
+    assert_eq!(occurrences.len(), 1);
+    let occurrence = occurrences[0];
+    assert_eq!(
+        occurrence.get().node.unwrap().node().byte_range(),
+        attribute
+    );
+    assert_eq!(index.assessed_document(occurrence).unwrap(), None);
+    let document = index.documents().next().unwrap();
+    assert_eq!(
+        index
+            .facts()
+            .document_fragment(document, 0)
+            .unwrap()
+            .get()
+            .source()
+            .pieces()[0]
+            .range(),
+        comment
+    );
+    assert_eq!(index.associations().len(), 1);
+    let association = index.associations().next().unwrap();
+    assert_eq!(
+        index.facts().associated_document(association).unwrap(),
+        document
+    );
+    assert_eq!(
+        association.get().binding.unwrap().node().byte_range(),
+        owner_span
+    );
+    assert_eq!(
+        association.get().lexical_scope.node().byte_range(),
+        0..index.source().len()
+    );
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    let Owner::Node(node) = owner.get() else {
+        panic!("documented function")
+    };
+    assert_eq!(node.node().byte_range(), owner_span);
+    let query = index.node_associations(node.node()).unwrap();
+    assert_eq!(query.associations().collect::<Vec<_>>(), vec![association]);
+    assert!(query.assessments().any(|a| a == occurrence));
+    assert_eq!(
+        index
+            .owner_associations(owner)
+            .unwrap()
+            .associations()
+            .collect::<Vec<_>>(),
+        vec![association]
+    );
+}
+
 #[test]
 #[cfg(feature = "rust")]
 fn rust_literal_inner_root_module_function_and_private_nested_source_owners() {
-    for (source, kinds, texts) in [
-        ("#![doc = \"root\"]", vec!["source_file"], vec!["root"]),
+    for (source, kinds, texts, owners, bindings, scopes) in [
+        (
+            "#![doc = \"root\"]",
+            vec!["source_file"],
+            vec!["root"],
+            vec![0..16],
+            vec![None],
+            vec![0..16],
+        ),
         (
             "#[doc = \"outer\"] mod m { #![doc = \"inner\"] }",
             vec!["mod_item"],
             vec!["outer\ninner"],
+            vec![17..44],
+            vec![Some(17..44)],
+            vec![0..44],
         ),
         (
             "#[doc = \"outer\"] fn f() { #![doc = \"inner\"] }",
             vec!["function_item"],
             vec!["outer\ninner"],
+            vec![17..45],
+            vec![Some(17..45)],
+            vec![0..45],
         ),
         (
             "#[test] #[doc = \"test\"] fn f() { #[doc = \"nested\"] fn g() {} }",
             vec!["function_item", "function_item"],
             vec!["test", "nested"],
+            vec![24..62, 51..60],
+            vec![Some(24..62), Some(51..60)],
+            vec![0..62, 31..62],
         ),
     ] {
         indexes(source.as_bytes(), |index| {
             assert_eq!(index.documents().len(), texts.len());
             assert_eq!(index.associations().len(), kinds.len());
-            for ((document, association), (kind, expected)) in index
+            for (position, ((document, association), (kind, expected))) in index
                 .documents()
                 .zip(index.associations())
                 .zip(kinds.iter().zip(&texts))
+                .enumerate()
             {
+                assert_eq!(
+                    index.facts().associated_document(association).unwrap(),
+                    document
+                );
                 assert_eq!(
                     index.complete_text(document).unwrap().unwrap().text(),
                     *expected
@@ -624,13 +813,38 @@ fn rust_literal_inner_root_module_function_and_private_nested_source_owners() {
                     panic!("owner")
                 };
                 assert_eq!(node.node().kind(), *kind);
+                assert_eq!(node.node().byte_range(), owners[position]);
+                assert_eq!(
+                    association
+                        .get()
+                        .binding
+                        .map(|node| node.node().byte_range()),
+                    bindings[position]
+                );
+                assert_eq!(
+                    association.get().lexical_scope.node().byte_range(),
+                    scopes[position]
+                );
                 assert_eq!(
                     index
                         .node_associations(node.node())
                         .unwrap()
                         .associations()
-                        .count(),
-                    1
+                        .collect::<Vec<_>>(),
+                    vec![association]
+                );
+                assert_eq!(
+                    index
+                        .owner_associations(owner)
+                        .unwrap()
+                        .associations()
+                        .collect::<Vec<_>>(),
+                    vec![association]
+                );
+                let linked = index.facts().associated_document(association).unwrap();
+                assert_eq!(
+                    index.complete_text(linked).unwrap().unwrap().text(),
+                    *expected
                 );
             }
         });
@@ -825,17 +1039,125 @@ fn rust_literal_materializes_once_and_prices_decoding_projection_and_retained_re
 
 #[test]
 #[cfg(feature = "rust")]
+fn rust_carrier_child_work_depends_on_width_not_depth() {
+    use super::rust::{attribute_children, carrier_children};
+    for size in [8, 32, 128] {
+        for (depth, width) in [(0, size), (size, 1), (size, size)] {
+            let source = format!(
+                "{}{}fn f() {{}}{}",
+                "mod m {".repeat(depth),
+                "#[doc = \"a\"]\n".repeat(width),
+                "}".repeat(depth)
+            );
+            let parser = AnyParser::parse(LANG::Rust, source.into_bytes(), None, None).unwrap();
+            assert!(!parser.ts_tree().root_node().has_error());
+            let context = DocumentationContext::default();
+            let options = DocumentationOptions::default();
+            for raw in [false, true] {
+                let before = (carrier_children::observed(), attribute_children::observed());
+                let index = if raw {
+                    collect(
+                        LANG::Rust,
+                        parser.ts_tree(),
+                        parser.code(),
+                        &context,
+                        &options,
+                    )
+                } else {
+                    parser.documentation(&context, &options)
+                }
+                .unwrap();
+                // expected: #, [, attribute (return before ]); path, =, value. No extras in this fixture.
+                assert_eq!(carrier_children::observed() - before.0, 3 * width);
+                assert_eq!(attribute_children::observed() - before.1, 3 * width);
+                assert_eq!(text(&index).text(), vec!["a"; width].join("\n"));
+                let document = index.documents().next().unwrap();
+                assert_eq!(document.get().fragment_count(), width);
+                for at in 0..width {
+                    let fragment = index.facts().document_fragment(document, at).unwrap();
+                    assert_eq!(fragment.get().form(), FragmentForm::Attribute);
+                    assert_eq!(
+                        fragment.get().source().pieces()[0].bytes(),
+                        b"#[doc = \"a\"]"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "rust")]
 fn rust_literal_many_adjacent_pieces_do_not_restart_global_intersections() {
+    use crate::documentation::source::piece_copies;
     use crate::documentation::text::source_cursor::fragment_piece_visits;
     for size in [8, 32, 128] {
         let source = format!("#[doc = \"{}\"] fn f() {{}}", "\\x41".repeat(size));
-        let before = fragment_piece_visits::observed();
-        included(source.as_bytes(), &[], true, |index| {
-            assert_eq!(text(index).text(), "A".repeat(size));
-            assert_eq!(text(index).mappings().len(), size);
-            // Nine prefix pieces, four bytes per escape, and one lookahead per escape.
-            assert_eq!(fragment_piece_visits::observed() - before, 9 + 5 * size);
-        });
+        for split in [true, false] {
+            let before = fragment_piece_visits::observed();
+            let copies = piece_copies::observed();
+            included(source.as_bytes(), &[], split, |index| {
+                assert_eq!(text(index).text(), "A".repeat(size));
+                assert_eq!(text(index).mappings().len(), size);
+                // expected: split tokens clone four responsible pieces; contiguous tokens clone one.
+                assert_eq!(
+                    piece_copies::observed() - copies,
+                    if split { 4 * size } else { size }
+                );
+                // Split cursor: nine prefix pieces, four bytes and one lookahead per escape.
+                assert_eq!(
+                    fragment_piece_visits::observed() - before,
+                    if split { 9 + 5 * size } else { size }
+                );
+                let expected: Vec<_> = (0..size)
+                    .map(|at| {
+                        let range = 9 + 4 * at..13 + 4 * at;
+                        let pieces = if split {
+                            range.map(|byte| byte..byte + 1).collect()
+                        } else {
+                            vec![range]
+                        };
+                        (at..at + 1, "decoded", pieces)
+                    })
+                    .collect();
+                assert_eq!(maps(text(index)), expected);
+                let document = index.documents().next().unwrap();
+                assert_eq!(document.get().fragment_count(), 1);
+                let fragment = index.facts().document_fragment(document, 0).unwrap();
+                assert_eq!(
+                    fragment.get().node().unwrap().node().byte_range(),
+                    0..11 + 4 * size
+                );
+                assert_eq!(
+                    fragment.get().source().pieces().len(),
+                    if split { 11 + 4 * size } else { 1 }
+                );
+                let retained = piece_copies::observed();
+                for _ in 0..20 {
+                    let complete = text(index);
+                    let portions: Vec<_> = complete.origins(size - 1..size).unwrap().collect();
+                    assert_eq!(portions.len(), 1);
+                    let OriginView::Decoded(pieces) = &portions[0].origin else {
+                        panic!("last escape")
+                    };
+                    assert_eq!(
+                        pieces.iter().map(SourcePiece::range).collect::<Vec<_>>(),
+                        expected[size - 1].2
+                    );
+                    let association = index.associations().next().unwrap();
+                    let owner = index.facts().associated_owner(association, 0).unwrap();
+                    assert_eq!(
+                        index
+                            .owner_associations(owner)
+                            .unwrap()
+                            .associations()
+                            .collect::<Vec<_>>(),
+                        vec![association]
+                    );
+                }
+                assert_eq!(piece_copies::observed() - retained, 0);
+            });
+        }
     }
 }
 
