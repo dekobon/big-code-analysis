@@ -28,7 +28,10 @@ for historical reference.
 
 - The unstable Rust AST documentation collector now decodes direct cooked/raw
   `doc` strings and composes them with comments using Rust 1.99.0 cleanup and
-  exact forward origins. Invalid encoding, unsupported byte/C prefixes, recovery
+  exact forward origins. Outer attributes retain their binding when combined with
+  inner comments. Changed fragments receive rustdoc's second CRLF interpretation;
+  Unicode first-line eligibility preserves ASCII-only decoration rules.
+  Invalid encoding, unsupported byte/C prefixes, recovery
   and excluded source retain explicit unavailable states. Metadata and computed
   carriers, additional owner projections and publication interpretation remain
   pending. Legacy documentation rows and test pruning are preserved. (#1664, Unit1)

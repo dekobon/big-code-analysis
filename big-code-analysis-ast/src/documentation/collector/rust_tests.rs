@@ -8,6 +8,9 @@ use crate::documentation::*;
 use crate::{AnyParser, LANG};
 use std::ops::Range;
 
+#[path = "rust_remediation_tests.rs"]
+mod remediation;
+
 #[cfg(feature = "rust")]
 fn indexes(source: &[u8], check: impl Fn(&DocumentationIndex<'_>)) {
     let parser = AnyParser::parse(LANG::Rust, source.to_vec(), None, None).unwrap();
@@ -1169,6 +1172,7 @@ fn rust_literal_text_phase_cancellation_restores_next_collection() {
         format!("#[doc = \"{}\"] fn f() {{}}", "\\x41".repeat(20_000)),
         format!("#[doc = r\"{}\"] fn f() {{}}", "raw".repeat(20_000)),
         format!("{}fn f() {{}}", "#[doc = \"a\"]\n".repeat(5000)),
+        format!("/**{}* a\n * b*/ fn f() {{}}", "\u{2003}".repeat(20_000)),
     ] {
         let parser = AnyParser::parse(LANG::Rust, source.into_bytes(), None, None).unwrap();
         let collect = || {

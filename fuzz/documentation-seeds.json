@@ -389,6 +389,78 @@
     "has_error": false
   },
   {
+    "name": "rust-outer-binding",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "36028f36eb6a0632c886be72a574cfcb978111e7eb72a47c2123a4f17194ae49",
+    "class": "rust-outer-binding",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::outer_attribute_merges_binding_into_inner_comment_document",
+    "has_error": false
+  },
+  {
+    "name": "rust-pending-inner-binding",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "78fac0de145d5649f0f3599c6967f36e7bcf37687ce0a2372a25c5da35b0ad11",
+    "class": "rust-pending-inner-binding",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::outer_metadata_keeps_binding_on_pending_composition",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-cr",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "6ca796396427b5b91d4e1dd7f6ab02d78936ebf01cec351582cf0e71470b408c",
+    "class": "rust-second-lines-cr",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-terminal",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "62d255558078494685e9d47dc7ccbdf9bb54db447fcc2062d4484eae32c14241",
+    "class": "rust-second-lines-terminal",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-triple-cr",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "187fc91f5f02e06071009d1db9ca18985e66cd380f15f94accdc7e2167c3954d",
+    "class": "rust-second-lines-triple-cr",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-unicode-first-star",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "e21ad513bf862ed7bc748f9a545da213b5aa5b1ec345392dacfce923e479fa13",
+    "class": "rust-unicode-first-star",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::unicode_first_line_star_keeps_ascii_decoration_and_exact_origins",
+    "has_error": false
+  },
+  {
     "name": "rust-literal-empty",
     "header": [
       0,

@@ -68,9 +68,16 @@ impl<'s> Builder<'s> {
         for (node, fragment, target) in std::mem::take(&mut self.pending_attributes) {
             budget.step()?;
             let pending = matches!(self.rust_values.get(&fragment), Some(rust::Value::Pending));
+            let binding = target
+                .filter(|_| {
+                    self.index.canonical.nodes[node.0].evidence.node().kind() == "attribute_item"
+                })
+                .map(|id| self.index.canonical.nodes[id.0].evidence);
             if let Some(&index) = target.as_ref().and_then(|target| by_target.get(target)) {
-                self.drafts[index].fragments.push(fragment);
-                self.drafts[index].pending |= pending;
+                let draft = &mut self.drafts[index];
+                draft.fragments.push(fragment);
+                draft.pending |= pending;
+                draft.binding = draft.binding.or(binding);
             } else {
                 let scope = self.index.canonical.nodes[target.unwrap_or(node).0]
                     .parent
@@ -82,12 +89,7 @@ impl<'s> Builder<'s> {
                     fragments: vec![fragment],
                     target,
                     scope,
-                    binding: target
-                        .filter(|_| {
-                            self.index.canonical.nodes[node.0].evidence.node().kind()
-                                == "attribute_item"
-                        })
-                        .map(|id| self.index.canonical.nodes[id.0].evidence),
+                    binding,
                     role: target.map_or(DocumentRole::Primary, |id| self.rust_role(id)),
                     unresolved: None,
                     pending: pending || target.is_none(),

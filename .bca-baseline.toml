@@ -575,7 +575,7 @@ value = 48218.38058500087
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::combine_pending"
 metric = "halstead.effort"
-value = 71442.25234889281
+value = 77507.87166066223
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -1079,7 +1079,7 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 565.0
+value = 584.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1091,13 +1091,13 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "abc"
-value = 69.28924880528002
+value = 67.21606950722423
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "cognitive"
-value = 38.0
+value = 36.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1109,7 +1109,7 @@ value = 28.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "halstead.effort"
-value = 409210.04703845707
+value = 385472.6566078847
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1260,6 +1260,12 @@ path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "render_local"
 metric = "nexits"
 value = 8.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "rust_fragments"
+metric = "cognitive"
+value = 16.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/literals.rs"

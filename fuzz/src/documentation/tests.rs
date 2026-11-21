@@ -204,8 +204,49 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
 }
 
 #[allow(clippy::single_range_in_vec_init)]
+#[allow(clippy::too_many_lines)] // Independent text/origin tables for registered Rust literal and cleanup seeds.
 fn rust_literal_seed(class: &str, index: &DocumentationIndex<'_>) {
     let (expected, fragments, origins) = match class {
+        "rust-outer-binding" => (
+            "outer\ninner",
+            2,
+            vec![
+                (0..5, false, vec![9..14]),
+                (5..6, false, vec![]),
+                (6..11, false, vec![30..35]),
+            ],
+        ),
+        "rust-second-lines-cr" => (
+            "a\nb",
+            1,
+            vec![
+                (0..1, false, vec![11..12]),
+                (1..2, true, vec![16..18]),
+                (2..3, false, vec![18..19]),
+            ],
+        ),
+        "rust-second-lines-terminal" => ("a", 1, vec![(0..1, false, vec![11..12])]),
+        "rust-second-lines-triple-cr" => (
+            "a\r\nb",
+            1,
+            vec![
+                (0..1, false, vec![11..12]),
+                (1..2, true, vec![12..14]),
+                (2..3, true, vec![18..20]),
+                (3..4, false, vec![20..21]),
+            ],
+        ),
+        "rust-unicode-first-star" => (
+            "\u{2003}* a\n * b\nz",
+            2,
+            vec![
+                (0..6, false, vec![3..9]),
+                (6..7, false, vec![9..10]),
+                (7..11, false, vec![10..14]),
+                (11..12, false, vec![]),
+                (12..13, false, vec![26..27]),
+            ],
+        ),
         "rust-literal-mixed" => (
             "first\nsecond",
             2,
@@ -265,10 +306,33 @@ fn rust_literal_seed(class: &str, index: &DocumentationIndex<'_>) {
     let association = index.associations().next().unwrap();
     assert_eq!(association.get().resolution, Resolution::Resolved);
     assert_eq!(association.get().publication, Publication::Unknown);
+    if class == "rust-outer-binding" {
+        assert_rust_inner_binding(index, 17..37);
+    }
     assert!(!index.assessments().any(|a| matches!(
         a.get().axis,
         AssessmentAxis::Occurrence | AssessmentAxis::Composition
     )));
+}
+
+fn assert_rust_inner_binding(index: &DocumentationIndex<'_>, span: std::ops::Range<usize>) {
+    assert_eq!(index.associations().len(), 1);
+    let association = index.associations().next().unwrap();
+    assert_eq!(
+        association.get().binding.map(|n| n.node().byte_range()),
+        Some(span.clone())
+    );
+    let document = index.documents().next().unwrap();
+    assert_eq!(
+        index.facts().associated_document(association).unwrap(),
+        document
+    );
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    let Owner::Node(node) = owner.get() else {
+        panic!("function owner")
+    };
+    assert_eq!(node.node().kind(), "function_item");
+    assert_eq!(node.node().byte_range(), span);
 }
 
 #[allow(clippy::too_many_lines)] // Independent expected outcomes for the finite registered edge families.
@@ -287,7 +351,7 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
             assert!(index.source().windows(2).any(|bytes| bytes == b"\r\n"));
             assert_eq!(text(index).text(), "kept");
         }
-        "pending-content" => {
+        "pending-content" | "rust-pending-inner-binding" => {
             assert_eq!(index.documents().len(), 1);
             assert!(matches!(
                 index.documents().next().unwrap().get().content(),
@@ -298,13 +362,34 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                     .assessments()
                     .any(|a| a.get().axis == AssessmentAxis::Composition)
             );
+            if class == "rust-pending-inner-binding" {
+                assert_rust_inner_binding(index, 15..35);
+                let assessments: Vec<_> = index
+                    .assessments()
+                    .filter(|a| a.get().axis == AssessmentAxis::Composition)
+                    .collect();
+                assert_eq!(assessments.len(), 1);
+                assert_eq!(
+                    assessments[0].get().node.map(|n| n.node().byte_range()),
+                    Some(15..35)
+                );
+                assert_eq!(
+                    index.assessed_document(assessments[0]).unwrap(),
+                    index.documents().next()
+                );
+            }
         }
         "rust-literal-mixed"
         | "rust-literal-empty"
         | "rust-literal-raw"
         | "rust-literal-scalar"
         | "rust-literal-continuation"
-        | "rust-literal-margin" => {
+        | "rust-literal-margin"
+        | "rust-outer-binding"
+        | "rust-second-lines-cr"
+        | "rust-second-lines-terminal"
+        | "rust-second-lines-triple-cr"
+        | "rust-unicode-first-star" => {
             rust_literal_seed(class, index);
         }
         "join" => {

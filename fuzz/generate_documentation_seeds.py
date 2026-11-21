@@ -101,6 +101,12 @@ def main():
         )
 
     cases = [
+        ("rust-outer-binding", [0, 3, 0], b'#[doc = "outer"]\nfn f() { //! inner\n}', "rust-outer-binding", "rust_remediation_tests.rs::outer_attribute_merges_binding_into_inner_comment_document", False),
+        ("rust-pending-inner-binding", [0, 3, 0], b'#[doc(hidden)]\nfn f() { //! inner\n}', "rust-pending-inner-binding", "rust_remediation_tests.rs::outer_metadata_keeps_binding_on_pending_composition", False),
+        ("rust-second-lines-cr", [0, 3, 0], b'#[doc = "\\na\\r\\r\\nb"] fn f() {}', "rust-second-lines-cr", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-second-lines-terminal", [0, 3, 0], b'#[doc = "\\na\\r\\r\\n\\n"] fn f() {}', "rust-second-lines-terminal", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-second-lines-triple-cr", [0, 3, 0], b'#[doc = "\\na\\r\\r\\r\\nb"] fn f() {}', "rust-second-lines-triple-cr", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-unicode-first-star", [0, 3, 0], '/**\u2003* a\n * b*/\n#[doc = "z"]\nfn f() {}'.encode(), "rust-unicode-first-star", "rust_remediation_tests.rs::unicode_first_line_star_keeps_ascii_decoration_and_exact_origins", False),
         ("rust-literal-empty", [0, 3, 0], b'#[doc = ""] fn f() {}', "rust-literal-empty", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
         ("rust-literal-raw", [0, 3, 0], b'#[doc = r###"a"#b"###] fn f() {}', "rust-literal-raw", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
         ("rust-literal-scalar", [0, 7, 0], b'#[doc = "\\u{1F600}"] fn f() {}', "rust-literal-scalar", "rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup", False),
