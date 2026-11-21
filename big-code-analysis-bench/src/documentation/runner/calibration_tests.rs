@@ -118,6 +118,59 @@ fn cap_outcomes_use_the_three_sample_median_and_exact_boundaries() {
 }
 
 #[test]
+fn cap_decision_uses_the_median_of_distinct_samples() {
+    for (samples, expected) in [
+        (
+            [9_000_000, 199_998, 199_999],
+            CalibrationOutcome::Unresolved,
+        ),
+        ([0, 200_000, 200_001], CalibrationOutcome::CapLimited),
+    ] {
+        let mut evidence = Calibration::new(Mode::Gate);
+        let mut calls = 0;
+        let result = calibrate(&mut evidence, "cap-median", 1, MAX_CELL_WALK, |count| {
+            let sample = calls % 3;
+            calls += 1;
+            Ok(Duration::from_nanos(if count == 1 << 20 {
+                samples[sample]
+            } else {
+                0
+            }))
+        });
+        assert_eq!(calls, 63);
+        let Calibration::Batches { stages, outcome } = &evidence else {
+            panic!("expected batch calibration")
+        };
+        assert_eq!(*outcome, expected);
+        assert_eq!(stages.len(), 21);
+        assert_eq!(stages[20].samples, samples.map(Duration::from_nanos));
+        match expected {
+            CalibrationOutcome::Unresolved => {
+                assert!(result.unwrap_err().0.contains("median-ns 199999 < 200000"));
+            }
+            CalibrationOutcome::CapLimited => {
+                assert_eq!(result.unwrap(), 1 << 20);
+                evidence
+                    .validate(Mode::Gate, 1 << 20, MAX_CELL_WALK)
+                    .unwrap();
+            }
+            _ => panic!("unexpected case"),
+        }
+    }
+}
+
+#[test]
+fn cap_limited_trace_requires_the_iteration_cap() {
+    let mut trace = target_trace(4);
+    *outcome_mut(&mut trace) = CalibrationOutcome::CapLimited;
+    stages_mut(&mut trace)[2].samples = vec![Duration::from_micros(200); 3];
+    for mode in [Mode::Gate, Mode::ReportOnly] {
+        let error = trace.validate(mode, 4, MAX_CELL_WALK).unwrap_err();
+        assert_eq!(error.0, "invalid calibration outcome");
+    }
+}
+
+#[test]
 fn real_calibration_batches_execute_three_times_each_tested_count() {
     let probe = &super::super::REGISTRY[1];
     let parsed = Parsed::new(probe, 4).unwrap();
@@ -301,6 +354,53 @@ fn pending_cells() -> Vec<RawCell> {
             batches: Vec::new(),
         })
         .collect()
+}
+
+#[test]
+fn cell_coordinator_stores_each_selected_repetition_count() {
+    let mut raw = pending_cells();
+    let expected_counts = [1, 2, 4];
+    let mut calls = Vec::new();
+    calibrate_cells(&mut raw, |at, count| {
+        calls.push((at, count));
+        Ok(if count == expected_counts[at] {
+            Duration::from_millis(2)
+        } else {
+            Duration::ZERO
+        })
+    })
+    .unwrap();
+    assert_eq!(
+        calls,
+        [
+            (0, 1),
+            (0, 1),
+            (0, 1),
+            (1, 1),
+            (1, 1),
+            (1, 1),
+            (1, 2),
+            (1, 2),
+            (1, 2),
+            (2, 1),
+            (2, 1),
+            (2, 1),
+            (2, 2),
+            (2, 2),
+            (2, 2),
+            (2, 4),
+            (2, 4),
+            (2, 4),
+        ]
+    );
+    assert_eq!(
+        raw.iter().map(|cell| cell.iterations).collect::<Vec<_>>(),
+        expected_counts
+    );
+    for (cell, count) in raw.iter().zip(expected_counts) {
+        assert_eq!(cell.calibration, target_trace(count));
+        assert!(cell.batches.is_empty());
+    }
 }
 
 #[test]
@@ -506,6 +606,42 @@ fn calibration_formatter_preserves_sample_order_and_integer_nanoseconds() {
             "    per-operation-budget-ns: 3000007\n",
             "    calibration-stage-ns: 0 1 2000001 0 2000003\n",
             "    calibration-final-ns: 0 1 2000001 0 2000003 target-reached\n"
+        )
+    );
+
+    let trace = Calibration::Batches {
+        stages: vec![
+            CalibrationStage {
+                iterations: 1,
+                samples: vec![
+                    Duration::from_nanos(300),
+                    Duration::from_nanos(100),
+                    Duration::from_nanos(200),
+                ],
+            },
+            CalibrationStage {
+                iterations: 2,
+                samples: vec![
+                    Duration::from_nanos(2_000_001),
+                    Duration::ZERO,
+                    Duration::from_nanos(2_000_003),
+                ],
+            },
+        ],
+        outcome: CalibrationOutcome::TargetReached,
+    };
+    trace
+        .validate(Mode::Gate, 2, Duration::from_nanos(3_000_007))
+        .unwrap();
+    let mut text = String::new();
+    write_calibration(&mut text, &trace, Duration::from_nanos(3_000_007)).unwrap();
+    assert_eq!(
+        text,
+        concat!(
+            "    per-operation-budget-ns: 3000007\n",
+            "    calibration-stage-ns: 0 1 300 100 200\n",
+            "    calibration-stage-ns: 1 2 2000001 0 2000003\n",
+            "    calibration-final-ns: 1 2 2000001 0 2000003 target-reached\n"
         )
     );
 }

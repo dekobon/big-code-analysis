@@ -10,6 +10,34 @@
   "command": ["cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation", "--no-fail-fast"],
   "cases": [
     {
+      "name": "omit calibrated repetition writeback",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "raw[at].iterations = result.map_err(|error| retained_error(error, &raw[..=at]))?;",
+      "new": "let _ = result.map_err(|error| retained_error(error, &raw[..=at]))?;",
+      "expect": ["documentation::runner::calibration_tests::cell_coordinator_stores_each_selected_repetition_count"]
+    },
+    {
+      "name": "cap decision uses first sample",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "if observed >= MIN_SOURCE_SAMPLE {",
+      "new": "if stages[at].samples[0] >= MIN_SOURCE_SAMPLE {",
+      "expect": ["documentation::runner::calibration_tests::cap_decision_uses_the_median_of_distinct_samples"]
+    },
+    {
+      "name": "cap-limited outcome accepted below cap",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "stage.iterations == SOURCE_MAX_ITERATIONS\n                        && (MIN_SOURCE_SAMPLE..SOURCE_TARGET_SAMPLE).contains(&observed)",
+      "new": "(MIN_SOURCE_SAMPLE..SOURCE_TARGET_SAMPLE).contains(&observed)",
+      "expect": ["documentation::runner::calibration_tests::cap_limited_trace_requires_the_iteration_cap"]
+    },
+    {
+      "name": "final summary uses first stage",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "if let Some(stage) = stages.last() {",
+      "new": "if let Some(stage) = stages.first() {",
+      "expect": ["documentation::runner::calibration_tests::calibration_formatter_preserves_sample_order_and_integer_nanoseconds"]
+    },
+    {
       "name": "calibrate with one operation instead of the declared batch count",
       "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
       "old": "let elapsed = measure(count).map_err(|error| {",
