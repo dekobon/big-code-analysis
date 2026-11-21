@@ -96,7 +96,7 @@ fn cap_outcomes_use_the_three_sample_median_and_exact_boundaries() {
         });
         assert_eq!(calls.len(), 63);
         let (stages, remainder) = calls.as_chunks::<3>();
-        assert_eq!(remainder, []);
+        assert_eq!(remainder, [] as [u32; 0]);
         for (at, samples) in stages.iter().enumerate() {
             assert_eq!(*samples, [1 << at; 3]);
         }
