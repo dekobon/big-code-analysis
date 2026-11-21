@@ -5,7 +5,8 @@ use std::ops::Range;
 
 use big_code_analysis_ast::documentation::{
     AssessmentAxis, CompleteText, Composition, DocumentRole, DocumentationIndex, FragmentForm,
-    Mapping, Origin, OriginView, Owner, Publication, Resolution, SourcePiece, SourcePieces,
+    Mapping, NodeEvidence, Origin, OriginView, Owner, Publication, Resolution, SourcePiece,
+    SourcePieces,
 };
 use big_code_analysis_ast::tree_sitter::{Node, Point};
 
@@ -238,6 +239,37 @@ pub(super) fn late_map(
 
 type Nodes<'s> = HashMap<(&'static str, usize, usize), Node<'s>>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EvidenceRole {
+    Binding,
+    Scope,
+    FunctionOwner,
+    FileOwner,
+    ModuleOwner,
+    Publication,
+    Fragment,
+}
+
+// Substitute retained evidence privately in negative tests; canonical expectations stay untouched.
+struct EvidenceCheck<F>(F);
+
+impl<F> EvidenceCheck<F> {
+    #[cfg(test)]
+    fn new<'s>(check: F) -> Self
+    where
+        F: Fn(EvidenceRole, NodeEvidence<'s>) -> NodeEvidence<'s>,
+    {
+        Self(check)
+    }
+
+    fn matches<'s>(&self, role: EvidenceRole, actual: NodeEvidence<'s>, expected: Node<'_>) -> bool
+    where
+        F: Fn(EvidenceRole, NodeEvidence<'s>) -> NodeEvidence<'s>,
+    {
+        (self.0)(role, actual).validate(expected).is_ok()
+    }
+}
+
 fn node_at<'s>(
     nodes: &Nodes<'s>,
     kind: &'static str,
@@ -337,11 +369,12 @@ fn shape<'s>(parsed: &'s Parsed, expected: &Expected) -> Result<Nodes<'s>, Harne
 }
 
 #[allow(clippy::too_many_lines)] // Check the complete document/association/owner graph and canonical navigation together.
-fn graph(
-    index: &DocumentationIndex<'_>,
+fn graph<'s>(
+    index: &DocumentationIndex<'s>,
     expected: &Expected,
     nodes: &Nodes<'_>,
     root: Node<'_>,
+    evidence: &EvidenceCheck<impl Fn(EvidenceRole, NodeEvidence<'s>) -> NodeEvidence<'s>>,
 ) -> Result<(), HarnessError> {
     require(
         index.documents().len() == 1 && index.associations().len() == 1,
@@ -391,8 +424,9 @@ fn graph(
         "Rust association disposition",
     )?;
     require(
-        fact.binding.is_some_and(|node| node.node() == function)
-            && fact.lexical_scope.node() == scope,
+        fact.binding
+            .is_some_and(|node| evidence.matches(EvidenceRole::Binding, node, function))
+            && evidence.matches(EvidenceRole::Scope, fact.lexical_scope, scope),
         "Rust binding/scope identity",
     )?;
     let owner = index
@@ -400,10 +434,10 @@ fn graph(
         .associated_owner(association, 0)
         .map_err(failure)?;
     require(
-        matches!(owner.get(), Owner::Node(node) if node.node() == function),
+        matches!(owner.get(), Owner::Node(node) if evidence.matches(EvidenceRole::FunctionOwner, *node, function)),
         "Rust canonical function owner",
     )?;
-    publication(index, expected, nodes)?;
+    publication(index, expected, nodes, evidence)?;
     require(
         index.facts().owners().len() == expected.depth + 2,
         "Rust complete owner inventory",
@@ -412,14 +446,14 @@ fn graph(
     require(
         owners
             .next()
-            .is_some_and(|owner| matches!(owner.get(), Owner::File(node) if node.node() == root)),
+            .is_some_and(|owner| matches!(owner.get(), Owner::File(node) if evidence.matches(EvidenceRole::FileOwner, *node, root))),
         "Rust file owner identity",
     )?;
     for depth in 0..expected.depth {
         let module = node_at(nodes, "mod_item", 7 * depth..expected.source.len() - depth)?;
         require(
             owners.next().is_some_and(
-                |owner| matches!(owner.get(), Owner::Node(node) if node.node() == module),
+                |owner| matches!(owner.get(), Owner::Node(node) if evidence.matches(EvidenceRole::ModuleOwner, *node, module)),
             ),
             "Rust module owner identity",
         )?;
@@ -448,10 +482,11 @@ fn graph(
     Ok(())
 }
 
-fn publication(
-    index: &DocumentationIndex<'_>,
+fn publication<'s>(
+    index: &DocumentationIndex<'s>,
     expected: &Expected,
     nodes: &Nodes<'_>,
+    evidence: &EvidenceCheck<impl Fn(EvidenceRole, NodeEvidence<'s>) -> NodeEvidence<'s>>,
 ) -> Result<(), HarnessError> {
     let attributes = expected
         .fragments
@@ -467,7 +502,10 @@ fn publication(
             assessment.get().axis == AssessmentAxis::Publication
                 && assessment.get().reason
                     == "Rust documentation/publication metadata awaits interpretation"
-                && assessment.get().node.is_some_and(|e| e.node() == node)
+                && assessment
+                    .get()
+                    .node
+                    .is_some_and(|e| evidence.matches(EvidenceRole::Publication, e, node))
                 && index
                     .assessed_document(assessment)
                     .map_err(failure)?
@@ -484,13 +522,29 @@ pub(super) fn validate(
     parsed: &Parsed,
     index: &DocumentationIndex<'_>,
 ) -> Result<(), HarnessError> {
+    validate_with(probe, n, parsed, index, &EvidenceCheck(|_, node| node))
+}
+
+fn validate_with<'s>(
+    probe: &SourceProbe,
+    n: usize,
+    parsed: &Parsed,
+    index: &DocumentationIndex<'s>,
+    evidence: &EvidenceCheck<impl Fn(EvidenceRole, NodeEvidence<'s>) -> NodeEvidence<'s>>,
+) -> Result<(), HarnessError> {
     let expected = Expected::new(probe.key, n)?;
     require(
         parsed.source() == expected.source && index.source() == parsed.source(),
         "Rust exact supplied source",
     )?;
     let nodes = shape(parsed, &expected)?;
-    graph(index, &expected, &nodes, parsed.tree().root_node())?;
+    graph(
+        index,
+        &expected,
+        &nodes,
+        parsed.tree().root_node(),
+        evidence,
+    )?;
     let doc = index
         .documents()
         .next()
@@ -532,14 +586,17 @@ pub(super) fn validate(
         };
         let node = fragment
             .node()
-            .ok_or_else(|| HarnessError("Rust fragment node absent".into()))?
-            .node();
+            .ok_or_else(|| HarnessError("Rust fragment node absent".into()))?;
         require(
-            node == node_at(
-                &nodes,
-                kind,
-                range.start..range.end + usize::from(kind == "line_comment"),
-            )?,
+            evidence.matches(
+                EvidenceRole::Fragment,
+                node,
+                node_at(
+                    &nodes,
+                    kind,
+                    range.start..range.end + usize::from(kind == "line_comment"),
+                )?,
+            ),
             "Rust raw canonical fragment node",
         )?;
     }
@@ -554,4 +611,100 @@ pub(super) fn validate(
         parsed.source(),
         expected.split,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::documentation::REGISTRY;
+    use big_code_analysis_ast::documentation::{SourceContext, SourceError};
+    use big_code_analysis_ast::tree_sitter::InputEdit;
+    use std::cell::Cell;
+
+    #[test]
+    fn full_validator_rejects_same_id_edited_evidence_at_every_role() {
+        for key in ["rust-mixed", "rust-attribute-depth-width"] {
+            let probe = REGISTRY.iter().find(|p| p.key == key).unwrap();
+            let parsed = Parsed::new(probe, 2).unwrap();
+            let index = parsed.collect(probe).unwrap();
+            validate(probe, 2, &parsed, &index).unwrap();
+            let context = SourceContext::new(parsed.tree(), parsed.source());
+            let before_text = index
+                .complete_text(index.documents().next().unwrap())
+                .unwrap()
+                .unwrap();
+            let counts = (
+                index.documents().len(),
+                index.associations().len(),
+                index.facts().fragments().len(),
+            );
+            for (role, message) in [
+                (EvidenceRole::Binding, "Rust binding/scope identity"),
+                (EvidenceRole::Scope, "Rust binding/scope identity"),
+                (EvidenceRole::FunctionOwner, "Rust canonical function owner"),
+                (EvidenceRole::FileOwner, "Rust file owner identity"),
+                (EvidenceRole::ModuleOwner, "Rust module owner identity"),
+                (
+                    EvidenceRole::Publication,
+                    "Rust publication assessment identity",
+                ),
+                (EvidenceRole::Fragment, "Rust raw canonical fragment node"),
+            ] {
+                if role == EvidenceRole::ModuleOwner && key == "rust-mixed" {
+                    continue;
+                }
+                let changed = Cell::new(0);
+                let evidence = EvidenceCheck::new(|at, original| {
+                    if at != role {
+                        return original;
+                    }
+                    let mut edited = original.node();
+                    edited.edit(&InputEdit {
+                        start_byte: 0,
+                        old_end_byte: 0,
+                        new_end_byte: 1,
+                        start_position: Point::new(0, 0),
+                        old_end_position: Point::new(0, 0),
+                        new_end_position: Point::new(0, 1),
+                    });
+                    assert_eq!(edited.id(), original.node().id());
+                    assert_eq!(
+                        edited,
+                        original.node(),
+                        "dependency equality ignores context"
+                    );
+                    assert_ne!(edited.range(), original.node().range());
+                    let malformed = context.node(edited).unwrap();
+                    assert_eq!(
+                        malformed.validate(original.node()),
+                        Err(SourceError::NoncanonicalNode)
+                    );
+                    if key == "rust-mixed" && role == EvidenceRole::Binding {
+                        assert_eq!(original.node().byte_range(), 60..79);
+                        assert_eq!(edited.byte_range(), 61..80);
+                    }
+                    changed.set(changed.get() + 1);
+                    malformed
+                });
+                let error = validate_with(probe, 2, &parsed, &index, &evidence).unwrap_err();
+                assert_eq!(error.0, message, "{key}/{role:?}");
+                assert_eq!(changed.get(), 1, "{key}/{role:?}");
+                assert_eq!(
+                    counts,
+                    (
+                        index.documents().len(),
+                        index.associations().len(),
+                        index.facts().fragments().len()
+                    )
+                );
+                let after_text = index
+                    .complete_text(index.documents().next().unwrap())
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(after_text.text(), before_text.text());
+                assert_eq!(after_text.mappings(), before_text.mappings());
+                validate(probe, 2, &parsed, &index).unwrap();
+            }
+        }
+    }
 }

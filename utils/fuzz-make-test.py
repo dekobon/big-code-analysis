@@ -3,17 +3,20 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 class FuzzMakeTests(unittest.TestCase):
     def setUp(self):
+        self.make = self._gnu_make_4()
         self.temp = tempfile.TemporaryDirectory(prefix="bca-fuzz-make-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -55,11 +58,23 @@ else:
         path.write_text(f"#!{shutil.which('python3')}\n{body}\n")
         path.chmod(0o755)
 
+    def _gnu_make_4(self):
+        candidates = [os.environ.get("MAKE"), "gmake", "make"]
+        for candidate in candidates:
+            found = shutil.which(candidate) if candidate else None
+            if found is None:
+                continue
+            probe = subprocess.run([found, "--version"], capture_output=True, text=True, timeout=30)
+            match = re.match(r"GNU Make (\d+)\.", probe.stdout)
+            if probe.returncode == 0 and match and int(match.group(1)) >= 4:
+                return str(Path(found).absolute())
+        self.skipTest(f"no GNU Make 4 among {candidates}; set MAKE or install gmake")
+
     def inventory(self):
         return {str(p.relative_to(self.corpus)): p.read_bytes() for p in self.corpus.rglob('*') if p.is_file()}
 
     def run_make(self, target, *settings, symbolizer="/fake/llvm symbolizer"):
-        command = [shutil.which("make"), "--no-print-directory", "-f", str(ROOT / "Makefile"), target,
+        command = [self.make, "--no-print-directory", "-f", str(ROOT / "Makefile"), target,
                    f"FUZZ_WORK={self.work}", f"FUZZ_CORPUS={self.corpus}", f"FUZZ_SYMBOLIZER={symbolizer}", *settings]
         result = subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(self.inventory(), self.before, result.stdout + result.stderr)
@@ -85,7 +100,7 @@ else:
         self.check_call(self.records()[0], "documentation", ["-runs=100000", "-timeout=60"])
 
     def test_default_corpus_paths_are_preserved_in_expanded_command(self):
-        command = [shutil.which("make"), "--no-print-directory", "-n", "-f", str(ROOT / "Makefile"),
+        command = [self.make, "--no-print-directory", "-n", "-f", str(ROOT / "Makefile"),
                    "fuzz-run", "FUZZ_SYMBOLIZER=/fake/symbolizer"]
         result = subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -129,5 +144,54 @@ else:
         self.assertEqual(self.records(), [])
 
 
+class SelectedMakeTests(unittest.TestCase):
+    def test_selected_caller_survives_shadowed_path_make_in_recipe_and_standalone(self):
+        real_make = FuzzMakeTests()._gnu_make_4()
+        with tempfile.TemporaryDirectory(prefix="bca-selected-make-") as directory:
+            root = Path(directory)
+            calls = root / "make-calls.jsonl"
+            wrong = root / "wrong-make.jsonl"
+            selected = root / "selected-gmake"
+            selected.write_text(f"#!{shutil.which('python3')}\n" + "\n".join([
+                "import json, os, sys",
+                f"with open({str(calls)!r}, 'a') as log: log.write(json.dumps(sys.argv[1:]) + '\\n')",
+                f"os.execv({real_make!r}, [{str(selected)!r}, *sys.argv[1:]])",
+            ]) + "\n")
+            selected.chmod(0o755)
+            for name in ["make", "gmake"]:
+                sentinel = root / name
+                sentinel.write_text(f"#!{shutil.which('python3')}\nimport json, sys\nwith open({str(wrong)!r}, 'a') as log: log.write(json.dumps(sys.argv) + '\\n')\nsys.exit(86)\n")
+                sentinel.chmod(0o755)
+            env = os.environ | {"PATH": str(root) + os.pathsep + os.environ["PATH"], "BCA_FUZZ_MAKE_SELECTION_CHILD": "1"}
+            for key in ["MAKE", "MAKEFLAGS", "MFLAGS", "GNUMAKEFLAGS", "MAKEFILES", "MAKEOVERRIDES", "MAKELEVEL"]:
+                env.pop(key, None)
+            commands = [
+                ([str(selected), "--no-print-directory", "-f", str(ROOT / "Makefile"), "fuzz-make-test"], env),
+                ([shutil.which("python3"), "-B", str(Path(__file__).resolve()), "FuzzMakeTests"], env | {"MAKE": str(selected)}),
+            ]
+            for command, child_env in commands:
+                with self.subTest(command=command):
+                    calls.write_text("")
+                    result = subprocess.run(command, cwd=ROOT, env=child_env, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("Ran 6 tests", result.stderr)
+                    recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+                    self.assertEqual(sum("--version" in args for args in recorded), 6)
+                    dry = [args for args in recorded if "-n" in args]
+                    self.assertEqual(dry, [["--no-print-directory", "-n", "-f", str(ROOT / "Makefile"), "fuzz-run", "FUZZ_SYMBOLIZER=/fake/symbolizer"]])
+                    self.assertEqual(sum("FUZZ_TARGET=documentation" in args for args in recorded), 2)
+                    self.assertFalse(wrong.exists(), wrong.read_text() if wrong.exists() else "")
+
+    def test_standalone_fallback_prefers_valid_gmake_over_old_make(self):
+        with tempfile.TemporaryDirectory(prefix="bca-make-selection-") as directory:
+            root = Path(directory)
+            for name, version in [("caller", "GNU Make 3.82"), ("gmake", "GNU Make 4.3"), ("make", "GNU Make 3.81")]:
+                path = root / name
+                path.write_text(f"#!{shutil.which('python3')}\nprint({version!r})\n")
+                path.chmod(0o755)
+            with patch.dict(os.environ, {"PATH": str(root), "MAKE": str(root / "caller")}):
+                self.assertEqual(FuzzMakeTests()._gnu_make_4(), str(root / "gmake"))
+
+
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(defaultTest="FuzzMakeTests" if os.environ.get("BCA_FUZZ_MAKE_SELECTION_CHILD") else None)

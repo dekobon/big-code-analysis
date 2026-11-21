@@ -1,7 +1,7 @@
 {
   "cwd": ".",
   "runner": "cargo",
-  "cargo": ["timeout", "3600", "cargo", "test", "-p", "big-code-analysis-bench", "--lib", "documentation::rust_tests"],
+  "cargo": ["timeout", "3600", "cargo", "test", "-p", "big-code-analysis-bench", "--lib", "documentation::rust"],
   "cases": [
     {
       "name": "validator-forgets-token-coordinates",
@@ -13,9 +13,16 @@
     {
       "name": "validator-accepts-foreign-binding-scope",
       "file": "big-code-analysis-bench/src/documentation/rust_validation.rs",
-      "old": "fact.binding.is_some_and(|node| node.node() == function)\n            && fact.lexical_scope.node() == scope",
+      "old": "fact.binding\n            .is_some_and(|node| evidence.matches(EvidenceRole::Binding, node, function))\n            && evidence.matches(EvidenceRole::Scope, fact.lexical_scope, scope)",
       "new": "fact.binding.is_some_and(|node| node.node().byte_range() == function.byte_range())\n            && fact.lexical_scope.node().byte_range() == scope.byte_range()",
       "expect": ["documentation::rust_tests::rust_graph_validator_rejects_equal_source_with_foreign_canonical_links"]
+    },
+    {
+      "name": "validator-restores-id-only-evidence-equality",
+      "file": "big-code-analysis-bench/src/documentation/rust_validation.rs",
+      "old": "(self.0)(role, actual).validate(expected).is_ok()",
+      "new": "(self.0)(role, actual).node() == expected",
+      "expect": ["documentation::rust_validation::tests::full_validator_rejects_same_id_edited_evidence_at_every_role"]
     },
     {
       "name": "map-operation-repeats-first-piece",

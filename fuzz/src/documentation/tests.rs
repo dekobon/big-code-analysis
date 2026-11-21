@@ -278,7 +278,7 @@ fn rust_included_literal_seed(
     assert_eq!(document.get().composition(), Composition::AttributeSequence);
     let fragment = index.facts().document_fragment(document, 0).unwrap();
     assert_eq!(fragment.get().form(), FragmentForm::Attribute);
-    assert_eq!(fragment.get().node().unwrap().node(), *attribute);
+    fragment.get().node().unwrap().validate(*attribute).unwrap();
     assert_eq!(fragment.get().source().has_excluded_gap(), gap);
     let spans: Vec<_> = (0..end)
         .filter(|at| !gap || *at != 10)
@@ -304,11 +304,40 @@ fn rust_included_literal_seed(
     );
     assert_eq!(association.get().resolution, Resolution::Resolved);
     assert_eq!(association.get().publication, Publication::Unknown);
-    assert_eq!(association.get().binding.unwrap().node(), *function);
-    assert_eq!(association.get().lexical_scope.node(), tree.root_node());
+    association
+        .get()
+        .binding
+        .unwrap()
+        .validate(*function)
+        .unwrap();
+    association
+        .get()
+        .lexical_scope
+        .validate(tree.root_node())
+        .unwrap();
     assert_eq!(association.get().owner_count(), 1);
     let owner = index.facts().associated_owner(association, 0).unwrap();
-    assert!(matches!(owner.get(), Owner::Node(node) if node.node() == *function));
+    let Owner::Node(node) = owner.get() else {
+        panic!("function owner")
+    };
+    node.validate(*function).unwrap();
+    assert_eq!(index.facts().owners().len(), 2);
+    let file = index.facts().owners().next().unwrap();
+    let Owner::File(node) = file.get() else {
+        panic!("file owner")
+    };
+    node.validate(tree.root_node()).unwrap();
+    let mut publications = index
+        .assessments()
+        .filter(|assessment| assessment.get().axis == AssessmentAxis::Publication);
+    let publication = publications.next().unwrap();
+    assert!(publications.next().is_none());
+    publication
+        .get()
+        .node
+        .unwrap()
+        .validate(*attribute)
+        .unwrap();
     assert_eq!(
         index
             .node_associations(*function)

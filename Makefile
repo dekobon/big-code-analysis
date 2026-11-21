@@ -469,7 +469,7 @@ makefile-check: fuzz-make-test
 
 .PHONY: fuzz-make-test
 fuzz-make-test:
-	@python3 -B "$(BASE_DIR)utils/fuzz-make-test.py"
+	@MAKE="$(MAKE)" python3 -B "$(BASE_DIR)utils/fuzz-make-test.py"
 
 # actionlint scans every workflow under .github/workflows/ and shells
 # out to shellcheck (when present on PATH) for the `run:` blocks. It

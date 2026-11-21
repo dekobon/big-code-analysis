@@ -4,6 +4,20 @@
   "command": ["python3", "-B", "-m", "unittest", "utils/fuzz-make-test.py"],
   "cases": [
     {
+      "name": "drop-selected-make-recipe-propagation",
+      "file": "Makefile",
+      "old": "@MAKE=\"$(MAKE)\" python3 -B \"$(BASE_DIR)utils/fuzz-make-test.py\"",
+      "new": "@python3 -B \"$(BASE_DIR)utils/fuzz-make-test.py\"",
+      "expect": ["utils.fuzz-make-test.SelectedMakeTests.test_selected_caller_survives_shadowed_path_make_in_recipe_and_standalone"]
+    },
+    {
+      "name": "dry-expansion-discards-selected-make",
+      "file": "utils/fuzz-make-test.py",
+      "old": "command = [self.make, \"--no-print-directory\", \"-n\",",
+      "new": "command = [shutil.which(\"make\"), \"--no-print-directory\", \"-n\",",
+      "expect": ["utils.fuzz-make-test.SelectedMakeTests.test_selected_caller_survives_shadowed_path_make_in_recipe_and_standalone"]
+    },
+    {
       "name": "drop-replay-final-statistics-arguments",
       "file": "Makefile",
       "old": "-- $(FUZZ_ARGS) -runs=0 -timeout=$(FUZZ_TIMEOUT);",
