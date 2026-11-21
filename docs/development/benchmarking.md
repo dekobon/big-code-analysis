@@ -193,36 +193,70 @@ varying the other factor. It reports legitimate association-edge and qualificati
 separately; a references-times-candidates product is output work, not proof
 of excessive overhead.
 
-Each cell calibrates once before warmup. Its repetition count is
-`ceil(2 ms / max(single-operation time, 1 ns))`, clamped to `1..=2^20`. The runner freezes this
-count for all warmup and measured rounds. It stores actual batch durations and derives fractional
-nanoseconds per operation only during reduction. It never reconstructs a batch from rounded
-per-operation durations or applies the legacy fit's timing floor to a ratio.
+Each prepared cell runs one calibration ladder before any scheduled warmup or measurement:
+
+1. Test repetition counts `1, 2, 4, ..., 2^20` in order.
+2. At each count, execute three actual batches and retain their durations in call order.
+   Check the per-operation budget immediately after each completed batch.
+3. Freeze the first tested count whose three-duration median reaches 2 milliseconds.
+4. At the cap, accept a median at least 200 microseconds but below 2 milliseconds as `cap-limited`.
+   A lower median produces `CalibrationUnresolved` and exit 2 before scheduling.
+
+After every cell qualifies, the runner freezes its count for two warmup rounds and the requested
+odd number of measured rounds. Calibration durations never enter the performance statistic.
+Zero calibration durations remain observations; the runner neither divides by them nor replaces
+them. It derives fractional nanoseconds per operation from scheduled batches only during
+reduction, without the legacy fit's timing floor.
+
+Repeated calibration warms code and data and changes allocator/cache history. It estimates the
+cost of repeated prepared operations, not first-call latency. Cold collection still creates and
+destroys an index on every operation. Three samples prevent one unusually slow observation from
+determining the median; two slow observations can still freeze an inadequate count.
 
 Full-size gate and report modes require a measured median batch of at least 200 microseconds.
 A shorter batch produces `UnresolvedCell` and exit 2, with its ID, size, iterations and actual
-duration. A cold calibration call can overestimate later cost, so even an ordinary workload can
-fail this resolution check. The runner does not retry or increase repetitions after observing a
-short batch. Preserve the failed run for analysis.
+duration. Calibration does not guarantee scheduled resolution: later conditions can change the
+cost. The runner does not retry or increase repetitions after observing a short batch. Preserve
+the failed run for analysis.
 
-Inspect the cell's frozen repetition count and retained batches. Calibration may have
-overestimated steady-state cost or reached the repetition cap. More rounds do not directly
-change that count, and report-only still enforces source resolution. A new calibration or
-workload policy requires review before another qualification campaign; retain the failed run
-with the proposal. Do not repeat an unchanged campaign until it passes or adjust thresholds
-based on observed results.
+Inspect the cell's calibration trace, outcome, frozen count and scheduled batches. A
+`cap-limited` outcome identifies a tested count that resolves below the calibration target.
+More rounds do not change that count, and report-only still enforces source resolution.
+A new calibration or workload policy requires review before another qualification campaign;
+retain the failed run with the proposal. Do not repeat an unchanged campaign until it passes
+or adjust thresholds based on observed results.
 
-Reports include raw scheduled batches, iteration counts, batch minimum/median/maximum and
-floating-point nanoseconds per operation. Untimed counts report nodes, depth, width, fragments,
-documents, owner edges, qualifications, rendered bytes, map segments, included ranges,
-intersections and query output. Missing cells or rounds, duplicate identities, zero
-durations, wrong membership and nonfinite statistics are harness errors. Smoke uses small
-inputs and bounded repetitions, skips the resolution requirement and prints no performance
-verdict. Structural and malformed-data checks still apply.
+Reports identify the `source-batches-v2/powers-of-two-median-three` policy. They print each
+calibration stage and a compact final-stage summary with the stage index, count, three integer
+nanosecond durations and outcome. Stage and sample indexes start at zero. The report retains the
+actual per-operation budget, including custom budgets, and prints it in integer nanoseconds.
+Scheduled batches have their own exact-nanosecond records, iteration counts,
+minimum/median/maximum and floating-point nanoseconds per operation. Untimed counts report
+nodes, depth, width, fragments, documents, owner edges, qualifications, rendered bytes,
+map segments, included ranges, intersections and query output. Missing cells or rounds,
+duplicate identities, zero scheduled durations, wrong membership and nonfinite statistics are
+harness errors. Smoke uses
+small inputs, one setup execution and one repetition per scheduled batch. Its explicit smoke
+preparation record makes no calibration or performance claim. Structural and malformed-data
+checks still apply.
 
-The per-operation budget detects excessive time after an operation or batch finishes. It cannot
-interrupt the first execution or a dependency call. An external deadline can bound the whole
-campaign; it does not provide per-operation cancellation.
+Validation recomputes calibration decisions without executing operations. It checks the complete
+doubling ladder, three samples per stage, every sample's budget, the first qualifying stop,
+the declared outcome and agreement with scheduled repetitions. This checks consistency, not
+authenticity of arbitrarily rewritten records; retain artifact provenance separately.
+
+An operation or budget failure stops calibration immediately. Its diagnostic retains completed
+earlier cells and stages plus the observed prefix of the failing stage. Budget failure retains
+the offending duration. An operation failure supplies no duration, so the trace adds no sample
+for it. The primary diagnostic identifies the cell, stage, count and sample. Treat exit 2 as an
+unsuccessful run and stop subsequent campaign phases.
+
+Calibration stores at most 63 durations across 21 stages per cell, separate from scheduled data
+proportional to cells times rounds. Its maximum declared work is
+`3 * (1 + 2 + ... + 2^20) = 6,291,453` operation executions per cell. These are work and storage
+bounds, not wall-time guarantees. The per-operation budget detects excessive time after a batch
+finishes. It cannot interrupt the first execution or a dependency call. An external deadline
+can bound the whole campaign; it does not provide per-operation cancellation.
 
 ### Controlled comparisons and coverage limits
 

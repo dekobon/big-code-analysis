@@ -141,6 +141,7 @@ impl CombinedReport {
 
 #[cfg(test)]
 mod tests {
+    use super::super::runner::calibration_tests::target_trace;
     use super::super::runner::{Batch, SourceCell, SourceResult, Statistic};
     use super::*;
 
@@ -192,6 +193,8 @@ mod tests {
                             bytes: size,
                             segments: 1,
                             iterations: 1,
+                            calibration: target_trace(1),
+                            budget: scaling::MAX_CELL_WALK,
                             batches: (0..3).map(|round| Batch { round, elapsed }).collect(),
                             batch_min: elapsed,
                             batch_median: elapsed,
@@ -357,6 +360,8 @@ mod tests {
                             bytes: size,
                             segments: 1,
                             iterations: 1,
+                            calibration: target_trace(1),
+                            budget: scaling::MAX_CELL_WALK,
                             batches: (0..3).map(|round| Batch { round, elapsed }).collect(),
                             batch_min: elapsed,
                             batch_median: elapsed,

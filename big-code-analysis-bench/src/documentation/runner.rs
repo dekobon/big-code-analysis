@@ -9,24 +9,21 @@ use super::{HarnessError, Parsed, Prepared, SourceCounts, SourceProbe, Statistic
 use crate::cli::Mode;
 use crate::scaling::{MAX_CELL_WALK, SMOKE_SIZES, WARMUP_ROUNDS, schedule};
 
+mod calibration;
+#[cfg(test)]
+pub(super) mod calibration_tests;
+pub use calibration::{Calibration, CalibrationOutcome, CalibrationStage};
+use calibration::{calibrate, write_calibration};
+
+/// Exact-nanosecond report schema and premeasurement selection policy.
+pub const SOURCE_CALIBRATION_POLICY: &str = "source-batches-v2/powers-of-two-median-three";
+
 /// Target elapsed duration for source-only calibration; legacy calibration is unchanged.
 pub const SOURCE_TARGET_SAMPLE: Duration = Duration::from_millis(2);
 /// Maximum source repetitions in one batch.
 pub const SOURCE_MAX_ITERATIONS: u32 = 1 << 20;
 /// A full-size cell with a shorter measured median is unresolved, never a pass.
 pub const MIN_SOURCE_SAMPLE: Duration = Duration::from_micros(200);
-
-/// Source calibration, frozen before warmup/measurement. A zero calibration
-/// observation saturates the cap; measured zero batches still fail validation.
-#[must_use]
-pub fn iterations_for(single: Duration) -> u32 {
-    let needed = SOURCE_TARGET_SAMPLE
-        .as_nanos()
-        .div_ceil(single.as_nanos().max(1));
-    u32::try_from(needed)
-        .unwrap_or(SOURCE_MAX_ITERATIONS)
-        .clamp(1, SOURCE_MAX_ITERATIONS)
-}
 
 /// One actual scheduled batch, retained before any per-operation division.
 #[derive(Clone, Debug)]
@@ -50,6 +47,10 @@ pub struct SourceCell {
     pub segments: usize,
     /// Frozen repetitions for every warmup/measured round.
     pub iterations: u32,
+    /// Ordered premeasurement evidence, separate from scheduled samples.
+    pub calibration: Calibration,
+    /// Actual post-completion per-operation budget used for this cell.
+    pub budget: Duration,
     /// Complete samples in scheduled-round order.
     pub batches: Vec<Batch>,
     /// Shortest actual batch.
@@ -152,6 +153,8 @@ impl SourceReport {
                         bytes: cell.bytes,
                         segments: cell.segments,
                         iterations: cell.iterations,
+                        calibration: cell.calibration.clone(),
+                        budget: cell.budget,
                         batches: cell.batches.clone(),
                     },
                     self.rounds,
@@ -203,6 +206,7 @@ impl fmt::Display for SourceReport {
             self.rounds,
             self.mode
         )?;
+        writeln!(f, "source-calibration-policy: {SOURCE_CALIBRATION_POLICY}")?;
         for result in &self.results {
             if self.mode == Mode::Smoke {
                 writeln!(
@@ -251,6 +255,7 @@ impl fmt::Display for SourceReport {
                     write!(f, " {}:{}", batch.round, batch.elapsed.as_nanos())?;
                 }
                 writeln!(f)?;
+                write_calibration(f, &cell.calibration, cell.budget)?;
                 writeln!(f, "    dimensions: {:?}", cell.counts)?;
             }
         }
@@ -266,6 +271,8 @@ struct RawCell {
     bytes: usize,
     segments: usize,
     iterations: u32,
+    calibration: Calibration,
+    budget: Duration,
     batches: Vec<Batch>,
 }
 
@@ -342,25 +349,67 @@ pub fn run_with_budget(
     for (at, operation) in prepared.iter().enumerate() {
         let probe = &probes[at / 3];
         let size = probe.sizes[at % 3];
-        let single = batch(operation, 1).map_err(|e| context(probe.id, size, e))?;
-        check_budget(probe.id, size, single, 1, budget)?;
         raw.push(RawCell {
             counts: operation.counts(),
             id: probe.id,
             size,
             bytes: parsed[at].source().len(),
             segments: operation.segments(),
-            iterations: if mode == Mode::Smoke {
-                1
-            } else {
-                iterations_for(single)
-            },
+            iterations: 1,
+            calibration: Calibration::new(mode),
+            budget,
             batches: Vec::with_capacity(rounds),
         });
     }
+    calibrate_cells(&mut raw, |at, count| batch(&prepared[at], count))?;
     measure_schedule(&prepared, &mut raw, rounds, budget)?;
-    reduce(&probes, rounds, mode, raw.clone())
-        .map_err(|error| HarnessError(format!("{error}\nretained source batches: {raw:#?}")))
+    reduce(&probes, rounds, mode, raw.clone()).map_err(|error| retained_error(error, &raw))
+}
+
+fn calibrate_cells(
+    raw: &mut [RawCell],
+    mut measure: impl FnMut(usize, u32) -> Result<Duration, HarnessError>,
+) -> Result<(), HarnessError> {
+    for at in 0..raw.len() {
+        let cell = &mut raw[at];
+        let result = calibrate(
+            &mut cell.calibration,
+            cell.id,
+            cell.size,
+            cell.budget,
+            |count| measure(at, count),
+        );
+        raw[at].iterations = result.map_err(|error| retained_error(error, &raw[..=at]))?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::needless_pass_by_value)] // map_err transfers the primary diagnostic.
+fn retained_error(error: HarnessError, raw: &[RawCell]) -> HarnessError {
+    use std::fmt::Write;
+
+    let mut output = format!(
+        "{error}\nsource-calibration-policy: {SOURCE_CALIBRATION_POLICY}\nretained source batches:\n"
+    );
+    for cell in raw {
+        let _ = writeln!(
+            output,
+            "  {} size {} iterations {}",
+            cell.id, cell.size, cell.iterations
+        );
+        let _ = writeln!(
+            output,
+            "    bytes {} segments {} dimensions: {:?}",
+            cell.bytes, cell.segments, cell.counts
+        );
+        let _ = write_calibration(&mut output, &cell.calibration, cell.budget);
+        let _ = write!(output, "    raw-batches-ns:");
+        for batch in &cell.batches {
+            let _ = write!(output, " {}:{}", batch.round, batch.elapsed.as_nanos());
+        }
+        let _ = writeln!(output);
+    }
+    HarnessError(output)
 }
 
 fn measure_schedule(
@@ -387,12 +436,7 @@ fn measure_schedule(
                 )?;
                 Ok(elapsed)
             })
-            .map_err(|error| {
-                HarnessError(format!(
-                    "{}\nretained source batches: {raw:#?}",
-                    context(cell.id, cell.size, error)
-                ))
-            })?;
+            .map_err(|error| retained_error(context(cell.id, cell.size, error), raw))?;
         if round >= WARMUP_ROUNDS {
             raw[at].batches.push(Batch {
                 round: round - WARMUP_ROUNDS,
@@ -424,7 +468,7 @@ fn check_budget(
     budget: Duration,
 ) -> Result<(), HarnessError> {
     require(
-        elapsed.as_secs_f64() / f64::from(iterations) <= budget.as_secs_f64(),
+        elapsed.as_nanos() <= budget.as_nanos() * u128::from(iterations),
         format!(
             "AbandonedCell: {id} size {size}, {iterations} iterations, batch {elapsed:?}, per-operation budget {budget:?}"
         ),
@@ -514,6 +558,9 @@ fn reduce_cell(raw: RawCell, rounds: usize, mode: Mode) -> Result<SourceCell, Ha
         raw.bytes > 0 && raw.iterations > 0 && raw.iterations <= SOURCE_MAX_ITERATIONS,
         format!("{}: invalid cell work/count", raw.id),
     )?;
+    raw.calibration
+        .validate(mode, raw.iterations, raw.budget)
+        .map_err(|error| context(raw.id, raw.size, error))?;
     require(
         raw.batches.len() == rounds,
         format!("{} size {}: missing samples", raw.id, raw.size),
@@ -547,6 +594,8 @@ fn reduce_cell(raw: RawCell, rounds: usize, mode: Mode) -> Result<SourceCell, Ha
         bytes: raw.bytes,
         segments: raw.segments,
         iterations: raw.iterations,
+        calibration: raw.calibration,
+        budget: raw.budget,
         batches: raw.batches,
         batch_min: times[0],
         batch_median: median,
@@ -606,6 +655,7 @@ pub(super) fn statistic(
 #[cfg(test)]
 mod tests {
     use super::super::REGISTRY;
+    use super::calibration_tests::target_trace;
     use super::*;
 
     fn raw(probe: &SourceProbe, ns: [u64; 3]) -> Vec<RawCell> {
@@ -620,6 +670,8 @@ mod tests {
                 bytes: size,
                 segments: size,
                 iterations: 1,
+                calibration: target_trace(1),
+                budget: MAX_CELL_WALK,
                 batches: (0..3)
                     .map(|round| Batch {
                         round,
@@ -632,10 +684,23 @@ mod tests {
 
     #[test]
     fn calibration_caps_zero_and_preserves_ceiling() {
-        assert_eq!(iterations_for(Duration::ZERO), 1 << 20);
-        assert_eq!(iterations_for(Duration::from_nanos(3)), 666_667);
-        assert_eq!(iterations_for(Duration::from_millis(3)), 1);
-        assert_eq!(iterations_for(Duration::from_micros(1)), 2000);
+        let mut evidence = Calibration::new(Mode::Gate);
+        let mut counts = Vec::new();
+        let error = calibrate(&mut evidence, "zero", 1, MAX_CELL_WALK, |count| {
+            counts.push(count);
+            Ok(Duration::ZERO)
+        })
+        .unwrap_err();
+        assert!(error.0.contains("CalibrationUnresolved"));
+        assert_eq!(counts.len(), 63);
+        assert_eq!(counts.last(), Some(&(1 << 20)));
+        assert_eq!(counts.iter().map(|&n| u64::from(n)).sum::<u64>(), 6_291_453);
+        let Calibration::Batches { stages, outcome } = evidence else {
+            panic!("expected ladder")
+        };
+        assert_eq!(outcome, CalibrationOutcome::Unresolved);
+        assert_eq!(stages.len(), 21);
+        assert!(stages.iter().all(|s| s.samples == [Duration::ZERO; 3]));
     }
 
     #[test]
@@ -644,12 +709,19 @@ mod tests {
         let mut cells = raw(&probe, [199_999; 3]);
         for cell in &mut cells {
             cell.iterations = SOURCE_MAX_ITERATIONS;
+            cell.calibration = target_trace(SOURCE_MAX_ITERATIONS);
         }
         let error = reduce(&[probe], 3, Mode::Gate, cells).unwrap_err();
         assert!(error.0.contains("UnresolvedCell"));
         assert!(error.0.contains("1048576"));
         assert!(reduce(&[probe], 3, Mode::ReportOnly, raw(&probe, [199_999; 3])).is_err());
-        assert!(reduce(&[probe], 3, Mode::Smoke, raw(&probe, [1; 3])).is_ok());
+        let mut smoke = raw(&probe, [1; 3]);
+        for cell in &mut smoke {
+            cell.calibration = Calibration::Smoke {
+                elapsed: Some(Duration::ZERO),
+            };
+        }
+        assert!(reduce(&[probe], 3, Mode::Smoke, smoke).is_ok());
     }
 
     #[test]
@@ -661,6 +733,13 @@ mod tests {
             assert!(reduce(&[probe], 3, mode, vec![]).is_err());
             for mutation in 0..9 {
                 let mut cells = raw(&probe, [200_000; 3]);
+                if mode == Mode::Smoke {
+                    for cell in &mut cells {
+                        cell.calibration = Calibration::Smoke {
+                            elapsed: Some(Duration::ZERO),
+                        };
+                    }
+                }
                 match mutation {
                     0 => cells[0].id = "unknown",
                     1 => cells[0].size *= 2,
@@ -690,6 +769,7 @@ mod tests {
         let mut cells = raw(&probe, [200_000, 400_000, 800_000]);
         for cell in &mut cells {
             cell.iterations = SOURCE_MAX_ITERATIONS;
+            cell.calibration = target_trace(SOURCE_MAX_ITERATIONS);
         }
         let report = reduce(&[probe], 3, Mode::Gate, cells).unwrap();
         assert!((report.results[0].statistic.value() - 4.0).abs() < 1e-12);
@@ -709,6 +789,7 @@ mod tests {
             let mut cells = raw(&probe, batches);
             for (cell, iterations) in cells.iter_mut().zip([1, 2, 4]) {
                 cell.iterations = iterations;
+                cell.calibration = target_trace(iterations);
             }
             let report = reduce(&[probe], 3, Mode::Gate, cells).unwrap();
             // Doubling both batch time and work keeps cost fixed; holding
@@ -769,14 +850,17 @@ mod tests {
         let probe = REGISTRY[18];
         let report = reduce(&[probe], 3, Mode::Gate, raw(&probe, [200_000; 3])).unwrap();
         assert!(report.validate_data().is_ok());
-        for mutation in 0..5 {
+        for mutation in 0..8 {
             let mut invalid = report.clone();
             match mutation {
                 0 => invalid.results[0].cells[0].ns_per_operation = f64::NAN,
                 1 => invalid.results[0].statistic = Statistic::FixedOutputRatio(f64::INFINITY),
                 2 => invalid.results[0].bound = f64::NAN,
                 3 => invalid.results[0].cells[0].batches.clear(),
-                _ => invalid.results[0].cells[0].iterations = SOURCE_MAX_ITERATIONS + 1,
+                4 => invalid.results[0].cells[0].iterations = SOURCE_MAX_ITERATIONS + 1,
+                5 => invalid.results[0].cells[0].calibration = Calibration::new(Mode::Gate),
+                6 => invalid.results[0].cells[0].calibration = target_trace(2),
+                _ => invalid.results[0].cells[0].budget = Duration::from_nanos(1_999_999),
             }
             assert!(invalid.validate_data().is_err(), "mutation {mutation}");
         }
@@ -803,7 +887,8 @@ mod tests {
         let probe = REGISTRY[18];
         let mut cells = raw(&probe, [200_001; 3]);
         for cell in &mut cells {
-            cell.iterations = 3;
+            cell.iterations = 4;
+            cell.calibration = target_trace(4);
             cell.batches[0].elapsed = Duration::from_nanos(900_001);
             cell.batches[1].elapsed = Duration::from_nanos(200_002);
         }
@@ -812,7 +897,7 @@ mod tests {
         assert_eq!(cell.batch_min, Duration::from_nanos(200_001));
         assert_eq!(cell.batch_median, Duration::from_nanos(200_002));
         assert_eq!(cell.batch_max, Duration::from_nanos(900_001));
-        assert!((cell.ns_per_operation - 200_002.0 / 3.0).abs() < 1e-9);
+        assert!((cell.ns_per_operation - 200_002.0 / 4.0).abs() < 1e-9);
         assert_eq!(cell.batches[0].elapsed, Duration::from_nanos(900_001));
         assert_eq!(
             cell.batches.iter().map(|b| b.round).collect::<Vec<_>>(),
@@ -838,15 +923,33 @@ mod tests {
             .find(|p| p.id == "documentation/cold/width")
             .unwrap();
         let before = big_code_analysis_ast::documentation::observations();
-        let report = run(&[*probe], 1, Mode::Smoke).unwrap();
+        let budget = Duration::from_secs(30);
+        let report = run_with_budget(&[*probe], 1, Mode::Smoke, budget).unwrap();
         let after = big_code_analysis_ast::documentation::observations();
-        // Per rung: one initial index, one calibration, two warmups and one
+        // Per rung: one initial index, one smoke preparation, two warmups and one
         // measured collection. Each collection renders one document per sibling.
         assert_eq!(
             after.renders - before.renders,
             5 * SMOKE_SIZES.iter().sum::<usize>()
         );
         assert_eq!(report.results[0].cells.len(), 3);
+        report.validate_data().unwrap();
+        assert!(
+            report.results[0]
+                .cells
+                .iter()
+                .all(|cell| cell.budget == budget)
+        );
+        assert!(
+            report.to_string().contains(
+                "source-calibration-policy: source-batches-v2/powers-of-two-median-three"
+            )
+        );
+        assert!(
+            report
+                .to_string()
+                .contains("per-operation-budget-ns: 30000000000")
+        );
         assert!(
             report.results[0]
                 .cells
@@ -892,7 +995,17 @@ mod tests {
         let before = big_code_analysis_ast::documentation::observations();
         let mut raw = Vec::new();
         for ((operation, size), iterations) in prepared.iter().zip(sizes).zip(counts) {
-            let _calibration = batch(operation, 1).unwrap();
+            let mut calibration = Calibration::new(Mode::Gate);
+            let selected = calibrate(&mut calibration, probe.id, size, MAX_CELL_WALK, |count| {
+                batch(operation, count)?;
+                Ok(if count == iterations {
+                    Duration::from_millis(2)
+                } else {
+                    Duration::ZERO
+                })
+            })
+            .unwrap();
+            assert_eq!(selected, iterations);
             raw.push(RawCell {
                 counts: operation.counts(),
                 id: probe.id,
@@ -900,14 +1013,16 @@ mod tests {
                 bytes: size,
                 segments: 1,
                 iterations,
+                calibration,
+                budget: MAX_CELL_WALK,
                 batches: vec![],
             });
         }
         measure_schedule(&prepared, &mut raw, 3, MAX_CELL_WALK).unwrap();
         let after = big_code_analysis_ast::documentation::observations();
-        // Calibration renders 2+4+8 documents. Each scheduled round renders
-        // 2*1+4*2+8*4; two warmups plus three measured rounds gives 224 total.
-        assert_eq!(after.renders - before.renders, 224);
+        // expected: calibration 3*(2*1+4*(1+2)+8*(1+2+4)) = 210;
+        // two warmups and three measured rounds add 5*(2*1+4*2+8*4) = 210.
+        assert_eq!(after.renders - before.renders, 420);
         for (cell, count) in raw.iter().zip(counts) {
             assert_eq!(cell.iterations, count);
             assert_eq!(

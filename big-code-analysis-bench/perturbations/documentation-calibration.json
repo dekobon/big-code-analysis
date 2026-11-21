@@ -1,0 +1,146 @@
+{
+  "cwd": ".",
+  "provenance": {
+    "starting_checkpoint": "2eb9b8103477d1d02e76620c4475b47b0a37a5d2",
+    "proposal_sha256": "4d50b20c066ec4b405745c1afe40b51cb5e376492d926c318c8488f96663ca47",
+    "status": "Source-only checkpoint; mutation execution awaits the parent's local validation slot.",
+    "usage": "python3 -B utils/perturb.py big-code-analysis-bench/perturbations/documentation-calibration.json",
+    "preservation": "The 15 documentation.json, 3 documentation-audit.json and 9 documentation-remediation.json cases retain their substitutions and expected guards. Cap tests inject durations; real batch counters independently guard execution. Build failures are not kills. Historical result manifests describe only their recorded revisions."
+  },
+  "command": ["cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation", "--no-fail-fast"],
+  "cases": [
+    {
+      "name": "calibrate with one operation instead of the declared batch count",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "let elapsed = measure(count).map_err(|error| {",
+      "new": "let elapsed = measure(1).map_err(|error| {",
+      "expect": ["documentation::runner::calibration_tests::real_calibration_batches_execute_three_times_each_tested_count", "documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts"]
+    },
+    {
+      "name": "take only two calibration samples",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "for sample in 0..3 {",
+      "new": "for sample in 0..2 {",
+      "expect": ["documentation::runner::calibration_tests::first_qualified_stage_stops_after_exactly_three_samples"]
+    },
+    {
+      "name": "select fastest calibration sample",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "Ok(times[1])",
+      "new": "Ok(times[0])",
+      "expect": ["documentation::runner::calibration_tests::slow_first_call_does_not_freeze_or_select_the_fastest_sample"]
+    },
+    {
+      "name": "select slowest calibration sample",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "Ok(times[1])",
+      "new": "Ok(times[2])",
+      "expect": ["documentation::runner::calibration_tests::slow_first_call_does_not_freeze_or_select_the_fastest_sample"]
+    },
+    {
+      "name": "skip intermediate powers of two",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "count *= 2;",
+      "new": "count *= 4;",
+      "expect": ["documentation::runner::calibration_tests::slow_first_call_does_not_freeze_or_select_the_fastest_sample", "documentation::runner::tests::calibration_caps_zero_and_preserves_ceiling"]
+    },
+    {
+      "name": "continue after the first qualifying stage",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "if observed >= SOURCE_TARGET_SAMPLE {",
+      "new": "if count >= 2 && observed >= SOURCE_TARGET_SAMPLE {",
+      "expect": ["documentation::runner::calibration_tests::first_qualified_stage_stops_after_exactly_three_samples"]
+    },
+    {
+      "name": "accept unresolved cap median",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "if observed >= MIN_SOURCE_SAMPLE {",
+      "new": "if observed >= Duration::ZERO {",
+      "expect": ["documentation::runner::calibration_tests::cap_outcomes_use_the_three_sample_median_and_exact_boundaries"]
+    },
+    {
+      "name": "skip post-completion calibration budget check",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "check_budget(id, size, elapsed, count, budget).map_err(|error| {",
+      "new": "check_budget(id, size, Duration::ZERO, count, budget).map_err(|error| {",
+      "expect": ["documentation::runner::calibration_tests::custom_budget_is_checked_for_every_observation_before_the_next_call", "documentation::runner::calibration_tests::failures_preserve_previous_cells_stages_and_exact_observed_prefix"]
+    },
+    {
+      "name": "discard the offending calibration budget sample",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "*outcome = CalibrationOutcome::BudgetExceeded;",
+      "new": "stages[at].samples.pop();\n                *outcome = CalibrationOutcome::BudgetExceeded;",
+      "expect": ["documentation::runner::calibration_tests::failures_preserve_previous_cells_stages_and_exact_observed_prefix"]
+    },
+    {
+      "name": "invent zero duration for failed calibration operation",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "*outcome = CalibrationOutcome::OperationFailed;",
+      "new": "stages[at].samples.push(Duration::ZERO);\n                *outcome = CalibrationOutcome::OperationFailed;",
+      "expect": ["documentation::runner::calibration_tests::failures_preserve_previous_cells_stages_and_exact_observed_prefix"]
+    },
+    {
+      "name": "discard earlier completed calibration cells on failure",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "retained_error(error, &raw[..=at])",
+      "new": "retained_error(error, &raw[at..=at])",
+      "expect": ["documentation::runner::calibration_tests::failures_preserve_previous_cells_stages_and_exact_observed_prefix", "documentation::runner::calibration_tests::smoke_setup_failure_has_no_fabricated_elapsed_sample"]
+    },
+    {
+      "name": "trust frozen count without matching the final tested count",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "iterations == stage.iterations,",
+      "new": "iterations > 0,",
+      "expect": ["documentation::runner::calibration_tests::trace_validation_rejects_forged_decisions_and_count_disagreement"]
+    },
+    {
+      "name": "accept skipped or reordered calibration counts",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "stage.iterations == 1 << at && stage.iterations <= SOURCE_MAX_ITERATIONS,",
+      "new": "stage.iterations > 0 && stage.iterations <= SOURCE_MAX_ITERATIONS,",
+      "expect": ["documentation::runner::calibration_tests::trace_validation_rejects_forged_decisions_and_count_disagreement"]
+    },
+    {
+      "name": "trust a trace that continued after qualifying",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "observed < SOURCE_TARGET_SAMPLE,",
+      "new": "observed <= Duration::MAX,",
+      "expect": ["documentation::runner::calibration_tests::trace_validation_rejects_forged_decisions_and_count_disagreement"]
+    },
+    {
+      "name": "accept sub-target target-reached outcome",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "CalibrationOutcome::TargetReached => observed >= SOURCE_TARGET_SAMPLE,",
+      "new": "CalibrationOutcome::TargetReached => observed >= Duration::ZERO,",
+      "expect": ["documentation::runner::calibration_tests::trace_validation_rejects_forged_decisions_and_count_disagreement"]
+    },
+    {
+      "name": "accept below-minimum cap-limited trace",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "&& (MIN_SOURCE_SAMPLE..SOURCE_TARGET_SAMPLE).contains(&observed)",
+      "new": "&& (Duration::ZERO..SOURCE_TARGET_SAMPLE).contains(&observed)",
+      "expect": ["documentation::runner::calibration_tests::trace_validation_rejects_forged_decisions_and_count_disagreement"]
+    },
+    {
+      "name": "ignore custom calibration budget during revalidation",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "check_budget(\"calibration\", at, elapsed, stage.iterations, budget)?;",
+      "new": "check_budget(\"calibration\", at, elapsed, stage.iterations, budget.max(Duration::from_secs(20)))?;",
+      "expect": ["documentation::runner::calibration_tests::custom_budget_is_checked_for_every_observation_before_the_next_call", "documentation::runner::tests::report_revalidates_batches_counts_and_statistic"]
+    },
+    {
+      "name": "allow smoke to claim a calibration ladder",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "require(mode != Mode::Smoke, \"smoke must not claim calibration\")?;",
+      "new": "require(true, \"smoke must not claim calibration\")?;",
+      "expect": ["documentation::runner::calibration_tests::smoke_records_one_setup_and_never_claims_calibration"]
+    },
+    {
+      "name": "print rounded calibration trace durations",
+      "file": "big-code-analysis-bench/src/documentation/runner/calibration.rs",
+      "old": "for sample in &stage.samples {\n                    write!(f, \" {}\", sample.as_nanos())?;\n                }\n                writeln!(f)?;",
+      "new": "for sample in &stage.samples {\n                    write!(f, \" {}\", sample.as_micros() * 1000)?;\n                }\n                writeln!(f)?;",
+      "expect": ["documentation::runner::calibration_tests::calibration_formatter_preserves_sample_order_and_integer_nanoseconds"]
+    }
+  ]
+}
