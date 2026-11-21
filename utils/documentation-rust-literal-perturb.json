@@ -4,6 +4,13 @@
   "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
   "cases": [
     {
+      "name": "ordinary-siblings-pay-discarded-coverage-searches",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if self.index.profile == Profile::Rust\n                && trivia\n                && let Some(start) = next_start",
+      "new": "if self.index.profile == Profile::Rust\n                && let Some(start) = next_start",
+      "expect": ["documentation::collector::rust_tests::ordinary_rust_sibling_spacing_adds_no_binding_coverage_searches"]
+    },
+    {
       "name": "empty-output-range-emits-zero-width-map",
       "file": "big-code-analysis-ast/src/documentation/text/cleanup.rs",
       "old": "if range.is_empty() {\n            return Ok(());\n        }",

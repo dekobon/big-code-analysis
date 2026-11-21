@@ -29,6 +29,7 @@ pub(super) struct CanonicalNode<'s> {
     pub(super) qualifications: Vec<usize>,
     pub(super) pending_parent: Option<NodeId>,
     pub(super) following: Option<NodeId>,
+    // Binding gaps cover sibling spacing and skipped comments; attribute interiors are assessed separately.
     pub(super) following_gap: bool,
     pub(super) owner_context: NodeId,
     pub(super) name_scope: NodeId,

@@ -303,7 +303,11 @@ impl<'s> Builder<'s> {
         {
             budget.step()?;
             let record = &mut self.index.canonical.nodes[child.0];
+            let child_node = Node::from_tree_sitter(record.evidence.node());
+            let attribute = child_node.kind() == "attribute_item";
+            let trivia = T::is_comment(&child_node) || attribute;
             if self.index.profile == Profile::Rust
+                && trivia
                 && let Some(start) = next_start
             {
                 following_gap |= !self
@@ -313,13 +317,12 @@ impl<'s> Builder<'s> {
             }
             record.field = *field;
             record.following = following;
-            record.following_gap = following_gap;
-            let child_node = Node::from_tree_sitter(record.evidence.node());
+            record.following_gap = trivia && following_gap;
             next_start = Some(child_node.start_byte());
-            if !T::is_comment(&child_node) && child_node.kind() != "attribute_item" {
+            if !trivia {
                 following = Some(child);
                 following_gap = false;
-            } else if self.index.profile == Profile::Rust && child_node.kind() != "attribute_item" {
+            } else if self.index.profile == Profile::Rust && !attribute {
                 following_gap |= !self
                     .index
                     .source

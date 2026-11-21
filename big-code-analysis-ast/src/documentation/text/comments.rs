@@ -404,15 +404,7 @@ fn emit_blocks<'s, B: WorkBudget>(
                 budget,
             )?;
             if index + first + 1 < end {
-                if line.ending.len() == 2 {
-                    builder.transformed(
-                        "\n",
-                        Origin::Decoded(source.pieces(line.ending.clone(), budget)?),
-                        budget,
-                    )?;
-                } else {
-                    source.copy(&mut builder, line.ending.clone(), budget)?;
-                }
+                source.newline(&mut builder, line.ending.clone(), budget)?;
             }
         }
     }
@@ -450,25 +442,11 @@ pub(super) fn blank<B: WorkBudget>(
     }
     let mut at = 0;
     while at < bytes.len() {
-        let width = match bytes[at] {
-            0..=0x7f => 1,
-            0xc2..=0xdf => 2,
-            0xe0..=0xef => 3,
-            0xf0..=0xf4 => 4,
-            _ => return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding)),
-        };
-        budget
-            .bytes(width)
-            .map_err(|error| TextError::Source(error.into()))?;
-        let scalar = bytes
-            .get(at..at + width)
-            .ok_or(TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
-        let text = std::str::from_utf8(scalar)
-            .map_err(|_| TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
+        let text = super::utf8_scalar(&bytes[at..], budget)?;
         if text.chars().any(|character| !character.is_whitespace()) {
             return Ok(false);
         }
-        at += width;
+        at += text.len();
     }
     Ok(true)
 }

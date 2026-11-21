@@ -1,29 +1,17 @@
-//! Static Rust strings; syntax validation precedes any copied/decoded output.
+//! Static Rust strings validated and decoded in source order into temporary mapped text.
 
 use super::*;
 use crate::documentation::UnavailableReason;
+use crate::documentation::text::utf8_scalar;
 
 fn invalid() -> TextError {
     TextError::Unavailable(UnavailableReason::InvalidEncoding)
 }
 
-fn scalar_width<B: WorkBudget>(bytes: &[u8], at: usize, budget: &B) -> Result<usize, TextError> {
-    let width = match bytes[at] {
-        0..=0x7f => 1,
-        0xc2..=0xdf => 2,
-        0xe0..=0xef => 3,
-        0xf0..=0xf4 => 4,
-        _ => return Err(invalid()),
-    };
-    budget.bytes(width).map_err(Into::into)?;
-    std::str::from_utf8(bytes.get(at..at + width).ok_or_else(invalid)?).map_err(|_| invalid())?;
-    Ok(width)
-}
-
 pub(super) fn validate<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<(), TextError> {
     let mut at = 0;
     while at < bytes.len() {
-        at += scalar_width(bytes, at, budget)?;
+        at += utf8_scalar(&bytes[at..], budget)?.len();
     }
     Ok(())
 }
@@ -73,7 +61,7 @@ pub(super) fn decode<'s, B: WorkBudget>(
             copied = at;
         } else {
             // Validate copied text before a later escape can select a different failure.
-            at += scalar_width(bytes, at, budget)?;
+            at += utf8_scalar(&bytes[at..], budget)?.len();
         }
     }
     source.copy(&mut output, range.start + copied..range.start + at, budget)?;

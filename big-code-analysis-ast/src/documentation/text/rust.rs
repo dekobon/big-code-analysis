@@ -147,15 +147,7 @@ fn emit<'s, B: WorkBudget>(
         } else {
             source.copy(output, range, budget)?;
             if position + 1 < fragment.block.lines.len() {
-                if line.ending.len() == 2 {
-                    output.transformed(
-                        "\n",
-                        Origin::Decoded(source.pieces(line.ending.clone(), budget)?),
-                        budget,
-                    )?;
-                } else {
-                    source.copy(output, line.ending.clone(), budget)?;
-                }
+                source.newline(output, line.ending.clone(), budget)?;
             }
         }
     }

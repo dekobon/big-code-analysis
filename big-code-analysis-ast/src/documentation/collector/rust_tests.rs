@@ -692,6 +692,48 @@ fn rust_literal_plain_trivia_and_real_interstitial_gaps_do_not_become_prose() {
                 .any(|a| a.get().axis == AssessmentAxis::Owner)
         );
     });
+    let source = b"#[doc = \"a\"] /* plXain */ fn f() {}";
+    let gap = source.iter().position(|&byte| byte == b'X').unwrap();
+    included(source, &[gap..gap + 1], false, |index| {
+        assert_eq!(text(index).text(), "a");
+        assert_eq!(index.associations().len(), 0);
+        assert!(
+            index
+                .assessments()
+                .any(|a| a.get().axis == AssessmentAxis::Owner)
+        );
+    });
+}
+
+#[test]
+#[cfg(feature = "rust")]
+fn ordinary_rust_sibling_spacing_adds_no_binding_coverage_searches() {
+    use crate::documentation::source::included_range_visits;
+
+    for count in [8, 32, 128] {
+        let mut work = Vec::new();
+        let mut nodes = Vec::new();
+        for unit in ["fn f(){}", "fn f ( ) { } \n"] {
+            let parser =
+                AnyParser::parse(LANG::Rust, unit.repeat(count).into_bytes(), None, None).unwrap();
+            assert!(!parser.ts_tree().root_node().has_error());
+            assert_eq!(parser.ts_tree().root_node().named_child_count(), count);
+            nodes.push(parser.root_node().preorder().count());
+            let before = included_range_visits::observed();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
+                .unwrap();
+            work.push(included_range_visits::observed() - before);
+            assert_eq!(index.facts().owners().len(), count + 1);
+            assert_eq!(index.documents().len(), 0);
+        }
+        assert_eq!(nodes[0], nodes[1]);
+        // expected: spacing changes no binding work when every sibling is ordinary syntax.
+        assert_eq!(work[1], work[0]);
+    }
 }
 
 #[test]

@@ -359,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 961.0
+value = 964.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 134.0
+value = 136.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -467,7 +467,7 @@ value = 7.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::record_children"
 metric = "halstead.effort"
-value = 123556.27877545246
+value = 125839.60029393726
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -635,7 +635,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::render_draft"
 metric = "halstead.effort"
-value = 59532.42614212931
+value = 60244.61690661844
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -1079,7 +1079,7 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 587.0
+value = 565.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1120,14 +1120,8 @@ value = 16.0
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "blank"
-metric = "halstead.effort"
-value = 49441.34419913078
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/text/comments.rs"
-qualified = "blank"
 metric = "nexits"
-value = 8.0
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1163,25 +1157,25 @@ value = 11.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "abc"
-value = 46.776062254106
+value = 39.761790704142086
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "cognitive"
-value = 34.0
+value = 29.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "cyclomatic"
-value = 19.0
+value = 18.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "halstead.effort"
-value = 135842.98435141143
+value = 113526.30607942471
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1193,7 +1187,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "nexits"
-value = 10.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"

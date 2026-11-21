@@ -209,17 +209,17 @@ impl<'s> Builder<'s> {
         draft: &Draft<'s>,
         document: DocumentId,
         owners: &[OwnerId],
-        attribute: bool,
+        pending_attribute_composition: bool,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
         let assessment = self.index.assessments.len();
         self.index.assessments.push(Assessment {
-            axis: if attribute {
+            axis: if pending_attribute_composition {
                 AssessmentAxis::Composition
             } else {
                 AssessmentAxis::Owner
             },
-            reason: if attribute {
+            reason: if pending_attribute_composition {
                 "Rust doc/cfg_attr carrier awaits adapter composition"
             } else if self.index.profile == Profile::Doxygen && draft.target.is_none() {
                 "Exact named matching awaits supported signature grammar"
@@ -320,33 +320,28 @@ impl<'s> Builder<'s> {
         budget: &CollectionBudget,
     ) -> Result<(Content<'s>, bool), CollectionError> {
         let mut keys = Vec::new();
+        let mut attribute = false;
         for id in &draft.fragments {
             budget.step()?;
-            keys.push((
-                self.index.facts.fragments[id.0].source.pieces()[0]
-                    .range()
-                    .start,
-                id.0,
-            ));
+            let fragment = &self.index.facts.fragments[id.0];
+            attribute |= fragment.form == FragmentForm::Attribute;
+            keys.push((fragment.source.pieces()[0].range().start, id.0));
         }
         draft.fragments.clear();
         for (_, id) in crate::documentation::ordering::ordered(keys, budget)? {
             budget.step()?;
             draft.fragments.push(FragmentId(id));
         }
-        let mut fragments = Vec::new();
-        let mut attribute = false;
-        for id in &draft.fragments {
-            budget.step()?;
-            let fragment = &self.index.facts.fragments[id.0];
-            attribute |= fragment.form == FragmentForm::Attribute;
-            fragments.push(fragment);
-        }
         let result = if attribute {
             self.rust_content(draft, budget)
         } else if draft.gap {
             Ok(Content::Unavailable(UnavailableReason::ExcludedGap))
         } else {
+            let mut fragments = Vec::with_capacity(draft.fragments.len());
+            for id in &draft.fragments {
+                budget.step()?;
+                fragments.push(&self.index.facts.fragments[id.0]);
+            }
             crate::documentation::text::comments::render(
                 self.index.profile,
                 &self.index.source,
