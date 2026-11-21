@@ -74,7 +74,7 @@ jobs:
           # the exit code is captured with `|| status=$?` instead.
           # `pipefail` makes that cargo's code rather than tee's.
           status=0
-          cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11 \
+          cargo bench -p big-code-analysis-bench --bench scaling -- --scope legacy --rounds 11 \
             2>&1 | tee target/bench/scaling.log || status=$?
           if [ "$status" = "0" ]; then
             exit 0
@@ -87,7 +87,7 @@ jobs:
           echo "A probe exceeded its bound; re-measuring with more rounds"
           echo "before reporting, in case the runner was contended."
           status=0
-          cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 21 \
+          cargo bench -p big-code-analysis-bench --bench scaling -- --scope legacy --rounds 21 \
             2>&1 | tee target/bench/scaling-confirm.log || status=$?
           if [ "$status" = "0" ]; then
             echo "The second run passed. Treating the first as measurement noise."
@@ -133,7 +133,7 @@ jobs:
             echo
             echo "- Run: ${RUN_URL}"
             echo
-            echo "Reproduce locally with \`make bench-scaling\`. See"
+            echo "Reproduce locally with \`make bench-scaling BENCH_ARGS='--scope legacy --rounds 21'\`. See"
             echo "\`docs/development/benchmarking.md\` for how to read the table"
             echo "and what each probe covers."
             echo

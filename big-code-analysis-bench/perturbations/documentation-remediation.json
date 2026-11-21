@@ -1,0 +1,75 @@
+{
+  "cwd": ".",
+  "provenance": {
+    "starting_checkpoint": "e0b375e35dfe4c83038425652dd3e53cf350cc39",
+    "status": "Source-only remediation guards; execution pending assigned validation slot.",
+    "usage": "python3 -B utils/perturb.py big-code-analysis-bench/perturbations/documentation-remediation.json",
+    "preservation": "The original documentation.json and documentation-audit.json retain all 18 cases and expected tests. The batch and miss-only scan mutations below preserve the exact parent-confirmed surviving behaviors."
+  },
+  "command": ["cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation", "--no-fail-fast"],
+  "cases": [
+    {
+      "name": "truncate measured repetitions to one",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "for _ in 0..iterations {\n        operation.execute()?;\n    }",
+      "new": "for _ in 0..iterations.min(1) {\n        operation.execute()?;\n    }",
+      "expect": ["documentation::runner::tests::batch_executes_every_requested_repetition", "documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts"]
+    },
+    {
+      "name": "scheduler ignores frozen count metadata",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "let elapsed = batch(&prepared[at], cell.iterations)",
+      "new": "let elapsed = batch(&prepared[at], 1)",
+      "expect": ["documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts"]
+    },
+    {
+      "name": "scan all name entries only after an indexed miss",
+      "file": "big-code-analysis-ast/src/documentation/names.rs",
+      "old": "        let reason = match owners.len() {",
+      "new": "        if owners.is_empty() {\n            for bucket in index.values() {\n                for entry in bucket {\n                    budget.step().map_err(Into::into)?;\n                    std::hint::black_box(same_spelling(&entry.spelling, &key, budget)?);\n                }\n            }\n        }\n        let reason = match owners.len() {",
+      "expect": ["documentation::names::miss_tests::absent_bucket_miss_never_compares_unrelated_names", "documentation::names::miss_tests::collision_bucket_miss_compares_only_its_nonmatching_spellings"]
+    },
+    {
+      "name": "initial workflow run implicitly selects all",
+      "file": ".github/workflows/benchmark.yml",
+      "old": "--scope legacy --rounds 11",
+      "new": "--rounds 11",
+      "expect": ["documentation::workflow_tests::inherited_workflow_retries_only_legacy_and_preserves_harness_errors"]
+    },
+    {
+      "name": "workflow confirmation implicitly selects all",
+      "file": ".github/workflows/benchmark.yml",
+      "old": "--scope legacy --rounds 21 \\",
+      "new": "--rounds 21 \\",
+      "expect": ["documentation::workflow_tests::inherited_workflow_retries_only_legacy_and_preserves_harness_errors"]
+    },
+    {
+      "name": "suppress typed trailing failure rows",
+      "file": "big-code-analysis-bench/src/documentation/combined.rs",
+      "old": "if mode != Mode::Gate {",
+      "new": "if mode == Mode::Gate {",
+      "expect": ["documentation::combined::tests::final_failure_tail_identifies_early_failures_and_each_statistic", "documentation::combined::tests::final_summary_distinguishes_all_pass_and_non_gating_output"]
+    },
+    {
+      "name": "bypass new exact structural attachment validation",
+      "file": "big-code-analysis-bench/src/documentation/attachment_validation.rs",
+      "old": "let recovery = key == \"recovery-depth\";",
+      "new": "if !key.is_empty() { return Ok(()); }\n    let recovery = key == \"recovery-depth\";",
+      "expect": ["documentation::tests::recovery_and_conditional_semantics_reject_shape_preserving_substitutions"]
+    },
+    {
+      "name": "workflow reproduction implicitly selects all",
+      "file": ".github/workflows/benchmark.yml",
+      "old": "BENCH_ARGS='--scope legacy --rounds 21'",
+      "new": "BENCH_ARGS='--rounds 21'",
+      "expect": ["documentation::workflow_tests::workflow_reproduction_command_selects_the_confirmation_scope"]
+    },
+    {
+      "name": "suppress source trailing failure detail",
+      "file": "big-code-analysis-bench/src/documentation/combined.rs",
+      "old": "for result in report.failures() {\n                let _ = writeln!(",
+      "new": "for result in report.failures().into_iter().take(0) {\n                let _ = writeln!(",
+      "expect": ["documentation::combined::tests::final_failure_tail_identifies_early_failures_and_each_statistic"]
+    }
+  ]
+}

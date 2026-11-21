@@ -1,0 +1,58 @@
+{
+  "checkpoint": "50de79254d073e7eebc48b5a577864b092461703",
+  "issue_base": "9abf9720cd5d1506455cb94fed5b0009f4fc1a15",
+  "command": ["cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation", "--no-fail-fast"],
+  "provenance": {
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)",
+    "python": "3.14.3",
+    "driver": "python3 -B utils/perturb.py big-code-analysis-bench/perturbations/<manifest>",
+    "scope": "Sequential local behavioral sweeps on a clean frozen revision. Every case compiled and failed its intended tests; sources restored. These results are not performance qualification.",
+    "first_validation_failure": "Clippy similar_names in workflow tests (two diagnostics) and match_same_arms in fixture rejection test; corrected in checkpoint 50de7925 without changing assertions. Compilation and focused tests passed on the initial candidate.",
+    "source_results": ["/tmp/bca-perturb-backup.olk2rhjb/perturb-results.json", "/tmp/bca-perturb-backup.dbepu19h/perturb-results.json", "/tmp/bca-perturb-backup.4i0kwroi/perturb-results.json"]
+  },
+  "sweeps": [
+    {
+      "manifest": "documentation.json",
+      "results": [
+        {"name":"skip registered cell execution","verdict":"caught","detail":"","failed":["documentation::runner::tests::batch_executes_every_requested_repetition","documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts","documentation::runner::tests::source_schedule_executes_calibration_warmup_and_measured_work","documentation::runner::tests::source_smoke_exercises_every_registered_cell"],"missing_expected":[],"rc":101},
+        {"name":"ignore wrong cell membership","verdict":"caught","detail":"","failed":["documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode"],"missing_expected":[],"rc":101},
+        {"name":"ignore missing samples","verdict":"caught","detail":"","failed":["documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode","documentation::runner::tests::report_revalidates_batches_counts_and_statistic"],"missing_expected":[],"rc":101},
+        {"name":"disable measured batch resolution","verdict":"caught","detail":"","failed":["documentation::runner::tests::actual_batches_control_resolution_even_at_iteration_cap"],"missing_expected":[],"rc":101},
+        {"name":"floor fractional ns","verdict":"caught","detail":"","failed":["documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"],"missing_expected":[],"rc":101},
+        {"name":"legacy cheap iteration cap","verdict":"caught","detail":"","failed":["documentation::runner::tests::actual_batches_control_resolution_even_at_iteration_cap","documentation::runner::tests::calibration_caps_zero_and_preserves_ceiling","documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"],"missing_expected":[],"rc":101},
+        {"name":"omit source failures","verdict":"caught","detail":"","failed":["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass","documentation::combined::tests::final_failure_tail_identifies_early_failures_and_each_statistic"],"missing_expected":[],"rc":101},
+        {"name":"ignore gate exit failure","verdict":"caught","detail":"","failed":["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass"],"missing_expected":[],"rc":101},
+        {"name":"skip association consumption","verdict":"caught","detail":"","failed":["documentation::tests::prepared_query_counters_charge_only_declared_output"],"missing_expected":[],"rc":101},
+        {"name":"skip qualification consumption","verdict":"caught","detail":"","failed":["documentation::tests::prepared_query_counters_charge_only_declared_output"],"missing_expected":[],"rc":101},
+        {"name":"drop included scalar intersections","verdict":"caught","detail":"","failed":["documentation::render_probe::tests::valid_preparation_borrows_adjacent_range_intersections"],"missing_expected":[],"rc":101},
+        {"name":"skip tiny render entry cancellation","verdict":"caught","detail":"","failed":["documentation::render_probe::tests::tiny_and_empty_render_poll_cancellation_at_entry"],"missing_expected":[],"rc":101},
+        {"name":"skip render identity validation","verdict":"caught","detail":"","failed":["documentation::render_probe::tests::preparation_rejects_foreign_and_pending_documents"],"missing_expected":[],"rc":101},
+        {"name":"scan all associations","verdict":"caught","detail":"","failed":["documentation::tests::prepared_query_counters_charge_only_declared_output"],"missing_expected":[],"rc":101},
+        {"name":"scan all qualifications","verdict":"caught","detail":"","failed":["documentation::tests::prepared_query_counters_charge_only_declared_output"],"missing_expected":[],"rc":101}
+      ]
+    },
+    {
+      "manifest": "documentation-audit.json",
+      "results": [
+        {"name":"evidence pair repeats retention off","verdict":"caught","detail":"","failed":["documentation::tests::evidence_pair_executes_both_off_and_on_collections"],"missing_expected":[],"rc":101},
+        {"name":"evidence pair repeats retention on","verdict":"caught","detail":"","failed":["documentation::tests::evidence_pair_executes_both_off_and_on_collections"],"missing_expected":[],"rc":101},
+        {"name":"compare raw batch medians instead of per-operation times","verdict":"caught","detail":"","failed":["documentation::runner::tests::median_uses_complete_scheduled_batches_without_rounding","documentation::runner::tests::ratios_compare_per_operation_times_when_iterations_differ","documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"],"missing_expected":[],"rc":101}
+      ]
+    },
+    {
+      "manifest": "documentation-remediation.json",
+      "results": [
+        {"name":"truncate measured repetitions to one","verdict":"caught","detail":"","failed":["documentation::runner::tests::batch_executes_every_requested_repetition","documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts"],"missing_expected":[],"rc":101},
+        {"name":"scheduler ignores frozen count metadata","verdict":"caught","detail":"","failed":["documentation::runner::tests::scheduler_executes_and_records_unequal_frozen_counts"],"missing_expected":[],"rc":101},
+        {"name":"scan all name entries only after an indexed miss","verdict":"caught","detail":"","failed":["documentation::names::miss_tests::absent_bucket_miss_never_compares_unrelated_names","documentation::names::miss_tests::collision_bucket_miss_compares_only_its_nonmatching_spellings"],"missing_expected":[],"rc":101},
+        {"name":"initial workflow run implicitly selects all","verdict":"caught","detail":"","failed":["documentation::workflow_tests::inherited_workflow_retries_only_legacy_and_preserves_harness_errors"],"missing_expected":[],"rc":101},
+        {"name":"workflow confirmation implicitly selects all","verdict":"caught","detail":"","failed":["documentation::workflow_tests::inherited_workflow_retries_only_legacy_and_preserves_harness_errors"],"missing_expected":[],"rc":101},
+        {"name":"suppress typed trailing failure rows","verdict":"caught","detail":"","failed":["documentation::combined::tests::failure_tail_reports_when_the_excerpt_omits_rows","documentation::combined::tests::final_failure_tail_identifies_early_failures_and_each_statistic","documentation::combined::tests::final_summary_distinguishes_all_pass_and_non_gating_output"],"missing_expected":[],"rc":101},
+        {"name":"bypass new exact structural attachment validation","verdict":"caught","detail":"","failed":["documentation::tests::recovery_and_conditional_semantics_reject_shape_preserving_substitutions"],"missing_expected":[],"rc":101},
+        {"name":"workflow reproduction implicitly selects all","verdict":"caught","detail":"","failed":["documentation::workflow_tests::workflow_reproduction_command_selects_the_confirmation_scope"],"missing_expected":[],"rc":101},
+        {"name":"suppress source trailing failure detail","verdict":"caught","detail":"","failed":["documentation::combined::tests::final_failure_tail_identifies_early_failures_and_each_statistic"],"missing_expected":[],"rc":101}
+      ]
+    }
+  ]
+}

@@ -152,6 +152,7 @@ crate::observation::counter!(
     assessment_scope_reads,
     cfg(any(test, feature = "test-support"))
 );
+crate::observation::counter!(association_reads, cfg(any(test, feature = "test-support")));
 
 impl<'i, 's> OwnerAssociations<'i, 's> {
     /// Known conditional/recovery facts for this candidate, independently of
@@ -169,10 +170,13 @@ impl<'i, 's> OwnerAssociations<'i, 's> {
     }
     /// Known association records, without scanning other owners.
     pub fn associations(&self) -> impl ExactSizeIterator<Item = FactRef<'i, Association<'s>>> + '_ {
-        self.associations.iter().map(|&ordinal| FactRef {
-            scope: &self.index.facts.scope,
-            ordinal,
-            fact: &self.index.facts.associations[ordinal],
+        self.associations.iter().map(|&ordinal| {
+            association_reads::record();
+            FactRef {
+                scope: &self.index.facts.scope,
+                ordinal,
+                fact: &self.index.facts.associations[ordinal],
+            }
         })
     }
 
@@ -293,10 +297,13 @@ impl<'s> DocumentationIndex<'s> {
 
     /// Associations in document order, then owner anchor and slot order.
     pub fn associations(&self) -> impl ExactSizeIterator<Item = FactRef<'_, Association<'s>>> {
-        self.associations_ordered.iter().map(|&ordinal| FactRef {
-            scope: &self.facts.scope,
-            ordinal,
-            fact: &self.facts.associations[ordinal],
+        self.associations_ordered.iter().map(|&ordinal| {
+            association_reads::record();
+            FactRef {
+                scope: &self.facts.scope,
+                ordinal,
+                fact: &self.facts.associations[ordinal],
+            }
         })
     }
 
