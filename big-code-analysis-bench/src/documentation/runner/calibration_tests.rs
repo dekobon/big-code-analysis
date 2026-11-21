@@ -95,8 +95,10 @@ fn cap_outcomes_use_the_three_sample_median_and_exact_boundaries() {
             Ok(Duration::from_nanos(if count == 1 << 20 { ns } else { 0 }))
         });
         assert_eq!(calls.len(), 63);
-        for (at, samples) in calls.chunks_exact(3).enumerate() {
-            assert_eq!(samples, [1 << at; 3]);
+        let (stages, remainder) = calls.as_chunks::<3>();
+        assert_eq!(remainder, []);
+        for (at, samples) in stages.iter().enumerate() {
+            assert_eq!(*samples, [1 << at; 3]);
         }
         assert_eq!(*outcome_mut(&mut evidence), outcome);
         if outcome == CalibrationOutcome::Unresolved {
