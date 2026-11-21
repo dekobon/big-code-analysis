@@ -69,6 +69,9 @@ pub(super) fn fixture(
     parsed: &Parsed,
     index: &DocumentationIndex<'_>,
 ) -> Result<(), HarnessError> {
+    if probe.key.starts_with("rust-") {
+        return super::rust_validation::validate(probe, size, parsed, index);
+    }
     if matches!(
         probe.key,
         "depth"

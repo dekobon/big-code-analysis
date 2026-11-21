@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "unittest",
+  "command": ["python3", "-B", "-m", "unittest", "utils/fuzz-make-test.py"],
+  "cases": [
+    {
+      "name": "drop-replay-final-statistics-arguments",
+      "file": "Makefile",
+      "old": "-- $(FUZZ_ARGS) -runs=0 -timeout=$(FUZZ_TIMEOUT);",
+      "new": "-- -runs=0 -timeout=$(FUZZ_TIMEOUT);",
+      "expect": ["utils.fuzz-make-test.FuzzMakeTests.test_replay_forwards_args_and_keeps_fixed_runs_last"]
+    },
+    {
+      "name": "writable-corpus-order-reversed",
+      "file": "Makefile",
+      "old": "\"$(FUZZ_WORK)/$$t\" \"$(FUZZ_CORPUS)/$$t\"",
+      "new": "\"$(FUZZ_CORPUS)/$$t\" \"$(FUZZ_WORK)/$$t\"",
+      "expect": ["utils.fuzz-make-test.FuzzMakeTests.test_replay_forwards_args_and_keeps_fixed_runs_last"]
+    },
+    {
+      "name": "args-override-recipe-run-limit",
+      "file": "Makefile",
+      "old": "-- $(FUZZ_ARGS) -runs=0 -timeout=$(FUZZ_TIMEOUT);",
+      "new": "-- -runs=0 -timeout=$(FUZZ_TIMEOUT) $(FUZZ_ARGS);",
+      "expect": ["utils.fuzz-make-test.FuzzMakeTests.test_replay_forwards_args_and_keeps_fixed_runs_last"]
+    }
+  ]
+}

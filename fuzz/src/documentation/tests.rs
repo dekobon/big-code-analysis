@@ -107,6 +107,15 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             .map(|value| u8::try_from(number(value)).unwrap())
             .collect();
         assert_eq!(&bytes[..3], header);
+        if let Some(expected) = seed["raw_sha256"].as_str() {
+            let actual = Sha256::digest(&bytes)
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    write!(hex, "{byte:02x}").unwrap();
+                    hex
+                });
+            assert_eq!(actual, expected);
+        }
         assert_eq!(
             Sha256::digest(&bytes[3..])
                 .iter()
@@ -201,6 +210,210 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     assert_eq!(actual, names);
+    assert_eq!(registry.len(), 67);
+    assert_eq!(
+        registry
+            .iter()
+            .filter(|seed| seed["header"][0] == 0)
+            .count(),
+        26
+    );
+}
+
+#[allow(clippy::too_many_lines)] // Exact included-tree, raw-fragment, owner and token oracle for the two registered seeds.
+fn rust_included_literal_seed(
+    class: &str,
+    index: &DocumentationIndex<'_>,
+    tree: &tree_sitter::Tree,
+) {
+    let gap = class == "rust-literal-value-gap";
+    let source: &[u8] = if gap {
+        b"#[doc = \"a\0b\"] fn f() {}"
+    } else {
+        b"#[doc = r\"a\r\nb\"] fn f() {}"
+    };
+    assert_eq!(index.source(), source);
+    let mut point = tree_sitter::Point::new(0, 0);
+    let mut expected_ranges = Vec::new();
+    for (at, byte) in source.iter().enumerate() {
+        let start_point = point;
+        if *byte == b'\n' {
+            point.row += 1;
+            point.column = 0;
+        } else {
+            point.column += 1;
+        }
+        if *byte != 0 {
+            expected_ranges.push(tree_sitter::Range {
+                start_byte: at,
+                end_byte: at + 1,
+                start_point,
+                end_point: point,
+            });
+        }
+    }
+    assert_eq!(tree.included_ranges(), expected_ranges);
+    let canonical = nodes(tree);
+    assert!(
+        canonical
+            .iter()
+            .all(|node| !node.has_error() && !node.is_missing())
+    );
+    let function = canonical
+        .iter()
+        .find(|node| node.kind() == "function_item")
+        .unwrap();
+    let attribute = canonical
+        .iter()
+        .find(|node| node.kind() == "attribute_item")
+        .unwrap();
+    let end = if gap { 14 } else { 16 };
+    assert_eq!(attribute.byte_range(), 0..end);
+    assert_eq!(function.byte_range(), end + 1..end + 10);
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let document = index.documents().next().unwrap();
+    assert_eq!(document.get().fragment_count(), 1);
+    assert_eq!(document.get().role(), DocumentRole::Primary);
+    assert_eq!(document.get().composition(), Composition::AttributeSequence);
+    let fragment = index.facts().document_fragment(document, 0).unwrap();
+    assert_eq!(fragment.get().form(), FragmentForm::Attribute);
+    assert_eq!(fragment.get().node().unwrap().node(), *attribute);
+    assert_eq!(fragment.get().source().has_excluded_gap(), gap);
+    let spans: Vec<_> = (0..end)
+        .filter(|at| !gap || *at != 10)
+        .map(|at| at..at + 1)
+        .collect();
+    assert_eq!(
+        fragment
+            .get()
+            .source()
+            .pieces()
+            .iter()
+            .map(SourcePiece::range)
+            .collect::<Vec<_>>(),
+        spans
+    );
+    for piece in fragment.get().source().pieces() {
+        assert_eq!(piece.bytes(), &source[piece.range()]);
+    }
+    let association = index.associations().next().unwrap();
+    assert_eq!(
+        index.facts().associated_document(association).unwrap(),
+        document
+    );
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().publication, Publication::Unknown);
+    assert_eq!(association.get().binding.unwrap().node(), *function);
+    assert_eq!(association.get().lexical_scope.node(), tree.root_node());
+    assert_eq!(association.get().owner_count(), 1);
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    assert!(matches!(owner.get(), Owner::Node(node) if node.node() == *function));
+    assert_eq!(
+        index
+            .node_associations(*function)
+            .unwrap()
+            .associations()
+            .collect::<Vec<_>>(),
+        [association]
+    );
+    assert_eq!(
+        index
+            .owner_associations(owner)
+            .unwrap()
+            .associations()
+            .collect::<Vec<_>>(),
+        [association]
+    );
+    if gap {
+        let value = canonical
+            .iter()
+            .find(|node| node.kind() == "string_literal")
+            .unwrap();
+        assert_eq!(value.byte_range(), 8..13);
+        assert!(
+            canonical
+                .iter()
+                .any(|node| node.kind() == "identifier" && node.byte_range() == (2..5))
+        );
+        assert!(matches!(
+            document.get().content(),
+            Content::Unavailable(UnavailableReason::ExcludedGap)
+        ));
+        assert!(index.complete_text(document).unwrap().is_none());
+    } else {
+        let complete = text(index);
+        assert_eq!(complete.text(), "a\nb");
+        let portions: Vec<_> = complete.origins(0..3).unwrap().collect();
+        assert_eq!(complete.mappings().len(), 3);
+        assert_eq!(portions.len(), 3);
+        for (at, portion) in portions.iter().enumerate() {
+            assert_eq!(portion.output, at..at + 1);
+        }
+        for (at, span) in [(0, 10..11), (2, 13..14)] {
+            let OriginView::Copied(piece) = &portions[at].origin else {
+                panic!("copied")
+            };
+            assert_eq!(piece.range(), span.clone());
+            assert_eq!(piece.bytes(), &source[span]);
+        }
+        let OriginView::Decoded(pieces) = &portions[1].origin else {
+            panic!("physical CRLF")
+        };
+        assert_eq!(
+            pieces.iter().map(SourcePiece::range).collect::<Vec<_>>(),
+            [11..12, 12..13]
+        );
+        assert_eq!(
+            pieces.iter().map(SourcePiece::bytes).collect::<Vec<_>>(),
+            [b"\r", b"\n"]
+        );
+    }
+}
+
+#[test]
+fn unit1_additions_preserve_every_previous_tagged_and_raw_rust_seed() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (directory, count, expected) in [
+        (
+            "documentation",
+            65,
+            "e0b4b8f37651094400115a6e7a3a7b0fe36d6f772c81c9394897d19995ede301",
+        ),
+        (
+            "parse_rust",
+            12,
+            "9467333cd232ce99f65f924cc4a9e6c66b859d49ecc2f208e03dffe1f0212fba",
+        ),
+    ] {
+        let mut paths: Vec<_> = std::fs::read_dir(root.join("corpus").join(directory))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                !matches!(
+                    path.file_name().unwrap().to_str().unwrap(),
+                    "rust-literal-value-gap" | "rust-literal-raw-crlf-pieces"
+                )
+            })
+            .collect();
+        paths.sort();
+        assert_eq!(paths.len(), count);
+        let mut hash = Sha256::new();
+        for path in paths {
+            hash.update(path.file_name().unwrap().to_str().unwrap().as_bytes());
+            hash.update([0]);
+            hash.update(std::fs::read(path).unwrap());
+            hash.update([0]);
+        }
+        // Frozen from clean writer starting HEAD 0fb38da5, before the two additions.
+        assert_eq!(
+            hash.finalize().iter().fold(String::new(), |mut hex, byte| {
+                write!(hex, "{byte:02x}").unwrap();
+                hex
+            }),
+            expected
+        );
+    }
 }
 
 #[allow(clippy::single_range_in_vec_init)]
@@ -343,6 +556,9 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
     }
     let index = index.unwrap();
     match class {
+        "rust-literal-value-gap" | "rust-literal-raw-crlf-pieces" => {
+            rust_included_literal_seed(class, index, tree);
+        }
         "eof" => {
             assert!(!index.source().ends_with(b"\n"));
             assert_eq!(index.documents().len(), 0);

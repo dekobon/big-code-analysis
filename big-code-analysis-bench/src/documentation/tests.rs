@@ -113,7 +113,7 @@ fn original_registry_ids_sizes_and_options_are_preserved() {
         assert_eq!(options.profile, Profile::Default);
         assert!(!options.retain_unbound && !options.retain_directives);
     }
-    assert_eq!(REGISTRY.len() - 31, 15);
+    assert_eq!(REGISTRY.len() - 31, 26);
 }
 
 #[test]
@@ -182,6 +182,7 @@ fn declared_growth_axes_match_full_size_input_and_output_counts() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One exact work contract per prepared operation.
 fn prepared_query_counters_charge_only_declared_output() {
     use fixtures::Operation;
     for size in [32, 64, 128] {
@@ -200,6 +201,31 @@ fn prepared_query_counters_charge_only_declared_output() {
             assert_eq!(after.renders - before.renders, 0, "{}", probe.id);
             assert_eq!(after.copy_chunks - before.copy_chunks, 0, "{}", probe.id);
             assert_eq!(after.visits - before.visits, 0, "{}", probe.id);
+            assert_eq!(
+                after.carrier_children - before.carrier_children,
+                0,
+                "{}",
+                probe.id
+            );
+            assert_eq!(
+                after.attribute_children - before.attribute_children,
+                0,
+                "{}",
+                probe.id
+            );
+            assert_eq!(
+                after.decoded_units - before.decoded_units,
+                0,
+                "{}",
+                probe.id
+            );
+            assert_eq!(after.piece_copies - before.piece_copies, 0, "{}", probe.id);
+            assert_eq!(
+                after.projection_visits - before.projection_visits,
+                0,
+                "{}",
+                probe.id
+            );
             assert_eq!(after.memo_probes - before.memo_probes, 0, "{}", probe.id);
             assert_eq!(
                 after.fold_slot_probes - before.fold_slot_probes,
@@ -249,6 +275,14 @@ fn prepared_query_counters_charge_only_declared_output() {
                     assert_eq!(
                         after.map_searches - before.map_searches,
                         (2 * size - 1).ilog2() as usize + 2
+                    );
+                }
+                Operation::MapPieces => {
+                    assert_eq!(after.map_runs_visited - before.map_runs_visited, 1);
+                    // expected: partition_point on S=n (power of two) makes log2(n)+1 comparisons.
+                    assert_eq!(
+                        after.map_searches - before.map_searches,
+                        size.ilog2() as usize + 1
                     );
                 }
                 Operation::Retained => {

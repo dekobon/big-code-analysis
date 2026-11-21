@@ -6,7 +6,7 @@ use big_code_analysis::{Ast, Source};
 use big_code_analysis_ast::documentation::render_probe::PreparedRender;
 use big_code_analysis_ast::documentation::{
     CompleteText, Content, Document, DocumentationContext, DocumentationIndex,
-    DocumentationOptions, FactRef, Owner, collect,
+    DocumentationOptions, FactRef, OriginView, Owner, SourcePiece, collect,
 };
 use big_code_analysis_ast::{LANG, tree_sitter};
 
@@ -35,7 +35,10 @@ impl Parsed {
     /// Rejects invalid fixture generation, grammar setup and incomplete parses.
     pub fn new(probe: &SourceProbe, size: usize) -> Result<Self, HarnessError> {
         let source = probe.source(size)?;
-        if !matches!(probe.key, "ranges" | "multiline-adjacent-ranges") {
+        if !matches!(
+            probe.key,
+            "ranges" | "multiline-adjacent-ranges" | "rust-escapes-split"
+        ) {
             return Ast::parse(Source::new(probe.language, &source))
                 .map(Self::Ordinary)
                 .map_err(failure);
@@ -299,6 +302,7 @@ impl<'i, 's> Prepared<'i, 's> {
             Operation::Owner
             | Operation::Retained
             | Operation::Map
+            | Operation::MapPieces
             | Operation::OwnerQualifications
             | Operation::DocumentQualifications => 1,
             Operation::Pending => {
@@ -321,10 +325,10 @@ impl<'i, 's> Prepared<'i, 's> {
                 let node = self
                     .node
                     .ok_or_else(|| HarnessError("owner node absent".into()))?;
-                let expected = if self.probe.key == "width" {
-                    (size - 1) * 19 + 9
-                } else {
-                    5 * size
+                let expected = match self.probe.key {
+                    "width" => (size - 1) * 19 + 9,
+                    "rust-mixed" => 30 * size,
+                    _ => 5 * size,
                 };
                 require(
                     node.start_byte() == expected,
@@ -400,6 +404,12 @@ impl<'i, 's> Prepared<'i, 's> {
             Operation::Map | Operation::Retained => {
                 require(self.text.is_some(), "complete prepared text absent")?;
                 self.execute()?;
+            }
+            Operation::MapPieces => {
+                let text = self
+                    .text
+                    .ok_or_else(|| HarnessError("map pieces text absent".into()))?;
+                super::rust_validation::late_map(text, size, self.parsed.source())?;
             }
         }
         Ok(())
@@ -495,6 +505,15 @@ impl<'i, 's> Prepared<'i, 's> {
                         .map_err(failure)?,
                 );
             }
+            Operation::MapPieces => {
+                let text = black_box(
+                    self.text
+                        .ok_or_else(|| HarnessError("map pieces text absent".into()))?,
+                );
+                consume_map_pieces(text, |piece| {
+                    black_box(piece);
+                })?;
+            }
         }
         Ok(())
     }
@@ -510,4 +529,24 @@ impl<'i, 's> Prepared<'i, 's> {
     pub fn counts(&self) -> SourceCounts {
         self.counts
     }
+}
+
+pub(super) fn consume_map_pieces<'i, 's>(
+    text: CompleteText<'i, 's>,
+    mut consume: impl FnMut(&'i SourcePiece<'s>),
+) -> Result<(), HarnessError> {
+    let end = text.text().len();
+    require(end > 0, "late map pieces query has no text")?;
+    for portion in text.origins(black_box(end - 1..end)).map_err(failure)? {
+        let OriginView::Decoded(pieces) = black_box(portion).origin else {
+            return Err(HarnessError("late map pieces origin not decoded".into()));
+        };
+        let [a, b, c, d] = pieces else {
+            return Err(HarnessError("late map requires four pieces".into()));
+        };
+        for piece in [a, b, c, d] {
+            consume(piece);
+        }
+    }
+    Ok(())
 }

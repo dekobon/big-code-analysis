@@ -389,6 +389,32 @@
     "has_error": false
   },
   {
+    "name": "rust-literal-value-gap",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "4710f3fe76c114469c63024cfdba4b88386261e3e7b6fe0e1770309b96a54ca0",
+    "class": "rust-literal-value-gap",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes",
+    "has_error": false,
+    "raw_sha256": "a85aa5ccd0dc2e9b6601a91bb454df2e4711749fe6721abb98315e15c9b72387"
+  },
+  {
+    "name": "rust-literal-raw-crlf-pieces",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "1577f0caec27c23e67c1d35a172c31e20c05fe4973cf1e1b042b293ef05f9e56",
+    "class": "rust-literal-raw-crlf-pieces",
+    "provenance": "big-code-analysis-ast/src/documentation/text/rust/literal.rs physical CRLF normalization across included pieces",
+    "has_error": false,
+    "raw_sha256": "39a14034283ed3c33f0b77cd7d98c219bf8f2992b5ed78fdbc2c03915467a042"
+  },
+  {
     "name": "rust-outer-binding",
     "header": [
       0,

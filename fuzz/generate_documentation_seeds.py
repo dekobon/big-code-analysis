@@ -101,6 +101,8 @@ def main():
         )
 
     cases = [
+        ("rust-literal-value-gap", [0, 7, 0], b'#[doc = "a\x00b"] fn f() {}', "rust-literal-value-gap", "rust_tests.rs::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes", False),
+        ("rust-literal-raw-crlf-pieces", [0, 7, 0], b'#[doc = r"a\r\nb"] fn f() {}', "rust-literal-raw-crlf-pieces", "text/rust/literal.rs physical CRLF normalization across included pieces", False),
         ("rust-outer-binding", [0, 3, 0], b'#[doc = "outer"]\nfn f() { //! inner\n}', "rust-outer-binding", "rust_remediation_tests.rs::outer_attribute_merges_binding_into_inner_comment_document", False),
         ("rust-pending-inner-binding", [0, 3, 0], b'#[doc(hidden)]\nfn f() { //! inner\n}', "rust-pending-inner-binding", "rust_remediation_tests.rs::outer_metadata_keeps_binding_on_pending_composition", False),
         ("rust-second-lines-cr", [0, 3, 0], b'#[doc = "\\na\\r\\r\\nb"] fn f() {}', "rust-second-lines-cr", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
@@ -315,7 +317,10 @@ def main():
         ),
     ]
     for name, header, payload, assertion, provenance, has_error in cases:
-        add(name, header, payload, assertion, provenance, has_error=has_error)
+        extra = {}
+        if name in {"rust-literal-value-gap", "rust-literal-raw-crlf-pieces"}:
+            extra["raw_sha256"] = hashlib.sha256(bytes(header) + payload).hexdigest()
+        add(name, header, payload, assertion, provenance, has_error=has_error, **extra)
 
     corpus = ROOT / "corpus/documentation"
     corpus.mkdir(parents=True, exist_ok=True)

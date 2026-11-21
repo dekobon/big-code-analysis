@@ -4,8 +4,8 @@ use super::*;
 use std::ops::Range;
 
 // Count actual child examinations; duplicate carrier work preserves every output.
-crate::observation::counter!(carrier_children, cfg(test));
-crate::observation::counter!(attribute_children, cfg(test));
+crate::observation::counter!(carrier_children, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(attribute_children, cfg(any(test, feature = "test-support")));
 
 pub(super) enum Carrier {
     Other,

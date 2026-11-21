@@ -11,6 +11,8 @@ mod assembly;
 mod projections;
 pub(super) mod qualifications;
 mod rust;
+#[cfg(any(test, feature = "test-support"))]
+pub(super) use rust::{attribute_children, carrier_children};
 
 enum Visit {
     Enter(NodeId, usize),

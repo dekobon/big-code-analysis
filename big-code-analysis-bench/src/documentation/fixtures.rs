@@ -25,6 +25,7 @@ pub(super) enum Operation {
     OwnerQualifications,
     DocumentQualifications,
     Map,
+    MapPieces,
     Retained,
     Render,
     EvidencePair,
@@ -75,7 +76,7 @@ const fn probe(
             Operation::Collect | Operation::Render | Operation::EvidencePair => {
                 StatisticClass::Exponent
             }
-            Operation::Map => StatisticClass::LogMapRatio,
+            Operation::Map | Operation::MapPieces => StatisticClass::LogMapRatio,
             _ => StatisticClass::FixedOutputRatio,
         },
         bound: 1.50,
@@ -98,8 +99,7 @@ const fn probe(
     }
 }
 
-/// The original 31 workloads followed by fifteen finite missing-axis ladders.
-/// Original generators, options and all 93 full-size cells are preserved.
+/// The original workloads followed by infrastructure and Rust literal ladders.
 pub const REGISTRY: &[SourceProbe] = &[
     probe(
         "documentation/cold/depth",
@@ -481,6 +481,100 @@ pub const REGISTRY: &[SourceProbe] = &[
         Operation::Render,
         "grow F=n,S=2n-1,text=2n-1; one document/owner",
     ),
+    probe(
+        "documentation/rust-unit1/mixed-fragments",
+        "rust-mixed",
+        LANG::Rust,
+        false,
+        Operation::Collect,
+        "grow mixed F=2n+1,text=14n+5,S=6n+1; D=E=1, depth fixed",
+    ),
+    SourceProbe {
+        sizes: [4096, 8192, 16384],
+        ..probe(
+            "documentation/rust-unit1/cooked-large",
+            "rust-cooked",
+            LANG::Rust,
+            false,
+            Operation::Collect,
+            "grow cooked escape bytes and cleanup; F=D=E=1,text=S=2n+1",
+        )
+    },
+    SourceProbe {
+        sizes: [4096, 8192, 16384],
+        ..probe(
+            "documentation/rust-unit1/raw-large",
+            "rust-raw",
+            LANG::Rust,
+            false,
+            Operation::Collect,
+            "grow raw physical CRLF bytes; F=D=E=1,text=6n+1,S=2n+1",
+        )
+    },
+    probe(
+        "documentation/rust-unit1/attribute-width",
+        "rust-attribute-width",
+        LANG::Rust,
+        false,
+        Operation::Collect,
+        "grow attribute width w=n at d=0; F=n,text=S=2n-1,D=E=1",
+    ),
+    probe(
+        "documentation/rust-unit1/attribute-depth",
+        "rust-attribute-depth",
+        LANG::Rust,
+        false,
+        Operation::Collect,
+        "grow module depth d=n at w=1; F=D=E=text=S=1",
+    ),
+    probe(
+        "documentation/rust-unit1/attribute-depth-width",
+        "rust-attribute-depth-width",
+        LANG::Rust,
+        false,
+        Operation::Collect,
+        "grow d=w=n; affine nodes/bytes/output, F=n,text=S=2n-1,D=E=1",
+    ),
+    probe(
+        "documentation/rust-unit1/escapes-contiguous",
+        "rust-escapes-contiguous",
+        LANG::Rust,
+        true,
+        Operation::Collect,
+        "grow n escapes; text=S=n,F=D=E=R=1, one responsible piece/token",
+    ),
+    probe(
+        "documentation/rust-unit1/escapes-split",
+        "rust-escapes-split",
+        LANG::Rust,
+        true,
+        Operation::Collect,
+        "grow n escapes; text=S=n,F=D=E=1,R=21+4n, four pieces/token",
+    ),
+    probe(
+        "documentation/rust-unit1/mixed-retained",
+        "rust-mixed",
+        LANG::Rust,
+        false,
+        Operation::Retained,
+        "grow mixed F=2n+1,text=14n+5,S=6n+1; one borrowed text/map view K=1",
+    ),
+    probe(
+        "documentation/rust-unit1/mixed-owner",
+        "rust-mixed",
+        LANG::Rust,
+        false,
+        Operation::Owner,
+        "grow mixed F=2n+1,text=14n+5,S=6n+1; canonical function association K=1",
+    ),
+    probe(
+        "documentation/rust-unit1/split-late-map",
+        "rust-escapes-split",
+        LANG::Rust,
+        true,
+        Operation::MapPieces,
+        "grow S=n; query final byte, consume one origin and four borrowed pieces, normalize log2(S+1)",
+    ),
 ];
 
 impl SourceProbe {
@@ -629,6 +723,36 @@ impl SourceProbe {
                 "package p\n{}func F() {{}}",
                 "//go:generate command\n".repeat(size)
             ),
+            "rust-mixed" => format!(
+                "{}fn f() {{ //!inner\n}}",
+                "/**\u{2003}* a\n * b*/\n#[doc = \"z\"]\n".repeat(size)
+            ),
+            "rust-cooked" => format!("#[doc = \"\\n{}b\"] fn f() {{}}", "a\\r\\r\\n".repeat(size)),
+            "rust-raw" => format!(
+                "#[doc = r###\"{}b\"###] fn f() {{}}",
+                "a\\x42\r\n".repeat(size)
+            ),
+            "rust-attribute-width" | "rust-attribute-depth" | "rust-attribute-depth-width" => {
+                let d = if self.key == "rust-attribute-width" {
+                    0
+                } else {
+                    size
+                };
+                let w = if self.key == "rust-attribute-depth" {
+                    1
+                } else {
+                    size
+                };
+                format!(
+                    "{}{}fn f() {{}}{}",
+                    "mod m {".repeat(d),
+                    "#[doc = \"a\"]\n".repeat(w),
+                    "}".repeat(d)
+                )
+            }
+            "rust-escapes-contiguous" | "rust-escapes-split" => {
+                format!("#[doc = \"{}\"] fn f() {{}}", "\\x41".repeat(size))
+            }
             _ => {
                 return Err(HarnessError(format!(
                     "unregistered source fixture {}",

@@ -186,7 +186,7 @@ fn unicode<B: WorkBudget>(bytes: &[u8], at: &mut usize, budget: &B) -> Result<ch
     char::from_u32(value).ok_or(TextError::Unavailable(UnavailableReason::NonScalar))
 }
 
-crate::observation::counter!(decoded_units, cfg(test));
+crate::observation::counter!(decoded_units, cfg(any(test, feature = "test-support")));
 
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,42 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["timeout", "3600", "cargo", "test", "-p", "big-code-analysis-bench", "--lib", "documentation::rust_tests"],
+  "cases": [
+    {
+      "name": "validator-forgets-token-coordinates",
+      "file": "big-code-analysis-bench/src/documentation/rust_validation.rs",
+      "old": "piece.range() == span && piece.bytes() == &source[span]",
+      "new": "piece.bytes() == &source[span]",
+      "expect": ["documentation::rust_tests::rust_origin_validator_rejects_wrong_token_with_unchanged_counts_and_text"]
+    },
+    {
+      "name": "validator-accepts-foreign-binding-scope",
+      "file": "big-code-analysis-bench/src/documentation/rust_validation.rs",
+      "old": "fact.binding.is_some_and(|node| node.node() == function)\n            && fact.lexical_scope.node() == scope",
+      "new": "fact.binding.is_some_and(|node| node.node().byte_range() == function.byte_range())\n            && fact.lexical_scope.node().byte_range() == scope.byte_range()",
+      "expect": ["documentation::rust_tests::rust_graph_validator_rejects_equal_source_with_foreign_canonical_links"]
+    },
+    {
+      "name": "map-operation-repeats-first-piece",
+      "file": "big-code-analysis-bench/src/documentation/operation.rs",
+      "old": "for piece in [a, b, c, d] {",
+      "new": "let _ = (b, c, d); for piece in [a, a, a, a] {",
+      "expect": ["documentation::rust_tests::rust_split_map_consumes_each_borrowed_piece_in_order"]
+    },
+    {
+      "name": "split-cursor-restart-new-counter-guard",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "let start = at;",
+      "new": "let start = at; source = SourceCursor::new(&fragment.source);",
+      "expect": ["documentation::rust_tests::rust_work_counters_separate_depth_width_and_piece_axes"]
+    },
+    {
+      "name": "duplicate-carrier-scan-new-counter-guard",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "let fields = AttributeFields::read(canonical, child, budget)?;",
+      "new": "let _ = AttributeFields::read(canonical, child, budget)?; let fields = AttributeFields::read(canonical, child, budget)?;",
+      "expect": ["documentation::rust_tests::rust_work_counters_separate_depth_width_and_piece_axes"]
+    }
+  ]
+}

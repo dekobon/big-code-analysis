@@ -121,6 +121,16 @@ pub struct Observations {
     pub map_searches: usize,
     /// Output-map runs consumed by a query.
     pub map_runs_visited: usize,
+    /// Direct Rust carrier children examined during attribute recognition.
+    pub carrier_children: usize,
+    /// Direct Rust attribute children examined during literal classification.
+    pub attribute_children: usize,
+    /// Responsible source pieces copied with the work budget.
+    pub piece_copies: usize,
+    /// Outer Rust literal decoder iterations, excluding inner-byte charges.
+    pub decoded_units: usize,
+    /// Retained mapping runs examined by decoded-coordinate cleanup.
+    pub projection_visits: usize,
 }
 
 /// Read qualification counters without resetting other consumers' observations.
@@ -158,6 +168,11 @@ pub fn observations() -> Observations {
         qualification_memberships: collector::qualifications::memberships::observed(),
         map_searches: content::map_searches::observed(),
         map_runs_visited: content::map_runs_visited::observed(),
+        carrier_children: collector::carrier_children::observed(),
+        attribute_children: collector::attribute_children::observed(),
+        piece_copies: source::piece_copies::observed(),
+        decoded_units: text::rust::literal::decoded_units::observed(),
+        projection_visits: text::cleanup::projection_visits::observed(),
     }
 }
 
