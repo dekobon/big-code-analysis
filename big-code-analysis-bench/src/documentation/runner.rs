@@ -145,6 +145,13 @@ impl SourceReport {
                 "invalid source result ladder",
             )?;
             for cell in &result.cells {
+                cell.calibration
+                    .validate(self.mode, cell.iterations, cell.budget)
+                    .map_err(|error| context(result.id, cell.size, error))?;
+                require(
+                    cell.batches.len() == self.rounds,
+                    format!("{} size {}: missing samples", result.id, cell.size),
+                )?;
                 let verified = reduce_cell(
                     RawCell {
                         counts: cell.counts,
@@ -573,6 +580,7 @@ fn reduce_cell(raw: RawCell, rounds: usize, mode: Mode) -> Result<SourceCell, Ha
                 && batch.elapsed.as_secs_f64().is_finite(),
             format!("{} size {}: invalid batch round {round}", raw.id, raw.size),
         )?;
+        check_budget(raw.id, raw.size, batch.elapsed, raw.iterations, raw.budget)?;
         times.push(batch.elapsed);
     }
     times.sort_unstable();

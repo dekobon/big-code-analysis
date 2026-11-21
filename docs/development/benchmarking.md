@@ -90,7 +90,7 @@ The scaling executable uses these exit codes:
 - Exit 0 means a successful gate, or a successful non-gating run when that mode is printed.
 - Exit 1 means a declared bound failed or a legacy walk exceeded its budget.
 - Exit 2 means configuration, source measurement, operation, fixture or report validation failed.
-  Source `AbandonedCell` and `UnresolvedCell` failures use this code.
+  Source `AbandonedCell`, `CalibrationUnresolved` and `UnresolvedCell` failures use this code.
 
 Report-only suppresses exit 1 but still rejects harness errors.
 

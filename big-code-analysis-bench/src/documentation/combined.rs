@@ -221,6 +221,81 @@ mod tests {
         }
     }
 
+    #[test]
+    fn validation_rechecks_every_scheduled_batch_against_retained_budget() {
+        use std::time::Duration;
+
+        for mode in [Mode::Gate, Mode::ReportOnly] {
+            let mut source = source_reports(false);
+            source.mode = mode;
+            source.validate_data().unwrap();
+            let ids: Vec<_> = source.results.iter().map(|result| result.id).collect();
+            let cell = &mut source.results[0].cells[0];
+            assert_eq!(cell.iterations, 1);
+            assert_eq!(cell.batch_median, Duration::from_micros(200));
+            cell.budget = Duration::from_millis(2);
+            cell.batches[0].elapsed = Duration::from_millis(2);
+            cell.batch_max = Duration::from_millis(2);
+            let mut report = CombinedReport {
+                legacy: None,
+                source: Some(source),
+            };
+            report.validate(Scope::Source, &[], &ids).unwrap();
+
+            let cell = &mut report.source.as_mut().unwrap().results[0].cells[0];
+            cell.batches[0].elapsed = Duration::from_nanos(2_000_001);
+            cell.batch_max = Duration::from_nanos(2_000_001);
+            assert_eq!(cell.batches[1].elapsed, Duration::from_micros(200));
+            assert_eq!(cell.batches[2].elapsed, Duration::from_micros(200));
+            assert_eq!(cell.batch_median, Duration::from_micros(200));
+            let error = report.validate(Scope::Source, &[], &ids).unwrap_err();
+            assert!(
+                error
+                    .0
+                    .starts_with("AbandonedCell: documentation/cold/depth size 256, 1 iterations,"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn validation_rejects_oversized_calibration_stages_and_samples() {
+        use super::super::runner::{Calibration, CalibrationStage};
+        use std::time::Duration;
+
+        for length in [64, 4096] {
+            let mut report = source_reports(false);
+            let cell = &mut report.results[0].cells[0];
+            let Calibration::Batches { stages, .. } = &mut cell.calibration else {
+                panic!("expected calibration trace")
+            };
+            stages[0].samples = vec![Duration::from_millis(2); length];
+            let error = report.validate_data().unwrap_err();
+            assert!(
+                error.0.contains("calibration stage requires three samples"),
+                "{error}"
+            );
+
+            let mut report = source_reports(false);
+            let cell = &mut report.results[0].cells[0];
+            let Calibration::Batches { stages, .. } = &mut cell.calibration else {
+                panic!("expected calibration trace")
+            };
+            *stages = vec![
+                CalibrationStage {
+                    iterations: 1,
+                    samples: vec![]
+                };
+                length
+            ];
+            let error = report.validate_data().unwrap_err();
+            assert!(
+                error.0.contains("invalid calibration stage count"),
+                "{error}"
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     #[allow(clippy::too_many_lines)] // One rendered log exercises mixed typed failures and the workflow's actual tail size.

@@ -10,6 +10,13 @@
   "command": ["cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation", "--no-fail-fast"],
   "cases": [
     {
+      "name": "skip scheduled budget during report revalidation",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "check_budget(raw.id, raw.size, batch.elapsed, raw.iterations, raw.budget)?;",
+      "new": "let _ = (raw.id, raw.size, batch.elapsed, raw.iterations, raw.budget);",
+      "expect": ["documentation::combined::tests::validation_rechecks_every_scheduled_batch_against_retained_budget"]
+    },
+    {
       "name": "omit calibrated repetition writeback",
       "file": "big-code-analysis-bench/src/documentation/runner.rs",
       "old": "raw[at].iterations = result.map_err(|error| retained_error(error, &raw[..=at]))?;",
