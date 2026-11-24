@@ -494,3 +494,97 @@ fn documentation_optional_rows_follow_anchors_not_filenames() {
         .is_err()
     );
 }
+
+#[cfg(feature = "csharp")]
+#[test]
+fn documentation_csharp_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    let fixture = documentation::source("csharp-primary.cs");
+    let sources: [(&[u8], [u64; 6], &[usize]); 9] = [
+        (
+            b"/// d\n#if FLAG\nclass C { }\n#endif\n",
+            [4, 3, 0, 1, 0, 0],
+            &[],
+        ),
+        (
+            b"#if FLAG\n/// d\nclass G { }\n#endif\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"/// x\n#if FLAG\n#endif\nclass H { }\n",
+            [4, 3, 0, 1, 0, 0],
+            &[],
+        ),
+        (
+            b"/// d\n#if NET5_0\n[System.Obsolete]\n#endif\npublic class C { }\n",
+            [5, 4, 0, 1, 0, 1],
+            &[0],
+        ),
+        (
+            b"class C {\n    /// ab\n    int a, b;\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"class C {\n    /// d\n#if A\n    void F() { }\n#else\n    void G() { }\n#endif\n}\n",
+            [8, 7, 0, 1, 0, 0],
+            &[],
+        ),
+        (b"///a\n///b\nclass C {}\n", [3, 1, 0, 2, 0, 2], &[0, 1]),
+        (
+            b"///<summary>audit</summary>\n[System.Obsolete] class C {}\n",
+            [2, 1, 0, 1, 0, 1],
+            &[0],
+        ),
+        (&fixture, [2, 1, 1, 1, 0, 1], &[0]),
+    ];
+    for (source, tuple, rows) in sources {
+        let name = source.escape_ascii();
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
+        let idle = observations();
+        parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let before = observations();
+        // The collection is counted on this thread, so a zero across `analyze` is a reading.
+        assert_ne!(before.visits - idle.visits, 0, "{name}");
+        let built = evidence_built::observed();
+        let space = analyze(
+            Source::new(LANG::Csharp, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let after = observations();
+        assert_eq!(evidence_built::observed() - built, 0, "{name}");
+        assert_eq!(after.renders - before.renders, 0, "{name}");
+        assert_eq!(after.visits - before.visits, 0, "{name}");
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            tuple,
+            "{name}"
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
+            "{name}"
+        );
+    }
+}
