@@ -1006,6 +1006,8 @@ mod cancellation_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
+mod csharp_tests;
+#[cfg(test)]
 mod form_tests;
 #[cfg(test)]
 mod named_tests;
