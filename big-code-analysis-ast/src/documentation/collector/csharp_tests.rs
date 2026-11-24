@@ -1,11 +1,14 @@
 //! C# XML documentation in the source view: which declaration owns a comment, the text
 //! of the document and where each part of that text comes from. Every source is collected
-//! through both entry points.
+//! through both entry points, except in the last test, which pins the parse-tree shapes
+//! the other tests rely on.
 
 #[cfg(feature = "csharp")]
 use crate::documentation::*;
 #[cfg(feature = "csharp")]
-use crate::{AnyParser, LANG};
+use crate::test_support::for_each_node_with_chain;
+#[cfg(feature = "csharp")]
+use crate::{Ancestors, AnyParser, Checker, CsharpCode, LANG};
 #[cfg(feature = "csharp")]
 use std::ops::Range;
 
@@ -22,11 +25,12 @@ enum Run {
     Synthetic,
 }
 
-/// One document: its fragments as source byte ranges, its text, and each run of the
-/// text as an output range with its origin.
+/// One document: its role, its fragments as source byte ranges, its text, and each run
+/// of the text as an output range with its origin.
 #[cfg(feature = "csharp")]
 #[derive(Debug, PartialEq, Eq)]
 struct Doc {
+    role: DocumentRole,
     composition: Composition,
     fragments: Vec<Range<usize>>,
     text: String,
@@ -34,14 +38,16 @@ struct Doc {
 }
 
 /// What one collection published: the documents, the owner of each association as
-/// resolution, node kind and byte range, and each retained candidate as disposition and
-/// byte range. The default value is an index that holds none of them.
+/// resolution, node kind and byte range, each retained candidate as disposition and byte
+/// range, and the number of pending assessments. The default value is an index that
+/// holds none of them.
 #[cfg(feature = "csharp")]
 #[derive(Debug, Default, PartialEq, Eq)]
 struct View {
     documents: Vec<Doc>,
     owners: Vec<(Resolution, &'static str, Range<usize>)>,
     evidence: Vec<(CandidateDisposition, Range<usize>)>,
+    assessments: usize,
 }
 
 /// The expected document of one comment.
@@ -52,6 +58,7 @@ fn comment<const N: usize>(
     map: [(Range<usize>, Run); N],
 ) -> Doc {
     Doc {
+        role: DocumentRole::Primary,
         composition: Composition::Single,
         fragments: vec![fragment],
         text: text.to_owned(),
@@ -67,6 +74,7 @@ fn comment_run<const F: usize, const N: usize>(
     map: [(Range<usize>, Run); N],
 ) -> Doc {
     Doc {
+        role: DocumentRole::Primary,
         composition: Composition::CommentRun,
         fragments: fragments.into(),
         text: text.to_owned(),
@@ -75,13 +83,14 @@ fn comment_run<const F: usize, const N: usize>(
 }
 
 /// The expected view of one document that one resolved node owns, with no retained
-/// candidate.
+/// candidate and no pending assessment.
 #[cfg(feature = "csharp")]
 fn owned(document: Doc, kind: &'static str, owner: Range<usize>) -> View {
     View {
         documents: vec![document],
         owners: vec![(Resolution::Resolved, kind, owner)],
         evidence: Vec::new(),
+        assessments: 0,
     }
 }
 
@@ -112,6 +121,7 @@ fn published(index: &DocumentationIndex<'_>) -> View {
         .map(|document| {
             let complete = index.complete_text(document).unwrap().unwrap();
             Doc {
+                role: document.get().role(),
                 composition: document.get().composition(),
                 fragments: (0..document.get().fragment_count())
                     .map(|at| {
@@ -131,14 +141,28 @@ fn published(index: &DocumentationIndex<'_>) -> View {
     let owners = index
         .associations()
         .map(|association| {
-            assert_eq!(association.get().owner_count(), 1);
+            let attachment = association.get();
+            assert_eq!(attachment.owner_count(), 1);
             let owner = facts.associated_owner(association, 0).unwrap();
             let Owner::Node(declared) = owner.get() else {
                 panic!("a node owner, found {:?}", owner.get())
             };
             let declaration = declared.node();
+            // Both follow from the tree: the binding is the owner itself, and the lexical
+            // scope is the parent of the first comment of the document.
+            assert_eq!(
+                attachment.binding.map(NodeEvidence::node),
+                Some(declaration)
+            );
+            let document = facts.associated_document(association).unwrap();
+            let first = facts.document_fragment(document, 0).unwrap();
+            let first_comment = first.get().node().unwrap().node();
+            assert_eq!(
+                Some(attachment.lexical_scope.node()),
+                first_comment.parent()
+            );
             (
-                association.get().resolution,
+                attachment.resolution,
                 declaration.kind(),
                 declaration.byte_range(),
             )
@@ -155,18 +179,14 @@ fn published(index: &DocumentationIndex<'_>) -> View {
         documents,
         owners,
         evidence,
+        assessments: index.assessments().len(),
     }
-}
-
-#[cfg(feature = "csharp")]
-fn parse(source: &[u8]) -> AnyParser {
-    AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap()
 }
 
 /// A parse whose tree holds no syntax error.
 #[cfg(feature = "csharp")]
 fn clean(source: &[u8]) -> AnyParser {
-    let parser = parse(source);
+    let parser = AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
     assert!(!parser.root_node().has_error(), "{}", source.escape_ascii());
     parser
 }
@@ -214,12 +234,12 @@ fn retained(source: &[u8]) -> View {
 
 /// The one node of that kind and byte range.
 #[cfg(feature = "csharp")]
-fn node_at<'a>(parser: &'a AnyParser, kind: &str, range: &Range<usize>) -> tree_sitter::Node<'a> {
+fn node_at<'a>(parser: &'a AnyParser, kind: &str, range: Range<usize>) -> tree_sitter::Node<'a> {
     let found: Vec<_> = parser
         .root_node()
         .preorder()
         .map(|candidate| candidate.as_tree_sitter())
-        .filter(|candidate| candidate.kind() == kind && candidate.byte_range() == *range)
+        .filter(|candidate| candidate.kind() == kind && candidate.byte_range() == range)
         .collect();
     let [found] = found[..] else {
         panic!("one {kind} at {range:?}, found {found:?}")
@@ -342,6 +362,27 @@ fn csharp_expression_bodied_property_and_indexer_own_their_documentation() {
             0,
             "{kind}"
         );
+        // The control. expected: one accessor search per callable test of a property or
+        // an indexer.
+        let mut asked = 0;
+        for_each_node_with_chain::<CsharpCode>(source, |member, chain| {
+            if member.kind() != kind || (member.start_byte()..member.end_byte()) != owner {
+                return;
+            }
+            let searches = crate::checker::csharp_accessor_searches::observed();
+            assert!(CsharpCode::is_func_with_code(
+                member,
+                source,
+                Ancestors::known(chain)
+            ));
+            assert_eq!(
+                crate::checker::csharp_accessor_searches::observed() - searches,
+                1,
+                "{kind}"
+            );
+            asked += 1;
+        });
+        assert_eq!(asked, 1, "{kind}");
         assert_eq!(
             agreed(&both),
             owned(
@@ -396,7 +437,7 @@ fn csharp_adjacent_documentation_lines_join_into_one_run() {
 #[test]
 fn csharp_plain_comment_ends_the_run_and_older_lines_are_superseded() {
     let source = b"///old\n// plain\n///a\n///b\nclass C {}";
-    let joined = || {
+    let mut expected = owned(
         comment_run(
             [16..20, 21..25],
             "a\nb",
@@ -405,61 +446,46 @@ fn csharp_plain_comment_ends_the_run_and_older_lines_are_superseded() {
                 (1..2, Synthetic),
                 (2..3, Copied(24..25)),
             ],
-        )
-    };
-    // The line at 0..6 is in no document. It is kept as superseded only on request.
-    assert_eq!(view(source), owned(joined(), "class_declaration", 26..36));
-    assert_eq!(
-        retained(source),
-        View {
-            evidence: vec![(CandidateDisposition::Superseded, 0..6)],
-            ..owned(joined(), "class_declaration", 26..36)
-        }
+        ),
+        "class_declaration",
+        26..36,
     );
+    // The line at 0..6 is in no document. It is kept as superseded only on request.
+    assert_eq!(view(source), expected);
+    expected
+        .evidence
+        .push((CandidateDisposition::Superseded, 0..6));
+    assert_eq!(retained(source), expected);
 }
 
 #[cfg(feature = "csharp")]
 #[test]
 fn csharp_plain_comments_and_directives_do_not_detach_documentation() {
-    // A file that ends at `#endregion` with no line ending leaves a syntax error behind
-    // the class, so the two region sources do not parse cleanly.
-    let rows: [(&[u8], bool, Doc, Range<usize>); 4] = [
+    let rows: [(&[u8], Doc, Range<usize>); 4] = [
         (
             b"/// a\n// p\nclass C {}",
-            false,
             comment(0..5, "a", [(0..1, Copied(4..5))]),
             11..21,
         ),
         (
             b"///d\n#nullable enable\nclass C {}",
-            false,
             comment(0..4, "d", [(0..1, Copied(3..4))]),
             22..32,
         ),
         (
-            b"///a\n#region R\n///b\nclass C {}\n#endregion",
-            true,
+            b"///a\n#region R\n///b\nclass C {}\n#endregion\n",
             comment(15..19, "b", [(0..1, Copied(18..19))]),
             20..30,
         ),
         (
-            b"///r\n#region R\nclass C {}\n#endregion",
-            true,
+            b"///r\n#region R\nclass C {}\n#endregion\n",
             comment(0..4, "r", [(0..1, Copied(3..4))]),
             15..25,
         ),
     ];
-    for (source, has_error, document, owner) in rows {
-        let parser = parse(source);
+    for (source, document, owner) in rows {
         assert_eq!(
-            parser.root_node().has_error(),
-            has_error,
-            "{}",
-            source.escape_ascii()
-        );
-        assert!(!node_at(&parser, "class_declaration", &owner).has_error());
-        assert_eq!(
-            agreed(&indexes(&parser, DocumentationOptions::default())),
+            view(source),
             owned(document, "class_declaration", owner),
             "{}",
             source.escape_ascii()
@@ -598,13 +624,13 @@ fn csharp_type_with_primary_constructor_owns_its_documentation() {
             28..72
         )
     );
-    let class = node_at(&parser, "class_declaration", &(28..72));
-    let parameters = node_at(&parser, "parameter_list", &(35..42));
+    let class = node_at(&parser, "class_declaration", 28..72);
+    let parameters = node_at(&parser, "parameter_list", 35..42);
     for index in &both {
-        assert_eq!(
-            index.node_associations(class).unwrap().associations().len(),
-            1
-        );
+        let query = index.node_associations(class).unwrap();
+        assert_eq!(query.associations().len(), 1);
+        assert!(!query.projection_pending());
+        assert_eq!(query.assessments().count(), 0);
         assert_eq!(
             index.node_projection(parameters).err(),
             Some(OwnerError::UnsupportedOwner)
@@ -615,10 +641,15 @@ fn csharp_type_with_primary_constructor_owns_its_documentation() {
 #[cfg(feature = "csharp")]
 #[test]
 fn csharp_excluded_placements_give_no_document() {
-    let kept_on_request: [(&[u8], Range<usize>); 3] = [
+    let kept_on_request: [(&[u8], Range<usize>); 8] = [
         (b"class C { int P { /**audit*/ get; } }", 18..28),
         (b"class C(/**audit*/ int x) {}", 8..18),
         (b"class C { void F() { ///audit\nint x = 1; } }", 21..29),
+        (b"///audit\nnamespace N { }", 0..8),
+        (b"///audit\nnamespace N;", 0..8),
+        (b"///audit\nusing System;", 0..8),
+        (b"class C {\n///audit\n}", 10..18),
+        (b"class C {}\n///audit", 11..19),
     ];
     for (source, unattached) in kept_on_request {
         assert_eq!(view(source), View::default(), "{}", source.escape_ascii());
@@ -631,16 +662,6 @@ fn csharp_excluded_placements_give_no_document() {
             "{}",
             source.escape_ascii()
         );
-    }
-    let sources: [&[u8]; 5] = [
-        b"///audit\nnamespace N { }",
-        b"///audit\nnamespace N;",
-        b"///audit\nusing System;",
-        b"class C {\n///audit\n}",
-        b"class C {}\n///audit",
-    ];
-    for source in sources {
-        assert_eq!(view(source), View::default(), "{}", source.escape_ascii());
     }
 }
 
@@ -693,22 +714,17 @@ fn csharp_line_endings_and_trailing_documentation() {
         )
     );
     let tail = b"///audit\nclass C {}\n/// tail";
-    let leading = || {
-        owned(
-            comment(0..8, "audit", [(0..5, Copied(3..8))]),
-            "class_declaration",
-            9..19,
-        )
-    };
-    // The line at 20..28 has no declaration after it and is in no document.
-    assert_eq!(view(tail), leading());
-    assert_eq!(
-        retained(tail),
-        View {
-            evidence: vec![(CandidateDisposition::Unattached, 20..28)],
-            ..leading()
-        }
+    let mut expected = owned(
+        comment(0..8, "audit", [(0..5, Copied(3..8))]),
+        "class_declaration",
+        9..19,
     );
+    // The line at 20..28 has no declaration after it and is in no document.
+    assert_eq!(view(tail), expected);
+    expected
+        .evidence
+        .push((CandidateDisposition::Unattached, 20..28));
+    assert_eq!(retained(tail), expected);
 }
 
 #[cfg(feature = "csharp")]
@@ -804,9 +820,9 @@ fn csharp_grammar_shapes_the_unit_relies_on() {
         let top = named_children(parser.ts_tree().root_node());
         assert_eq!(
             shapes(&top),
-            [("comment", 0..8), ("class_declaration", class.clone())]
+            [("comment", 0..8), ("class_declaration", class)]
         );
         assert!(top[0].is_extra());
-        assert_eq!(&source[8..class.start], ending);
+        assert_eq!(&source[top[0].end_byte()..top[1].start_byte()], ending);
     }
 }

@@ -547,6 +547,7 @@ fn documentation_csharp_source_and_legacy_views_are_independent() {
         let parser =
             crate::langs::AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
         let idle = observations();
+        let unbuilt = evidence_built::observed();
         parser
             .documentation(
                 &DocumentationContext::default(),
@@ -554,9 +555,12 @@ fn documentation_csharp_source_and_legacy_views_are_independent() {
             )
             .unwrap();
         let before = observations();
-        // The collection is counted on this thread, so a zero across `analyze` is a reading.
-        assert_ne!(before.visits - idle.visits, 0, "{name}");
         let built = evidence_built::observed();
+        // The collection moves each counter on this thread, so a zero across `analyze` is
+        // a reading.
+        assert_ne!(before.visits - idle.visits, 0, "{name}");
+        assert_ne!(before.renders - idle.renders, 0, "{name}");
+        assert_ne!(built - unbuilt, 0, "{name}");
         let space = analyze(
             Source::new(LANG::Csharp, source),
             MetricsOptions::default().with_only(&[Metric::Loc]),

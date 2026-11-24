@@ -58,6 +58,34 @@
       "old": "            lines[0].content.start += 1;\n",
       "new": "            lines[0].content.start += 0;\n",
       "expect": ["documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation", "documentation::collector::csharp_tests::csharp_block_documentation_is_cleaned_as_a_block_comment", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim"]
+    },
+    {
+      "name": "csharp-enum-member-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            EnumMemberDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::csharp_tests::csharp_enum_member_owns_its_documentation"]
+    },
+    {
+      "name": "csharp-namespace-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n",
+      "new": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n            NamespaceDeclaration,\n",
+      "expect": ["documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document"]
+    },
+    {
+      "name": "block-continuation-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "line.content.start = star + 1;",
+      "new": "line.content.start = star;",
+      "expect": ["documentation::collector::csharp_tests::csharp_block_documentation_is_cleaned_as_a_block_comment", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+    },
+    {
+      "name": "unbound-dispositions-swapped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "disposition: if member.selection == markers::MarkerSelection::Superseded {",
+      "new": "disposition: if member.selection != markers::MarkerSelection::Superseded {",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comment_ends_the_run_and_older_lines_are_superseded", "documentation::collector::csharp_tests::csharp_documentation_attaches_before_an_attribute_and_not_after_it", "documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
     }
   ]
 }

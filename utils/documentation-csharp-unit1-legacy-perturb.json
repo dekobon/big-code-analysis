@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_csharp"
+  ],
+  "cases": [
+    {
+      "name": "csharp-conditional-is-a-doc-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n",
+      "new": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n            PreprocIf,\n            PreprocIf2,\n            PreprocIf3,\n            PreprocIf4,\n",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_csharp_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}
