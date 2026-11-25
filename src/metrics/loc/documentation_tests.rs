@@ -1204,3 +1204,177 @@ fn documentation_lua_source_and_legacy_views_are_independent() {
         comment_runs: 1,
     });
 }
+
+#[cfg(feature = "php")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_php_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        name: &'static str,
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+    }
+    let fixture = documentation::source("php-define.php");
+    let rows = [
+        Row {
+            name: "l01_property",
+            source: b"<?php\nclass C {\n    /** d */\n    public $p;\n}\n",
+            loc: [5, 4, 1, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l02_class_constant",
+            source: b"<?php\nclass C {\n    /** d */\n    const K = 1;\n}\n",
+            loc: [5, 4, 1, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l03_several_names",
+            source: b"<?php\nclass C {\n    /** ab */\n    public $a, $b = 2;\n\
+                      /** kl */\n    const A = 1, B = 2;\n}\n",
+            loc: [7, 5, 2, 2, 0, 2],
+            dloc_rows: &[2, 4],
+        },
+        Row {
+            name: "l04_promoted_parameter",
+            source: b"<?php class C { function __construct(/** audit */ public int $x) {} }\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l05_after_attribute_property",
+            source: b"<?php\nclass C { #[Attr]\n/** d */\npublic int $p = 1; }\n",
+            loc: [4, 3, 1, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l06_before_and_after_attribute",
+            source: b"<?php\n$x = 0;\n/** a */\n#[A]\n/** b */\nfunction g() {}\n",
+            loc: [6, 4, 1, 2, 0, 2],
+            dloc_rows: &[2, 4],
+        },
+        Row {
+            name: "l07_two_blocks_before_first_enum",
+            source: b"<?php\n/** file */\n/** item */\nenum E { case A; }\n",
+            loc: [4, 2, 0, 2, 0, 2],
+            dloc_rows: &[1, 2],
+        },
+        Row {
+            name: "l08_two_blocks_before_first_define",
+            source: b"<?php\n/** file */\n/** item */\ndefine('X', 1);\n",
+            loc: [4, 2, 1, 2, 0, 2],
+            dloc_rows: &[1, 2],
+        },
+        Row {
+            name: "l09_define_in_function_body",
+            source: b"<?php\nfunction f() {\n/** d */\ndefine(\"X\", 1);\n}\n",
+            loc: [5, 4, 1, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l10_define_dynamic_name",
+            source: b"<?php\nfunction z() {}\n/** d */\ndefine($n, 1);\n",
+            loc: [4, 3, 1, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l11_define_aliased_as_make",
+            source: b"<?php\nuse function define as make;\nfunction z() {}\n\
+                      /** d */\nmake(\"X\", 1);\n",
+            loc: [5, 4, 2, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l12_nested_function_in_body",
+            source: b"<?php\nfunction f() {\n    /** d */\n    function g() {}\n}\n",
+            loc: [5, 4, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l13_fixture_php_define",
+            source: &fixture,
+            loc: [4, 3, 3, 2, 0, 1],
+            dloc_rows: &[1],
+        },
+    ];
+    let mut rendered_total = 0;
+    let mut built_total = 0;
+    for row in rows {
+        let name = row.name;
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Php, row.source.to_vec(), None, None).unwrap();
+        let root = parser.ts_tree().root_node();
+        assert!(!root.has_error(), "{name}");
+        let mut nodes = 0;
+        let mut unvisited = vec![root];
+        while let Some(node) = unvisited.pop() {
+            nodes += 1;
+            unvisited.extend(node.children(&mut node.walk()));
+        }
+        let idle = observations();
+        let unbuilt = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        // expected: the collector enters every node once, named or unnamed, root included.
+        assert_eq!(collected.visits - idle.visits, nodes, "{name}");
+        // expected: complete text is built exactly once for each published document.
+        let renders = collected.renders - idle.renders;
+        assert_eq!(renders, index.documents().len(), "{name}");
+        // expected: default options build one selected member per document fragment.
+        let members = built - unbuilt;
+        assert_eq!(
+            members,
+            index
+                .documents()
+                .map(|doc| doc.get().fragment_count())
+                .sum::<usize>(),
+            "{name}"
+        );
+        rendered_total += renders;
+        built_total += members;
+
+        let space = analyze(
+            Source::new(LANG::Php, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+        let analyzed = observations();
+        // expected: analyze uses legacy LOC rows and builds no source evidence.
+        assert_eq!(evidence_built::observed() - built, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+    }
+    assert_ne!(rendered_total, 0);
+    assert_ne!(built_total, 0);
+}
