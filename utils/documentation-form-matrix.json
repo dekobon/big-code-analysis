@@ -8,9 +8,9 @@
       "pending": ["doc assignment/raw/cooked/metadata attributes", "cfg_attr", "mixed comment/attribute composition", "field/variant/tuple slots", "other local contexts"]
     },
     "Java": {
-      "implemented": ["traditional/Markdown basic declaration", "empty block", "four-slash Markdown", "last selection", "annotation-bearing declaration", "prelex unavailable plus source-cleaned evidence"],
+      "implemented": ["traditional/Markdown basic declaration", "empty block", "four-slash Markdown", "last selection", "annotation-bearing declaration", "prelex unavailable plus source-cleaned evidence", "field/constant declarator slots"],
       "ineligible": ["ordinary comments", "signature/accessor trivia without a target", "body working notes"],
-      "pending": ["filename publication", "field/constant slot projections", "semantic Unicode prelexing"]
+      "pending": ["filename publication", "unnamed-declarator and recovered field declarations", "semantic Unicode prelexing"]
     },
     "Kotlin": {
       "implemented": ["basic KDoc function", "last selection across plain comments", "annotation-bearing function", "selected Local raw/text/maps"],

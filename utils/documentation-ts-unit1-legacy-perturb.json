@@ -1,0 +1,42 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_typescript_and_tsx_source_and_legacy_views_are_independent"
+  ],
+  "cases": [
+    {
+      "name": "decorator-not-skipped",
+      "file": "big-code-analysis-ast/src/checker/js_doc_binding.rs",
+      "old": "skips: |node, _| node.kind_id() == $lang::Decorator,",
+      "new": "skips: |node, _| node.kind_id() == $lang::Decorator && node.is_extra(),",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_typescript_and_tsx_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "function-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            FunctionSignature,\n            MethodSignature,",
+      "new": "            MethodSignature,",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_typescript_and_tsx_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "packagedocumentation-tag-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            && (title == b\"module\" || title == b\"packageDocumentation\")",
+      "new": "            && title == b\"module\"",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_typescript_and_tsx_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}

@@ -49,10 +49,10 @@ fn assert_pending_form(language: LANG, source: &str, owner_kind: &str) {
 
 #[cfg(feature = "java")]
 #[test]
-fn java_field_form_is_pending_in_default_queries() {
+fn java_unnamed_field_form_is_pending_in_default_queries() {
     assert_pending_form(
         LANG::Java,
-        "class C { /**audit*/ int x; }",
+        "class C { /**audit*/ int _; }",
         "field_declaration",
     );
 }

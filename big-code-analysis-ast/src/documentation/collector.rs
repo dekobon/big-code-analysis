@@ -1014,6 +1014,12 @@ mod form_tests;
 #[cfg(test)]
 mod go_tests;
 #[cfg(test)]
+mod groovy_tests;
+#[cfg(test)]
+mod java_tests;
+#[cfg(test)]
+mod js_tests;
+#[cfg(test)]
 mod kotlin_tests;
 #[cfg(test)]
 mod lua_tests;
@@ -1029,3 +1035,5 @@ mod remediation_tests;
 mod ruby_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ts_tests;

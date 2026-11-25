@@ -22,7 +22,7 @@
       "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
       "old": "        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
       "new": "        if draft.target.is_some_and(|target| matches!(self.index.canonical.nodes[target.0].projection, Projection::Pending)) { return Ok(()); }\n        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
-      "expect": ["documentation::collector::form_tests::java_field_form_is_pending_in_default_queries", "documentation::collector::form_tests::javascript_binding_form_is_pending_in_default_queries"]
+      "expect": ["documentation::collector::form_tests::java_unnamed_field_form_is_pending_in_default_queries", "documentation::collector::form_tests::javascript_binding_form_is_pending_in_default_queries"]
     },
     {
       "name": "deferred-perl-is-empty-success",

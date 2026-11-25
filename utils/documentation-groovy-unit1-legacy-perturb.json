@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_groovy_source_and_legacy_views_are_independent"],
+  "cases": [
+    {
+      "name": "groovy-own-row-block-is-hidden",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "next.start_row() == comment.end_row()",
+      "new": "next.start_row() != comment.end_row()",
+      "expect": ["metrics::loc::documentation_tests::documentation_groovy_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "groovy-package-is-not-skipped",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "skips: |node, _| node.kind_id() == Groovy::PackageDeclaration,",
+      "new": "skips: |node, _| node.kind_id() == Groovy::ImportDeclaration,",
+      "expect": ["metrics::loc::documentation_tests::documentation_groovy_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "groovy-field-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            FieldDeclaration,\n",
+      "new": "",
+      "expect": ["metrics::loc::documentation_tests::documentation_groovy_source_and_legacy_views_are_independent"]
+    }
+  ]
+}
