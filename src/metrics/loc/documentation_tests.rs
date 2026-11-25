@@ -2264,3 +2264,177 @@ fn documentation_java_field_owners_leave_legacy_rows_unchanged() {
         assert_eq!(after.polls - before.polls, 0, "{source}");
     }
 }
+
+#[cfg(feature = "groovy")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_groovy_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        name: &'static str,
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+    }
+    let primary = documentation::source("primary.groovy");
+    let spaces = documentation::source("groovy-spaces.groovy");
+    let rows = [
+        Row {
+            name: "l01_field_own_row",
+            source: b"class C {\n    /** d */\n    int x\n}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l02_field_two_declarators",
+            source: b"class C {\n    /** d */\n    int a, b\n}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l03_property",
+            source: b"class C {\n    /** d */\n    def x\n}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l04_same_row_class",
+            source: b"/**audit*/ class C {}\n",
+            loc: [1, 1, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l05_same_row_method",
+            source: b"class C { /**audit*/ void f() {} }\n",
+            loc: [1, 1, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l06_same_row_constructor",
+            source: b"class C { /**audit*/ C() {} }\n",
+            loc: [1, 1, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l07_same_row_field",
+            source: b"class C { /**audit*/ int x }\n",
+            loc: [1, 1, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l08_block_above_package",
+            source: b"/** d */\npackage p\nclass C {}\n",
+            loc: [3, 2, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l09_constructor_own_row",
+            source: b"class C {\n    /** d */\n    C() {}\n}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l10_enum_constant",
+            source: b"enum E {\n    /** d */\n    A\n}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l11_script_level_def",
+            source: b"/** d */\ndef f() {}\n",
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l12_fixture_primary",
+            source: &primary,
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l13_fixture_groovy_spaces",
+            source: &spaces,
+            loc: [11, 6, 1, 5, 0, 5],
+            dloc_rows: &[0, 2, 4, 6, 8],
+        },
+    ];
+    let mut renders_total = 0;
+    for row in rows {
+        let name = row.name;
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Groovy, row.source.to_vec(), None, None).unwrap();
+        let root = parser.ts_tree().root_node();
+        assert!(!root.has_error(), "{name}");
+        let nodes = parser.root_node().preorder().count();
+        let idle = observations();
+        let unbuilt = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions {
+                    retain_unbound: true,
+                    ..DocumentationOptions::default()
+                },
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        let visits = collected.visits - idle.visits;
+        // expected: the collector's walk enters each node exactly once, named or unnamed.
+        assert_eq!(visits, nodes, "{name}");
+        assert_ne!(visits, 0, "{name}");
+        let renders = collected.renders - idle.renders;
+        // expected: the collector renders text once for each published document.
+        assert_eq!(renders, index.documents().len(), "{name}");
+        renders_total += renders;
+        let members = built - unbuilt;
+        // expected: the marker stream builds one member per document fragment and one for
+        // each retained candidate, which also moves the counter on same-row sources.
+        assert_eq!(
+            members,
+            index
+                .documents()
+                .map(|doc| doc.get().fragment_count())
+                .sum::<usize>()
+                + index.evidence().len(),
+            "{name}"
+        );
+        assert_ne!(members, 0, "{name}");
+
+        let space = analyze(
+            Source::new(LANG::Groovy, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = observations();
+        // expected: legacy LOC does not build or render a source documentation index.
+        assert_eq!(evidence_built::observed() - built, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+    }
+    // The other nine rows control the zero render delta of the four same-row forms.
+    assert_ne!(renders_total, 0);
+}
