@@ -1,0 +1,42 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_php_source_and_legacy_views_are_independent"
+  ],
+  "cases": [
+    {
+      "name": "php-property-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            PropertyDeclaration,\n",
+      "new": "",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_php_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "php-define-call-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            Php::Name => node_bytes(&callee, code) == b\"define\",",
+      "new": "            Php::Name => node_bytes(&callee, code) == b\"defined\",",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_php_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "php-parameter-list-block-binds-forward",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                | Php::FormalParameters\n",
+      "new": "",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_php_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}
