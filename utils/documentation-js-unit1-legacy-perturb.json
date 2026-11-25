@@ -1,0 +1,42 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_js_source_and_legacy_views_are_independent"
+  ],
+  "cases": [
+    {
+      "name": "js-function-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            FunctionDeclaration,\n            GeneratorFunctionDeclaration,",
+      "new": "            GeneratorFunctionDeclaration,",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_js_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "js-method-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            MethodDefinition,\n            Pair,",
+      "new": "            Pair,",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_js_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "js-class-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            ClassDeclaration,\n            MethodDefinition,",
+      "new": "            MethodDefinition,",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_js_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}

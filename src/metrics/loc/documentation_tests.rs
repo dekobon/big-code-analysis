@@ -1378,3 +1378,191 @@ fn documentation_php_source_and_legacy_views_are_independent() {
     assert_ne!(rendered_total, 0);
     assert_ne!(built_total, 0);
 }
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_js_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        variants: &'a [LANG],
+        name: &'static str,
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+    }
+    const BOTH: &[LANG] = &[LANG::Javascript, LANG::Mozjs];
+    let rows = [
+        Row {
+            variants: BOTH,
+            name: "l01_const_arrow",
+            source: b"/**audit*/\nconst f = () => 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l02_const_two_declarators",
+            source: b"/**audit*/\nconst a = 1, b = 2;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l03_export_const",
+            source: b"/**audit*/\nexport const e = 3;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l04_assignment",
+            source: b"/**audit*/\nx = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l05_default_anonymous_function",
+            source: b"/**audit*/\nexport default function () {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l06_virtual_name",
+            source: b"/**@name ghost\n * @function\n * audit*/\n",
+            loc: [3, 0, 0, 3, 0, 3],
+            dloc_rows: &[0, 1, 2],
+        },
+        Row {
+            variants: BOTH,
+            name: "l07_body_before_return",
+            source: b"function f() {\n    /** note */\n    return 1;\n}\n",
+            loc: [4, 3, 1, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            variants: BOTH,
+            name: "l08_inner_declaration",
+            source: b"function outer() { /**audit*/ function inner() {} }\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: BOTH,
+            name: "l09_two_blocks_at_the_first_statement",
+            source: b"/**old*/\n// plain\n/**new*/\nfunction f() {}\n",
+            loc: [4, 1, 0, 3, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            variants: BOTH,
+            name: "l10_static_on_its_own_row",
+            source: b"class C {\nstatic\n/** d */\nm() {}\n}\n",
+            loc: [5, 4, 0, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            variants: BOTH,
+            name: "l11_using",
+            source: b"/**audit*/\nusing u = f();\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            variants: &[LANG::Mozjs],
+            name: "l12_preproc_line_between",
+            source: b"/** d */\n#ifdef XP_WIN\nfunction f() {}\n#endif\n",
+            loc: [4, 3, 0, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            variants: BOTH,
+            name: "l13_through_a_decorator",
+            source: b"/** d */\n@dec\nclass C {}\n",
+            loc: [3, 2, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+    ];
+    let mut ran = 0;
+    for row in rows {
+        for &lang in row.variants {
+            if !lang.is_enabled() {
+                continue;
+            }
+            ran += 1;
+            let name = format!("{lang:?}: {}", row.name);
+            let parser =
+                crate::langs::AnyParser::parse(lang, row.source.to_vec(), None, None).unwrap();
+            assert!(!parser.ts_tree().root_node().has_error(), "{name}");
+            let nodes = parser.root_node().preorder().count();
+            let idle = observations();
+            let unbuilt = evidence_built::observed();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions {
+                        retain_unbound: true,
+                        ..DocumentationOptions::default()
+                    },
+                )
+                .unwrap();
+            let collected = observations();
+            let built = evidence_built::observed();
+            let visits = collected.visits - idle.visits;
+            let renders = collected.renders - idle.renders;
+            let members = built - unbuilt;
+            // expected: the collector visits each node exactly once, including unnamed nodes.
+            assert_eq!(visits, nodes, "{name}");
+            // expected: each published document is rendered once; retained candidates have no text.
+            assert_eq!(renders, index.documents().len(), "{name}");
+            // expected: each document fragment and retained candidate builds one marker member.
+            assert_eq!(
+                members,
+                index
+                    .documents()
+                    .map(|doc| doc.get().fragment_count())
+                    .sum::<usize>()
+                    + index.evidence().len(),
+                "{name}"
+            );
+            assert_ne!(visits, 0, "{name}");
+            assert_ne!(members, 0, "{name}");
+            let space = analyze(
+                Source::new(lang, row.source),
+                MetricsOptions::default().with_only(&[Metric::Loc]),
+            )
+            .unwrap();
+            let analyzed = observations();
+            // expected: legacy LOC uses no source-view collector or rendered evidence.
+            assert_eq!(evidence_built::observed() - built, 0, "{name}");
+            assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+            assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+            let loc = &space.metrics.loc;
+            assert_eq!(
+                [
+                    loc.sloc(),
+                    loc.ploc(),
+                    loc.lloc(),
+                    loc.cloc(),
+                    loc.blank(),
+                    loc.dloc(),
+                ],
+                row.loc,
+                "{name}"
+            );
+            assert_eq!(
+                (0..row.source.len())
+                    .filter(|at| loc.dloc.lines.contains(*at))
+                    .collect::<Vec<_>>(),
+                row.dloc_rows,
+                "{name}",
+            );
+        }
+    }
+    assert!(ran > 0);
+}
