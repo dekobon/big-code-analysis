@@ -39,6 +39,14 @@ fn owner_text<'s>(index: &DocumentationIndex<'s>, owner: FactRef<'_, Owner<'s>>)
                 .map(|piece| format!("{}..{}", piece.range().start, piece.range().end))
                 .collect();
             assert!(!slot.source.has_excluded_gap());
+            assert_eq!(
+                index
+                    .owner_associations(owner)
+                    .unwrap()
+                    .qualifications()
+                    .len(),
+                0
+            );
             format!(
                 "Slot({:?} #{} {} in {})",
                 slot.role,
@@ -59,6 +67,7 @@ fn documents(index: &DocumentationIndex<'_>) -> Vec<Doc> {
     index
         .documents()
         .map(|document| {
+            assert_eq!(document.get().composition(), Composition::Single);
             let fragments = (0..document.get().fragment_count())
                 .map(|position| {
                     let fragment = index.facts().document_fragment(document, position).unwrap();
@@ -185,6 +194,8 @@ fn both(
         )
         .unwrap(),
     ] {
+        assert_eq!(index.capability(), Capability::Partial);
+        assert_eq!(index.qualifications().len(), 0);
         check(parser.ts_tree().root_node(), &index);
     }
 }
@@ -673,13 +684,22 @@ fn java_field_queries_answer_per_slot_and_per_declaration() {
             let declaration = index.owner_associations(enclosing).unwrap();
             assert_eq!(declaration.associations().len(), 0);
             assert_eq!(declaration.assessments().count(), 0);
-            for (kind, range) in [("variable_declarator", 25..26), ("identifier", 25..26)] {
+            for (kind, range) in [
+                ("integral_type", 21..24),
+                ("variable_declarator", 25..26),
+                ("identifier", 25..26),
+                (";", 26..27),
+            ] {
                 assert!(matches!(
                     index.node_associations(node(root, kind, range.clone())),
                     Err(OwnerError::UnsupportedOwner)
                 ));
                 assert!(matches!(
-                    index.node_projection(node(root, kind, range)),
+                    index.node_projection(node(root, kind, range.clone())),
+                    Err(OwnerError::UnsupportedOwner)
+                ));
+                assert!(matches!(
+                    index.node_owners(node(root, kind, range)),
                     Err(OwnerError::UnsupportedOwner)
                 ));
             }
@@ -1051,6 +1071,18 @@ fn java_field_with_a_syntax_error_stays_pending() {
         // expected: the file only.
         assert_eq!(index.facts().owners().len(), 1);
     });
+    // The same guard keeps a constant pending: `=` without a value is an `ERROR` child.
+    let source = "interface I { /**audit*/ int K = ; }";
+    both(source, DocumentationOptions::default(), |root, index| {
+        let constant = node(root, "constant_declaration", 25..34);
+        assert!(constant.has_error());
+        assert_eq!(node(root, "ERROR", 31..32).parent().unwrap(), constant);
+        assert_eq!(documents(index), [(vec![14..24], Some("audit".to_owned()))]);
+        assert_eq!(associations(index), []);
+        assert!(index.node_projection(constant).unwrap().pending());
+        // expected: the file only; the interface holds the error too.
+        assert_eq!(index.facts().owners().len(), 1);
+    });
 }
 
 #[cfg(feature = "java")]
@@ -1409,54 +1441,63 @@ fn java_declarator_scan_charges_one_step_per_child() {
         (
             "class C { /**audit*/ int x; }",
             "field_declaration",
+            // expected: type, declarator, `;`.
             3,
             Some(vec![25..26]),
         ),
         (
             "class C { /**audit*/ int a, b; }",
             "field_declaration",
+            // expected: type, declarator, `,`, declarator, `;`.
             5,
             Some(vec![25..26, 28..29]),
         ),
         (
             "class C { /**audit*/ int a = 1, b[] = {2}, c; }",
             "field_declaration",
+            // expected: type, three declarators with two `,`, `;`.
             7,
             Some(vec![25..26, 32..33, 43..44]),
         ),
         (
             "class C {\n  /** a */\n  int x,\n  /** b */\n  y;\n}\n",
             "field_declaration",
+            // expected: type, declarator, `,`, comment, declarator, `;`.
             6,
             Some(vec![27..28, 43..44]),
         ),
         (
             "class C { /**audit*/ @Deprecated int x; }",
             "field_declaration",
+            // expected: modifiers, type, declarator, `;`.
             4,
             Some(vec![37..38]),
         ),
         (
             "interface I { /**audit*/ int K = 1; }",
             "constant_declaration",
+            // expected: type, declarator, `;`.
             3,
             Some(vec![29..30]),
         ),
         (
             "class C { /**audit*/ int a, _; }",
             "field_declaration",
+            // expected: type, declarator, `,`, and the unnamed declarator that ends the scan.
             4,
             None,
         ),
         (
             "class C { /**audit*/ int _, a; }",
             "field_declaration",
+            // expected: type and the unnamed declarator that ends the scan.
             2,
             None,
         ),
         (
             wide_source.as_str(),
             "field_declaration",
+            // expected: type, 300 declarators, 299 `,`, `;`.
             601,
             None::<Vec<Range<usize>>>,
         ),
@@ -1533,21 +1574,34 @@ fn java_field_width_costs_linear_work() {
         let before = observations();
         let index = parser.documentation(&context, &options).unwrap();
         let after = observations();
+        // expected: 12 nodes beside the declarators (`program`, `class_declaration`,
+        // `class`, `identifier`, `class_body`, `{`, `block_comment`, `field_declaration`,
+        // `integral_type`, `int`, `;`, `}`), a declarator and its name per field, and
+        // one comma less than fields.
         assert_eq!(parser.root_node().preorder().count(), 3 * width + 11);
+        // expected: one visit and one child batch per node.
         assert_eq!(after.visits - before.visits, 3 * width + 11);
         assert_eq!(after.child_batches - before.child_batches, 3 * width + 11);
+        // expected: every node but the root, which returns first.
         assert_eq!(
             after.target_classifications - before.target_classifications,
             3 * width + 10
         );
+        // expected: the file, the class and the declaration; a slot is pushed without
+        // an owner projection.
         assert_eq!(after.owner_projections - before.owner_projections, 3);
+        // expected: one search for the comment fragment and one per slot; each is one
+        // comparison with one included range.
         assert_eq!(
             after.intersection_searches - before.intersection_searches,
             width + 1
         );
+        // expected: the profile requests no field name, and nothing looks one up.
         assert_eq!(after.field_requests - before.field_requests, 0);
         assert_eq!(after.field_lookups - before.field_lookups, 0);
+        // expected: one document.
         assert_eq!(after.renders - before.renders, 1);
+        // expected: file, class, declaration and one slot per field.
         assert_eq!(index.facts().owners().len(), width + 3);
         assert_eq!(index.documents().len(), 1);
         assert_eq!(index.associations().len(), 1);
@@ -1581,6 +1635,7 @@ fn java_field_width_collection_observes_cancellation_in_the_slot_loop() {
     parser.documentation(&context, &options).unwrap();
     let polls = observations().polls - before.polls;
     let mut inside = 0;
+    let mut scanning = 0;
     for checkpoint in 1..=polls {
         let before = observations();
         let result = crate::documentation::budget::cancel_after(checkpoint, || {
@@ -1596,10 +1651,24 @@ fn java_field_width_collection_observes_cancellation_in_the_slot_loop() {
         if owners == 3 && searches < width + 1 {
             inside += 1;
         }
+        // Every node but the closing brace of the class body is entered and the
+        // declaration has no owner yet: the walk is between the declaration's last
+        // child and its slots, where only the declarator scan is long.
+        if owners == 2 && after.visits - before.visits == 3 * width + 10 {
+            scanning += 1;
+        }
     }
     // expected: 6 checkpoints fall in the 6144 step charges of the slot loop
     // (3 per slot, one checkpoint per 1024); the last may follow the last search.
     assert!(inside >= 5, "{inside}");
+    // expected: no more than those 6; a loop that charges more steps for a later
+    // slot holds more.
+    assert!(inside <= 6, "{inside}");
+    // expected: the scan charges one step for each of the 4097 children of the
+    // declaration (the type, 2048 declarators, 2047 commas and `;`), which hold 4
+    // checkpoints, or 5 with the few steps before it. Without those charges fewer
+    // than 1024 steps lie there, which hold at most one.
+    assert!((4..=5).contains(&scanning), "{scanning}");
     let index = crate::documentation::budget::cancel_after(polls + 1, || {
         parser.documentation(&context, &options)
     })

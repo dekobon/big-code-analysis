@@ -1207,54 +1207,79 @@ fn documentation_lua_source_and_legacy_views_are_independent() {
 
 #[cfg(feature = "java")]
 #[test]
+#[allow(clippy::too_many_lines)]
 fn documentation_java_field_owners_leave_legacy_rows_unchanged() {
     use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
     use big_code_analysis_ast::{AnyParser, documentation::*};
-    for (source, documents, owners, loc) in [
+    for (source, documents, owners, projections, loc, rows) in [
         (
             "class C { /**audit*/ int x; }\n",
             1,
             vec![1],
+            // expected: file, class, field declaration.
+            3,
             [1, 1, 0, 1, 0, 1],
+            vec![0],
         ),
         (
             "class C { /**audit*/ int a, b; }\n",
             1,
             vec![2],
+            // expected: file, class, field declaration.
+            3,
             [1, 1, 0, 1, 0, 1],
+            vec![0],
         ),
         (
             "interface I { /**audit*/ int K = 1; }\n",
             1,
             vec![1],
+            // expected: file, interface, constant declaration.
+            3,
             [1, 1, 0, 1, 0, 1],
+            vec![0],
         ),
         (
             "enum E { /**a*/ A, /**b*/ B; /**f*/ int x; }\n",
             3,
             vec![1, 1, 1],
+            // expected: file, enum, two constants, field declaration.
+            5,
             [1, 1, 0, 1, 0, 1],
+            vec![0],
         ),
         (
             "class C {\n  /** a */\n  int x,\n  /** b */\n  y;\n}\n",
             1,
             vec![2],
+            // expected: file, class, field declaration.
+            3,
             [6, 4, 0, 2, 0, 1],
+            vec![1],
         ),
         (
             "class C {\n/** d */\nint x\n/** e */\nint y;\n}\n",
             1,
             vec![],
+            // expected: file and the second field declaration; the class and the first
+            // field hold the syntax error and stay pending.
+            2,
             [6, 5, 0, 2, 0, 1],
+            vec![1],
         ),
         (
             "class C {\n  int x;\n  /**d*/\n  ;\n  void f() {}\n}\n",
             0,
             vec![],
+            // expected: file, class, field declaration, method.
+            4,
             [6, 5, 0, 1, 0, 0],
+            vec![],
         ),
     ] {
         let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+        let idle = observations();
+        let unbuilt = evidence_built::observed();
         let index = parser
             .documentation(
                 &DocumentationContext::default(),
@@ -1272,6 +1297,25 @@ fn documentation_java_field_owners_leave_legacy_rows_unchanged() {
         );
         let before = observations();
         let built = evidence_built::observed();
+        // The collection moves each counter on this thread, so a zero across `analyze`
+        // is a reading. The last row has no document; the other six move the render
+        // and evidence counters.
+        // expected: the walk enters every node once.
+        assert_eq!(
+            before.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{source}"
+        );
+        // expected: one render and one built member per document; each has one fragment.
+        assert_eq!(before.renders - idle.renders, documents, "{source}");
+        assert_eq!(built - unbuilt, documents, "{source}");
+        assert_eq!(
+            before.owner_projections - idle.owner_projections,
+            projections,
+            "{source}"
+        );
+        // The checkpoint total has no closed form.
+        assert_ne!(before.polls - idle.polls, 0, "{source}");
         let space = analyze(
             Source::new(LANG::Java, source.as_bytes()),
             MetricsOptions::default().with_only(&[Metric::Loc]),
@@ -1288,6 +1332,13 @@ fn documentation_java_field_owners_leave_legacy_rows_unchanged() {
                 stats.dloc()
             ],
             loc,
+            "{source}"
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| stats.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
             "{source}"
         );
         let after = observations();

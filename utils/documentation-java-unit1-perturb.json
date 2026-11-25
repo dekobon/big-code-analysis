@@ -156,6 +156,41 @@
       "old": "        if prelex {\n            draft.unresolved = Some(UnresolvedReason::GrammarBoundary);\n        }",
       "new": "        if prelex {\n            draft.unresolved = None;\n        }",
       "expect": ["documentation::collector::java_tests::java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved", "documentation::collector::java_tests::java_pending_field_comment_with_a_raw_unicode_escape_keeps_an_ownerless_association"]
+    },
+    {
+      "name": "java-declarator-scan-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(names) = java_declarator_names(&self.index.canonical, id, budget)? else {",
+      "new": "        let Some(names) = crate::documentation::budget::infallible(java_declarator_names(\n            &self.index.canonical,\n            id,\n            &crate::documentation::budget::NoBudget,\n        )) else {",
+      "expect": ["documentation::collector::java_tests::java_field_width_collection_observes_cancellation_in_the_slot_loop"]
+    },
+    {
+      "name": "java-enum-body-fields-are-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if self.index.profile == Profile::Javadoc\n            && node\n                .parent()\n                .is_none_or(|parent| parent.kind() != \"enum_body_declarations\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_enum_constants_and_enum_field_have_their_own_owners"]
+    },
+    {
+      "name": "java-anonymous-class-fields-are-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if self.index.profile == Profile::Javadoc\n            && node\n                .parent()\n                .and_then(|body| body.parent())\n                .is_none_or(|outer| outer.kind() != \"object_creation_expression\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_fields_of_records_anonymous_and_local_classes_own_field_slots"]
+    },
+    {
+      "name": "java-comment-child-keeps-the-declaration-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "new": "        if declarator.evidence.node().kind() == \"block_comment\" {\n            return Ok(None);\n        }\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "expect": ["documentation::collector::java_tests::java_second_comment_inside_a_field_declaration_is_not_documentation", "documentation::collector::java_tests::java_comment_inside_a_field_declaration_does_not_document_it", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "java-constant-with-an-error-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && node.kind() != \"constant_declaration\")\n            || node.is_missing()\n            || !self",
+      "expect": ["documentation::collector::java_tests::java_field_with_a_syntax_error_stays_pending"]
     }
   ]
 }
