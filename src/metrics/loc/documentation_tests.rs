@@ -1786,3 +1786,332 @@ fn documentation_js_source_and_legacy_views_are_independent() {
     // A row without a document renders nothing, so the control for `renders` is the total.
     assert_ne!(rendered, 0);
 }
+
+#[cfg(feature = "typescript")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_typescript_and_tsx_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        language: LANG,
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+        documents: usize,
+    }
+    let ts = documentation::source("primary.ts");
+    let tsx = documentation::source("primary.tsx");
+    let rows = [
+        Row {
+            language: LANG::Typescript,
+            source: b"/** above */\ndeclare /** inside */ function f(): void;\n",
+            loc: [2, 1, 0, 2, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** above */\ndeclare /** inside */ function f(): void;\n",
+            loc: [2, 1, 0, 2, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/**audit*/\nexport default function() {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**audit*/\nexport default function() {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/**audit*/\nexport default class {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**audit*/\nexport default class {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** d */\nnamespace N {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** d */\nnamespace N {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** d */\nexport namespace N {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** d */\nexport namespace N {}\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** d */\ndeclare namespace N {}\n",
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** d */\ndeclare namespace N {}\n",
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/**audit*/\nconst x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**audit*/\nconst x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** @packageDocumentation */\nexport const x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** @packageDocumentation */\nexport const x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** d */\ndeclare const x: number;\n",
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** d */\ndeclare const x: number;\n",
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"function f(/**audit*/ x: number) {}\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"function f(/**audit*/ x: number) {}\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/**one*/\nfunction f(x: string): string;\n/**two*/\n\
+function f(x: number): number;\n",
+            loc: [4, 2, 0, 2, 0, 2],
+            dloc_rows: &[0, 2],
+            documents: 2,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**one*/\nfunction f(x: string): string;\n/**two*/\n\
+function f(x: number): number;\n",
+            loc: [4, 2, 0, 2, 0, 2],
+            dloc_rows: &[0, 2],
+            documents: 2,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/**audit*/\nexport const {x} = value;\n",
+            loc: [2, 1, 1, 1, 0, 0],
+            dloc_rows: &[],
+            documents: 0,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**audit*/\nexport const {x} = value;\n",
+            loc: [2, 1, 1, 1, 0, 0],
+            dloc_rows: &[],
+            documents: 0,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"class C {\n/**a*/\n@dec\n/**b*/\nm() {}\n}\n",
+            loc: [6, 4, 0, 2, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"class C {\n/**a*/\n@dec\n/**b*/\nm() {}\n}\n",
+            loc: [6, 4, 0, 2, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** above */\nexport /** inside */ function f(): void {}\n",
+            loc: [2, 1, 1, 2, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** above */\nexport /** inside */ function f(): void {}\n",
+            loc: [2, 1, 1, 2, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** @packageDocumentation */\n/** d */\nfunction f(): void {}\n",
+            loc: [3, 1, 0, 2, 0, 2],
+            dloc_rows: &[0, 1],
+            documents: 2,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** @packageDocumentation */\n/** d */\nfunction f(): void {}\n",
+            loc: [3, 1, 0, 2, 0, 2],
+            dloc_rows: &[0, 1],
+            documents: 2,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/**audit*/\nfunction f() { return <div/>; }\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: &ts,
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: &tsx,
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Typescript,
+            source: b"/** d */\nexport const x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+        Row {
+            language: LANG::Tsx,
+            source: b"/** d */\nexport const x = 1;\n",
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            documents: 1,
+        },
+    ];
+    for row in rows {
+        let name = format!("{:?}: {}", row.language, row.source.escape_ascii());
+        let parser =
+            crate::langs::AnyParser::parse(row.language, row.source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error(), "{name}");
+        let idle = observations();
+        let unbuilt = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        // expected: the collector enters each named or unnamed parse-tree node once.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        // expected: one completed render per published document.
+        assert_eq!(
+            collected.renders - idle.renders,
+            index.documents().len(),
+            "{name}"
+        );
+        assert_eq!(index.documents().len(), row.documents, "{name}");
+        // expected: one marker member per selected block, none for unselected candidates.
+        assert_eq!(built - unbuilt, row.documents, "{name}");
+        let space = analyze(
+            Source::new(row.language, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = observations();
+        // expected: legacy LOC does not collect documentation a second time.
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(evidence_built::observed() - built, 0, "{name}");
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc(),
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+    }
+}

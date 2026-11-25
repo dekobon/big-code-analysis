@@ -1029,3 +1029,5 @@ mod remediation_tests;
 mod ruby_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ts_tests;

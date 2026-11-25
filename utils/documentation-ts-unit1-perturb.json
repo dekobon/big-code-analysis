@@ -1,0 +1,659 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "interface-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            AbstractClassDeclaration,\n            InterfaceDeclaration,",
+      "new": "            AbstractClassDeclaration,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "type-alias-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            TypeAliasDeclaration,\n            EnumDeclaration,",
+      "new": "            EnumDeclaration,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "enum-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            EnumDeclaration,\n            Module,",
+      "new": "            Module,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "abstract-class-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            AbstractClassDeclaration,\n            InterfaceDeclaration,",
+      "new": "            InterfaceDeclaration,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "bare-enum-member-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            PropertyIdentifier(under [EnumBody]),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "assigned-enum-member-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            EnumAssignment,\n            RequiredParameter,",
+      "new": "            RequiredParameter,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "string-enum-member-not-a-target-typescript",
+      "file": "big-code-analysis-ast/src/roles/typescript.rs",
+      "old": "            String(under [EnumBody]),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "string-enum-member-not-a-target-tsx",
+      "file": "big-code-analysis-ast/src/roles/tsx.rs",
+      "old": "            String2(under [EnumBody]),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "function-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            FunctionSignature,\n            MethodSignature,",
+      "new": "            MethodSignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "method-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            MethodSignature,\n            AbstractMethodSignature,",
+      "new": "            AbstractMethodSignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block"
+      ]
+    },
+    {
+      "name": "abstract-method-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            AbstractMethodSignature,\n            PublicFieldDefinition,",
+      "new": "            PublicFieldDefinition,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "public-field-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            PublicFieldDefinition,\n            PropertySignature,",
+      "new": "            PropertySignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member"
+      ]
+    },
+    {
+      "name": "property-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            PropertySignature,\n            IndexSignature,",
+      "new": "            IndexSignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "index-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            IndexSignature,\n            CallSignature,",
+      "new": "            CallSignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "call-signature-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            CallSignature,\n            ConstructSignature,",
+      "new": "            ConstructSignature,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block"
+      ]
+    },
+    {
+      "name": "export-wrapper-takes-first-named-child",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                && !matches!(record.field, Some(\"declaration\" | \"value\"))",
+      "new": "                && !record.evidence.node().is_named()",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member"
+      ]
+    },
+    {
+      "name": "export-wrapper-ignores-the-declaration-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "Some(\"declaration\" | \"value\")",
+      "new": "Some(\"value\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "export-statement-is-not-a-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "matches!(kind, \"export_statement\" | \"ambient_declaration\")",
+      "new": "matches!(kind, \"ambient_declaration\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "ambient-declaration-is-not-a-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "matches!(kind, \"export_statement\" | \"ambient_declaration\")",
+      "new": "matches!(kind, \"export_statement\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "declaration-under-export-is-a-target",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "matches!(parent.kind(), \"export_statement\" | \"ambient_declaration\")",
+      "new": "matches!(parent.kind(), \"ambient_declaration\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
+      ]
+    },
+    {
+      "name": "wrapper-child-is-no-owner-candidate-typescript",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                crate::roles::typescript::doc_target_with_budget(node, code, ancestors, budget)",
+      "new": "                NativeRules::<T>::target(node, code, ancestors, budget)",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "wrapper-child-is-no-owner-candidate-tsx",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                crate::roles::tsx::doc_target_with_budget(node, code, ancestors, budget)",
+      "new": "                NativeRules::<T>::target(node, code, ancestors, budget)",
+      "expect": [
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "const-declaration-needs-no-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            \"lexical_declaration\"\n                | \"variable_declaration\"",
+      "new": "            \"variable_declaration\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "namespace-statement-needs-no-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                | \"expression_statement\"\n                | \"required_parameter\"",
+      "new": "                | \"required_parameter\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "ambient-wrapper-does-not-skip-the-declare-token",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "|| matches!(node.kind(), \"then\" | \"ambient_declaration\"))",
+      "new": "|| node.kind() == \"then\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "ambient-wrapper-skips-comments",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                && !record.evidence.node().is_named()\n            {",
+      "new": "                && (!record.evidence.node().is_named() || record.evidence.node().is_extra())\n            {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "decorator-not-skipped",
+      "file": "big-code-analysis-ast/src/checker/js_doc_binding.rs",
+      "old": "skips: |node, _| node.kind_id() == $lang::Decorator,",
+      "new": "skips: |node, _| node.kind_id() == $lang::Decorator && node.is_extra(),",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member"
+      ]
+    },
+    {
+      "name": "nearest-block-is-the-first-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "    for (at, n) in before.iter().enumerate().rev() {\n        budget.step()?;\n        if !hidden(n, code) {",
+      "new": "    for (at, n) in before.iter().enumerate() {\n        budget.step()?;\n        if !hidden(n, code) {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document"
+      ]
+    },
+    {
+      "name": "superseded-block-is-unattached",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                && !self.kept.is_empty()",
+      "new": "                && self.kept.is_empty()",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected"
+      ]
+    },
+    {
+      "name": "plain-comment-not-read-past-typescript",
+      "file": "big-code-analysis-ast/src/checker/typescript.rs",
+      "old": "        |node, code| Self::is_comment(node) && !Self::is_doc_comment(node, code),",
+      "new": "        |_, _| false,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected"
+      ]
+    },
+    {
+      "name": "plain-comment-not-read-past-tsx",
+      "file": "big-code-analysis-ast/src/checker/tsx.rs",
+      "old": "        |node, code| Self::is_comment(node) && !Self::is_doc_comment(node, code),",
+      "new": "        |_, _| false,",
+      "expect": [
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected"
+      ]
+    },
+    {
+      "name": "module-tag-binds-forward",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "            crate::LANG::Typescript | crate::LANG::Tsx => Ok(Some(\n                !crate::lang_helpers::doc_text::tsdoc_module_with_budget(bytes, budget)?,\n            )),",
+      "new": "            crate::LANG::Typescript | crate::LANG::Tsx => Ok(Some(true)),",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document"
+      ]
+    },
+    {
+      "name": "module-block-is-not-the-file-document",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                if file {\n                    draft.target = Some(NodeId(0));",
+      "new": "                if !file {\n                    draft.target = Some(NodeId(0));",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document"
+      ]
+    },
+    {
+      "name": "packagedocumentation-tag-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            && (title == b\"module\" || title == b\"packageDocumentation\")",
+      "new": "            && title == b\"module\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document"
+      ]
+    },
+    {
+      "name": "module-tag-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            && (title == b\"module\" || title == b\"packageDocumentation\")",
+      "new": "            && title == b\"packageDocumentation\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document"
+      ]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source"
+      ]
+    },
+    {
+      "name": "star-strips-every-following-space",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    if line.content.start < line.content.end && bytes[line.content.start] == b' ' {",
+      "new": "                    while line.content.start < line.content.end && bytes[line.content.start] == b' ' {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source"
+      ]
+    },
+    {
+      "name": "empty-first-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while first < end && block.lines[first].content.is_empty() {",
+      "new": "            while first > end && block.lines[first].content.is_empty() {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source"
+      ]
+    },
+    {
+      "name": "crlf-not-decoded",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                if line.ending.len() == 2 {",
+      "new": "                if line.ending.len() == 3 {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "last-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            last.content.end -= 1;",
+      "new": "            last.content.end -= 0;",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "block-opener-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let prefix = if profile == Profile::GoDoc { 2 } else { 3 };",
+      "new": "        let prefix = if profile == Profile::GoDoc { 2 } else { 2 };",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "block-marker-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    matches!(s, [b'/', b'*', b'*', b, ..] if *b != b'/')",
+      "new": "    matches!(s, [b'/', b'*', b'*', b, ..] if *b == b'/')",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "forward-block-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            target,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "new": "            target: None,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "target-node-is-not-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));",
+      "new": "                self.index.canonical.nodes[id.0].projection = Projection::Pending;",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "binding-wrapper-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "new": "            binding: None,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::tsx_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
+        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
+        "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "lexical-scope-is-the-root",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        let scope = self.evidence_id(run.containing)?.unwrap_or(NodeId(0));\n        let code_before = self.evidence_id(run.code_before)?;",
+      "new": "        let scope = NodeId(0);\n        let code_before = self.evidence_id(run.code_before)?;",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_class_or_interface_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::tsx_enum_member_owns_its_leading_block",
+        "documentation::collector::ts_tests::typescript_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::tsx_each_overload_signature_and_the_implementation_own_their_block",
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
+        "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member"
+      ]
+    }
+  ]
+}
