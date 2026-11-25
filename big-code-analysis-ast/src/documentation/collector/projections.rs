@@ -40,6 +40,15 @@ impl Builder<'_> {
         {
             return self.c_slots(id, budget);
         }
+        if self.index.profile == Profile::Javadoc
+            && matches!(node.kind(), "field_declaration" | "constant_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.java_field_slots(id, budget);
+        }
         if !is_wrapper(self.index.profile, node.kind())
             || !matches!(
                 self.index.canonical.nodes[id.0].projection,
@@ -208,6 +217,41 @@ impl Builder<'_> {
         Ok(())
     }
 
+    fn java_field_slots(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let Some(names) = java_declarator_names(&self.index.canonical, id, budget)? else {
+            return Ok(());
+        };
+        let declaration = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        let mut fields = Vec::new();
+        for name in names {
+            budget.step()?;
+            let spelling = self.index.canonical.nodes[name.0]
+                .evidence
+                .node()
+                .byte_range();
+            let source = self.index.source.pieces_with_budget(spelling, budget)?;
+            let field = OwnerId(self.index.facts.owners.len());
+            self.index.facts.owners.push(Owner::Slot(Slot {
+                enclosing: declaration,
+                role: SlotRole::Field,
+                ordinal: fields.len(),
+                source,
+            }));
+            self.index.associations_by_owner.push(Vec::new());
+            self.index.assessments_by_owner.push(Vec::new());
+            self.index.qualifications_by_owner.push(Vec::new());
+            self.index.owner_nodes.push(id);
+            fields.push(field);
+        }
+        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields);
+        Ok(())
+    }
+
     fn index_function_definition(
         &mut self,
         id: NodeId,
@@ -325,4 +369,31 @@ impl Builder<'_> {
         self.pending_name(id);
         Ok(())
     }
+}
+
+// Field names are not requested for this profile (`fields_needed`), so a
+// declarator is told by its kind and its name by position.
+pub(super) fn java_declarator_names<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    budget: &B,
+) -> Result<Option<Vec<NodeId>>, B::Error> {
+    let mut names = Vec::new();
+    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {
+        budget.step()?;
+        let declarator = &canonical.nodes[child.0];
+        if declarator.evidence.node().kind() != "variable_declarator" {
+            continue;
+        }
+        match canonical.children[declarator.children.clone()].first() {
+            Some(&name) if canonical.nodes[name.0].evidence.node().kind() == "identifier" => {
+                names.push(name);
+            }
+            // An unnamed variable (`_`) has no name to own documentation. A
+            // declarator without a child is not reachable from an error-free parse.
+            _ => return Ok(None),
+        }
+    }
+    // The grammar requires one declarator; an empty list is not reachable either.
+    Ok((!names.is_empty()).then_some(names))
 }

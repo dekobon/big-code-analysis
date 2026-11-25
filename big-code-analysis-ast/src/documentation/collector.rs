@@ -1014,6 +1014,8 @@ mod form_tests;
 #[cfg(test)]
 mod go_tests;
 #[cfg(test)]
+mod java_tests;
+#[cfg(test)]
 mod js_tests;
 #[cfg(test)]
 mod lua_tests;
