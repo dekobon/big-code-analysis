@@ -990,12 +990,14 @@ fn lua_documentation_counters() -> [usize; 6] {
 }
 
 #[cfg(feature = "lua")]
-#[allow(clippy::too_many_lines, clippy::arithmetic_side_effects)]
+/// Checks one row and returns the number of documents its collection published.
+#[allow(clippy::arithmetic_side_effects)]
 fn check_lua_legacy_row(row: &LuaLegacyRow<'_>) -> usize {
     use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+    let name = row.name;
     let parser =
         crate::langs::AnyParser::parse(LANG::Lua, row.source.to_vec(), None, None).unwrap();
-    assert!(!parser.ts_tree().root_node().has_error(), "{}", row.name);
+    assert!(!parser.ts_tree().root_node().has_error(), "{name}");
     let idle = lua_documentation_counters();
     let index = parser
         .documentation(
@@ -1021,29 +1023,22 @@ fn check_lua_legacy_row(row: &LuaLegacyRow<'_>) -> usize {
             loc.dloc()
         ],
         row.loc,
-        "{}",
-        row.name
+        "{name}"
     );
     assert_eq!(
         (0..row.source.len())
             .filter(|at| loc.dloc.lines.contains(*at))
             .collect::<Vec<_>>(),
         row.dloc_rows,
-        "{}",
-        row.name
+        "{name}"
     );
 
     let [visits, renders, built, materialized, scanned, covered] =
         std::array::from_fn(|at| collected[at] - idle[at]);
     // expected: the collector's walk enters every node exactly once.
-    assert_eq!(
-        visits,
-        parser.root_node().preorder().count(),
-        "{}",
-        row.name
-    );
+    assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
     // expected: one render per document published by the collection.
-    assert_eq!(renders, index.documents().len(), "{}", row.name);
+    assert_eq!(renders, index.documents().len(), "{name}");
     // expected: default options build one member for every selected fragment and none
     // for comments outside documents.
     assert_eq!(
@@ -1052,8 +1047,7 @@ fn check_lua_legacy_row(row: &LuaLegacyRow<'_>) -> usize {
             .documents()
             .map(|document| document.get().fragment_count())
             .sum::<usize>(),
-        "{}",
-        row.name
+        "{name}"
     );
     // expected: each comment is a member of one run, materialized once by the source view.
     assert_eq!(
@@ -1063,53 +1057,138 @@ fn check_lua_legacy_row(row: &LuaLegacyRow<'_>) -> usize {
             .preorder()
             .filter(|node| node.kind() == "comment")
             .count(),
-        "{}",
-        row.name
+        "{name}"
     );
     // expected: the source view scans every run once, at its final comment.
-    assert_eq!(scanned, row.comment_runs, "{}", row.name);
+    assert_eq!(scanned, row.comment_runs, "{name}");
     // The coverage counter counts the collector's questions, with no tree-derived
     // closed form; the collection must move it on this thread.
-    assert_ne!(covered, 0, "{}", row.name);
+    assert_ne!(covered, 0, "{name}");
 
     let [visits, renders, built, materialized, scanned, covered] =
         std::array::from_fn(|at| analyzed[at] - collected[at]);
     // expected: analyze never builds or renders a documentation index.
-    assert_eq!(visits, 0, "{}", row.name);
-    assert_eq!(renders, 0, "{}", row.name);
+    assert_eq!(visits, 0, "{name}");
+    assert_eq!(renders, 0, "{name}");
     // expected: the legacy view builds no source evidence or buffered members.
-    assert_eq!(built, 0, "{}", row.name);
-    assert_eq!(materialized, 0, "{}", row.name);
+    assert_eq!(built, 0, "{name}");
+    assert_eq!(materialized, 0, "{name}");
     // expected: the legacy view also scans every run once, at its final comment.
-    assert_eq!(scanned, row.comment_runs, "{}", row.name);
+    assert_eq!(scanned, row.comment_runs, "{name}");
     // expected: the legacy view has no source context in which to ask a coverage question.
-    assert_eq!(covered, 0, "{}", row.name);
+    assert_eq!(covered, 0, "{name}");
     index.documents().len()
 }
 
 #[cfg(feature = "lua")]
 #[test]
+#[allow(clippy::too_many_lines)]
 fn documentation_lua_source_and_legacy_views_are_independent() {
     let first_file = documentation::source("lua-first-file.lua");
     let primary = documentation::source("primary.lua");
     let rows = [
-        LuaLegacyRow { name: "l01_tagged_block_above_function", source: b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n", loc: [4, 2, 1, 2, 0, 2], dloc_rows: &[1, 2], comment_runs: 1 },
-        LuaLegacyRow { name: "l02_luals_tag_above_function", source: b"module(\"m\")\n---@param x integer\nfunction f(x) end\n", loc: [3, 2, 1, 1, 0, 1], dloc_rows: &[1], comment_runs: 1 },
+        LuaLegacyRow {
+            name: "l01_tagged_block_above_function",
+            source: b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n",
+            loc: [4, 2, 1, 2, 0, 2],
+            dloc_rows: &[1, 2],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l02_luals_tag_above_function",
+            source: b"module(\"m\")\n---@param x integer\nfunction f(x) end\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
         // The trailing `-- correction` on a code row starts a second run.
-        LuaLegacyRow { name: "l03_table_field_row", source: b"module(\"m\")\n--- settings\n-- @table options\noptions = {\nalpha = 1, -- correction\n}\n", loc: [6, 4, 1, 3, 0, 2], dloc_rows: &[1, 2], comment_runs: 2 },
+        LuaLegacyRow {
+            name: "l03_table_field_row",
+            source: b"module(\"m\")\n--- settings\n-- @table options\noptions = {\n\
+                      alpha = 1, -- correction\n}\n",
+            loc: [6, 4, 1, 3, 0, 2],
+            dloc_rows: &[1, 2],
+            comment_runs: 2,
+        },
         // The trailing `-- input` on a parameter row starts a second run.
-        LuaLegacyRow { name: "l04_parameter_row", source: b"module(\"m\")\n---audit\nfunction f(\nx -- input\n) end\n", loc: [5, 4, 1, 2, 0, 1], dloc_rows: &[1], comment_runs: 2 },
-        LuaLegacyRow { name: "l05_explicit_virtual_row", source: b"module(\"m\")\n---audit\n-- @function ghost\n", loc: [3, 1, 0, 2, 0, 2], dloc_rows: &[1, 2], comment_runs: 1 },
-        LuaLegacyRow { name: "l06_function_assigned_to_field", source: b"module(\"m\")\n---audit\nM.f = function() end\n", loc: [3, 2, 1, 1, 0, 1], dloc_rows: &[1], comment_runs: 1 },
-        LuaLegacyRow { name: "l07_local_table", source: b"module(\"m\")\n---audit\nlocal t = {}\n", loc: [3, 2, 1, 1, 0, 1], dloc_rows: &[1], comment_runs: 1 },
-        LuaLegacyRow { name: "l08_return_table", source: b"module(\"m\")\n---audit\nreturn {}\n", loc: [3, 2, 1, 1, 0, 1], dloc_rows: &[1], comment_runs: 1 },
-        LuaLegacyRow { name: "l10_long_block_several_rows", source: b"module(\"m\")\n--[[--\naudit\nsecond\n]]\nfunction f() end\n", loc: [6, 2, 1, 4, 0, 4], dloc_rows: &[1, 2, 3, 4], comment_runs: 1 },
-        LuaLegacyRow { name: "l11_first_block_with_module_tag", source: b"--- Module.\n-- @module m\nlocal M = {}\n", loc: [3, 1, 1, 2, 0, 2], dloc_rows: &[0, 1], comment_runs: 1 },
-        LuaLegacyRow { name: "l12_fixture_first_file", source: &first_file, loc: [2, 1, 1, 1, 0, 1], dloc_rows: &[0], comment_runs: 1 },
-        LuaLegacyRow { name: "l13_fixture_primary", source: &primary, loc: [3, 2, 1, 1, 0, 1], dloc_rows: &[1], comment_runs: 1 },
+        LuaLegacyRow {
+            name: "l04_parameter_row",
+            source: b"module(\"m\")\n---audit\nfunction f(\nx -- input\n) end\n",
+            loc: [5, 4, 1, 2, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 2,
+        },
+        LuaLegacyRow {
+            name: "l05_explicit_virtual_row",
+            source: b"module(\"m\")\n---audit\n-- @function ghost\n",
+            loc: [3, 1, 0, 2, 0, 2],
+            dloc_rows: &[1, 2],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l06_function_assigned_to_field",
+            source: b"module(\"m\")\n---audit\nM.f = function() end\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l07_local_table",
+            source: b"module(\"m\")\n---audit\nlocal t = {}\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l08_return_table",
+            source: b"module(\"m\")\n---audit\nreturn {}\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l10_long_block_several_rows",
+            source: b"module(\"m\")\n--[[--\naudit\nsecond\n]]\nfunction f() end\n",
+            loc: [6, 2, 1, 4, 0, 4],
+            dloc_rows: &[1, 2, 3, 4],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l11_first_block_with_module_tag",
+            source: b"--- Module.\n-- @module m\nlocal M = {}\n",
+            loc: [3, 1, 1, 2, 0, 2],
+            dloc_rows: &[0, 1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l12_fixture_first_file",
+            source: &first_file,
+            loc: [2, 1, 1, 1, 0, 1],
+            dloc_rows: &[0],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "l13_fixture_primary",
+            source: &primary,
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
         // The code between `-- plain` and the marked block separates their runs.
-        LuaLegacyRow { name: "l14_plain_comment_module_block", source: b"-- plain\nmodule(\"m\")\n---audit\nfunction f() end\n", loc: [4, 2, 1, 2, 0, 1], dloc_rows: &[2], comment_runs: 2 },
-        LuaLegacyRow { name: "l15_shebang_module_block", source: b"#!/usr/bin/env lua\nmodule(\"m\")\n---audit\nfunction f() end\n", loc: [4, 3, 1, 1, 0, 1], dloc_rows: &[2], comment_runs: 1 },
+        LuaLegacyRow {
+            name: "l14_plain_comment_module_block",
+            source: b"-- plain\nmodule(\"m\")\n---audit\nfunction f() end\n",
+            loc: [4, 2, 1, 2, 0, 1],
+            dloc_rows: &[2],
+            comment_runs: 2,
+        },
+        LuaLegacyRow {
+            name: "l15_shebang_module_block",
+            source: b"#!/usr/bin/env lua\nmodule(\"m\")\n---audit\nfunction f() end\n",
+            loc: [4, 3, 1, 1, 0, 1],
+            dloc_rows: &[2],
+            comment_runs: 1,
+        },
     ];
     for row in rows {
         let name = row.name;

@@ -153,8 +153,19 @@ fn site(node: tree_sitter::Node<'_>) -> (&'static str, Range<usize>) {
 }
 
 #[cfg(feature = "lua")]
+fn fragment_span(fragment: &Fragment<'_>) -> Range<usize> {
+    let range = span(fragment.source());
+    assert_eq!(fragment.form(), FragmentForm::Comment);
+    assert_eq!(
+        fragment.node().map(|node| site(node.node())),
+        Some(("comment", range.clone()))
+    );
+    range
+}
+
+#[cfg(feature = "lua")]
 fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> View {
-    // bca: suppress(halstead) -- one cohesive reading of the four published lists and their shared invariants.
+    // bca: suppress(halstead) -- one reading of the four published lists and the rules they share.
     let facts = index.facts();
     let ordered: Vec<_> = index.documents().collect();
     let documents = ordered
@@ -165,16 +176,7 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
                 role: document.get().role(),
                 composition: document.get().composition(),
                 fragments: (0..document.get().fragment_count())
-                    .map(|at| {
-                        let fragment = facts.document_fragment(document, at).unwrap().get();
-                        let range = span(fragment.source());
-                        assert_eq!(fragment.form(), FragmentForm::Comment);
-                        assert_eq!(
-                            fragment.node().map(|node| site(node.node())),
-                            Some(("comment", range.clone()))
-                        );
-                        range
-                    })
+                    .map(|at| fragment_span(facts.document_fragment(document, at).unwrap().get()))
                     .collect(),
                 text: complete.text().to_owned(),
                 map: complete
@@ -222,7 +224,7 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
         .evidence()
         .map(|candidate| {
             let fragment = index.evidence_fragment(candidate).unwrap();
-            (candidate.get().disposition, span(fragment.get().source()))
+            (candidate.get().disposition, fragment_span(fragment.get()))
         })
         .collect();
     let assessments = unordered(index.assessments().map(|assessment| {
@@ -441,8 +443,8 @@ fn lua_long_bracket_block_is_one_fragment_and_ends_its_run() {
 
 #[cfg(feature = "lua")]
 #[test]
-#[allow(clippy::single_range_in_vec_init)]
 fn lua_plain_comments_give_no_document() {
+    #[allow(clippy::single_range_in_vec_init)]
     let sources: [(&[u8], Vec<Range<usize>>); 5] = [
         (b"module(\"m\")\n-- audit\nfunction f() end\n", vec![12..20]),
         (
@@ -473,8 +475,8 @@ fn lua_plain_comments_give_no_document() {
 
 #[cfg(feature = "lua")]
 #[test]
-#[allow(clippy::type_complexity)]
 fn lua_first_block_of_a_file_documents_the_file() {
+    #[allow(clippy::type_complexity)]
     let sources: [(&[u8], Range<usize>, Range<usize>, Range<usize>); 7] = [
         (b"---audit\nfunction f() end\n", 0..8, 3..8, 0..26),
         (b"---audit\n\nfunction f() end\n", 0..8, 3..8, 0..27),
@@ -755,6 +757,7 @@ fn lua_grammar_shapes_the_unit_relies_on() {
             (Some("content"), "comment_content", 14..20)
         ]
     );
+    assert!(!line.child(0).unwrap().is_named());
     assert_eq!(&lf[line.end_byte()..function.start_byte()], b"\n");
     assert_eq!(&lf[function.end_byte()..root.end_byte()], b"\n");
 
@@ -782,16 +785,13 @@ fn lua_grammar_shapes_the_unit_relies_on() {
             function.child_by_field_name("name").map(site),
             Some((kind, name))
         );
-        assert!(function.child_by_field_name("block").is_none());
+        assert!(parts(function).iter().all(|(_, kind, _)| *kind != "block"));
     }
-    assert_eq!(
-        site(
-            node_at(&parser, "function_declaration", 17..39)
-                .child(0)
-                .unwrap()
-        ),
-        ("local", 17..22)
-    );
+    let local = node_at(&parser, "function_declaration", 17..39)
+        .child(0)
+        .unwrap();
+    assert_eq!(site(local), ("local", 17..22));
+    assert!(!local.is_named());
 
     let parser = clean(b"f = function() end\nM.f = function() end\nt = {}\nM.t = {}\n");
     assert_eq!(
@@ -873,6 +873,8 @@ fn lua_grammar_shapes_the_unit_relies_on() {
             ]
         );
     }
+    let rows = node_at(&parser, "comment", 33..55);
+    assert_eq!(rows.end_position().row, rows.start_position().row + 3);
 
     let parser = clean(b"#!/usr/bin/env lua\n---audit\nfunction f() end\n");
     assert_eq!(
@@ -959,7 +961,10 @@ fn lua_grammar_shapes_the_unit_relies_on() {
         Some(("identifier", 33..34))
     );
 
-    let parser = clean(b"module(\"m\")\n--- settings\n-- @table options\noptions = {\nalpha = 1, -- correction\n}\n");
+    let parser = clean(
+        b"module(\"m\")\n--- settings\n-- @table options\noptions = {\n\
+          alpha = 1, -- correction\n}\n",
+    );
     let table = node_at(&parser, "table_constructor", 53..81);
     let comment = node_at(&parser, "comment", 66..79);
     assert_eq!(comment.parent(), Some(table));
