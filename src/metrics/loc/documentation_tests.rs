@@ -1394,8 +1394,9 @@ fn documentation_ruby_source_and_legacy_views_are_independent() {
         source: &'a [u8],
         loc: [u64; 6],
         dloc_rows: &'a [usize],
-        // A run is a maximal sequence of comments starting on the previous comment's
-        // final row or the next row. Only l10 has two: code separates its comments.
+        // A run is a maximal sequence of comments on consecutive rows that hold nothing but
+        // comments. Only l10 has two: `# :nodoc:` follows code on its row, so it does not join
+        // the run of `# audit` and counts on its own.
         comment_runs: usize,
     }
     let counters = || {
