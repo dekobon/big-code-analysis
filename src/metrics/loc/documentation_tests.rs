@@ -592,3 +592,169 @@ fn documentation_csharp_source_and_legacy_views_are_independent() {
         );
     }
 }
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_c_family_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    /// One source: the variants it runs in, its bytes, its LOC tuple and its DLOC rows.
+    type Case<'a> = (&'a [LANG], &'a [u8], [u64; 6], &'a [usize]);
+    const ALL: &[LANG] = &[LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc];
+    const CXX: &[LANG] = &[LANG::Cpp, LANG::Mozcpp];
+    let primary_c = documentation::source("primary.c");
+    let primary_cpp = documentation::source("primary.cpp");
+    let primary_m = documentation::source("primary.m");
+    let sources: [Case<'_>; 15] = [
+        (ALL, b"/**audit*/\nint a, b;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (
+            ALL,
+            b"#ifndef G_H\n#define G_H\n/** d */\nint f(void);\n#endif\n",
+            [5, 4, 1, 1, 0, 1],
+            &[2],
+        ),
+        (
+            ALL,
+            b"/** d */\n#if A\nvoid f(void);\n#else\nvoid g(void);\n#endif\n",
+            [6, 5, 2, 1, 0, 1],
+            &[0],
+        ),
+        (
+            ALL,
+            b"enum E {\n  A, /**< ta */\n  B  /**< tb */\n};\n",
+            [4, 4, 0, 2, 0, 2],
+            &[1, 2],
+        ),
+        (
+            ALL,
+            b"/** d */\nextern \"C\" {\nint f(void);\n}\n",
+            [4, 3, 1, 1, 0, 1],
+            &[0],
+        ),
+        (
+            CXX,
+            b"/** d */\ntemplate <class T> class X {};\n",
+            [2, 1, 0, 1, 0, 1],
+            &[0],
+        ),
+        (
+            ALL,
+            b"int f(void) {\n  /** note */\n  return 0;\n}\n",
+            [4, 3, 1, 1, 0, 1],
+            &[1],
+        ),
+        (ALL, b"int a, /**< ta */ b;\n", [1, 1, 1, 1, 0, 1], &[0]),
+        (ALL, b"/** @file */\nint x;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (
+            ALL,
+            b"struct S { int x; ///<audit\n};\n",
+            [2, 2, 0, 1, 0, 1],
+            &[0],
+        ),
+        (
+            ALL,
+            b"/**@fn void f(void)\n * audit*/\nvoid f(void);\n",
+            [3, 1, 1, 2, 0, 2],
+            &[0, 1],
+        ),
+        (
+            &[LANG::Objc],
+            b"@interface C\n/**audit*/\n- (void)f;\n@end\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (&[LANG::C], &primary_c, [2, 1, 0, 1, 0, 1], &[0]),
+        (CXX, &primary_cpp, [2, 1, 0, 1, 0, 1], &[0]),
+        (&[LANG::Objc], &primary_m, [2, 1, 0, 1, 0, 1], &[0]),
+    ];
+    let mut ran = 0;
+    for (langs, source, tuple, rows) in sources {
+        for &lang in langs {
+            if !lang.is_enabled() {
+                continue;
+            }
+            ran += 1;
+            let name = format!("{lang:?}: {}", source.escape_ascii());
+            let parser = crate::langs::AnyParser::parse(lang, source.to_vec(), None, None).unwrap();
+            let root = parser.ts_tree().root_node();
+            assert!(!root.has_error(), "{name}");
+            let mut nodes = 0;
+            let mut unvisited = vec![root];
+            while let Some(node) = unvisited.pop() {
+                nodes += 1;
+                unvisited.extend(node.children(&mut node.walk()));
+            }
+            let idle = observations();
+            let unbuilt = evidence_built::observed();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
+                .unwrap();
+            let before = observations();
+            let built = evidence_built::observed();
+            let (visited, rendered, members) = (
+                before.visits - idle.visits,
+                before.renders - idle.renders,
+                built - unbuilt,
+            );
+            // expected: the collector's walk enters every node of the tree once, named or
+            // not, the root included.
+            assert_eq!(visited, nodes, "{name}");
+            // expected: one text render per document.
+            assert_eq!(rendered, index.documents().len(), "{name}");
+            // expected: one built member per marker comment that a run selects. Under the
+            // default options nothing else is built, so these are the fragments of the
+            // documents.
+            assert_eq!(
+                members,
+                index
+                    .documents()
+                    .map(|document| document.get().fragment_count())
+                    .sum::<usize>(),
+                "{name}"
+            );
+            // The collection moves each counter on this thread, so a zero across `analyze`
+            // is a reading.
+            assert_ne!(visited, 0, "{name}");
+            assert_ne!(rendered, 0, "{name}");
+            assert_ne!(members, 0, "{name}");
+            let space = analyze(
+                Source::new(lang, source),
+                MetricsOptions::default().with_only(&[Metric::Loc]),
+            )
+            .unwrap();
+            let after = observations();
+            // expected: 0 for each. `analyze` takes its documentation rows from the legacy
+            // scan and does not run the collector.
+            assert_eq!(after.visits - before.visits, 0, "{name}");
+            assert_eq!(after.renders - before.renders, 0, "{name}");
+            assert_eq!(evidence_built::observed() - built, 0, "{name}");
+            let loc = &space.metrics.loc;
+            assert_eq!(
+                [
+                    loc.sloc(),
+                    loc.ploc(),
+                    loc.lloc(),
+                    loc.cloc(),
+                    loc.blank(),
+                    loc.dloc()
+                ],
+                tuple,
+                "{name}"
+            );
+            assert_eq!(
+                (0..source.len())
+                    .filter(|row| loc.dloc.lines.contains(*row))
+                    .collect::<Vec<_>>(),
+                rows,
+                "{name}"
+            );
+        }
+    }
+    assert!(ran > 0);
+}
