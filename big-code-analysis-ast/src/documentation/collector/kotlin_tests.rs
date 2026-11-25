@@ -1358,6 +1358,9 @@ fn kotlin_grammar_shapes_the_unit_relies_on() {
             .all(|(_, kind, _)| *kind != "block_comment")
     );
 
+    // The pinned grammar flags an error for a class body whose member shares the row of the
+    // closing brace, here and in the source after this loop. No source-view test collects such
+    // a source; the flag is pinned so that a grammar bump that removes it fails this test.
     for (source, error) in [
         (
             b"class C { /**audit*/ constructor(x: Int) {} }\n".as_slice(),
