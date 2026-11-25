@@ -1,0 +1,260 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "lua-positional-docs-off",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "    const SOURCE_POSITIONAL_DOCS: bool = true;",
+      "new": "    const SOURCE_POSITIONAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_plain_comments_give_no_document",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-function-not-a-source-item",
+      "file": "big-code-analysis-ast/src/roles/lua.rs",
+      "old": "        _ => Ok(true),",
+      "new": "        _ => Ok(false),",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-assignment-not-a-source-item",
+      "file": "big-code-analysis-ast/src/roles/lua.rs",
+      "old": "        Lua::AssignmentStatement | Lua::AssignmentStatement2 => {\n            assigns_one_name_with_budget(node, budget)\n        }",
+      "new": "        Lua::AssignmentStatement | Lua::AssignmentStatement2 => {\n            assigns_one_name_with_budget(node, budget).map(|_| false)\n        }",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet"
+      ]
+    },
+    {
+      "name": "lua-assignment-owner-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"assignment_statement\" | \"variable_declaration\" | \"return_statement\" | \"field\"",
+      "new": "            \"variable_declaration\" | \"return_statement\" | \"field\"",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet"
+      ]
+    },
+    {
+      "name": "ldoc-two-dashes-open-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(s.starts_with(b\"---\") && !ldoc_end_marker(s, budget)?)",
+      "new": "    Ok(s.starts_with(b\"--\") && !ldoc_end_marker(s, budget)?)",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_plain_comments_give_no_document",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file"
+      ]
+    },
+    {
+      "name": "ldoc-plain-long-comment-opens-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        return Ok(body.first() == Some(&b'-'));",
+      "new": "        return Ok(body.first() != Some(&b'+'));",
+      "expect": [
+        "documentation::collector::lua_tests::lua_plain_comments_give_no_document",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file"
+      ]
+    },
+    {
+      "name": "ldoc-long-doc-comment-opens-no-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        return Ok(body.first() == Some(&b'-'));",
+      "new": "        return Ok(body.first() == Some(&b'+'));",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-first-file-rule-off",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "        Ok(true) => return Ok(Ok(Some(OpenerReason::FirstFile))),",
+      "new": "        Ok(true) => {}",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-file-opening-with-a-call-has-a-first-block",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "        Lua::Comment | Lua::HashBangLine\n",
+      "new": "        Lua::Comment | Lua::HashBangLine | Lua::FunctionCall\n",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-shebang-is-code",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "        Lua::Comment | Lua::HashBangLine\n",
+      "new": "        Lua::Comment\n",
+      "expect": [
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file"
+      ]
+    },
+    {
+      "name": "lua-file-document-keeps-the-item-below",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                draft.target = Some(NodeId(0));\n                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
+      "new": "                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-file-document-has-primary-role",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
+      "new": "                draft.binding = None;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "blank-row-continues-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (next.start_row() == comment.end_row().saturating_add(1)",
+      "new": "            || (next.start_row() >= comment.end_row().saturating_add(1)",
+      "expect": [
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks"
+      ]
+    },
+    {
+      "name": "lua-long-comment-does-not-end-run",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "                budget,\n            )\n        } else {\n            PublicRules::<T>::ends(node, code, budget)",
+      "new": "                budget,\n            )\n            .map(|_| false)\n        } else {\n            PublicRules::<T>::ends(node, code, budget)",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file"
+      ]
+    },
+    {
+      "name": "ldoc-line-marker-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let mut prefix = 2;\n        while raw.get(prefix) == Some(&b'-') {",
+      "new": "        let mut prefix = 2;\n        while raw.get(prefix) == Some(&b'+') {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "ldoc-long-level-ignored",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            let close = equals - 1;",
+      "new": "            let close = 2;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space"
+      ]
+    },
+    {
+      "name": "ldoc-long-dashes-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            let mut prefix = equals + 1;\n            while raw.get(prefix) == Some(&b'-') {",
+      "new": "            let mut prefix = equals + 1;\n            while raw.get(prefix) == Some(&b'+') {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "crlf-in-block-copied-raw",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                if line.ending.len() == 2 {",
+      "new": "                if line.ending.len() == 3 {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "lua-every-block-is-tagged",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "    if text.tag {\n        return Ok(Ok(Some(OpenerReason::Tagged)));",
+      "new": "    if text.text {\n        return Ok(Ok(Some(OpenerReason::Tagged)));",
+      "expect": [
+        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    },
+    {
+      "name": "next-row-comment-leaves-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (next.start_row() == comment.end_row().saturating_add(1)",
+      "new": "            || (next.start_row() == comment.end_row()",
+      "expect": [
+        "documentation::collector::lua_tests::lua_plain_comments_give_no_document",
+        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
+        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
+        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
+        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+      ]
+    }
+  ]
+}
