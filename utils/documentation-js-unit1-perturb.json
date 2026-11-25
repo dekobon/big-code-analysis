@@ -1,0 +1,561 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "js-function-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            FunctionDeclaration,\n            GeneratorFunctionDeclaration,",
+      "new": "            GeneratorFunctionDeclaration,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "js-generator-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            GeneratorFunctionDeclaration,\n            ClassDeclaration,",
+      "new": "            ClassDeclaration,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding"
+      ]
+    },
+    {
+      "name": "js-class-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            ClassDeclaration,\n            MethodDefinition,",
+      "new": "            MethodDefinition,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding"
+      ]
+    },
+    {
+      "name": "js-method-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            MethodDefinition,\n            Pair,",
+      "new": "            Pair,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding"
+      ]
+    },
+    {
+      "name": "js-pair-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            Pair,\n            ShorthandPropertyIdentifier,",
+      "new": "            ShorthandPropertyIdentifier,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block"
+      ]
+    },
+    {
+      "name": "js-shorthand-property-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "            ShorthandPropertyIdentifier,\n            VariableDeclaration(gated_by first_declarator_binds_a_name no_chain),",
+      "new": "            VariableDeclaration(gated_by first_declarator_binds_a_name no_chain),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block"
+      ]
+    },
+    {
+      "name": "javascript-field-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/javascript.rs",
+      "old": "            FieldDefinition,\n            ExportStatement(gated_by export_declares no_chain),",
+      "new": "            ExportStatement(gated_by export_declares no_chain),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block"
+      ]
+    },
+    {
+      "name": "mozjs-field-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/mozjs.rs",
+      "old": "            FieldDefinition,\n            ExportStatement(gated_by export_declares no_chain),",
+      "new": "            ExportStatement(gated_by export_declares no_chain),",
+      "expect": [
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block"
+      ]
+    },
+    {
+      "name": "variable-declaration-is-no-source-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "                    first_declarator_with_budget(node, budget)\n                }\n                $lang::ExportStatement",
+      "new": "                    first_declarator_with_budget(node, budget).map(|_| false)\n                }\n                $lang::ExportStatement",
+      "expect": [
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "export-statement-is-no-source-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "                $lang::ExportStatement => export_with_budget(node, budget),",
+      "new": "                $lang::ExportStatement => export_with_budget(node, budget).map(|_| false),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "call-statement-is-a-source-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "                $lang::ExpressionStatement => assignment_with_budget(node, budget),",
+      "new": "                $lang::ExpressionStatement => assignment_with_budget(node, budget).map(|_| true),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement"
+      ]
+    },
+    {
+      "name": "variable-declaration-needs-no-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            \"lexical_declaration\"\n                | \"variable_declaration\"\n                | \"expression_statement\"",
+      "new": "            \"expression_statement\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "export-statement-is-no-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            matches!(kind, \"export_statement\" | \"ambient_declaration\")",
+      "new": "            matches!(kind, \"ambient_declaration\")",
+      "expect": [
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "export-wrapper-takes-its-first-child",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                && !matches!(record.field, Some(\"declaration\" | \"value\"))\n            {",
+      "new": "                && !matches!(record.field, Some(\"declaration\" | \"value\"))\n                && false\n            {",
+      "expect": [
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "javascript-line-comment-not-read-past",
+      "file": "big-code-analysis-ast/src/checker/javascript.rs",
+      "old": "&& !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b\"/*\"),",
+      "new": "&& !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b\"/\"),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides"
+      ]
+    },
+    {
+      "name": "mozjs-line-comment-not-read-past",
+      "file": "big-code-analysis-ast/src/checker/mozjs.rs",
+      "old": "&& !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b\"/*\"),",
+      "new": "&& !crate::lang_helpers::doc_comment::node_bytes(node, code).starts_with(b\"/\"),",
+      "expect": [
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides"
+      ]
+    },
+    {
+      "name": "older-block-joins-the-nearest",
+      "file": "big-code-analysis-ast/src/checker/js_doc_binding.rs",
+      "old": "joins: $crate::lang_helpers::doc_comment::never_joins,",
+      "new": "joins: |_, _, _| true,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides"
+      ]
+    },
+    {
+      "name": "superseded-needs-no-selected-block",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                && !self.kept.is_empty()",
+      "new": "                && self.kept.is_empty()",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides"
+      ]
+    },
+    {
+      "name": "unbound-candidates-kept-without-the-option",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            if selection != MarkerSelection::Selected && !request.retain_unbound {",
+      "new": "            if selection != MarkerSelection::Selected && request.retain_unbound {",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement"
+      ]
+    },
+    {
+      "name": "file-tag-binds-forward",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "                !crate::lang_helpers::doc_text::jsdoc_virtual_with_budget(bytes, budget)?,",
+      "new": "                !crate::lang_helpers::doc_text::jsdoc_virtual_with_budget(bytes, budget)? || true,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "file-tag-list-lacks-file",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"overview\", b\"module\"]",
+      "new": "&& [b\"fileoverview\".as_slice(), b\"overview\", b\"module\"]",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "file-tag-list-lacks-fileoverview",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"overview\", b\"module\"]",
+      "new": "&& [b\"file\".as_slice(), b\"overview\", b\"module\"]",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "file-tag-list-lacks-overview",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"overview\", b\"module\"]",
+      "new": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"module\"]",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "file-tag-list-lacks-module",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"overview\", b\"module\"]",
+      "new": "&& [b\"file\".as_slice(), b\"fileoverview\", b\"overview\"]",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "block-in-a-body-does-not-bind-forward",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "                !crate::lang_helpers::doc_text::jsdoc_virtual_with_budget(bytes, budget)?,",
+      "new": "                !crate::lang_helpers::doc_text::jsdoc_virtual_with_budget(bytes, budget)?\n                    && ancestors.parent(node).is_none_or(|parent| parent.kind() != \"statement_block\"),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement"
+      ]
+    },
+    {
+      "name": "javascript-reads-three-star-banners",
+      "file": "big-code-analysis-ast/src/roles/javascript.rs",
+      "old": "js_family_doc_gates!(Javascript, javadoc_block);",
+      "new": "js_family_doc_gates!(Javascript, tsdoc_block);",
+      "expect": [
+        "documentation::collector::js_tests::javascript_comment_that_is_no_jsdoc_block_gives_no_document"
+      ]
+    },
+    {
+      "name": "mozjs-reads-three-star-banners",
+      "file": "big-code-analysis-ast/src/roles/mozjs.rs",
+      "old": "js_family_doc_gates!(Mozjs, javadoc_block);",
+      "new": "js_family_doc_gates!(Mozjs, tsdoc_block);",
+      "expect": [
+        "documentation::collector::js_tests::mozjs_comment_that_is_no_jsdoc_block_gives_no_document"
+      ]
+    },
+    {
+      "name": "plain-block-is-a-marker",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    matches!(s, [b'/', b'*', b'*', b, ..] if *b != b'*' && *b != b'/')",
+      "new": "    matches!(s, [b'/', b'*', _, b, ..] if *b != b'*' && *b != b'/')",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_comment_that_is_no_jsdoc_block_gives_no_document",
+        "documentation::collector::js_tests::mozjs_comment_that_is_no_jsdoc_block_gives_no_document"
+      ]
+    },
+    {
+      "name": "any-comment-is-a-marker",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    matches!(s, [b'/', b'*', b'*', b, ..] if *b != b'*' && *b != b'/')",
+      "new": "    matches!(s, [b'/', ..])",
+      "expect": [
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_comment_that_is_no_jsdoc_block_gives_no_document",
+        "documentation::collector::js_tests::mozjs_comment_that_is_no_jsdoc_block_gives_no_document"
+      ]
+    },
+    {
+      "name": "target-node-is-not-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));",
+      "new": "                self.index.canonical.nodes[id.0].projection = Projection::Pending;",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_comment_that_is_no_jsdoc_block_gives_no_document",
+        "documentation::collector::js_tests::mozjs_comment_that_is_no_jsdoc_block_gives_no_document",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "forward-block-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            target,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "new": "            target: None,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "forward-binding-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "new": "            binding: None,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "scope-is-the-root",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            containing: ancestors.parent(comment).map(canonical).transpose()?,",
+      "new": "            containing: None,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement"
+      ]
+    },
+    {
+      "name": "file-document-keeps-the-primary-role",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                    draft.target = Some(NodeId(0));\n                    draft.role = DocumentRole::FilePackage;\n                } else {\n                    draft.pending = true;\n                }\n            }\n            _ => draft.pending = true,",
+      "new": "                    draft.target = Some(NodeId(0));\n                } else {\n                    draft.pending = true;\n                }\n            }\n            _ => draft.pending = true,",
+      "expect": [
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file"
+      ]
+    },
+    {
+      "name": "block-opener-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let prefix = if profile == Profile::GoDoc { 2 } else { 3 };",
+      "new": "        let prefix = if profile == Profile::GoDoc { 2 } else { 2 };",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
+        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "last-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            last.content.end -= 1;\n",
+      "new": "            last.content.end -= 0;\n",
+      "expect": [
+        "documentation::collector::js_tests::javascript_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::mozjs_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::js_tests::javascript_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::mozjs_class_and_object_members_own_their_leading_block",
+        "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
+        "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides",
+        "documentation::collector::js_tests::javascript_file_tag_documents_the_file",
+        "documentation::collector::js_tests::mozjs_file_tag_documents_the_file",
+        "documentation::collector::js_tests::javascript_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::mozjs_block_in_a_body_documents_a_nested_declaration_and_no_statement",
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": [
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "space-after-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                        line.content.start += 1;\n",
+      "new": "                        line.content.start += 0;\n",
+      "expect": [
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "leading-boundary-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if profile != Profile::Rust && position == first_block {",
+      "new": "        if profile == Profile::Rust && position == first_block {",
+      "expect": [
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "trailing-boundary-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if profile != Profile::Rust && position + 1 == last_block {",
+      "new": "        if profile == Profile::Rust && position + 1 == last_block {",
+      "expect": [
+        "documentation::collector::js_tests::javascript_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::mozjs_block_text_loses_its_delimiters_and_one_star_per_line",
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    },
+    {
+      "name": "crlf-copied-not-decoded",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                if line.ending.len() == 2 {",
+      "new": "                if line.ending.len() == 3 {",
+      "expect": [
+        "documentation::collector::js_tests::javascript_crlf_line_endings_keep_byte_ranges_and_decode_to_lf",
+        "documentation::collector::js_tests::mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf"
+      ]
+    }
+  ]
+}
