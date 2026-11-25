@@ -33,6 +33,10 @@ mod book_ast_traversal_examples;
 #[cfg(feature = "rust")]
 mod book_library_examples;
 mod derive_eq_hash_ord;
+// test-lang-gates: hand-written(rust) — a `mod` declaration has no body
+//     to read; the grammar is named inside the file it points at
+#[cfg(feature = "rust")]
+mod documentation_facade;
 // The feature gate moved here from the `mod parser_reuse` wrapper the
 // file used to carry: as a module it can be gated at the declaration,
 // and keeping the wrapper would have nested `parser_reuse` inside

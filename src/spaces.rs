@@ -446,9 +446,16 @@ pub struct Source<'a> {
 pub struct Ast {
     inner: crate::langs::AnyParser,
     name: Option<String>,
+    provenance: Option<PathProvenance>,
 }
 
 // `impl fmt::Debug for Ast` and `impl Ast` live in `spaces/ast.rs`.
+
+/// The file an [`Ast`] was read from, as documentation rules may use it: the
+/// final component of the path given to [`Ast::from_path`], held as the context
+/// a collection receives when its caller names no file. A display name is a
+/// label a caller can set to anything, so it is never read into this.
+struct PathProvenance(big_code_analysis_ast::documentation::DocumentationContext);
 
 /// Per-traversal options for [`analyze`] / [`Ast::metrics`].
 ///

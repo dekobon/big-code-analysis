@@ -67,6 +67,16 @@ for historical reference.
   on `Parser` and `AnyParser`. The root library's documentation facade follows
   separately; existing metric behavior is unchanged. (#1656)
 
+- Added a hidden, unstable `Ast::documentation` to the root library. It hands
+  its context and options to the AST crate's typed documentation collector and
+  returns that collector's index, which borrows the `Ast`. An `Ast` read with
+  `Ast::from_path` supplies the final component of its path as the logical
+  filename when the context names none; a display name is never used for it.
+  The method is `#[doc(hidden)]` and outside the stability contract
+  (`STABILITY.md`): its signature names `big-code-analysis-ast` types that the
+  root library does not re-export, and it may change in any release. Existing
+  metric behavior is unchanged. (#1680)
+
 ### Changed
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space
