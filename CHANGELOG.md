@@ -58,6 +58,17 @@ for historical reference.
   error, excluded bytes or an unnamed (`_`) declarator stays a pending owner.
   Legacy documentation rows are unchanged. (#1666)
 
+- The unstable AST documentation collector now gives Go struct fields and
+  interface elements owners. A field declaration with names has the declaration
+  and one field slot per name, spelled by the name; a comment above it is one
+  document associated with every slot, as go/ast attaches it. A field that
+  embeds a type, a method element and an interface element that opens with a
+  name own as their nodes. A member stays a pending owner when it holds a
+  syntax error, excluded bytes or a comment with a line break among its
+  children, and when Go ends it at a line end before the end of its node, as
+  it ends `X [2]` before a line end. Legacy documentation rows are unchanged.
+  (#1672)
+
 - Added unstable AST-crate source-marker `Checker` hooks and streaming requests
   that retain selection, source pieces and attachment uncertainty. The separate
   legacy event stream preserves existing metric behavior. (#1658)

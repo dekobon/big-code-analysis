@@ -66,7 +66,7 @@ fn kotlin_local_pending_owner_keeps_complete_text_and_known_leading_association(
 fn pending_go_field_query_exposes_assessment_instead_of_unusable_error() {
     let parser = AnyParser::parse(
         LANG::Go,
-        b"package p\ntype S struct {\n// both\nX, Y int\n}".to_vec(),
+        b"package p\ntype S struct {\n// both\nX, Y %% int\n}".to_vec(),
         None,
         None,
     )

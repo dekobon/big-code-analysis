@@ -73,9 +73,9 @@
       "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "complex declarators", "publication"]
     },
     "Go": {
-      "implemented": ["basic function/package", "declaration group and spec", "positional runs", "directive filtering", "literal block stars"],
+      "implemented": ["basic function/package", "declaration group and spec", "positional runs", "directive filtering", "literal block stars", "field name slots", "embedded field and interface element owners"],
       "ineligible": ["local declarations", "ordinary trailing comments", "source blank-line-separated run", "directive-only prose"],
-      "pending": ["multi-name field slots", "interface elements", "publication"]
+      "pending": ["members with a syntax error, a line-ending comment among their children, or a line end at which Go ends them early", "publication"]
     },
     "Ruby": {
       "implemented": ["basic method/type", "modifier/body wrapper projections", "native YARD scope", "magic/directive filtering", "begin/end block cleanup"],
