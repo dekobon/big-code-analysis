@@ -261,12 +261,16 @@ fn clean(language: LANG, source: &[u8]) -> AnyParser {
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
-fn indexes(parser: &AnyParser, options: DocumentationOptions) -> [DocumentationIndex<'_>; 2] {
+fn indexes(
+    language: LANG,
+    parser: &AnyParser,
+    options: DocumentationOptions,
+) -> [DocumentationIndex<'_>; 2] {
     let context = DocumentationContext::default();
     [
         parser.documentation(&context, &options).unwrap(),
         collect(
-            parser.language(),
+            language,
             parser.ts_tree(),
             parser.code(),
             &context,
@@ -287,7 +291,7 @@ fn agreed(indexes: &[DocumentationIndex<'_>; 2], root: tree_sitter::Node<'_>) ->
 fn view(language: LANG, source: &[u8]) -> View {
     let parser = clean(language, source);
     agreed(
-        &indexes(&parser, DocumentationOptions::default()),
+        &indexes(language, &parser, DocumentationOptions::default()),
         parser.ts_tree().root_node(),
     )
 }
@@ -299,7 +303,10 @@ fn retained(language: LANG, source: &[u8]) -> View {
         retain_unbound: true,
         ..DocumentationOptions::default()
     };
-    agreed(&indexes(&parser, options), parser.ts_tree().root_node())
+    agreed(
+        &indexes(language, &parser, options),
+        parser.ts_tree().root_node(),
+    )
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
@@ -404,54 +411,43 @@ fn mozjs_leading_block_documents_the_declaration_after_it() {
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
-#[allow(clippy::type_complexity)]
 fn class_and_object_members_own_their_leading_block(language: LANG) {
-    let rows: [(&[u8], Range<usize>, &str, Range<usize>, &str); 5] = [
+    let rows: [(&[u8], Doc, &str, Range<usize>); 5] = [
         (
             b"class C {\n  /** m */\n  m() {}\n}\n",
-            12..20,
+            comment(12..20, "m", [(0..1, Copied(16..17))]),
             "method_definition",
             23..29,
-            "m",
         ),
         (
             b"class C {\n  /** x */\n  x = 1;\n}\n",
-            12..20,
+            comment(12..20, "x", [(0..1, Copied(16..17))]),
             "field_definition",
             23..28,
-            "x",
         ),
         (
             b"use({\n  /** p */\n  p: 1,\n});\n",
-            8..16,
+            comment(8..16, "p", [(0..1, Copied(12..13))]),
             "pair",
             19..23,
-            "p",
         ),
         (
             b"use({\n  /** q */\n  q,\n});\n",
-            8..16,
+            comment(8..16, "q", [(0..1, Copied(12..13))]),
             "shorthand_property_identifier",
             19..20,
-            "q",
         ),
         (
             b"use({\n  /** m */\n  m() {},\n});\n",
-            8..16,
+            comment(8..16, "m", [(0..1, Copied(12..13))]),
             "method_definition",
             19..25,
-            "m",
         ),
     ];
-    for (source, fragment, kind, owner, text) in rows {
-        let offset = fragment.start + 4;
+    for (source, document, kind, range) in rows {
         assert_eq!(
             view(language, source),
-            node_owner(
-                comment(fragment, text, [(0..1, Copied(offset..offset + 1))]),
-                kind,
-                owner
-            ),
+            node_owner(document, kind, range),
             "{}",
             source.escape_ascii()
         );
@@ -470,99 +466,71 @@ fn mozjs_class_and_object_members_own_their_leading_block() {
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
-#[allow(clippy::type_complexity)]
 fn exported_declaration_owns_the_block_and_the_export_is_the_binding(language: LANG) {
-    let rows: [(
-        &[u8],
-        Range<usize>,
-        Range<usize>,
-        Range<usize>,
-        &str,
-        Range<usize>,
-        &str,
-    ); 5] = [
+    let exported = [
         (
-            b"/**audit*/\nexport function f() {}\n",
-            0..10,
-            3..8,
+            &b"/**audit*/\nexport function f() {}\n"[..],
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
             11..33,
             "function_declaration",
             18..33,
-            "audit",
         ),
         (
-            b"/** d */\nexport function* g() {}\n",
-            0..8,
-            4..5,
+            &b"/** d */\nexport function* g() {}\n"[..],
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
             9..32,
             "generator_function_declaration",
             16..32,
-            "d",
         ),
         (
-            b"/** d */\nexport class C {}\n",
-            0..8,
-            4..5,
+            &b"/** d */\nexport class C {}\n"[..],
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
             9..26,
             "class_declaration",
             16..26,
-            "d",
         ),
         (
-            b"/** d */\nexport default function f() {}\n",
-            0..8,
-            4..5,
+            &b"/** d */\nexport default function f() {}\n"[..],
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
             9..39,
             "function_declaration",
             24..39,
-            "d",
-        ),
-        (
-            b"export class C {\n  /** m */\n  m() {}\n}\n",
-            19..27,
-            23..24,
-            0..38,
-            "method_definition",
-            30..36,
-            "m",
         ),
     ];
-    for (source, fragment, copied, export, kind, owner, text) in rows {
+    for (source, document, export, kind, owner) in exported {
         let parser = clean(language, source);
-        let both = indexes(&parser, DocumentationOptions::default());
+        let both = indexes(language, &parser, DocumentationOptions::default());
         assert_eq!(
             agreed(&both, parser.ts_tree().root_node()),
-            node_owner(
-                comment(
-                    fragment.clone(),
-                    text,
-                    [(0..copied.len(), Copied(copied.clone()))]
-                ),
-                kind,
-                owner.clone()
-            ),
+            node_owner(document, kind, owner.clone()),
             "{}",
             source.escape_ascii()
         );
-        if fragment.start == 0 {
-            let wrapper = node_at(&parser, "export_statement", export);
-            for index in &both {
-                let projection = index.node_projection(wrapper).unwrap();
-                assert!(!projection.pending());
-                let owners: Vec<_> = projection.owners().collect();
-                let [found] = owners[..] else {
-                    panic!("one projected owner, found {owners:?}")
-                };
-                let Owner::Node(declared) = found.get() else {
-                    panic!("node owner: {found:?}")
-                };
-                assert_eq!(site(declared.node()), (kind, owner.clone()));
-                let query = index.node_associations(wrapper).unwrap();
-                assert_eq!(query.associations().len(), 1);
-                assert!(!query.projection_pending());
-            }
+        let wrapper = node_at(&parser, "export_statement", export);
+        for index in &both {
+            let projection = index.node_projection(wrapper).unwrap();
+            assert!(!projection.pending());
+            let owners: Vec<_> = projection.owners().collect();
+            let [found] = owners[..] else {
+                panic!("one projected owner, found {owners:?}")
+            };
+            let Owner::Node(declared) = found.get() else {
+                panic!("node owner: {found:?}")
+            };
+            assert_eq!(site(declared.node()), (kind, owner.clone()));
+            let query = index.node_associations(wrapper).unwrap();
+            assert_eq!(query.associations().len(), 1);
+            assert!(!query.projection_pending());
         }
     }
+    assert_eq!(
+        view(language, b"export class C {\n  /** m */\n  m() {}\n}\n"),
+        node_owner(
+            comment(19..27, "m", [(0..1, Copied(23..24))]),
+            "method_definition",
+            30..36
+        )
+    );
 }
 
 #[cfg(feature = "javascript")]
@@ -597,6 +565,18 @@ fn nearest_block_comment_before_a_declaration_decides(language: LANG) {
         .evidence
         .push((CandidateDisposition::Superseded, 16..24));
     assert_eq!(retained(language, superseded), expected);
+    let three = b"function z() {}\n/**a*/\n/**b*/\n/**c*/\nfunction f() {}\n";
+    let mut expected = node_owner(
+        comment(30..36, "c", [(0..1, Copied(33..34))]),
+        "function_declaration",
+        37..52,
+    );
+    assert_eq!(view(language, three), expected);
+    expected.evidence.extend([
+        (CandidateDisposition::Superseded, 16..22),
+        (CandidateDisposition::Superseded, 23..29),
+    ]);
+    assert_eq!(retained(language, three), expected);
     let detached = b"function z() {}\n/** d */\n/* plain */\nfunction f() {}\n";
     let mut expected = View::default();
     assert_eq!(view(language, detached), expected);
@@ -618,52 +598,38 @@ fn mozjs_nearest_block_comment_before_a_declaration_decides() {
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
-#[allow(clippy::type_complexity)]
 fn file_tag_documents_the_file(language: LANG) {
-    let rows: [(&[u8], Range<usize>, &str, Range<usize>, Range<usize>); 5] = [
+    let rows: [(&[u8], Doc, Range<usize>); 5] = [
         (
             b"/**@file audit*/\nfunction f() {}\n",
-            0..16,
-            "@file audit",
-            3..14,
+            comment(0..16, "@file audit", [(0..11, Copied(3..14))]),
             0..33,
         ),
         (
             b"/** @fileoverview audit */\nfunction f() {}\n",
-            0..26,
-            "@fileoverview audit",
-            4..23,
+            comment(0..26, "@fileoverview audit", [(0..19, Copied(4..23))]),
             0..43,
         ),
         (
             b"/** @overview audit */\nfunction f() {}\n",
-            0..22,
-            "@overview audit",
-            4..19,
+            comment(0..22, "@overview audit", [(0..15, Copied(4..19))]),
             0..39,
         ),
         (
             b"/** @module m */\nfunction f() {}\n",
-            0..16,
-            "@module m",
-            4..13,
+            comment(0..16, "@module m", [(0..9, Copied(4..13))]),
             0..33,
         ),
         (
             b"/** @file audit */\n\"use strict\";\n",
-            0..18,
-            "@file audit",
-            4..15,
+            comment(0..18, "@file audit", [(0..11, Copied(4..15))]),
             0..33,
         ),
     ];
-    for (source, fragment, text, copied, root) in rows {
+    for (source, document, root) in rows {
         assert_eq!(
             view(language, source),
-            owned(
-                file(comment(fragment, text, [(0..text.len(), Copied(copied))])),
-                Holder::File(root)
-            ),
+            owned(file(document), Holder::File(root)),
             "{}",
             source.escape_ascii()
         );
@@ -904,6 +870,7 @@ fn mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf() {
 // The ownerless documents and pending assessments are today's outcome, not the later design.
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
 fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
+    // bca: suppress(halstead) -- the body of one test, run for both variants.
     let ordinary: [(&[u8], &str, Range<usize>); 4] = [
         (
             b"/**audit*/\nconst f = () => 1;\n",
@@ -924,7 +891,7 @@ fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
     ];
     for (source, kind, range) in ordinary {
         let parser = clean(language, source);
-        let both = indexes(&parser, DocumentationOptions::default());
+        let both = indexes(language, &parser, DocumentationOptions::default());
         assert_eq!(
             agreed(&both, parser.ts_tree().root_node()),
             View {
@@ -942,7 +909,7 @@ fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
     }
     let source = b"/**audit*/\nexport const e = 3;\n";
     let parser = clean(language, source);
-    let both = indexes(&parser, DocumentationOptions::default());
+    let both = indexes(language, &parser, DocumentationOptions::default());
     assert_eq!(
         agreed(&both, parser.ts_tree().root_node()),
         View {
@@ -967,7 +934,7 @@ fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
     ];
     for (source, range) in anonymous {
         let parser = clean(language, source);
-        let both = indexes(&parser, DocumentationOptions::default());
+        let both = indexes(language, &parser, DocumentationOptions::default());
         assert_eq!(
             agreed(&both, parser.ts_tree().root_node()),
             View {
@@ -1006,6 +973,7 @@ fn mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome() {
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
 #[allow(clippy::too_many_lines)]
 fn grammar_shapes_the_unit_relies_on(language: LANG) {
+    // bca: suppress(abc, halstead) -- the body of the grammar test, run for both variants.
     let source = b"function f() {}\nfunction* g() {}\nclass C {}\n";
     let parser = clean(language, source);
     let root = parser.ts_tree().root_node();

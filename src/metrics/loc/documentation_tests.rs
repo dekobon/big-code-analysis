@@ -1489,6 +1489,7 @@ fn documentation_js_source_and_legacy_views_are_independent() {
         },
     ];
     let mut ran = 0;
+    let mut rendered = 0;
     for row in rows {
         for &lang in row.variants {
             if !lang.is_enabled() {
@@ -1532,6 +1533,7 @@ fn documentation_js_source_and_legacy_views_are_independent() {
             );
             assert_ne!(visits, 0, "{name}");
             assert_ne!(members, 0, "{name}");
+            rendered += renders;
             let space = analyze(
                 Source::new(lang, row.source),
                 MetricsOptions::default().with_only(&[Metric::Loc]),
@@ -1565,4 +1567,6 @@ fn documentation_js_source_and_legacy_views_are_independent() {
         }
     }
     assert!(ran > 0);
+    // A row without a document renders nothing, so the control for `renders` is the total.
+    assert_ne!(rendered, 0);
 }
