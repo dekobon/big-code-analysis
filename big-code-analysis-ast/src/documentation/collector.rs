@@ -1022,4 +1022,6 @@ mod projection_tests;
 #[cfg(test)]
 mod remediation_tests;
 #[cfg(test)]
+mod ruby_tests;
+#[cfg(test)]
 mod tests;
