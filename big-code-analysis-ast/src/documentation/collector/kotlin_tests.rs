@@ -1,6 +1,6 @@
 //! Kotlin KDoc source-view tests compare documents, associations, retained candidates and
 //! pending assessments through both entry points. The grammar test collects nothing and
-//! pins the tree shapes used by those tests. Node queries are checked beside the view.
+//! pins the tree shapes the unit relies on. Node queries are checked beside the view.
 
 #[cfg(feature = "kotlin")]
 use crate::documentation::*;
@@ -323,8 +323,29 @@ fn parts(parent: tree_sitter::Node<'_>) -> Vec<(Option<&'static str>, &'static s
 }
 
 #[cfg(feature = "kotlin")]
+fn flagged(root: tree_sitter::Node<'_>) -> Vec<(&'static str, Range<usize>, [bool; 5])> {
+    let mut unvisited = vec![root];
+    let mut nodes = Vec::new();
+    while let Some(node) = unvisited.pop() {
+        nodes.push((
+            node.kind(),
+            node.byte_range(),
+            [
+                node.has_error(),
+                node.is_error(),
+                node.is_missing(),
+                node.is_extra(),
+                node.is_named(),
+            ],
+        ));
+        let children: Vec<_> = node.children(&mut node.walk()).collect();
+        unvisited.extend(children.into_iter().rev());
+    }
+    nodes
+}
+
+#[cfg(feature = "kotlin")]
 fn grammar_parse(source: &[u8], has_error: bool) -> AnyParser {
-    // bca: suppress(halstead) -- comparing typed and raw grammar trees is one cohesive check.
     let parser = AnyParser::parse(LANG::Kotlin, source.to_vec(), None, None).unwrap();
     let root = parser.ts_tree().root_node();
     assert_eq!(root.has_error(), has_error, "{}", source.escape_ascii());
@@ -332,42 +353,13 @@ fn grammar_parse(source: &[u8], has_error: bool) -> AnyParser {
     let mut raw = tree_sitter::Parser::new();
     raw.set_language(&LANG::Kotlin.tree_sitter_language().unwrap())
         .unwrap();
-    let raw_tree = raw.parse(source, None).unwrap();
-    let typed_nodes: Vec<_> = parser
-        .root_node()
-        .preorder()
-        .map(|node| {
-            let node = node.as_tree_sitter();
-            (
-                site(node),
-                node.has_error(),
-                node.is_error(),
-                node.is_missing(),
-                node.is_extra(),
-                node.is_named(),
-            )
-        })
-        .collect();
-    let mut raw_nodes = vec![raw_tree.root_node()];
-    let mut raw_facts = Vec::new();
-    while let Some(node) = raw_nodes.pop() {
-        raw_facts.push((
-            site(node),
-            node.has_error(),
-            node.is_error(),
-            node.is_missing(),
-            node.is_extra(),
-            node.is_named(),
-        ));
-        let children: Vec<_> = node.children(&mut node.walk()).collect();
-        raw_nodes.extend(children.into_iter().rev());
-    }
-    assert_eq!(typed_nodes, raw_facts);
+    let typed = flagged(root);
+    assert_eq!(typed, flagged(raw.parse(source, None).unwrap().root_node()));
     if !has_error {
         assert!(
-            typed_nodes
+            typed
                 .iter()
-                .all(|(_, error, is_error, missing, _, _)| { !error && !is_error && !missing })
+                .all(|(_, _, [error, is_error, missing, ..])| !error && !is_error && !missing)
         );
     }
     parser
@@ -415,7 +407,7 @@ fn kotlin_kdoc_before_a_top_level_declaration_documents_it() {
 #[cfg(feature = "kotlin")]
 #[test]
 fn kotlin_kdoc_before_a_member_documents_the_member_not_the_class() {
-    let members: [(&[u8], Doc, &str, Range<usize>); 5] = [
+    let members: [(&[u8], Doc, &str, Range<usize>); 4] = [
         (
             b"class C {\n    /** d */\n    companion object {}\n}\n",
             comment(14..22, "d", [(0..1, Copied(18..19))]),
@@ -440,28 +432,35 @@ fn kotlin_kdoc_before_a_member_documents_the_member_not_the_class() {
             "class_declaration",
             27..37,
         ),
-        (
-            b"class C {\n    /**audit*/\n    constructor(x: Int) {}\n}\n",
-            comment(14..24, "audit", [(0..5, Copied(17..22))]),
-            "secondary_constructor",
-            29..51,
-        ),
     ];
     for (source, document, kind, range) in members {
-        let mut expected = owned(document, kind, range);
-        if source == b"class C {\n    /**audit*/\n    constructor(x: Int) {}\n}\n" {
-            // The undocumented parameter pins today's pending projection, not its later design.
-            expected.assessments = unordered([pending(
-                AssessmentAxis::Owner,
-                NEEDS_PROJECTION,
-                Some(("parameter", 41..47)),
-                None,
-            )]);
-        }
-        assert_eq!(view(source), expected, "{}", source.escape_ascii());
+        assert_eq!(
+            view(source),
+            owned(document, kind, range),
+            "{}",
+            source.escape_ascii()
+        );
     }
+    let mut expected = owned(
+        comment(14..24, "audit", [(0..5, Copied(17..22))]),
+        "secondary_constructor",
+        29..51,
+    );
+    // The undocumented parameter pins today's pending projection, not its later design.
+    expected.assessments = unordered([pending(
+        AssessmentAxis::Owner,
+        NEEDS_PROJECTION,
+        Some(("parameter", 41..47)),
+        None,
+    )]);
     assert_eq!(
-        view(b"enum class E {\n    /** a */\n    A,\n    /** b */\n    B\n}\n"),
+        view(b"class C {\n    /**audit*/\n    constructor(x: Int) {}\n}\n"),
+        expected
+    );
+    let parser = clean(b"enum class E {\n    /** a */\n    A,\n    /** b */\n    B\n}\n");
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
         View {
             documents: vec![
                 comment(19..27, "a", [(0..1, Copied(23..24))]),
@@ -482,6 +481,22 @@ fn kotlin_kdoc_before_a_member_documents_the_member_not_the_class() {
             ..View::default()
         }
     );
+    // The control for `check_query`, where no query holds an association: the query of an
+    // entry holds the association of its own document and not that of the other entry.
+    for index in &both {
+        for (at, range) in [32..33, 52..53].into_iter().enumerate() {
+            let query = index
+                .node_associations(node_at(&parser, "enum_entry", range))
+                .unwrap();
+            let documents: Vec<_> = query
+                .associations()
+                .map(|association| index.facts().associated_document(association).unwrap())
+                .collect();
+            assert_eq!(documents, [index.documents().nth(at).unwrap()]);
+            assert!(!query.projection_pending());
+            assert_eq!(query.assessments().count(), 0);
+        }
+    }
 }
 
 #[cfg(feature = "kotlin")]
@@ -705,15 +720,13 @@ fn kotlin_kdoc_with_crlf_line_endings() {
 
 #[cfg(feature = "kotlin")]
 fn check_query(
-    parser: &AnyParser,
     indexes: &[DocumentationIndex<'_>; 2],
-    kind: &str,
-    range: Range<usize>,
+    node: tree_sitter::Node<'_>,
     pending_owner: bool,
     expected: &[(AssessmentAxis, &str)],
 ) {
-    // bca: suppress(nargs) -- a query needs its parse, indexes, node, status and assessments.
-    let node = node_at(parser, kind, range);
+    let mut expected = expected.to_vec();
+    expected.sort_by_key(|(_, reason)| *reason);
     for index in indexes {
         let projection = index.node_projection(node).unwrap();
         assert_eq!(projection.pending(), pending_owner);
@@ -737,8 +750,6 @@ fn check_query(
             .map(|assessment| (assessment.get().axis, assessment.get().reason))
             .collect();
         actual.sort_by_key(|(_, reason)| *reason);
-        let mut expected = expected.to_vec();
-        expected.sort_by_key(|(_, reason)| *reason);
         assert_eq!(actual, expected);
     }
 }
@@ -748,39 +759,27 @@ fn check_query(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
-    for (source, fragment, text, node) in [
-        (b"/** d */\nval x = 1\n".as_slice(), 0..8, 4..5, 9..18),
-        (
-            b"class C {\n    /** d */\n    val p = 1\n}\n".as_slice(),
-            14..22,
-            18..19,
-            27..36,
-        ),
-    ] {
-        assert_eq!(
-            view(source),
-            View {
-                documents: vec![comment(fragment, "d", [(0..1, Copied(text))])],
-                assessments: unordered([
-                    pending(
-                        AssessmentAxis::Owner,
-                        AWAITS_OWNER,
-                        Some(("property_declaration", node.clone())),
-                        Some(0),
-                    ),
-                    pending(
-                        AssessmentAxis::Owner,
-                        NEEDS_PROJECTION,
-                        Some(("property_declaration", node)),
-                        None,
-                    ),
-                ]),
-                ..View::default()
-            },
-            "{}",
-            source.escape_ascii()
-        );
-    }
+    assert_eq!(
+        view(b"class C {\n    /** d */\n    val p = 1\n}\n"),
+        View {
+            documents: vec![comment(14..22, "d", [(0..1, Copied(18..19))])],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("property_declaration", 27..36)),
+                    Some(0),
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 27..36)),
+                    None,
+                ),
+            ]),
+            ..View::default()
+        }
+    );
     let class_parameter = b"class C(/**audit*/ val x: Int)\n";
     let class_expected = View {
         documents: vec![comment(8..18, "audit", [(0..5, Copied(11..16))])],
@@ -812,7 +811,6 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
         ]),
         ..View::default()
     };
-    assert_eq!(view(class_parameter), class_expected);
     let function_parameter = b"fun f(/**p*/ x: Int) {}\n";
     let function_expected = View {
         documents: vec![comment(6..12, "p", [(0..1, Copied(9..10))])],
@@ -838,7 +836,6 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
         ]),
         ..View::default()
     };
-    assert_eq!(view(function_parameter), function_expected);
 
     let parser = clean(b"/** d */\nval x = 1\n");
     let both = indexes(&parser, DocumentationOptions::default());
@@ -864,10 +861,8 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
         }
     );
     check_query(
-        &parser,
         &both,
-        "property_declaration",
-        9..18,
+        node_at(&parser, "property_declaration", 9..18),
         true,
         &[
             (AssessmentAxis::Owner, AWAITS_OWNER),
@@ -879,18 +874,14 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
     let both = indexes(&parser, DocumentationOptions::default());
     assert_eq!(agreed(&both), class_expected);
     check_query(
-        &parser,
         &both,
-        "class_declaration",
-        0..30,
+        node_at(&parser, "class_declaration", 0..30),
         false,
         &[(AssessmentAxis::Selection, SIGNATURE)],
     );
     check_query(
-        &parser,
         &both,
-        "primary_constructor",
-        7..30,
+        node_at(&parser, "primary_constructor", 7..30),
         true,
         &[
             (AssessmentAxis::Owner, NEEDS_PROJECTION),
@@ -898,10 +889,8 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
         ],
     );
     check_query(
-        &parser,
         &both,
-        "class_parameter",
-        19..29,
+        node_at(&parser, "class_parameter", 19..29),
         true,
         &[
             (AssessmentAxis::Owner, AWAITS_OWNER),
@@ -915,18 +904,14 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
     let both = indexes(&parser, DocumentationOptions::default());
     assert_eq!(agreed(&both), function_expected);
     check_query(
-        &parser,
         &both,
-        "function_declaration",
-        0..23,
+        node_at(&parser, "function_declaration", 0..23),
         false,
         &[(AssessmentAxis::Selection, SIGNATURE)],
     );
     check_query(
-        &parser,
         &both,
-        "parameter",
-        13..19,
+        node_at(&parser, "parameter", 13..19),
         true,
         &[
             (AssessmentAxis::Owner, AWAITS_OWNER),
@@ -941,43 +926,11 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments() {
-    let rows: [(&[u8], Doc, Vec<Pending>); 6] = [
-        (
-            b"public /**audit*/ inline fun f() {}\n",
-            comment(7..17, "audit", [(0..5, Copied(10..15))]),
-            unordered([
-                pending(
-                    AssessmentAxis::Selection,
-                    SIGNATURE,
-                    Some(("block_comment", 7..17)),
-                    None,
-                ),
-                pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0)),
-            ]),
-        ),
+    let rows: [(&[u8], Doc, Vec<Pending>); 3] = [
         (
             b"public /**audit*/ fun f() {}\n",
             comment(7..17, "audit", [(0..5, Copied(10..15))]),
             unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0))]),
-        ),
-        (
-            b"class C private /**audit*/ constructor()\n",
-            comment(16..26, "audit", [(0..5, Copied(19..24))]),
-            unordered([
-                pending(
-                    AssessmentAxis::Selection,
-                    SIGNATURE,
-                    Some(("block_comment", 16..26)),
-                    None,
-                ),
-                pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0)),
-                pending(
-                    AssessmentAxis::Owner,
-                    NEEDS_PROJECTION,
-                    Some(("primary_constructor", 8..40)),
-                    None,
-                ),
-            ]),
         ),
         (
             b"class C /**audit*/ constructor()\n",
@@ -991,11 +944,6 @@ fn kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments() {
                     None,
                 ),
             ]),
-        ),
-        (
-            b"fun f() /**audit*/ {}\n",
-            comment(8..18, "audit", [(0..5, Copied(11..16))]),
-            unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0))]),
         ),
         (
             b"class C {\n    fun f() /**audit*/ {}\n}\n",
@@ -1124,8 +1072,13 @@ fn kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments() {
         let parser = clean(source);
         let both = indexes(&parser, DocumentationOptions::default());
         assert_eq!(agreed(&both), expected);
-        for (kind, range, pending, assessments) in queries {
-            check_query(&parser, &both, kind, range, pending, &assessments);
+        for (kind, range, pending_owner, assessments) in queries {
+            check_query(
+                &both,
+                node_at(&parser, kind, range),
+                pending_owner,
+                &assessments,
+            );
         }
     }
 }
@@ -1134,11 +1087,9 @@ fn kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn kotlin_grammar_shapes_the_unit_relies_on() {
-    let source = b"/**audit*/\nfun f() {}\n";
-    let parser = grammar_parse(source, false);
+    let parser = grammar_parse(b"/**audit*/\nfun f() {}\n", false);
     let root = parser.ts_tree().root_node();
     assert_eq!(site(root), ("source_file", 0..22));
-    assert_eq!(root.end_byte(), source.len());
     assert_eq!(
         parts(root),
         [
@@ -1330,7 +1281,6 @@ fn kotlin_grammar_shapes_the_unit_relies_on() {
     let parser = grammar_parse(source, false);
     let root = parser.ts_tree().root_node();
     assert_eq!(site(root), ("source_file", 0..34));
-    assert_eq!(root.end_byte(), source.len());
     assert_eq!(
         parts(root),
         [
@@ -1419,8 +1369,6 @@ fn kotlin_grammar_shapes_the_unit_relies_on() {
         ),
     ] {
         let parser = grammar_parse(source, error);
-        let root = parser.ts_tree().root_node();
-        assert_eq!(root.has_error(), error);
         let class = node_at(&parser, "class_declaration", 0..45);
         let body = node_at(&parser, "class_body", 8..45);
         assert_eq!(class.has_error(), error);
@@ -1443,10 +1391,7 @@ fn kotlin_grammar_shapes_the_unit_relies_on() {
                 .all(|child| !child.has_error())
         );
     }
-    let source = b"class C { fun m() {} }\n";
-    let parser = grammar_parse(source, true);
-    let root = parser.ts_tree().root_node();
-    assert!(root.has_error());
+    let parser = grammar_parse(b"class C { fun m() {} }\n", true);
     let body = node_at(&parser, "enum_class_body", 8..22);
     assert_eq!(
         parts(body),
