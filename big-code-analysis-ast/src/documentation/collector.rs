@@ -1014,6 +1014,8 @@ mod form_tests;
 #[cfg(test)]
 mod go_tests;
 #[cfg(test)]
+mod groovy_tests;
+#[cfg(test)]
 mod lua_tests;
 #[cfg(test)]
 mod named_tests;
