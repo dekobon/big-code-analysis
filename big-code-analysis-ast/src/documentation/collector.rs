@@ -1016,12 +1016,20 @@ mod go_tests;
 #[cfg(test)]
 mod java_tests;
 #[cfg(test)]
+mod js_tests;
+#[cfg(test)]
 mod lua_tests;
 #[cfg(test)]
 mod named_tests;
+#[cfg(test)]
+mod php_tests;
 #[cfg(test)]
 mod projection_tests;
 #[cfg(test)]
 mod remediation_tests;
 #[cfg(test)]
+mod ruby_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ts_tests;
