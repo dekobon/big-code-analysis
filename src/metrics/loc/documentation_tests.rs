@@ -592,3 +592,206 @@ fn documentation_csharp_source_and_legacy_views_are_independent() {
         );
     }
 }
+
+#[cfg(feature = "go")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_go_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::positional::{
+        evidence_built, members_materialized, positional_runs_collected,
+    };
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, included_range_visits, observations,
+    };
+    struct Row<'a> {
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+        // A run is a maximal sequence of comments in which each one starts on the row
+        // where the one before it ends, or on the next row.
+        comment_runs: usize,
+    }
+    let counters = || {
+        [
+            observations().visits,
+            observations().renders,
+            evidence_built::observed(),
+            members_materialized::observed(),
+            positional_runs_collected::observed(),
+            included_range_visits::observed(),
+        ]
+    };
+    let fixture = documentation::source("primary.go");
+    let sources = [
+        Row {
+            source: b"package p\ntype S struct {\n// both\nX, Y int\n}\n",
+            loc: [5, 4, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            comment_runs: 1,
+        },
+        // Code separates the three comments.
+        Row {
+            source: b"package p\ntype I interface {\n// m\nM()\n// e\nio.Reader\n// u\n~int\n}\n",
+            loc: [9, 6, 0, 3, 0, 2],
+            dloc_rows: &[2, 4],
+            comment_runs: 3,
+        },
+        // `var (` separates the two comments.
+        Row {
+            source: b"package p\n// group\nvar (\n// member\nX int\n)\n",
+            loc: [6, 4, 1, 2, 0, 2],
+            dloc_rows: &[1, 3],
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\n// audit\n//go:generate tool\nfunc F() {}\n",
+            loc: [4, 2, 0, 2, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        Row {
+            source: b"package p\ntype S struct {\n//go:notinheap\n// audit\nX int\n}\n",
+            loc: [6, 4, 0, 2, 0, 1],
+            dloc_rows: &[3],
+            comment_runs: 1,
+        },
+        // Three comments on rows 1 to 3: the second starts where the first ends.
+        Row {
+            source: b"package p\nvar y = 0 /* t1\nt2 */ /* t3 */\n// doc\nvar z = 1\n",
+            loc: [5, 3, 2, 3, 0, 1],
+            dloc_rows: &[3],
+            comment_runs: 1,
+        },
+        // A blank row separates the first comment from the other three.
+        Row {
+            source: b"package p\n// a\n\n// b\n//\n// c\nfunc F() {}\n",
+            loc: [7, 2, 0, 4, 1, 3],
+            dloc_rows: &[3, 4, 5],
+            comment_runs: 2,
+        },
+        // `N struct {` separates the two comments.
+        Row {
+            source: b"package p\ntype S struct {\n// same\nN struct {\n// same\nX, Y int\n}\n}\n",
+            loc: [8, 6, 0, 2, 0, 2],
+            dloc_rows: &[2, 4],
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype S struct { // t\n// d\nX int\n}\n",
+            loc: [5, 4, 0, 2, 0, 1],
+            dloc_rows: &[2],
+            comment_runs: 1,
+        },
+        Row {
+            source: b"package p\nfunc F() {\nx := 1\n// local\nvar y = x\n_ = y\n}\n",
+            loc: [7, 6, 3, 1, 0, 0],
+            dloc_rows: &[],
+            comment_runs: 1,
+        },
+        Row {
+            source: b"package p\n// not doc\nimport \"fmt\"\n",
+            loc: [3, 2, 0, 1, 0, 0],
+            dloc_rows: &[],
+            comment_runs: 1,
+        },
+        Row {
+            source: &fixture,
+            loc: [3, 2, 0, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+    ];
+    for row in sources {
+        let name = row.source.escape_ascii();
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Go, row.source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error(), "{name}");
+        let idle = counters();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = counters();
+        let space = analyze(
+            Source::new(LANG::Go, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = counters();
+
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+
+        // The collection moves each counter on this thread, so a zero across `analyze` is
+        // a reading.
+        let [visits, renders, built, materialized, scanned, covered] =
+            std::array::from_fn(|at| collected[at] - idle[at]);
+        // expected: the walk enters every node of the tree once.
+        assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
+        // expected: one render per published document.
+        assert_eq!(renders, index.documents().len(), "{name}");
+        // expected: under default options the positional stream builds one member for
+        // each fragment of a selected run, and none for a directive or a trailing member.
+        let fragments: usize = index
+            .documents()
+            .map(|document| document.get().fragment_count())
+            .sum();
+        assert_eq!(built, fragments, "{name}");
+        // expected: every comment is a member of exactly one run, and the source view
+        // materializes each run once.
+        let comments = parser
+            .root_node()
+            .preorder()
+            .filter(|node| node.kind() == "comment")
+            .count();
+        assert_eq!(materialized, comments, "{name}");
+        // expected: the source view scans every run once, at its last comment.
+        assert_eq!(scanned, row.comment_runs, "{name}");
+        // Not exact: the number of included-range questions is the collector's own
+        // accounting and follows from no fact of the tree.
+        assert_ne!(covered, 0, "{name}");
+        // A source without a document moves neither `renders` nor `evidence_built`.
+        // expected: in these sources a document is published exactly where the legacy
+        // view counts a row.
+        assert_eq!(
+            index.documents().len() == 0,
+            row.dloc_rows.is_empty(),
+            "{name}"
+        );
+
+        // The same six counters across `analyze`.
+        let [visits, renders, built, materialized, scanned, covered] =
+            std::array::from_fn(|at| analyzed[at] - collected[at]);
+        // expected: 0 and 0, because `analyze` builds no documentation index.
+        assert_eq!(visits, 0, "{name}");
+        assert_eq!(renders, 0, "{name}");
+        // expected: 0, because the legacy view builds no source evidence.
+        assert_eq!(built, 0, "{name}");
+        // expected: 0, because the legacy view walks members without a buffer.
+        assert_eq!(materialized, 0, "{name}");
+        // expected: the legacy view scans every run once as well, at its last comment.
+        assert_eq!(scanned, row.comment_runs, "{name}");
+        // expected: 0, because the legacy view has no source context to ask.
+        assert_eq!(covered, 0, "{name}");
+    }
+}
