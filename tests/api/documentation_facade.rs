@@ -505,6 +505,12 @@ fn a_file_read_from_a_path_supplies_its_final_component() {
         assert_eq!(logical_filename(&collected(&ast)), Some("lib.rs"));
     }
     assert_ne!(spellings[1].to_str(), spellings[0].to_str());
+    // The name is supplied as it is written: upper case, a space, a hyphen, a second
+    // dot and a letter outside ASCII all stay.
+    let as_written = "Año Package-Info.v2.rs";
+    let odd = written(directory.path(), as_written, b"///audit\nfn f() {}\n");
+    let odd = Ast::from_path(&odd).unwrap();
+    assert_eq!(logical_filename(&collected(&odd)), Some(as_written));
     // A relative path: cargo runs an integration test in the package root.
     let relative = Ast::from_path(Path::new("src/lib.rs")).unwrap();
     assert_eq!(relative.name(), Some("src/lib.rs"));
@@ -533,20 +539,43 @@ fn a_symbolic_link_supplies_its_own_name() {
     assert_eq!(logical_filename(&index), Some("link.rs"));
 }
 
+// test-lang-gates: hand-written(rust) — `from_path` picks the grammar from the
+//     `.rs` extension of the path, and nothing in the body names it
+#[cfg(feature = "rust")]
+#[test]
+fn an_ast_read_from_a_path_prints_its_language_and_display_name_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = written(directory.path(), "lib.rs", b"///audit\nfn f() {}\n");
+    let read = Ast::from_path(&path).unwrap();
+    // This `Ast` holds a provenance.
+    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    // expected: the language and the display name, as before the field existed; `..`
+    // stands for every other field.
+    assert_eq!(
+        format!("{read:?}"),
+        format!("Ast {{ language: Rust, name: {:?}, .. }}", path.to_str())
+    );
+}
+
 #[cfg(feature = "rust")]
 #[test]
 fn a_display_label_never_becomes_a_logical_filename() {
     let source = b"///audit\nfn f() {}\n";
-    let labelled =
-        Ast::parse(Source::new(LANG::Rust, source).with_name(Some("lib.rs".to_owned()))).unwrap();
-    assert_eq!(labelled.name(), Some("lib.rs"));
-    assert_eq!(logical_filename(&collected(&labelled)), None);
-    let taken = adopted(source, &[0..source.len()], Some("lib.rs"));
-    assert_eq!(taken.name(), Some("lib.rs"));
-    assert_eq!(logical_filename(&collected(&taken)), None);
-    // The same bytes under the same name, read from a path: the name is known.
     let directory = tempfile::tempdir().unwrap();
-    let read = Ast::from_path(&written(directory.path(), "lib.rs", source)).unwrap();
+    let path = written(directory.path(), "lib.rs", source);
+    // A bare file name, and the whole path of the file read below: a caller may
+    // label a source with its path.
+    for label in ["lib.rs", path.to_str().unwrap()] {
+        let labelled =
+            Ast::parse(Source::new(LANG::Rust, source).with_name(Some(label.to_owned()))).unwrap();
+        assert_eq!(labelled.name(), Some(label));
+        assert_eq!(logical_filename(&collected(&labelled)), None);
+        let taken = adopted(source, &[0..source.len()], Some(label));
+        assert_eq!(taken.name(), Some(label));
+        assert_eq!(logical_filename(&collected(&taken)), None);
+    }
+    // The same bytes read from that path: the name is known.
+    let read = Ast::from_path(&path).unwrap();
     assert_eq!(read.source(), source);
     assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
 }
@@ -565,8 +594,8 @@ fn an_explicit_logical_filename_always_wins() {
         parsed(source),
         adopted(source, &[0..source.len()], Some("lib.rs")),
     ] {
-        // An empty name is a name too.
-        for explicit in ["other.rs", ""] {
+        // A name with a directory is passed on whole, and an empty name is a name too.
+        for explicit in ["other.rs", "nested/other.rs", ""] {
             let index = ast.documentation(&named(explicit), &options).unwrap();
             assert_eq!(logical_filename(&index), Some(explicit));
         }
@@ -671,6 +700,40 @@ fn a_collection_under_a_cancelled_flag_is_cancelled_and_the_parse_stays_complete
     assert_eq!(documents(), Ok(1));
 }
 
+// test-lang-gates: hand-written(rust) — `from_path` picks the grammar from the
+//     `.rs` extension of the path, and nothing in the body names it
+#[cfg(feature = "rust")]
+#[test]
+fn a_file_read_from_a_path_is_cancelled_as_a_parsed_source_is() {
+    let source = "/// doc\nfn f() {}\n".repeat(200);
+    let directory = tempfile::tempdir().unwrap();
+    let path = written(directory.path(), "lib.rs", source.as_bytes());
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let read = Ast::from_path(&path).unwrap();
+    // Every collection below is given the name the path supplies.
+    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    let documents = || {
+        read.documentation(&context, &options)
+            .map(|index| index.documents().len())
+    };
+    let cancel = ParseCancel::new();
+    // expected: one comment before each of the 200 functions.
+    assert_eq!(cancel.run(documents), Ok(200));
+    cancel.cancel();
+    assert_eq!(cancel.run(documents), Err(CollectionError::Cancelled));
+    assert_eq!(documents(), Ok(200));
+    // The same file parsed under the cancelled flag: the parse did stop, and the
+    // collection reports it after the scope of the flag.
+    let stopped = cancel.run(|| Ast::from_path(&path).unwrap());
+    assert_eq!(stopped.as_tree_sitter().root_node().byte_range(), 0..0);
+    assert_eq!(stopped.source(), source.as_bytes());
+    assert_eq!(
+        stopped.documentation(&context, &options).err(),
+        Some(CollectionError::Cancelled)
+    );
+}
+
 #[cfg(feature = "rust")]
 #[test]
 fn an_adopted_tree_is_collected_as_given() {
@@ -755,7 +818,13 @@ fn two_indexes_over_one_ast_are_independent() {
 #[cfg(feature = "rust")]
 #[test]
 fn the_other_ast_operations_neither_collect_nor_change_what_is_collected() {
-    let ast = parsed(TESTS_AND_CODE);
+    let directory = tempfile::tempdir().unwrap();
+    let path = written(directory.path(), "lib.rs", TESTS_AND_CODE);
+    let unbuilt = observations();
+    // Read from a path, so that the view below holds a supplied logical filename.
+    // `from_path` builds through `Ast::parse`; the third constructor adopts a tree.
+    let ast = Ast::from_path(&path).unwrap();
+    let whole = adopted(TESTS_AND_CODE, &[0..TESTS_AND_CODE.len()], None);
     let idle = observations();
     let before = collected(&ast);
     let collecting = observations();
@@ -771,6 +840,13 @@ fn the_other_ast_operations_neither_collect_nor_change_what_is_collected() {
     assert_eq!(collecting.owner_projections - idle.owner_projections, 3);
     // The checkpoint total has no closed form.
     assert_ne!(collecting.polls - idle.polls, 0);
+    // Building an `Ast` collects nothing, whichever constructor builds it.
+    assert_eq!(whole.source(), ast.source());
+    assert_eq!(idle.visits - unbuilt.visits, 0);
+    assert_eq!(idle.renders - unbuilt.renders, 0);
+    assert_eq!(idle.owner_projections - unbuilt.owner_projections, 0);
+    assert_eq!(idle.polls - unbuilt.polls, 0);
+    assert_eq!(logical_filename(&before), Some("lib.rs"));
     let view = published(&before);
 
     let metrics = |options: MetricsOptions| ast.metrics(options).unwrap().metrics.loc.dloc();
@@ -821,7 +897,7 @@ fn the_other_ast_operations_neither_collect_nor_change_what_is_collected() {
     assert_eq!(after.owner_projections - collecting.owner_projections, 0);
     assert_eq!(after.polls - collecting.polls, 0);
     // The buffer is the one that was parsed. The index taken before is still whole,
-    // and a new one says the same.
+    // and a new one says the same, the supplied name included.
     assert_eq!(ast.source(), TESTS_AND_CODE);
     assert_eq!(published(&before), view);
     assert_eq!(published(&collected(&ast)), view);
