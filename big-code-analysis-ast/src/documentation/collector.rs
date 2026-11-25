@@ -1020,6 +1020,8 @@ mod java_tests;
 #[cfg(test)]
 mod js_tests;
 #[cfg(test)]
+mod kotlin_tests;
+#[cfg(test)]
 mod lua_tests;
 #[cfg(test)]
 mod named_tests;

@@ -2438,3 +2438,166 @@ fn documentation_groovy_source_and_legacy_views_are_independent() {
     // The other nine rows control the zero render delta of the four same-row forms.
     assert_ne!(renders_total, 0);
 }
+
+#[cfg(feature = "kotlin")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_kotlin_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        name: &'static str,
+        source: &'a [u8],
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+    }
+    let fixture = documentation::source("primary.kt");
+    let rows = [
+        Row {
+            name: "l01_property",
+            source: b"class C {\n    /** d */\n    val p = 1\n}\n",
+            loc: [4, 3, 1, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l02_class_parameter",
+            source: b"class C(/**audit*/ val x: Int)\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l03_function_parameter",
+            source: b"fun f(/**p*/ x: Int) {}\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l04_modifier_list",
+            source: b"public /**audit*/ inline fun f() {}\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l05_before_constructor",
+            source: b"class C private /**audit*/ constructor()\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l06_before_body",
+            source: b"fun f() /**audit*/ {}\n",
+            loc: [1, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+        Row {
+            name: "l07_split_annotation",
+            source: b"fun g() {}\n/** d */\n@Suppress(\"x\")\nfun f() {}\n",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l08_context_top_level",
+            source: b"/** d */\ncontext(Foo)\nfun f() {}\n",
+            loc: [3, 2, 1, 1, 0, 0],
+            dloc_rows: &[],
+        },
+        Row {
+            name: "l09_older_and_newer",
+            source: b"/**old*/\n// plain\n/**new*/\nfun f() {}\n",
+            loc: [4, 1, 0, 3, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l10_before_accessor",
+            source: b"class C {\n    val q: Int\n        /** g */\n        get() = 1\n}\n",
+            loc: [5, 4, 1, 1, 0, 1],
+            dloc_rows: &[2],
+        },
+        Row {
+            name: "l11_after_annotation",
+            source: b"@Deprecated(\"x\")\n/** d */\nfun f() {}\n",
+            loc: [3, 2, 0, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            name: "l12_fixture_primary_kt",
+            source: &fixture,
+            loc: [2, 1, 0, 1, 0, 1],
+            dloc_rows: &[0],
+        },
+    ];
+    let (mut renders_total, mut evidence_total) = (0, 0);
+    for row in rows {
+        let name = row.name;
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Kotlin, row.source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error(), "{name}");
+        let idle = observations();
+        let unbuilt = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        // expected: the collector enters every tree node once, named or not, root included.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        // expected: the collection renders each of its own published documents once.
+        let renders = collected.renders - idle.renders;
+        assert_eq!(renders, index.documents().len(), "{name}");
+        // expected: default options build one member per selected document fragment.
+        let members = built - unbuilt;
+        assert_eq!(
+            members,
+            index
+                .documents()
+                .map(|document| document.get().fragment_count())
+                .sum::<usize>(),
+            "{name}"
+        );
+        renders_total += renders;
+        evidence_total += members;
+
+        let space = analyze(
+            Source::new(LANG::Kotlin, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc(),
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+        let analyzed = observations();
+        // expected: analyze uses legacy LOC rows and builds no documentation index or evidence.
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(evidence_built::observed() - built, 0, "{name}");
+    }
+    // The context row need not publish a document; the others control both positive deltas.
+    assert_ne!(renders_total, 0);
+    assert_ne!(evidence_total, 0);
+}

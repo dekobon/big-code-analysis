@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_kotlin_source_and_legacy_views_are_independent"],
+  "cases": [
+    {
+      "name": "kotlin-forward-direction-inverted",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "            !ancestors.parent(comment).is_some_and(|parent| {",
+      "new": "            ancestors.parent(comment).is_some_and(|parent| {",
+      "expect": ["metrics::loc::documentation_tests::documentation_kotlin_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "kotlin-function-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            FunctionDeclaration,\n",
+      "new": "",
+      "expect": ["metrics::loc::documentation_tests::documentation_kotlin_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "kotlin-property-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            PropertyDeclaration,\n",
+      "new": "",
+      "expect": ["metrics::loc::documentation_tests::documentation_kotlin_source_and_legacy_views_are_independent"]
+    }
+  ]
+}
