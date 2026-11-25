@@ -1,0 +1,91 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "csharp-run-join-dropped",
+      "file": "big-code-analysis-ast/src/checker/csharp.rs",
+      "old": "joins: |_, _, _| true,",
+      "new": "joins: |_, _, _| false,",
+      "expect": ["documentation::collector::csharp_tests::csharp_adjacent_documentation_lines_join_into_one_run", "documentation::collector::csharp_tests::csharp_plain_comment_ends_the_run_and_older_lines_are_superseded", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim"]
+    },
+    {
+      "name": "csharp-plain-comment-not-hidden",
+      "file": "big-code-analysis-ast/src/checker/csharp.rs",
+      "old": "hidden: |node, code| !Self::is_doc_comment(node, code),",
+      "new": "hidden: |_, _| false,",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation"]
+    },
+    {
+      "name": "csharp-directive-not-skipped",
+      "file": "big-code-analysis-ast/src/checker/csharp.rs",
+      "old": "skips: |node, _| csharp_directive(node),",
+      "new": "skips: |_, _| false,",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation"]
+    },
+    {
+      "name": "csharp-after-code-dropped",
+      "file": "big-code-analysis-ast/src/checker/csharp.rs",
+      "old": "after_code: |_| true,",
+      "new": "after_code: |_| false,",
+      "expect": ["documentation::collector::csharp_tests::csharp_documentation_on_a_code_row_attaches_to_the_next_declaration"]
+    },
+    {
+      "name": "csharp-region-not-a-directive",
+      "file": "big-code-analysis-ast/src/checker/csharp.rs",
+      "old": "Csharp::PreprocRegion\n            | Csharp::PreprocEndregion",
+      "new": "Csharp::PreprocEndregion",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation"]
+    },
+    {
+      "name": "csharp-property-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            PropertyDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation", "documentation::collector::csharp_tests::csharp_expression_bodied_property_and_indexer_own_their_documentation"]
+    },
+    {
+      "name": "line-comment-prefix-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "(if profile == Profile::GoDoc { 2 } else { 3 }, 0, false)",
+      "new": "(if profile == Profile::GoDoc { 2 } else { 2 }, 0, false)",
+      "expect": ["documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation", "documentation::collector::csharp_tests::csharp_expression_bodied_property_and_indexer_own_their_documentation", "documentation::collector::csharp_tests::csharp_adjacent_documentation_lines_join_into_one_run", "documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim", "documentation::collector::csharp_tests::csharp_bare_documentation_line_is_a_present_empty_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation", "documentation::collector::csharp_tests::csharp_block_documentation_is_cleaned_as_a_block_comment", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim"]
+    },
+    {
+      "name": "csharp-enum-member-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            EnumMemberDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::csharp_tests::csharp_enum_member_owns_its_documentation"]
+    },
+    {
+      "name": "csharp-namespace-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n",
+      "new": "            IndexerDeclaration,\n            EnumMemberDeclaration,\n            NamespaceDeclaration,\n",
+      "expect": ["documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document"]
+    },
+    {
+      "name": "block-continuation-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "line.content.start = star + 1;",
+      "new": "line.content.start = star;",
+      "expect": ["documentation::collector::csharp_tests::csharp_block_documentation_is_cleaned_as_a_block_comment", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+    },
+    {
+      "name": "unbound-dispositions-swapped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "disposition: if member.selection == markers::MarkerSelection::Superseded {",
+      "new": "disposition: if member.selection != markers::MarkerSelection::Superseded {",
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comment_ends_the_run_and_older_lines_are_superseded", "documentation::collector::csharp_tests::csharp_documentation_attaches_before_an_attribute_and_not_after_it", "documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+    }
+  ]
+}
