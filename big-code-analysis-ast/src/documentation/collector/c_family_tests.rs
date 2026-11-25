@@ -1,8 +1,9 @@
 //! Doxygen documentation of C, C++, Mozcpp and Objective-C in the source view: what owns a
 //! comment, the text of the document and where each part of that text comes from. The
-//! source-view tests collect every source through both entry points and compare everything
-//! the index publishes. The grammar tests collect nothing: they pin the parse-tree shapes
-//! the source-view tests rely on.
+//! source-view tests collect every source through both entry points and compare the
+//! documents, associations, retained candidates and pending assessments the index
+//! publishes. The grammar tests collect nothing: they pin the parse-tree shapes the
+//! source-view tests rely on.
 
 #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 use crate::documentation::*;
@@ -78,10 +79,11 @@ struct Pending {
     document: Option<usize>,
 }
 
-/// Everything one collection published. Documents, associations and retained candidates
-/// are in published order, and a retained candidate is its disposition and byte range.
-/// Pending assessments are in the order of `unordered`. The default value is an index
-/// that published nothing and holds nothing pending.
+/// What one collection published. Documents, associations and retained candidates are in
+/// published order, and a retained candidate is its disposition and byte range. Pending
+/// assessments are in the order of `unordered`. The default value is an index that
+/// published nothing and holds nothing pending. What is the same for every source here is
+/// asserted by `published` and is in no expected view. Node queries are not part of it.
 #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 #[derive(Debug, Default, PartialEq, Eq)]
 struct View {
@@ -303,6 +305,11 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
         node: assessment.get().node.map(|about| site(about.node())),
         document: index.assessed_document(assessment).unwrap().map(position),
     }));
+    // The same for every source here: the Doxygen adapter is partial. A qualification
+    // record states that a command which names its declaration, or the declaration it
+    // names, lies inside a conditional or a recovery region; no source has that.
+    assert_eq!(index.capability(), Capability::Partial);
+    assert_eq!(index.qualifications().len(), 0);
     View {
         documents,
         associations,
