@@ -408,6 +408,132 @@
       "old": "        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
       "new": "        go_ends_member_early(&self.index.canonical, id, budget)?;\n        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
       "expect": ["documentation::collector::go_tests::go_line_end_scan_costs_linear_work"]
+    },
+    {
+      "name": "go-non-ascii-field-name-is-discarded",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(names) = go_member_names(&self.index.canonical, id, budget)? else {\n            return Ok(());\n        };",
+      "new": "        let Some(mut names) = go_member_names(&self.index.canonical, id, budget)? else {\n            return Ok(());\n        };\n        names.retain(|name| self.index.source.bytes()[self.index.canonical.nodes[name.0].evidence.node().byte_range()].is_ascii());",
+      "expect": [
+        "documentation::collector::go_tests::go_non_ascii_field_name_keeps_its_entire_slot"
+      ]
+    },
+    {
+      "name": "go-type-identifier-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"type_identifier\")",
+      "expect": [
+        "documentation::collector::go_tests::go_type_argument_name_at_a_line_end_stays_pending"
+      ]
+    },
+    {
+      "name": "go-package-identifier-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"package_identifier\")",
+      "expect": [
+        "documentation::collector::go_tests::go_package_name_before_multiline_comment_stays_pending"
+      ]
+    },
+    {
+      "name": "go-float-literal-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"float_literal\")",
+      "expect": [
+        "documentation::collector::go_tests::go_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-imaginary-literal-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"imaginary_literal\")",
+      "expect": [
+        "documentation::collector::go_tests::go_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-rune-literal-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"rune_literal\")",
+      "expect": [
+        "documentation::collector::go_tests::go_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-nil-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"nil\")",
+      "expect": [
+        "documentation::collector::go_tests::go_keyword_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-true-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"true\")",
+      "expect": [
+        "documentation::collector::go_tests::go_keyword_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-false-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"false\")",
+      "expect": [
+        "documentation::collector::go_tests::go_keyword_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-iota-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named()",
+      "new": "(token.is_named() && token.kind() != \"iota\")",
+      "expect": [
+        "documentation::collector::go_tests::go_keyword_literals_before_a_line_end_stay_pending"
+      ]
+    },
+    {
+      "name": "go-arrow-ends-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named() || ",
+      "new": "token.is_named() || token.kind() == \"<-\" || ",
+      "expect": [
+        "documentation::collector::go_tests::go_line_ends_after_other_nonterminators_keep_the_member"
+      ]
+    },
+    {
+      "name": "go-tilde-ends-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named() || ",
+      "new": "token.is_named() || token.kind() == \"~\" || ",
+      "expect": [
+        "documentation::collector::go_tests::go_line_ends_after_other_nonterminators_keep_the_member"
+      ]
+    },
+    {
+      "name": "go-ellipsis-ends-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named() || ",
+      "new": "token.is_named() || token.kind() == \"...\" || ",
+      "expect": [
+        "documentation::collector::go_tests::go_line_ends_after_other_nonterminators_keep_the_member"
+      ]
+    },
+    {
+      "name": "go-interface-keyword-ends-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "token.is_named() || ",
+      "new": "token.is_named() || token.kind() == \"interface\" || ",
+      "expect": [
+        "documentation::collector::go_tests::go_line_ends_after_other_nonterminators_keep_the_member"
+      ]
     }
   ]
 }

@@ -4530,3 +4530,166 @@ fn go_wide_parameter_list_collection_observes_cancellation() {
     .unwrap();
     assert_eq!(index.associations().len(), 1);
 }
+
+#[cfg(feature = "go")]
+#[test]
+fn go_non_ascii_field_name_keeps_its_entire_slot() {
+    // Go 1.26.1 reads one named field, `Δ`, at 31..37; its name occupies two bytes.
+    let source = b"package p\ntype S struct {\n// d\n\xce\x94 int\n}\n";
+    assert_eq!(
+        view(source),
+        named(
+            comment(26..30, "d", [(0..1, Copied(29..30))]),
+            31..37,
+            &[31..33]
+        )
+    );
+    let parser = clean(source);
+    for index in &indexes(&parser, DocumentationOptions::default()) {
+        let association = index.associations().next().unwrap();
+        let slot = index.facts().associated_owner(association, 0).unwrap();
+        let Owner::Slot(slot) = slot.get() else {
+            panic!("expected a field slot")
+        };
+        assert_eq!(slot.source.pieces()[0].bytes(), "Δ".as_bytes());
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_type_argument_name_at_a_line_end_stays_pending() {
+    // Go reports a missing comma before the newline inside G[int\n]; the grammar
+    // gives one field node. The name token ends a line before `]`, so no owner is safe.
+    let source = b"package p\ntype S struct {\n// d\nX G[int\n]\n}\n";
+    assert_stays_pending(
+        source,
+        "field_declaration",
+        31..40,
+        comment(26..30, "d", [(0..1, Copied(29..30))]),
+        &[],
+    );
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_package_name_before_multiline_comment_stays_pending() {
+    // Go 1.26.1 stops this member at the end of `io` and rejects the dot.
+    // The grammar instead has one qualified type 31..52 and no ERROR node.
+    let source = b"package p\ntype S struct {\n// d\nio /* a\n b */ .Reader\n}\n";
+    assert_stays_pending(
+        source,
+        "field_declaration",
+        31..52,
+        comment(26..30, "d", [(0..1, Copied(29..30))]),
+        &[34..44],
+    );
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_literals_before_a_line_end_stay_pending() {
+    // Go 1.26.1 reports a missing comma before the newline in each call;
+    // the grammar keeps one field per source. The literal ends the Go line.
+    let sources: [(&[u8], Range<usize>); 3] = [
+        (
+            b"package p\ntype S struct {\n// d\nX [int(1.5\n)]int\n}\n",
+            31..47,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX [int(2i\n)]int\n}\n",
+            31..46,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX [int('c'\n)]int\n}\n",
+            31..47,
+        ),
+    ];
+    for (source, range) in sources {
+        assert_stays_pending(
+            source,
+            "field_declaration",
+            range,
+            comment(26..30, "d", [(0..1, Copied(29..30))]),
+            &[],
+        );
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_keyword_literals_before_a_line_end_stay_pending() {
+    // Go 1.26.1 reports a missing comma before the newline for each argument.
+    // The grammar keeps a full field; the named token must still end the Go line.
+    let sources: [(&[u8], Range<usize>); 4] = [
+        (
+            b"package p\ntype S struct {\n// d\nX [len(nil\n)]int\n}\n",
+            31..47,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX [int(true\n)]int\n}\n",
+            31..48,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX [int(false\n)]int\n}\n",
+            31..49,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX [int(iota\n)]int\n}\n",
+            31..48,
+        ),
+    ];
+    for (source, range) in sources {
+        assert_stays_pending(
+            source,
+            "field_declaration",
+            range,
+            comment(26..30, "d", [(0..1, Copied(29..30))]),
+            &[],
+        );
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_line_ends_after_other_nonterminators_keep_the_member() {
+    // Go and the grammar both read the full field or element after `<-`, `~`,
+    // `...`, and `interface`. A newline at any of them inserts no semicolon.
+    let cases: [(&[u8], View); 3] = [
+        (
+            b"package p\ntype S struct {\n// d\nX chan<-\nint\n}\n",
+            named(
+                comment(26..30, "d", [(0..1, Copied(29..30))]),
+                31..43,
+                &[31..32],
+            ),
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nF func(a ...\nint)\n}\n",
+            named(
+                comment(26..30, "d", [(0..1, Copied(29..30))]),
+                31..48,
+                &[31..32],
+            ),
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX interface\n{}\n}\n",
+            named(
+                comment(26..30, "d", [(0..1, Copied(29..30))]),
+                31..45,
+                &[31..32],
+            ),
+        ),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(view(source), expected, "{}", source.escape_ascii());
+    }
+    let source = b"package p\ntype I interface {\n// d\nA | ~\nint\n}\n";
+    assert_eq!(
+        view(source),
+        owned(
+            comment(29..33, "d", [(0..1, Copied(32..33))]),
+            "type_elem",
+            34..43
+        )
+    );
+}
