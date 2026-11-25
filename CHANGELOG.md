@@ -50,6 +50,14 @@ for historical reference.
   Marker and positional runs retain excluded-prefix and suffix composition
   metadata. Legacy positional coverage streams without buffering members. (#1659)
 
+- The unstable AST documentation collector now gives Java field declarations and
+  interface or annotation-type constant declarations owners: the declaration
+  and one field slot per declarator, spelled by the declarator's name. A
+  documentation comment before such a declaration is one document associated
+  with every slot, as JDK 25 attaches it. A declaration that holds a syntax
+  error, excluded bytes or an unnamed (`_`) declarator stays a pending owner.
+  Legacy documentation rows are unchanged. (#1666)
+
 - Added unstable AST-crate source-marker `Checker` hooks and streaming requests
   that retain selection, source pieces and attachment uncertainty. The separate
   legacy event stream preserves existing metric behavior. (#1658)

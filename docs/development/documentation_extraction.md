@@ -103,7 +103,7 @@ cache.
 | --- | --- |
 | Physical fragment | One source occurrence; ordered included byte ranges; optional exact syntax node |
 | Logical document | Ordered fragment composition, role and text state; shared by its associations |
-| Association | One document, its convention/provenance, binding wrapper and resolved owner or unresolved candidates |
+| Association | One document, its convention/provenance, binding wrapper and resolved owners or unresolved candidates |
 | Owner | Exact node, location-backed slot, file/root, logical declaration group or virtual target |
 
 A line-comment fragment excludes its terminating LF/CRLF, even when the grammar
@@ -115,7 +115,7 @@ braces or quotes. Included-range intersection applies to each of these spellings
 
 An occurrence's identity is not its text. Equal strings at different offsets
 remain different fragments. A document describing several qualifying fields
-is stored once and has several resolved associations. A conditional declaration
+is stored once; one resolved association lists them. A conditional declaration
 with alternative branches has unresolved alternatives, not several claims that
 all branches are active.
 
