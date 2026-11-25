@@ -1646,7 +1646,7 @@ function f(x: number): number;\n",
         },
     ];
     for row in rows {
-        let name = row.source.escape_ascii();
+        let name = format!("{:?}: {}", row.language, row.source.escape_ascii());
         let parser =
             crate::langs::AnyParser::parse(row.language, row.source.to_vec(), None, None).unwrap();
         assert!(!parser.ts_tree().root_node().has_error(), "{name}");

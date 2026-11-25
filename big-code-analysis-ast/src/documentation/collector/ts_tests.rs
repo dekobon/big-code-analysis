@@ -205,6 +205,7 @@ fn run_of(origin: &Origin<'_>) -> Run {
 
 #[cfg(feature = "typescript")]
 fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> View {
+    // bca: suppress(halstead) -- one reading of the four published lists and the rules they share.
     let facts = index.facts();
     let ordered: Vec<_> = index.documents().collect();
     let position = |document| ordered.iter().position(|known| *known == document).unwrap();
@@ -333,10 +334,9 @@ fn view(language: LANG, source: &[u8], retain_unbound: bool) -> View {
 }
 
 #[cfg(feature = "typescript")]
-#[allow(clippy::needless_pass_by_value)]
-fn check(language: LANG, source: &[u8], expected: View) {
+fn check(language: LANG, source: &[u8], expected: &View) {
     assert_eq!(
-        view(language, source, false),
+        &view(language, source, false),
         expected,
         "{language:?}: {}",
         source.escape_ascii()
@@ -351,12 +351,7 @@ fn check_retained(
     disposition: CandidateDisposition,
     range: Range<usize>,
 ) {
-    assert_eq!(
-        view(language, source, false),
-        expected,
-        "{language:?}: {}",
-        source.escape_ascii()
-    );
+    check(language, source, &expected);
     expected.evidence.push((disposition, range));
     assert_eq!(
         view(language, source, true),
@@ -392,7 +387,7 @@ fn leading_block_documents_the_declaration_after_it(language: LANG) {
         check(
             language,
             source,
-            owned(comment(0..8, "d", [(0..1, Copied(4..5))]), owner),
+            &owned(comment(0..8, "d", [(0..1, Copied(4..5))]), owner),
         );
     }
 }
@@ -452,7 +447,7 @@ fn class_or_interface_member_owns_its_leading_block(language: LANG) {
         check(
             language,
             source,
-            owned(comment(fragment, "d", [(0..1, Copied(text))]), owner),
+            &owned(comment(fragment, "d", [(0..1, Copied(text))]), owner),
         );
     }
 }
@@ -473,7 +468,7 @@ fn enum_member_owns_its_leading_block(language: LANG) {
     check(
         language,
         b"enum E {\n  /** a */\n  A,\n  /** b */\n  B = 1,\n}\n",
-        View {
+        &View {
             documents: vec![
                 comment(11..19, "a", [(0..1, Copied(15..16))]),
                 comment(27..35, "b", [(0..1, Copied(31..32))]),
@@ -492,7 +487,7 @@ fn enum_member_owns_its_leading_block(language: LANG) {
     check(
         language,
         b"enum E {\n  /** s */\n  \"s\",\n}\n",
-        owned(
+        &owned(
             comment(11..19, "s", [(0..1, Copied(15..16))]),
             ("string", 22..25),
         ),
@@ -515,7 +510,7 @@ fn each_overload_signature_and_the_implementation_own_their_block(language: LANG
     check(
         language,
         b"/**one*/\nfunction f(x: string): string;\n/**two*/\nfunction f(x: number): number;\n",
-        View {
+        &View {
             documents: vec![
                 comment(0..8, "one", [(0..3, Copied(3..6))]),
                 comment(40..48, "two", [(0..3, Copied(43..46))]),
@@ -544,7 +539,7 @@ fn each_overload_signature_and_the_implementation_own_their_block(language: LANG
         language,
         b"/** sig */\nfunction f(x: string): string;\nfunction f(x: number): number;\n\
 /** impl */\nfunction f(x: any): any { return x; }\n",
-        View {
+        &View {
             documents: vec![
                 comment(0..10, "sig", [(0..3, Copied(4..7))]),
                 comment(73..84, "impl", [(0..4, Copied(77..81))]),
@@ -573,7 +568,7 @@ fn each_overload_signature_and_the_implementation_own_their_block(language: LANG
         language,
         b"class C {\n  /** one */\n  m(x: string): void;\n  /** two */\n  m(x: number): void;\n  \
 /** impl */\n  m(x: any): void {}\n}\n",
-        View {
+        &View {
             documents: vec![
                 comment(12..22, "one", [(0..3, Copied(16..19))]),
                 comment(47..57, "two", [(0..3, Copied(51..54))]),
@@ -655,13 +650,13 @@ fn block_before_export_or_declare_documents_the_wrapped_declaration(language: LA
         check(
             language,
             source,
-            wrapped(comment(0..8, "d", [(0..1, Copied(4..5))]), owner, binding),
+            &wrapped(comment(0..8, "d", [(0..1, Copied(4..5))]), owner, binding),
         );
     }
     check(
         language,
         b"/**audit*/\ndeclare function f(): void;\n",
-        wrapped(
+        &wrapped(
             comment(0..10, "audit", [(0..5, Copied(3..8))]),
             ("function_signature", 19..38),
             ("ambient_declaration", 11..38),
@@ -730,13 +725,13 @@ fn block_before_a_decorator_documents_the_decorated_class_or_member(language: LA
         check(
             language,
             source,
-            owned(comment(fragment, "d", [(0..1, Copied(text))]), owner),
+            &owned(comment(fragment, "d", [(0..1, Copied(text))]), owner),
         );
     }
     check(
         language,
         b"/** d */\n@dec\nexport class C {}\n",
-        wrapped(
+        &wrapped(
             comment(0..8, "d", [(0..1, Copied(4..5))]),
             ("class_declaration", 21..31),
             ("export_statement", 9..31),
@@ -779,6 +774,22 @@ fn nearest_block_before_the_declaration_is_selected(language: LANG) {
         CandidateDisposition::Superseded,
         0..10,
     );
+    let source = b"/** a */\n/** b */\n/** c */\nfunction f(): void {}\n";
+    let mut expected = owned(
+        comment(18..26, "c", [(0..1, Copied(22..23))]),
+        ("function_declaration", 27..48),
+    );
+    check(language, source, &expected);
+    expected.evidence.extend([
+        (CandidateDisposition::Superseded, 0..8),
+        (CandidateDisposition::Superseded, 9..17),
+    ]);
+    assert_eq!(
+        view(language, source, true),
+        expected,
+        "{language:?}: {}",
+        source.escape_ascii()
+    );
     // The plain `//` comment is not a candidate, even with retention enabled.
     let source = b"/** d */\n// plain\nfunction f(): void {}\n";
     let expected = owned(
@@ -814,22 +825,22 @@ fn module_tag_makes_the_block_a_file_document(language: LANG) {
     check(
         language,
         b"/** @packageDocumentation */\nexport const x = 1;\n",
-        with_const,
+        &with_const,
     );
     check(
         language,
         b"/** @module */\nfunction f(): void {}\n",
-        file_owned(comment(0..14, "@module", [(0..7, Copied(4..11))]), 0..37),
+        &file_owned(comment(0..14, "@module", [(0..7, Copied(4..11))]), 0..37),
     );
     check(
         language,
         b"/**\n * @module m\n */\nfunction f(): void {}\n",
-        file_owned(comment(0..20, "@module m", [(0..9, Copied(7..16))]), 0..43),
+        &file_owned(comment(0..20, "@module m", [(0..9, Copied(7..16))]), 0..43),
     );
     check(
         language,
         b"/** @packageDocumentation */\n/** d */\nfunction f(): void {}\n",
-        View {
+        &View {
             documents: vec![
                 file(comment(
                     0..28,
@@ -871,7 +882,7 @@ fn block_text_is_cleaned_and_mapped_to_its_source(language: LANG) {
     check(
         language,
         b"/**audit*/\nfunction f(): void {}\n",
-        owned(
+        &owned(
             comment(0..10, "audit", [(0..5, Copied(3..8))]),
             ("function_declaration", 11..32),
         ),
@@ -879,7 +890,7 @@ fn block_text_is_cleaned_and_mapped_to_its_source(language: LANG) {
     check(
         language,
         b"/**\n * a  \n *   b\n */\nfunction f(): void {}\n",
-        owned(
+        &owned(
             comment(
                 0..21,
                 "a  \n  b",
@@ -895,7 +906,7 @@ fn block_text_is_cleaned_and_mapped_to_its_source(language: LANG) {
     check(
         language,
         b"/**\r\n * a\r\n * b\r\n */\r\nfunction f(): void {}\r\n",
-        owned(
+        &owned(
             comment(
                 0..20,
                 "a\nb",
@@ -927,7 +938,7 @@ fn tsx_function_with_a_jsx_element_owns_its_leading_block() {
     check(
         LANG::Tsx,
         b"/**audit*/\nfunction f() { return <div/>; }\n",
-        owned(
+        &owned(
             comment(0..10, "audit", [(0..5, Copied(3..8))]),
             ("function_declaration", 11..42),
         ),
@@ -935,7 +946,7 @@ fn tsx_function_with_a_jsx_element_owns_its_leading_block() {
     check(
         LANG::Tsx,
         b"/** d */\nexport default function App() { return <div/>; }\n",
-        wrapped(
+        &wrapped(
             comment(0..8, "d", [(0..1, Copied(4..5))]),
             ("function_declaration", 24..57),
             ("export_statement", 9..57),
@@ -947,6 +958,7 @@ fn tsx_function_with_a_jsx_element_owns_its_leading_block() {
 // const bindings and the child of a declare wrapper gain owner projections.
 #[cfg(feature = "typescript")]
 fn forms_without_an_owner_keep_their_document_and_no_association(language: LANG) {
+    // bca: suppress(halstead) -- one table of the ten cases of the group and their views.
     let source = b"/** above */\ndeclare /** inside */ function f(): void;\n";
     check_retained(
         language,
@@ -1013,7 +1025,7 @@ fn forms_without_an_owner_keep_their_document_and_no_association(language: LANG)
         ),
     ];
     for (source, document, bound, extra) in rows {
-        check(language, source, unowned(document, bound, extra));
+        check(language, source, &unowned(document, bound, extra));
     }
 }
 
@@ -1070,6 +1082,7 @@ fn unnamed(parser: &AnyParser, kind: &str, range: Range<usize>) {
 #[cfg(feature = "typescript")]
 #[allow(clippy::too_many_lines)]
 fn grammar_shapes_the_unit_relies_on(language: LANG) {
+    // bca: suppress(abc, halstead) -- sixteen independent shapes, each a parse and its assertions.
     let parser = clean(
         language,
         b"export function f(): void {}\nexport default function g(): void {}\n",
@@ -1115,8 +1128,14 @@ fn grammar_shapes_the_unit_relies_on(language: LANG) {
 
     let parser = clean(language, b"export default function() {}\n");
     let export = node_at(&parser, "export_statement", 0..28);
-    field(export, "value", ("function_expression", 15..28));
-    assert!(export.child_by_field_name("declaration").is_none());
+    assert_eq!(
+        parts(export),
+        [
+            (None, ("export", 0..6)),
+            (None, ("default", 7..14)),
+            (Some("value"), ("function_expression", 15..28)),
+        ]
+    );
     let parser = clean(language, b"export default class {}\n");
     field(
         node_at(&parser, "export_statement", 0..23),
@@ -1371,8 +1390,9 @@ fn grammar_shapes_the_unit_relies_on(language: LANG) {
         ]
     );
     let comment = node_at(&parser, "comment", 0..14);
+    let function = node_at(&parser, "function_declaration", 16..37);
     assert_eq!(comment.end_position().row - comment.start_position().row, 2);
-    assert_eq!(&source[comment.end_byte()..16], b"\r\n");
+    assert_eq!(&source[comment.end_byte()..function.start_byte()], b"\r\n");
 }
 
 #[cfg(feature = "typescript")]
