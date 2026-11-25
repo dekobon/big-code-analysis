@@ -1235,7 +1235,7 @@ fn documentation_php_source_and_legacy_views_are_independent() {
         },
         Row {
             name: "l03_several_names",
-            source: b"<?php\nclass C {\n    /** ab */\n    public $a, $b = 2;\n\
+            source: b"<?php\nclass C {\n    /** ab */\n    public $a, $b = 2;\n    \
                       /** kl */\n    const A = 1, B = 2;\n}\n",
             loc: [7, 5, 2, 2, 0, 2],
             dloc_rows: &[2, 4],

@@ -42,7 +42,6 @@ enum Holder {
 #[derive(Debug, PartialEq, Eq)]
 struct Link {
     document: usize,
-    resolution: Resolution,
     owner: Holder,
 }
 
@@ -99,11 +98,7 @@ fn file(document: Doc) -> Doc {
 fn owned(document: Doc, owner: Holder) -> View {
     View {
         documents: vec![document],
-        associations: vec![Link {
-            document: 0,
-            resolution: Resolution::Resolved,
-            owner,
-        }],
+        associations: vec![Link { document: 0, owner }],
         ..View::default()
     }
 }
@@ -189,6 +184,7 @@ fn origin_run(origin: &Origin<'_>) -> Run {
 
 #[cfg(feature = "php")]
 fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> View {
+    // bca: suppress(halstead) -- one reading of the four published lists and the rules they share.
     let facts = index.facts();
     let ordered: Vec<_> = index.documents().collect();
     let documents = ordered
@@ -241,7 +237,6 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
             };
             Link {
                 document: ordered.iter().position(|known| *known == document).unwrap(),
-                resolution: attachment.resolution,
                 owner: holder,
             }
         })
@@ -465,12 +460,10 @@ fn php_first_file_rule_before_a_class_a_function_and_a_namespace() {
                 associations: vec![
                     Link {
                         document: 0,
-                        resolution: Resolution::Resolved,
-                        owner: Holder::File(root)
+                        owner: Holder::File(root),
                     },
                     Link {
                         document: 1,
-                        resolution: Resolution::Resolved,
                         owner: Holder::Node(kind, range),
                     },
                 ],
@@ -726,12 +719,10 @@ fn php_inline_html_before_the_opening_tag_is_preamble() {
             associations: vec![
                 Link {
                     document: 0,
-                    resolution: Resolution::Resolved,
-                    owner: Holder::File(0..53)
+                    owner: Holder::File(0..53),
                 },
                 Link {
                     document: 1,
-                    resolution: Resolution::Resolved,
                     owner: Holder::Node("function_definition", 37..52),
                 },
             ],
@@ -799,8 +790,8 @@ fn php_grammar_shapes_the_unit_relies_on() {
     let source = b"<?php\n/** file */\n/** item */\nclass C {}\n";
     let parser = clean(source);
     let root = parser.ts_tree().root_node();
-    assert_eq!(source.len(), 41);
     assert_eq!(site(root), ("program", 0..41));
+    assert_eq!(root.end_byte(), source.len());
     assert_eq!(
         parts(root),
         [
