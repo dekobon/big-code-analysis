@@ -321,6 +321,19 @@ fn groovy_type_declarations_own_the_block_above_them() {
             source.escape_ascii()
         );
     }
+    // Only the nearest block documents the class; the two before it are retained on request.
+    let source = b"/** a */\n/** b */\n/** c */\nclass C {}\n";
+    let mut expected = owned(
+        comment(18..26, "c", [(0..1, Copied(22..23))]),
+        "class_declaration",
+        27..37,
+    );
+    assert_eq!(view(source), expected);
+    expected.evidence.extend([
+        (CandidateDisposition::Superseded, 0..8),
+        (CandidateDisposition::Superseded, 9..17),
+    ]);
+    assert_eq!(retained(source), expected);
 }
 
 #[cfg(feature = "groovy")]
@@ -469,7 +482,14 @@ fn groovy_script_level_method_owns_the_block_above_it() {
 #[cfg(feature = "groovy")]
 #[test]
 fn groovy_plain_comments_are_no_documentation() {
-    for source in [b"/* d */\nclass C {}\n".as_slice(), b"// d\nclass C {}\n"] {
+    let plain: [(&[u8], &str, Range<usize>); 2] = [
+        (b"/* d */\nclass C {}\n", "block_comment", 0..7),
+        (b"// d\nclass C {}\n", "line_comment", 0..4),
+    ];
+    for (source, kind, range) in plain {
+        let parser = clean(source);
+        // The tree holds the plain comment, so each empty view is the collector's answer to it.
+        assert_eq!(parts(parser.ts_tree().root_node())[0], (kind, range));
         assert_eq!(view(source), View::default(), "{}", source.escape_ascii());
         assert_eq!(
             retained(source),
@@ -749,6 +769,7 @@ fn groovy_grammar_shapes_the_unit_relies_on() {
     let parser = clean(b"/**a*/ class C { /**b*/ C() {} }\n");
     let comment = node_at(&parser, "groovydoc_comment", 0..6);
     let class = comment.next_sibling().unwrap();
+    assert_eq!(comment.parent(), Some(parser.ts_tree().root_node()));
     assert_eq!(site(class), ("class_declaration", 7..32));
     assert_eq!(comment.end_position().row, class.start_position().row);
     let body = class.child_by_field_name("body").unwrap();
