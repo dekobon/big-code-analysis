@@ -467,8 +467,10 @@ Offsets refer to the actual parsed buffer, including file-loading normalization
 and C-family masking. `Ast::source()` is that buffer. Masking preserves comment
 bytes but does not justify recovering an original identifier from dollar runs.
 
-Logical filename is explicit caller metadata. The facade issue adds a private
-path-provenance field populated by `Ast::from_path`; today no such field exists.
+Logical filename is explicit caller metadata. `Ast` holds a private
+path-provenance field populated by `Ast::from_path`: the final component of the
+path. The hidden `Ast::documentation` supplies it when the context names no
+logical filename; an explicit one always wins.
 `Source::with_name` and adopted-tree display labels remain display labels. A
 logical filename is context for documentation rules, not a filesystem credential.
 
