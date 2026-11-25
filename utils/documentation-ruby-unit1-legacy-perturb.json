@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_ruby_source_and_legacy_views_are_independent"],
+  "cases": [
+    {
+      "name": "ruby-magic-comment-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        b\"frozen_string_literal\",\n        b\"frozen-string-literal\",",
+      "new": "        b\"frozen-string-literal\",",
+      "expect": ["metrics::loc::documentation_tests::documentation_ruby_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "ruby-body-statement-not-descended",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "            Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0),",
+      "new": "            Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0),",
+      "expect": ["metrics::loc::documentation_tests::documentation_ruby_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "ruby-method-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/ruby.rs",
+      "old": "        owns [\n            Method,\n            SingletonMethod,\n            Class,\n            Module,",
+      "new": "        owns [\n            SingletonMethod,\n            Class,\n            Module,",
+      "expect": ["metrics::loc::documentation_tests::documentation_ruby_source_and_legacy_views_are_independent"]
+    }
+  ]
+}
