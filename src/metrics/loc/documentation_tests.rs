@@ -1207,7 +1207,7 @@ fn documentation_lua_source_and_legacy_views_are_independent() {
 
 #[cfg(feature = "ruby")]
 #[test]
-#[allow(clippy::too_many_lines, clippy::arithmetic_side_effects)]
+#[allow(clippy::too_many_lines)]
 fn documentation_ruby_source_and_legacy_views_are_independent() {
     use big_code_analysis_ast::documentation::streaming::positional::{
         evidence_built, members_materialized, positional_runs_collected,

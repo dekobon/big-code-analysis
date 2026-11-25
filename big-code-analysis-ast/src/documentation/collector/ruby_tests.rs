@@ -410,7 +410,12 @@ fn ruby_hash_rows_on_consecutive_rows_join_into_one_run() {
         ),
     ];
     for (source, document, owner) in sources {
-        assert_eq!(view(source), owned(document, "method", owner));
+        assert_eq!(
+            view(source),
+            owned(document, "method", owner),
+            "{}",
+            source.escape_ascii()
+        );
     }
 }
 
@@ -525,6 +530,28 @@ fn ruby_run_inside_a_class_body_documents_the_method_below_it() {
             27..37
         )
     );
+    assert_eq!(
+        view(b"class C\n# a\ndef f; end\n# b\ndef g; end\nend\n"),
+        View {
+            documents: vec![
+                comment(8..11, "a", [(0..1, Copied(10..11))]),
+                comment(23..26, "b", [(0..1, Copied(25..26))]),
+            ],
+            associations: vec![
+                Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owner: ("method", 12..22),
+                },
+                Link {
+                    document: 1,
+                    resolution: Resolution::Resolved,
+                    owner: ("method", 27..37),
+                },
+            ],
+            ..View::default()
+        }
+    );
 }
 
 #[cfg(feature = "ruby")]
@@ -566,7 +593,12 @@ fn ruby_hash_marker_and_one_space_are_removed() {
         ),
     ];
     for (source, document, owner) in sources {
-        assert_eq!(view(source), owned(document, "method", owner));
+        assert_eq!(
+            view(source),
+            owned(document, "method", owner),
+            "{}",
+            source.escape_ascii()
+        );
     }
 }
 
@@ -669,7 +701,9 @@ fn ruby_pending_forms_keep_their_outcome() {
                     pending(projection, Some((kind, range)), None),
                 ]),
                 ..View::default()
-            }
+            },
+            "{}",
+            source.escape_ascii()
         );
     }
 }
@@ -691,10 +725,10 @@ fn ruby_grammar_shapes_the_unit_relies_on() {
         ]
     );
     for range in [0..3, 4..7] {
-        let comment = node_at(&parser, "comment", range.clone());
+        let comment = node_at(&parser, "comment", range);
         assert!(comment.is_extra());
         assert_eq!(comment.parent(), Some(root));
-        assert_eq!(source[range.end], b'\n');
+        assert_eq!(source[comment.end_byte()], b'\n');
     }
     let method = node_at(&parser, "method", 8..17);
     assert_eq!(
@@ -705,9 +739,10 @@ fn ruby_grammar_shapes_the_unit_relies_on() {
     let source = b"=begin\naudit\n=end\ndef f\nend\n";
     let parser = clean(source);
     let comment = node_at(&parser, "comment", 0..17);
+    let method = comment.next_sibling().unwrap();
     assert_eq!(comment.parent(), Some(parser.ts_tree().root_node()));
-    assert_eq!(comment.next_sibling().map(site), Some(("method", 18..27)));
-    assert_eq!(&source[comment.end_byte()..18], b"\n");
+    assert_eq!(site(method), ("method", 18..27));
+    assert_eq!(&source[comment.end_byte()..method.start_byte()], b"\n");
     assert_eq!(comment.end_position().row - comment.start_position().row, 2);
 
     let parser = clean(b"class C\n# a\ndef f; end\n# b\ndef g; end\nend\n");
