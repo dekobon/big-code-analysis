@@ -1,0 +1,161 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "java-field-projection-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if false\n            && self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_undocumented_fields_have_slots_and_no_assessment", "documentation::collector::java_tests::java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved"]
+    },
+    {
+      "name": "java-field-projection-reaches-groovy",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::form_tests::groovy_field_form_is_pending_in_default_queries"]
+    },
+    {
+      "name": "java-constant-declaration-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "            && matches!(node.kind(), \"field_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_constants_own_field_slots"]
+    },
+    {
+      "name": "java-error-field-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && self.index.profile != Profile::Javadoc)\n            || node.is_missing()\n            || !self",
+      "expect": ["documentation::collector::java_tests::java_field_with_a_syntax_error_stays_pending"]
+    },
+    {
+      "name": "java-uncovered-field-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                .covers_with_budget(node.byte_range(), budget)?\n        {\n            return Ok(());",
+      "new": "                .covers_with_budget(node.byte_range(), budget)?\n            && self.index.profile != Profile::Javadoc\n        {\n            return Ok(());",
+      "expect": ["documentation::collector::java_tests::java_field_and_excluded_ranges"]
+    },
+    {
+      "name": "java-later-declarators-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                names.push(name);\n            }",
+      "new": "                names.push(name);\n                break;\n            }",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child", "documentation::collector::java_tests::java_field_width_costs_linear_work"]
+    },
+    {
+      "name": "java-slot-source-is-the-declarator",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                names.push(name);",
+      "new": "                names.push(child);",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_constants_own_field_slots", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "java-unnamed-declarator-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            _ => return Ok(None),",
+      "new": "            _ => continue,",
+      "expect": ["documentation::collector::java_tests::java_field_with_an_unnamed_declarator_stays_pending_as_a_whole", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child", "documentation::collector::java_tests::java_pending_field_comment_with_a_raw_unicode_escape_keeps_an_ownerless_association"]
+    },
+    {
+      "name": "java-any-first-child-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            Some(&name) if canonical.nodes[name.0].evidence.node().kind() == \"identifier\" => {",
+      "new": "            Some(&name) => {",
+      "expect": ["documentation::collector::form_tests::java_unnamed_field_form_is_pending_in_default_queries", "documentation::collector::java_tests::java_field_with_an_unnamed_declarator_stays_pending_as_a_whole", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "java-slot-ordinal-off-by-one",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                ordinal: fields.len(),",
+      "new": "                ordinal: fields.len() + 1,",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_field_width_costs_linear_work"]
+    },
+    {
+      "name": "java-slot-role-is-binding",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                enclosing: declaration,\n                role: SlotRole::Field,",
+      "new": "                enclosing: declaration,\n                role: SlotRole::Binding,",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot"]
+    },
+    {
+      "name": "java-slot-enclosing-is-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let declaration = OwnerId(self.index.facts.owners.len());",
+      "new": "        let declaration = OwnerId(0);",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_field_queries_answer_per_slot_and_per_declaration"]
+    },
+    {
+      "name": "java-declaration-node-stays-the-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields);",
+      "new": "        let _ = fields;",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_field_queries_answer_per_slot_and_per_declaration"]
+    },
+    {
+      "name": "java-slot-owner-node-is-the-root",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            self.index.owner_nodes.push(id);\n            fields.push(field);",
+      "new": "            self.index.owner_nodes.push(NodeId(0));\n            fields.push(field);",
+      "expect": ["documentation::collector::java_tests::java_field_beside_recovery_keeps_its_slots"]
+    },
+    {
+      "name": "java-declarator-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;",
+      "new": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        let _ = budget;",
+      "expect": ["documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "java-slot-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        for name in names {\n            budget.step()?;",
+      "new": "        for name in names {",
+      "expect": ["documentation::collector::java_tests::java_field_width_collection_observes_cancellation_in_the_slot_loop"]
+    },
+    {
+      "name": "java-slot-pieces-ignore-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "            let source = self\n                .index\n                .source\n                .pieces_with_budget(spelling, &crate::documentation::budget::NoBudget)?;",
+      "expect": ["documentation::collector::java_tests::java_field_width_collection_observes_cancellation_in_the_slot_loop"]
+    },
+    {
+      "name": "java-field-names-requested-from-the-cursor",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))",
+      "new": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))\n        || (profile == Profile::Javadoc && kind == \"field_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_field_width_costs_linear_work"]
+    },
+    {
+      "name": "java-every-declaration-is-a-pending-owner",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "        Profile::Javadoc => matches!(node.kind(), \"field_declaration\" | \"constant_declaration\"),",
+      "new": "        Profile::Javadoc => true,",
+      "expect": ["documentation::collector::java_tests::java_declarations_own_their_leading_documentation", "documentation::collector::java_tests::java_record_documentation_belongs_to_the_type"]
+    },
+    {
+      "name": "java-forward-scan-reads-past-unnamed-tokens",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (!skips(&n, ancestors)?\n                && !read_past_error_with_budget::<R, _>(&n, code, ancestors, view, budget)?)",
+      "new": "            || (n.is_named()\n                && !skips(&n, ancestors)?\n                && !read_past_error_with_budget::<R, _>(&n, code, ancestors, view, budget)?)",
+      "expect": ["documentation::collector::java_tests::java_comments_without_a_declaration_produce_no_document", "documentation::collector::java_tests::java_comment_inside_a_field_declaration_does_not_document_it"]
+    },
+    {
+      "name": "java-name-across-adjacent-ranges-is-not-a-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;\n            if source.pieces().len() != 1 {\n                return Ok(());\n            }",
+      "expect": ["documentation::collector::java_tests::java_field_and_excluded_ranges"]
+    },
+    {
+      "name": "java-raw-unicode-escape-leaves-the-association-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "        if prelex {\n            draft.unresolved = Some(UnresolvedReason::GrammarBoundary);\n        }",
+      "new": "        if prelex {\n            draft.unresolved = None;\n        }",
+      "expect": ["documentation::collector::java_tests::java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved", "documentation::collector::java_tests::java_pending_field_comment_with_a_raw_unicode_escape_keeps_an_ownerless_association"]
+    }
+  ]
+}

@@ -1204,3 +1204,101 @@ fn documentation_lua_source_and_legacy_views_are_independent() {
         comment_runs: 1,
     });
 }
+
+#[cfg(feature = "java")]
+#[test]
+fn documentation_java_field_owners_leave_legacy_rows_unchanged() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+    for (source, documents, owners, loc) in [
+        (
+            "class C { /**audit*/ int x; }\n",
+            1,
+            vec![1],
+            [1, 1, 0, 1, 0, 1],
+        ),
+        (
+            "class C { /**audit*/ int a, b; }\n",
+            1,
+            vec![2],
+            [1, 1, 0, 1, 0, 1],
+        ),
+        (
+            "interface I { /**audit*/ int K = 1; }\n",
+            1,
+            vec![1],
+            [1, 1, 0, 1, 0, 1],
+        ),
+        (
+            "enum E { /**a*/ A, /**b*/ B; /**f*/ int x; }\n",
+            3,
+            vec![1, 1, 1],
+            [1, 1, 0, 1, 0, 1],
+        ),
+        (
+            "class C {\n  /** a */\n  int x,\n  /** b */\n  y;\n}\n",
+            1,
+            vec![2],
+            [6, 4, 0, 2, 0, 1],
+        ),
+        (
+            "class C {\n/** d */\nint x\n/** e */\nint y;\n}\n",
+            1,
+            vec![],
+            [6, 5, 0, 2, 0, 1],
+        ),
+        (
+            "class C {\n  int x;\n  /**d*/\n  ;\n  void f() {}\n}\n",
+            0,
+            vec![],
+            [6, 5, 0, 1, 0, 0],
+        ),
+    ] {
+        let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(index.documents().len(), documents, "{source}");
+        assert_eq!(
+            index
+                .associations()
+                .map(|association| association.get().owner_count())
+                .collect::<Vec<_>>(),
+            owners,
+            "{source}"
+        );
+        let before = observations();
+        let built = evidence_built::observed();
+        let space = analyze(
+            Source::new(LANG::Java, source.as_bytes()),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let stats = &space.metrics.loc;
+        assert_eq!(
+            [
+                stats.sloc(),
+                stats.ploc(),
+                stats.lloc(),
+                stats.cloc(),
+                stats.blank(),
+                stats.dloc()
+            ],
+            loc,
+            "{source}"
+        );
+        let after = observations();
+        assert_eq!(evidence_built::observed() - built, 0, "{source}");
+        assert_eq!(after.renders - before.renders, 0, "{source}");
+        assert_eq!(after.visits - before.visits, 0, "{source}");
+        assert_eq!(
+            after.owner_projections - before.owner_projections,
+            0,
+            "{source}"
+        );
+        assert_eq!(after.polls - before.polls, 0, "{source}");
+    }
+}

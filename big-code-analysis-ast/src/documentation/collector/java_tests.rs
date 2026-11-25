@@ -1,13 +1,25 @@
-#![allow(clippy::single_range_in_vec_init)]
+#![allow(clippy::single_range_in_vec_init, clippy::naive_bytecount)]
 
 #[cfg(feature = "java")]
 use crate::documentation::*;
+
+#[cfg(feature = "java")]
+use crate::documentation::budget::WorkBudget;
 
 #[cfg(feature = "java")]
 use crate::{AnyParser, LANG};
 
 #[cfg(feature = "java")]
 use std::ops::Range;
+
+#[cfg(feature = "java")]
+use std::cell::Cell;
+
+#[cfg(feature = "java")]
+const PENDING_DOCUMENT: &str = "Selected local or wrapper form awaits owner projection";
+
+#[cfg(feature = "java")]
+const PENDING_OWNER: &str = "Recognized declaration requires a semantic projection";
 
 #[cfg(feature = "java")]
 fn spelled(node: tree_sitter::Node<'_>) -> String {
@@ -178,11 +190,49 @@ fn both(
 }
 
 #[cfg(feature = "java")]
+fn restricted(source: &str, included: &[Range<usize>]) -> tree_sitter::Tree {
+    let point = |offset: usize| {
+        let before = &source.as_bytes()[..offset];
+        tree_sitter::Point::new(
+            before.iter().filter(|byte| **byte == b'\n').count(),
+            before
+                .iter()
+                .rev()
+                .take_while(|byte| **byte != b'\n')
+                .count(),
+        )
+    };
+    let ranges: Vec<_> = included
+        .iter()
+        .map(|range| tree_sitter::Range {
+            start_byte: range.start,
+            end_byte: range.end,
+            start_point: point(range.start),
+            end_point: point(range.end),
+        })
+        .collect();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Java.tree_sitter_language().unwrap())
+        .unwrap();
+    parser.set_included_ranges(&ranges).unwrap();
+    parser.parse(source, None).unwrap()
+}
+
+#[cfg(feature = "java")]
 fn unbound() -> DocumentationOptions {
     DocumentationOptions {
         retain_unbound: true,
         ..DocumentationOptions::default()
     }
+}
+
+#[cfg(feature = "java")]
+fn slot(ordinal: usize, name: Range<usize>, declaration: &str) -> String {
+    format!(
+        "Slot(Field #{ordinal} {}..{} in Node({declaration}))",
+        name.start, name.end
+    )
 }
 
 #[cfg(feature = "java")]
@@ -505,4 +555,1057 @@ fn java_field_grammar_names_declarators_by_kind_and_first_child() {
     assert_eq!(declarations, 13);
     // expected: 3 + 2 + 1 + 1 + 2 + 2 + 2 + 2 + 1 + 1 + 1 + 2.
     assert_eq!(declarators, 20);
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_declarators_each_own_a_field_slot() {
+    for (source, fragment, declaration, names) in [
+        (
+            "class C { /**audit*/ int x; }",
+            10..20,
+            "field_declaration 21..27",
+            vec![25..26],
+        ),
+        (
+            "class C { /**audit*/ int a, b; }",
+            10..20,
+            "field_declaration 21..30",
+            vec![25..26, 28..29],
+        ),
+        (
+            "class C { /**audit*/ int a[], b; }",
+            10..20,
+            "field_declaration 21..32",
+            vec![25..26, 30..31],
+        ),
+        (
+            "class C { /**audit*/ int a = 1, b[] = {2}, c; }",
+            10..20,
+            "field_declaration 21..45",
+            vec![25..26, 32..33, 43..44],
+        ),
+        (
+            "class C { /**audit*/ @Deprecated int x; }",
+            10..20,
+            "field_declaration 21..39",
+            vec![37..38],
+        ),
+        (
+            "class C { /**audit*/ public static final int X = 1; }",
+            10..20,
+            "field_declaration 21..51",
+            vec![45..46],
+        ),
+    ] {
+        both(source, DocumentationOptions::default(), |_, index| {
+            assert_eq!(
+                documents(index),
+                [(vec![fragment.clone()], Some("audit".to_owned()))],
+                "{source}"
+            );
+            let owners: Vec<_> = names
+                .iter()
+                .enumerate()
+                .map(|(ordinal, name)| slot(ordinal, name.clone(), declaration))
+                .collect();
+            assert_eq!(
+                associations(index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    owners,
+                    Some(declaration.to_owned()),
+                    format!("class_body 8..{}", source.len())
+                )],
+                "{source}"
+            );
+            assert_eq!(assessments(index, index.assessments()), [], "{source}");
+            // expected: file, class, declaration, one slot per declarator.
+            assert_eq!(index.facts().owners().len(), 3 + names.len(), "{source}");
+            for (ordinal, name) in names.iter().enumerate() {
+                let owner = index
+                    .facts()
+                    .associated_owner(index.associations().next().unwrap(), ordinal)
+                    .unwrap();
+                let Owner::Slot(found) = owner.get() else {
+                    panic!("field slot")
+                };
+                assert_eq!(
+                    found.source.pieces()[0].bytes(),
+                    &source.as_bytes()[name.clone()]
+                );
+            }
+        });
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_queries_answer_per_slot_and_per_declaration() {
+    both(
+        "class C { /**audit*/ int x; }",
+        DocumentationOptions::default(),
+        |root, index| {
+            let field = node(root, "field_declaration", 21..27);
+            let association = index.associations().next().unwrap();
+            let owner = index.facts().associated_owner(association, 0).unwrap();
+            let projection = index.node_projection(field).unwrap();
+            assert!(!projection.pending());
+            assert!(projection.owners().eq([owner]));
+            assert!(index.node_owners(field).unwrap().eq([owner]));
+            let query = index.node_associations(field).unwrap();
+            assert!(!query.projection_pending());
+            assert!(query.associations().eq([association]));
+            assert_eq!(query.assessments().count(), 0);
+            assert!(
+                index
+                    .owner_associations(owner)
+                    .unwrap()
+                    .associations()
+                    .eq([association])
+            );
+            let enclosing = index.facts().slot_enclosing(owner).unwrap();
+            assert_eq!(
+                owner_text(index, enclosing),
+                "Node(field_declaration 21..27)"
+            );
+            let declaration = index.owner_associations(enclosing).unwrap();
+            assert_eq!(declaration.associations().len(), 0);
+            assert_eq!(declaration.assessments().count(), 0);
+            for (kind, range) in [("variable_declarator", 25..26), ("identifier", 25..26)] {
+                assert!(matches!(
+                    index.node_associations(node(root, kind, range.clone())),
+                    Err(OwnerError::UnsupportedOwner)
+                ));
+                assert!(matches!(
+                    index.node_projection(node(root, kind, range)),
+                    Err(OwnerError::UnsupportedOwner)
+                ));
+            }
+        },
+    );
+    both(
+        "class C { /**audit*/ int a, b; }",
+        DocumentationOptions::default(),
+        |root, index| {
+            let field = node(root, "field_declaration", 21..30);
+            let association = index.associations().next().unwrap();
+            let owners = [
+                index.facts().associated_owner(association, 0).unwrap(),
+                index.facts().associated_owner(association, 1).unwrap(),
+            ];
+            assert!(matches!(
+                index.node_associations(field),
+                Err(OwnerError::MultipleOwners)
+            ));
+            assert!(index.node_owners(field).unwrap().eq(owners));
+            let projection = index.node_projection(field).unwrap();
+            assert!(!projection.pending());
+            assert!(projection.owners().eq(owners));
+            assert_eq!(projection.assessments().count(), 0);
+            for owner in owners {
+                let query = index.owner_associations(owner).unwrap();
+                assert!(query.associations().eq([association]));
+                assert_eq!(query.assessments().count(), 0);
+                assert_eq!(
+                    owner_text(index, index.facts().slot_enclosing(owner).unwrap()),
+                    "Node(field_declaration 21..30)"
+                );
+            }
+            assert_ne!(owners[0], owners[1]);
+        },
+    );
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_constants_own_field_slots() {
+    for (source, fragment, declaration, name, scope) in [
+        (
+            "interface I { /**audit*/ int K = 1; }",
+            14..24,
+            "constant_declaration 25..35",
+            29..30,
+            "interface_body 12..37",
+        ),
+        (
+            "@interface A { /**audit*/ int K = 1; }",
+            15..25,
+            "constant_declaration 26..36",
+            30..31,
+            "annotation_type_body 13..38",
+        ),
+    ] {
+        both(source, DocumentationOptions::default(), |_, index| {
+            assert_eq!(
+                documents(index),
+                [(vec![fragment.clone()], Some("audit".to_owned()))]
+            );
+            assert_eq!(
+                associations(index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    vec![slot(0, name.clone(), declaration)],
+                    Some(declaration.to_owned()),
+                    scope.to_owned()
+                )]
+            );
+            assert_eq!(assessments(index, index.assessments()), []);
+        });
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_enum_constants_and_enum_field_have_their_own_owners() {
+    both(
+        "enum E { /**a*/ A, /**b*/ B; /**f*/ int x; }",
+        DocumentationOptions::default(),
+        |_, index| {
+            assert_eq!(
+                documents(index),
+                [
+                    (vec![9..15], Some("a".to_owned())),
+                    (vec![19..25], Some("b".to_owned())),
+                    (vec![29..35], Some("f".to_owned())),
+                ]
+            );
+            assert_eq!(
+                associations(index),
+                [
+                    (
+                        0,
+                        Resolution::Resolved,
+                        vec!["Node(enum_constant 16..17)".to_owned()],
+                        Some("enum_constant 16..17".to_owned()),
+                        "enum_body 7..44".to_owned()
+                    ),
+                    (
+                        1,
+                        Resolution::Resolved,
+                        vec!["Node(enum_constant 26..27)".to_owned()],
+                        Some("enum_constant 26..27".to_owned()),
+                        "enum_body 7..44".to_owned()
+                    ),
+                    (
+                        2,
+                        Resolution::Resolved,
+                        vec![slot(0, 40..41, "field_declaration 36..42")],
+                        Some("field_declaration 36..42".to_owned()),
+                        "enum_body_declarations 27..42".to_owned()
+                    ),
+                ]
+            );
+            assert_eq!(assessments(index, index.assessments()), []);
+            // expected: file, enum, two constants, declaration, slot.
+            assert_eq!(index.facts().owners().len(), 6);
+        },
+    );
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_fields_of_records_anonymous_and_local_classes_own_field_slots() {
+    for (source, fragment, declaration, name, scope, owners) in [
+        (
+            "record R(int a) { /**audit*/ static int x; }",
+            18..28,
+            "field_declaration 29..42",
+            40..41,
+            "class_body 16..44",
+            // expected: file, record, declaration, slot.
+            4,
+        ),
+        (
+            "class C { Object o = new Object() { /**audit*/ int x; }; }",
+            36..46,
+            "field_declaration 47..53",
+            51..52,
+            "class_body 34..55",
+            // expected: file, class, inner declaration and slot, outer declaration and slot.
+            6,
+        ),
+        (
+            "class C { void f() { class L { /**audit*/ int x; } } }",
+            31..41,
+            "field_declaration 42..48",
+            46..47,
+            "class_body 29..50",
+            // expected: file, class C, method, class L, declaration, slot.
+            6,
+        ),
+    ] {
+        both(source, DocumentationOptions::default(), |_, index| {
+            assert_eq!(
+                documents(index),
+                [(vec![fragment.clone()], Some("audit".to_owned()))]
+            );
+            assert_eq!(
+                associations(index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    vec![slot(0, name.clone(), declaration)],
+                    Some(declaration.to_owned()),
+                    scope.to_owned()
+                )]
+            );
+            assert_eq!(assessments(index, index.assessments()), []);
+            assert_eq!(index.facts().owners().len(), owners);
+        });
+    }
+    both(
+        "class C { Object o = new Object() { /**audit*/ int x; }; }",
+        DocumentationOptions::default(),
+        |root, index| {
+            let outer = index
+                .node_owners(node(root, "field_declaration", 10..56))
+                .unwrap()
+                .map(|owner| owner_text(index, owner))
+                .collect::<Vec<_>>();
+            assert_eq!(outer, [slot(0, 17..18, "field_declaration 10..56")]);
+        },
+    );
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_second_comment_inside_a_field_declaration_is_not_documentation() {
+    let source = "class C {\n  /** a */\n  int x,\n  /** b */\n  y;\n}\n";
+    assert_eq!(source.len(), 48);
+    for (options, kept) in [
+        (DocumentationOptions::default(), vec![]),
+        (unbound(), vec![(CandidateDisposition::Unattached, 32..40)]),
+    ] {
+        both(source, options, |_, index| {
+            assert_eq!(documents(index), [(vec![12..20], Some("a".to_owned()))]);
+            assert_eq!(
+                associations(index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    vec![
+                        slot(0, 27..28, "field_declaration 23..45"),
+                        slot(1, 43..44, "field_declaration 23..45")
+                    ],
+                    Some("field_declaration 23..45".to_owned()),
+                    "class_body 8..47".to_owned()
+                )]
+            );
+            assert_eq!(evidence(index), kept);
+            assert_eq!(assessments(index, index.assessments()), []);
+        });
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_undocumented_fields_have_slots_and_no_assessment() {
+    both("class C { int x; int a, b; }", unbound(), |root, index| {
+        assert_eq!(documents(index), []);
+        assert_eq!(associations(index), []);
+        assert_eq!(assessments(index, index.assessments()), []);
+        assert_eq!(evidence(index), []);
+        let owners: Vec<_> = index
+            .facts()
+            .owners()
+            .map(|owner| owner_text(index, owner))
+            .collect();
+        assert_eq!(
+            owners,
+            [
+                "File(program 0..28)".to_owned(),
+                "Node(class_declaration 0..28)".to_owned(),
+                "Node(field_declaration 10..16)".to_owned(),
+                slot(0, 14..15, "field_declaration 10..16"),
+                "Node(field_declaration 17..26)".to_owned(),
+                slot(0, 21..22, "field_declaration 17..26"),
+                slot(1, 24..25, "field_declaration 17..26"),
+            ]
+        );
+        let single = index
+            .node_associations(node(root, "field_declaration", 10..16))
+            .unwrap();
+        assert!(!single.projection_pending());
+        assert_eq!(single.associations().len(), 0);
+        assert_eq!(single.assessments().count(), 0);
+        for owner in index.facts().owners() {
+            let query = index.owner_associations(owner).unwrap();
+            assert_eq!(query.associations().len(), 0);
+            assert_eq!(query.assessments().count(), 0);
+        }
+    });
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_comment_inside_a_field_declaration_does_not_document_it() {
+    for (source, declaration, name, dropped) in [
+        (
+            "class C { @Deprecated /**audit*/ int x; }",
+            "field_declaration 10..39",
+            37..38,
+            22..32,
+        ),
+        (
+            "class C { public /**audit*/ int x; }",
+            "field_declaration 10..34",
+            32..33,
+            17..27,
+        ),
+        (
+            "class C {\n  int x;\n  /**d*/\n  ;\n  void f() {}\n}\n",
+            "field_declaration 12..18",
+            16..17,
+            21..27,
+        ),
+    ] {
+        both(source, unbound(), |root, index| {
+            assert_eq!(documents(index), []);
+            assert_eq!(associations(index), []);
+            assert_eq!(
+                evidence(index),
+                [(CandidateDisposition::Unattached, dropped.clone())]
+            );
+            assert_eq!(assessments(index, index.assessments()), []);
+            let (kind, range) = declaration.split_once(' ').unwrap();
+            let (start, end) = range.split_once("..").unwrap();
+            let field = node(root, kind, start.parse().unwrap()..end.parse().unwrap());
+            let owners: Vec<_> = index
+                .node_owners(field)
+                .unwrap()
+                .map(|owner| owner_text(index, owner))
+                .collect();
+            assert_eq!(owners, [slot(0, name.clone(), declaration)]);
+            let query = index.node_associations(field).unwrap();
+            assert_eq!(query.associations().len(), 0);
+            assert_eq!(query.assessments().count(), 0);
+        });
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_with_a_syntax_error_stays_pending() {
+    // javac recovers from the missing `;` and attaches `d` to `x` and `e` to `y`.
+    // The pinned grammar leaves an error in the first declaration, which stays pending.
+    let source = "class C {\n/** d */\nint x\n/** e */\nint y;\n}\n";
+    assert_eq!(source.len(), 43);
+    both(source, unbound(), |root, index| {
+        assert!(node(root, "field_declaration", 19..33).has_error());
+        assert_eq!(documents(index), [(vec![10..18], Some("d".to_owned()))]);
+        assert_eq!(associations(index), []);
+        assert_eq!(
+            assessments(index, index.assessments()),
+            [
+                (
+                    AssessmentAxis::Owner,
+                    PENDING_DOCUMENT,
+                    Some("field_declaration 19..33".to_owned()),
+                    Some(0)
+                ),
+                (
+                    AssessmentAxis::Owner,
+                    PENDING_OWNER,
+                    Some("class_declaration 0..42".to_owned()),
+                    None
+                ),
+                (
+                    AssessmentAxis::Owner,
+                    PENDING_OWNER,
+                    Some("field_declaration 19..33".to_owned()),
+                    None
+                ),
+            ]
+        );
+        assert_eq!(
+            evidence(index),
+            [(CandidateDisposition::Unattached, 25..33)]
+        );
+        let broken = node(root, "field_declaration", 19..33);
+        assert!(index.node_projection(broken).unwrap().pending());
+        assert!(matches!(
+            index.node_owners(broken),
+            Err(OwnerError::PendingOwner)
+        ));
+        let clean = index
+            .node_owners(node(root, "field_declaration", 34..40))
+            .unwrap()
+            .map(|owner| owner_text(index, owner))
+            .collect::<Vec<_>>();
+        assert_eq!(clean, [slot(0, 38..39, "field_declaration 34..40")]);
+        // expected: file, the clean declaration and its slot;
+        // the class and first field are pending.
+        assert_eq!(index.facts().owners().len(), 3);
+    });
+    let source = "class C { /**audit*/ int x = ; }";
+    both(source, DocumentationOptions::default(), |root, index| {
+        let field = node(root, "field_declaration", 21..30);
+        assert!(field.has_error());
+        assert_eq!(node(root, "ERROR", 27..28).parent().unwrap(), field);
+        assert_eq!(documents(index), [(vec![10..20], Some("audit".to_owned()))]);
+        assert_eq!(associations(index), []);
+        assert!(index.node_projection(field).unwrap().pending());
+        // expected: the file only.
+        assert_eq!(index.facts().owners().len(), 1);
+    });
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_with_an_unnamed_declarator_stays_pending_as_a_whole() {
+    // javac rejects `_` as a field name and still attaches the comment to every
+    // declarator. Here the declaration has no plain name for one slot and stays pending.
+    for (source, field) in [
+        ("class C { /**audit*/ int a, _; }", 21..30),
+        ("class C { /**audit*/ int _, a; }", 21..30),
+    ] {
+        both(source, DocumentationOptions::default(), |root, index| {
+            assert!(!root.has_error());
+            let declaration = node(root, "field_declaration", field.clone());
+            assert_eq!(documents(index), [(vec![10..20], Some("audit".to_owned()))]);
+            assert_eq!(associations(index), []);
+            assert_eq!(
+                assessments(index, index.assessments()),
+                [
+                    (
+                        AssessmentAxis::Owner,
+                        PENDING_DOCUMENT,
+                        Some("field_declaration 21..30".to_owned()),
+                        Some(0)
+                    ),
+                    (
+                        AssessmentAxis::Owner,
+                        PENDING_OWNER,
+                        Some("field_declaration 21..30".to_owned()),
+                        None
+                    ),
+                ]
+            );
+            assert!(index.node_projection(declaration).unwrap().pending());
+            assert!(matches!(
+                index.node_owners(declaration),
+                Err(OwnerError::PendingOwner)
+            ));
+            // expected: file and class; no declaration owner and no slot.
+            assert_eq!(index.facts().owners().len(), 2);
+        });
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_beside_recovery_keeps_its_slots() {
+    let source = "class C { /**audit*/ int x; static {";
+    both(source, DocumentationOptions::default(), |root, index| {
+        assert!(root.is_error());
+        assert!(!node(root, "field_declaration", 21..27).has_error());
+        assert_eq!(documents(index), [(vec![10..20], Some("audit".to_owned()))]);
+        assert_eq!(
+            associations(index),
+            [(
+                0,
+                Resolution::Unresolved(UnresolvedReason::GrammarBoundary),
+                vec![slot(0, 25..26, "field_declaration 21..27")],
+                Some("field_declaration 21..27".to_owned()),
+                "ERROR 0..36".to_owned()
+            )]
+        );
+        assert_eq!(assessments(index, index.assessments()), []);
+    });
+    let source = "class C { /**audit*/ int x; ";
+    both(source, DocumentationOptions::default(), |root, index| {
+        assert!(!root.is_error());
+        assert!(node(root, "class_declaration", 0..27).has_error());
+        assert!(!node(root, "field_declaration", 21..27).has_error());
+        assert_eq!(
+            associations(index),
+            [(
+                0,
+                Resolution::Resolved,
+                vec![slot(0, 25..26, "field_declaration 21..27")],
+                Some("field_declaration 21..27".to_owned()),
+                "class_body 8..27".to_owned()
+            )]
+        );
+        let pending = [(
+            AssessmentAxis::Owner,
+            PENDING_OWNER,
+            Some("class_declaration 0..27".to_owned()),
+            None,
+        )];
+        assert_eq!(assessments(index, index.assessments()), pending);
+        let query = index
+            .node_associations(node(root, "field_declaration", 21..27))
+            .unwrap();
+        assert_eq!(assessments(index, query.assessments()), pending);
+    });
+}
+
+#[cfg(feature = "java")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn java_field_and_excluded_ranges() {
+    let source = "class C { /**audit*/ int a, b; }";
+    let context = DocumentationContext::default();
+    // A gap inside the declaration: the space at 27..28.
+    let tree = restricted(source, &[0..27, 28..32]);
+    let index = collect(LANG::Java, &tree, source.as_bytes(), &context, &unbound()).unwrap();
+    let root = tree.root_node();
+    assert!(!root.has_error());
+    let field = node(root, "field_declaration", 21..30);
+    assert_eq!(documents(&index), []);
+    assert_eq!(associations(&index), []);
+    assert_eq!(
+        evidence(&index),
+        [(CandidateDisposition::Unattached, 10..20)]
+    );
+    assert!(index.node_projection(field).unwrap().pending());
+    assert!(matches!(
+        index.node_owners(field),
+        Err(OwnerError::PendingOwner)
+    ));
+    // expected: the file only; class, body and field hold the gap.
+    assert_eq!(index.facts().owners().len(), 1);
+    assert_eq!(
+        assessments(&index, index.assessments()),
+        [
+            (
+                AssessmentAxis::Owner,
+                PENDING_OWNER,
+                Some("class_declaration 0..32".to_owned()),
+                None
+            ),
+            (
+                AssessmentAxis::Owner,
+                PENDING_OWNER,
+                Some("class_body 8..32".to_owned()),
+                None
+            ),
+            (
+                AssessmentAxis::Owner,
+                PENDING_OWNER,
+                Some("field_declaration 21..30".to_owned()),
+                None
+            ),
+        ]
+    );
+    // A gap between the comment and the declaration: the space at 20..21.
+    let tree = restricted(source, &[0..20, 21..32]);
+    let index = collect(LANG::Java, &tree, source.as_bytes(), &context, &unbound()).unwrap();
+    let root = tree.root_node();
+    assert!(!root.has_error());
+    let field = node(root, "field_declaration", 21..30);
+    assert_eq!(documents(&index), []);
+    assert_eq!(associations(&index), []);
+    assert_eq!(
+        evidence(&index),
+        [(CandidateDisposition::Unattached, 10..20)]
+    );
+    let owners: Vec<_> = index
+        .node_owners(field)
+        .unwrap()
+        .map(|owner| owner_text(&index, owner))
+        .collect();
+    assert_eq!(
+        owners,
+        [
+            slot(0, 25..26, "field_declaration 21..30"),
+            slot(1, 28..29, "field_declaration 21..30")
+        ]
+    );
+    for owner in index.node_owners(field).unwrap() {
+        assert_eq!(
+            index
+                .owner_associations(owner)
+                .unwrap()
+                .associations()
+                .len(),
+            0
+        );
+    }
+    assert_eq!(
+        assessments(&index, index.assessments()),
+        [
+            (
+                AssessmentAxis::Owner,
+                PENDING_OWNER,
+                Some("class_declaration 0..32".to_owned()),
+                None
+            ),
+            (
+                AssessmentAxis::Owner,
+                PENDING_OWNER,
+                Some("class_body 8..32".to_owned()),
+                None
+            ),
+        ]
+    );
+    // No gap: two adjacent included ranges meet inside the name, after `al`.
+    let source = "class C { /**audit*/ int alpha; }";
+    assert_eq!(source.len(), 33);
+    let tree = restricted(source, &[0..27, 27..33]);
+    let index = collect(LANG::Java, &tree, source.as_bytes(), &context, &unbound()).unwrap();
+    assert!(!tree.root_node().has_error());
+    assert_eq!(
+        documents(&index),
+        [(vec![10..20], Some("audit".to_owned()))]
+    );
+    assert_eq!(
+        associations(&index),
+        [(
+            0,
+            Resolution::Resolved,
+            vec!["Slot(Field #0 25..27,27..30 in Node(field_declaration 21..31))".to_owned()],
+            Some("field_declaration 21..31".to_owned()),
+            "class_body 8..33".to_owned()
+        )]
+    );
+    assert_eq!(assessments(&index, index.assessments()), []);
+    assert_eq!(evidence(&index), []);
+    // expected: file, class, declaration, slot.
+    assert_eq!(index.facts().owners().len(), 4);
+    let owner = index
+        .facts()
+        .associated_owner(index.associations().next().unwrap(), 0)
+        .unwrap();
+    let Owner::Slot(found) = owner.get() else {
+        panic!("field slot")
+    };
+    assert_eq!(found.source.pieces()[0].bytes(), b"al");
+    assert_eq!(found.source.pieces()[1].bytes(), b"pha");
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved() {
+    // javac translates the escape first and attaches `@audit ` to `x`.
+    let source = r"class C { /** \u0040audit */ int x; }";
+    assert_eq!(source.len(), 37);
+    both(source, DocumentationOptions::default(), |root, index| {
+        assert!(!root.has_error());
+        assert_eq!(documents(index), [(vec![10..28], None)]);
+        assert!(matches!(
+            index.documents().next().unwrap().get().content(),
+            Content::Unavailable(UnavailableReason::UnsupportedDecoding)
+        ));
+        assert_eq!(
+            associations(index),
+            [(
+                0,
+                Resolution::Unresolved(UnresolvedReason::GrammarBoundary),
+                vec![slot(0, 33..34, "field_declaration 29..35")],
+                Some("field_declaration 29..35".to_owned()),
+                "class_body 8..37".to_owned()
+            )]
+        );
+        assert_eq!(assessments(index, index.assessments()), []);
+        let field = node(root, "field_declaration", 29..35);
+        let query = index.node_associations(field).unwrap();
+        assert!(!query.projection_pending());
+        assert!(query.associations().eq(index.associations()));
+        assert_eq!(query.assessments().count(), 0);
+        // expected: file, class, declaration, slot.
+        assert_eq!(index.facts().owners().len(), 4);
+    });
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_pending_field_comment_with_a_raw_unicode_escape_keeps_an_ownerless_association() {
+    // The unnamed declarator keeps the declaration pending; the escape alone makes the
+    // association unresolved, so it exists without an owner.
+    let source = r"class C { /** \u0040audit */ int a, _; }";
+    assert_eq!(source.len(), 40);
+    both(source, DocumentationOptions::default(), |root, index| {
+        assert!(!root.has_error());
+        assert_eq!(documents(index), [(vec![10..28], None)]);
+        assert!(matches!(
+            index.documents().next().unwrap().get().content(),
+            Content::Unavailable(UnavailableReason::UnsupportedDecoding)
+        ));
+        assert_eq!(
+            associations(index),
+            [(
+                0,
+                Resolution::Unresolved(UnresolvedReason::GrammarBoundary),
+                vec![],
+                Some("field_declaration 29..38".to_owned()),
+                "class_body 8..40".to_owned()
+            )]
+        );
+        assert_eq!(
+            assessments(index, index.assessments()),
+            [
+                (
+                    AssessmentAxis::Owner,
+                    PENDING_DOCUMENT,
+                    Some("field_declaration 29..38".to_owned()),
+                    Some(0)
+                ),
+                (
+                    AssessmentAxis::Owner,
+                    PENDING_OWNER,
+                    Some("field_declaration 29..38".to_owned()),
+                    None
+                ),
+            ]
+        );
+        let field = node(root, "field_declaration", 29..38);
+        assert!(index.node_projection(field).unwrap().pending());
+        assert!(matches!(
+            index.node_owners(field),
+            Err(OwnerError::PendingOwner)
+        ));
+        // expected: file and class; no declaration owner and no slot.
+        assert_eq!(index.facts().owners().len(), 2);
+    });
+}
+
+#[cfg(feature = "java")]
+#[derive(Default)]
+struct Counting {
+    steps: Cell<usize>,
+    bytes: Cell<usize>,
+    fail_at: Option<usize>,
+}
+
+#[cfg(feature = "java")]
+impl WorkBudget for Counting {
+    type Error = SourceError;
+    #[cfg(feature = "java")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+    #[cfg(feature = "java")]
+    fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        self.bytes.set(self.bytes.get() + count);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "java")]
+fn wide(width: usize) -> String {
+    let names: Vec<_> = (0..width).map(|at| format!("v{at}")).collect();
+    format!("class C {{ /**audit*/ int {}; }}", names.join(", "))
+}
+
+#[cfg(feature = "java")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn java_declarator_scan_charges_one_step_per_child() {
+    let wide_source = wide(300);
+    for (source, kind, steps, names) in [
+        (
+            "class C { /**audit*/ int x; }",
+            "field_declaration",
+            3,
+            Some(vec![25..26]),
+        ),
+        (
+            "class C { /**audit*/ int a, b; }",
+            "field_declaration",
+            5,
+            Some(vec![25..26, 28..29]),
+        ),
+        (
+            "class C { /**audit*/ int a = 1, b[] = {2}, c; }",
+            "field_declaration",
+            7,
+            Some(vec![25..26, 32..33, 43..44]),
+        ),
+        (
+            "class C {\n  /** a */\n  int x,\n  /** b */\n  y;\n}\n",
+            "field_declaration",
+            6,
+            Some(vec![27..28, 43..44]),
+        ),
+        (
+            "class C { /**audit*/ @Deprecated int x; }",
+            "field_declaration",
+            4,
+            Some(vec![37..38]),
+        ),
+        (
+            "interface I { /**audit*/ int K = 1; }",
+            "constant_declaration",
+            3,
+            Some(vec![29..30]),
+        ),
+        (
+            "class C { /**audit*/ int a, _; }",
+            "field_declaration",
+            4,
+            None,
+        ),
+        (
+            "class C { /**audit*/ int _, a; }",
+            "field_declaration",
+            2,
+            None,
+        ),
+        (
+            wide_source.as_str(),
+            "field_declaration",
+            601,
+            None::<Vec<Range<usize>>>,
+        ),
+    ] {
+        let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == kind)
+            .unwrap();
+        let id = index
+            .canonical
+            .lookup(declaration.as_tree_sitter())
+            .unwrap();
+        let budget = Counting::default();
+        let found =
+            super::projections::java_declarator_names(&index.canonical, id, &budget).unwrap();
+        assert_eq!(budget.steps.get(), steps, "{source}");
+        assert_eq!(budget.bytes.get(), 0, "{source}");
+        let found = found.map(|names| {
+            names
+                .iter()
+                .map(|name| index.canonical.nodes[name.0].evidence.node().byte_range())
+                .collect::<Vec<_>>()
+        });
+        if source.len() < 100 {
+            assert_eq!(found, names, "{source}");
+        } else {
+            let found = found.unwrap();
+            assert_eq!(found.len(), 300);
+            assert_eq!(found[0], 25..27);
+            assert_eq!(found[299], 1709..1713);
+        }
+        if source.len() >= 100 || source == "class C { /**audit*/ int a, b; }" {
+            for fail_at in 1..=steps {
+                let budget = Counting {
+                    fail_at: Some(fail_at),
+                    ..Counting::default()
+                };
+                assert!(matches!(
+                    super::projections::java_declarator_names(&index.canonical, id, &budget),
+                    Err(SourceError::Cancelled)
+                ));
+                assert_eq!(budget.steps.get(), fail_at);
+            }
+            let budget = Counting {
+                fail_at: Some(steps + 1),
+                ..Counting::default()
+            };
+            assert!(
+                super::projections::java_declarator_names(&index.canonical, id, &budget)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_width_costs_linear_work() {
+    for width in [64, 512, 2048] {
+        let source = wide(width);
+        let parser = AnyParser::parse(LANG::Java, source.clone().into_bytes(), None, None).unwrap();
+        assert!(!parser.root_node().has_error());
+        let context = DocumentationContext::default();
+        let options = DocumentationOptions::default();
+        let before = observations();
+        let index = parser.documentation(&context, &options).unwrap();
+        let after = observations();
+        assert_eq!(parser.root_node().preorder().count(), 3 * width + 11);
+        assert_eq!(after.visits - before.visits, 3 * width + 11);
+        assert_eq!(after.child_batches - before.child_batches, 3 * width + 11);
+        assert_eq!(
+            after.target_classifications - before.target_classifications,
+            3 * width + 10
+        );
+        assert_eq!(after.owner_projections - before.owner_projections, 3);
+        assert_eq!(
+            after.intersection_searches - before.intersection_searches,
+            width + 1
+        );
+        assert_eq!(after.field_requests - before.field_requests, 0);
+        assert_eq!(after.field_lookups - before.field_lookups, 0);
+        assert_eq!(after.renders - before.renders, 1);
+        assert_eq!(index.facts().owners().len(), width + 3);
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(index.associations().len(), 1);
+        let association = index.associations().next().unwrap();
+        assert_eq!(association.get().owner_count(), width);
+        for position in [0, width - 1] {
+            let owner = index
+                .facts()
+                .associated_owner(association, position)
+                .unwrap();
+            let Owner::Slot(found) = owner.get() else {
+                panic!("field slot")
+            };
+            assert_eq!(found.ordinal, position);
+            assert_eq!(
+                found.source.pieces()[0].bytes(),
+                format!("v{position}").as_bytes()
+            );
+        }
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_field_width_collection_observes_cancellation_in_the_slot_loop() {
+    let width = 2048;
+    let parser = AnyParser::parse(LANG::Java, wide(width).into_bytes(), None, None).unwrap();
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let before = observations();
+    parser.documentation(&context, &options).unwrap();
+    let polls = observations().polls - before.polls;
+    let mut inside = 0;
+    for checkpoint in 1..=polls {
+        let before = observations();
+        let result = crate::documentation::budget::cancel_after(checkpoint, || {
+            parser.documentation(&context, &options)
+        });
+        let after = observations();
+        assert!(
+            matches!(result, Err(CollectionError::Cancelled)),
+            "{checkpoint}"
+        );
+        let owners = after.owner_projections - before.owner_projections;
+        let searches = after.intersection_searches - before.intersection_searches;
+        if owners == 3 && searches < width + 1 {
+            inside += 1;
+        }
+    }
+    // expected: 6 checkpoints fall in the 6144 step charges of the slot loop
+    // (3 per slot, one checkpoint per 1024); the last may follow the last search.
+    assert!(inside >= 5, "{inside}");
+    let index = crate::documentation::budget::cancel_after(polls + 1, || {
+        parser.documentation(&context, &options)
+    })
+    .unwrap();
+    assert_eq!(
+        index.associations().next().unwrap().get().owner_count(),
+        width
+    );
 }
