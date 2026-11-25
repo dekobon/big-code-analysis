@@ -1,0 +1,33 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_c_family_source_and_legacy_views_are_independent"
+  ],
+  "cases": [
+    {
+      "name": "objc-method-declaration-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/objc.rs",
+      "old": "            MethodDeclaration,\n            MethodDefinition,",
+      "new": "            MethodDefinition,",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_c_family_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "conditional-is-not-a-doc-target",
+      "file": "big-code-analysis-ast/src/lang_helpers/doxygen.rs",
+      "old": "    if preproc_conditional::<T>(node) {\n        return conditional_declares_with_budget::<T, B>(node, ancestors, budget);\n    }",
+      "new": "    if preproc_conditional::<T>(node) {\n        return Ok(false);\n    }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_c_family_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}

@@ -1002,6 +1002,8 @@ crate::observation::counter!(field_requests, cfg(any(test, feature = "test-suppo
 #[cfg(test)]
 mod assessment_tests;
 #[cfg(test)]
+mod c_family_tests;
+#[cfg(test)]
 mod cancellation_tests;
 #[cfg(test)]
 mod cost_tests;
