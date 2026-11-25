@@ -1,0 +1,32 @@
+{
+  "scope": "Go struct field and interface element owners: field slots for the names of a field declaration, node owners for an embedded field, a method element and a name-led type element; Unit 2 of #1672",
+  "base": "6b72972d9743ba512042373b8599096bfae09696",
+  "grammar": {"runtime": "0.26.13", "go": "0.25.0"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/go_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifest": "utils/documentation-go-unit2-perturb.json",
+  "legacy_mutation_manifest": "utils/documentation-go-unit2-legacy-perturb.json",
+  "reference": {"tool": "Go", "version": "go1.26.1 linux/arm64", "configuration": "go/parser.ParseFile with ParseComments|AllErrors|SkipObjectResolution on each source as one file; ast.Field Doc and Comment per struct field and interface element, with names and byte offsets; go/doc.NewFromFiles with AllDecls|AllMethods|PreserveAST for sources without a parse error. Run under env -i with GOPROXY=off, GOTOOLCHAIN=local, GOENV=off and every cache inside the run directory", "evidence": "Executed on 2026-11-25 for every source of the production oracles; the Doc group of each field and element, its names and the extent of each member were compared with the expected owners. Also for 1,664 generated sources with a line end at every gap of 81 member forms, and for 2,031 files of the Go 1.26.1 standard library, read only", "qualification": "Source attachment only. No gofmt, go vet or type check; publication is not claimed."},
+  "legacy_measurement": {"binary": "bca 2.6.1 built from the base commit, debug profile", "command": "bca metrics --no-config --no-ignore --no-skip-generated --language go --format json --metrics loc <file>", "qualification": "Each measured file holds exactly the bytes of one legacy oracle source: no CR and one final LF, so file normalization changes nothing."},
+  "known_differences": [
+    "A member whose children include a comment with a line break stays a pending owner. Go ends a line at such a comment: for X /* a\n b */ int it reads two embedded fields, and for M() /* a\n b */ int a method and an embedded element. Where the comment follows a comma, a bar or a star, Go reads what the grammar reads and the member is pending all the same.",
+    "A member that Go ends at a line end before the end of its node stays a pending owner. Go puts a semicolon at a line end after an identifier, a literal, ), ] or }, also where a comment ends the line; the pinned grammar reads some members on past it. X [2]\nint is one field for the grammar and two embedded fields for Go; X func() /* a\n b */ int is one field for the grammar, and a field and an embedded field for Go.",
+    "The members between the braces of a nested struct or interface type are read on their own. In a file Go rejects, a member can have its owners inside or around a member that stays pending (X [2]\nstruct { A int }).",
+    "A field of a struct declared in a function body, and an element of an interface declared there, has no owner and its comment is no document; go/ast attaches the comment as Doc.",
+    "A member with a syntax error of its own stays a pending owner; go/parser recovers and attaches the comment.",
+    "A member without an error of its own gets its owners beside an ERROR node. An unclosed method M( is read by the pinned grammar as a type element M, which owns the comment; a function after an unclosed struct is read as an embedded field.",
+    "The pinned grammar accepts a line feed inside a field type where Go ends the line and rejects the file (X map[string]\nint); the field stays a pending owner.",
+    "The local text of // a is a; CommentGroup.Text returns a with a final line feed.",
+    "The statements between the braces of a function literal are not read for a member, as the members of a nested struct or interface type are not. Where Go rejects a line end there (X [len(func() int {\nif true\n{\nreturn 1\n}\nreturn 0\n}())]int), the member keeps its owners as the grammar reads; Go gives no reading of the file.",
+    "The pinned grammar reads a form feed and a vertical tab as white space, and Go rejects both bytes. A member with one of them between two of its tokens (X [2]\fint) keeps its owners as the grammar reads."
+  ],
+  "pending": [
+    "Names of var and const specs and the relation of a group to its members",
+    "Role and owner of package documentation",
+    "Directive-only groups",
+    "The block comment after a multi-row trailing block",
+    "Recovery shapes beside a member",
+    "Imports, parameters and type arguments",
+    "Benchmark workloads and fuzz seeds for member owners"
+  ]
+}

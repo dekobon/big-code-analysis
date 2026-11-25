@@ -49,6 +49,9 @@ impl Builder<'_> {
         {
             return self.java_field_slots(id, budget);
         }
+        if self.index.profile == Profile::GoDoc {
+            return self.go_member_owners(id, budget);
+        }
         if !is_wrapper(self.index.profile, node.kind())
             || !matches!(
                 self.index.canonical.nodes[id.0].projection,
@@ -225,6 +228,45 @@ impl Builder<'_> {
         let Some(names) = java_declarator_names(&self.index.canonical, id, budget)? else {
             return Ok(());
         };
+        self.field_slots(id, names, budget)
+    }
+
+    fn go_member_owners(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let record = &self.index.canonical.nodes[id.0];
+        if !matches!(record.projection, Projection::Pending)
+            || !matches!(
+                record.evidence.node().kind(),
+                "field_declaration" | "method_elem" | "type_elem"
+            )
+        {
+            return Ok(());
+        }
+        let Some(names) = go_member_names(&self.index.canonical, id, budget)? else {
+            return Ok(());
+        };
+        if go_ends_member_early(&self.index.canonical, id, budget)? {
+            // The node is not the member Go reads: it stays a pending owner.
+            Ok(())
+        } else if names.is_empty() {
+            // An interface element, or a field that embeds a type and has no name.
+            self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+            Ok(())
+        } else {
+            self.field_slots(id, names, budget)
+        }
+    }
+
+    // The declaration owns as a node, and each name owns as a field slot in it.
+    fn field_slots(
+        &mut self,
+        id: NodeId,
+        names: Vec<NodeId>,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
         let declaration = OwnerId(self.index.facts.owners.len());
         self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
         let mut fields = Vec::new();
@@ -396,4 +438,84 @@ pub(super) fn java_declarator_names<B: WorkBudget>(
     }
     // The grammar requires one declarator; an empty list is not reachable either.
     Ok((!names.is_empty()).then_some(names))
+}
+
+// Go ends a line at a comment that holds a line break, and a line end after a name, a
+// type or a closing bracket ends the member. The grammar reads on, so a member with
+// such a comment among its children may not be the member Go reads: `None`. Otherwise
+// the names of a field declaration, in order; none for a field that embeds a type or
+// for an interface element.
+pub(super) fn go_member_names<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    member: NodeId,
+    budget: &B,
+) -> Result<Option<Vec<NodeId>>, B::Error> {
+    let field = canonical.nodes[member.0].evidence.node().kind() == "field_declaration";
+    let mut names = Vec::new();
+    for &child in &canonical.children[canonical.nodes[member.0].children.clone()] {
+        budget.step()?;
+        let node = canonical.nodes[child.0].evidence.node();
+        match node.kind() {
+            "comment" if node.start_position().row != node.end_position().row => {
+                return Ok(None);
+            }
+            "field_identifier" if field => names.push(child),
+            _ => {}
+        }
+    }
+    Ok(Some(names))
+}
+
+// Counts the nodes `go_ends_member_early` reads. No assertion on an index can tell
+// whether a nested body is read once or once for every member around it.
+crate::observation::counter!(member_reads);
+
+// Go puts a semicolon at a line end after a name, a literal or a closing bracket, and a
+// comment that ends a line is such a line end. The grammar reads some members on past
+// it (`X [2]\nint`, `X func() /* a\n b */ int`), and then the node is not the member Go
+// reads. A token is a node without children, or a string literal. The members between
+// the braces of a nested struct or interface type and the statements of a function
+// literal are not tokens of this member, so no node is read for two members.
+pub(super) fn go_ends_member_early<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    member: NodeId,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let mut open = vec![(canonical.nodes[member.0].children.clone(), false)];
+    let mut line_end = None;
+    while let Some((children, body)) = open.last_mut() {
+        let Some(at) = children.next() else {
+            open.pop();
+            continue;
+        };
+        budget.step()?;
+        member_reads::record();
+        let record = &canonical.nodes[canonical.children[at].0];
+        let node = record.evidence.node();
+        let kind = node.kind();
+        if kind == "comment" {
+            continue;
+        }
+        if !record.children.is_empty()
+            && !matches!(kind, "raw_string_literal" | "interpreted_string_literal")
+        {
+            let body = matches!(kind, "field_declaration_list" | "interface_type" | "block");
+            open.push((record.children.clone(), body));
+            continue;
+        }
+        if line_end.is_some_and(|row| row < node.start_position().row) {
+            return Ok(true);
+        }
+        line_end = go_line_end(node);
+        if *body && kind == "{" {
+            children.start = children.start.max(children.end.saturating_sub(1));
+        }
+    }
+    Ok(false)
+}
+
+// The row on which a token ends, if Go ends a line after it: an identifier or a literal,
+// which are the named tokens of the grammar, or a closing bracket.
+fn go_line_end(token: tree_sitter::Node<'_>) -> Option<usize> {
+    (token.is_named() || matches!(token.kind(), ")" | "]" | "}")).then(|| token.end_position().row)
 }

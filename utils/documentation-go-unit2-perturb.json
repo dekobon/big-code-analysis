@@ -1,0 +1,413 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "go-member-projection-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::GoDoc {\n            return self.go_member_owners(id, budget);",
+      "new": "        if false && self.index.profile == Profile::GoDoc {\n            return self.go_member_owners(id, budget);",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_inventory_row_gives_one_document_to_both_names", "documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_undocumented_members_have_owners_and_no_assessment", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
+    },
+    {
+      "name": "go-member-projection-reaches-groovy",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::GoDoc {",
+      "new": "        if matches!(self.index.profile, Profile::GoDoc | Profile::Groovydoc) {",
+      "expect": ["documentation::collector::form_tests::groovy_field_form_is_pending_in_default_queries"]
+    },
+    {
+      "name": "go-field-declaration-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                \"field_declaration\" | \"method_elem\" | \"type_elem\"",
+      "new": "                \"method_elem\" | \"type_elem\"",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_inventory_row_gives_one_document_to_both_names", "documentation::collector::go_tests::go_embedded_field_owns_as_its_declaration", "documentation::collector::go_tests::go_members_own_wherever_their_type_is_written"]
+    },
+    {
+      "name": "go-method-element-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                \"field_declaration\" | \"method_elem\" | \"type_elem\"",
+      "new": "                \"field_declaration\" | \"type_elem\"",
+      "expect": ["documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_members_own_wherever_their_type_is_written", "documentation::collector::go_tests::go_member_count_costs_linear_work"]
+    },
+    {
+      "name": "go-type-element-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                \"field_declaration\" | \"method_elem\" | \"type_elem\"",
+      "new": "                \"field_declaration\" | \"method_elem\"",
+      "expect": ["documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_members_own_wherever_their_type_is_written"]
+    },
+    {
+      "name": "go-member-need-not-be-a-pending-target",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if !matches!(record.projection, Projection::Pending)\n            || !matches!(",
+      "new": "        if false\n            || !matches!(",
+      "expect": ["documentation::collector::go_tests::go_members_declared_in_a_function_body_own_nothing", "documentation::collector::go_tests::go_elements_without_a_leading_name_and_signature_parts_own_nothing"]
+    },
+    {
+      "name": "go-error-member-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && self.index.profile != Profile::GoDoc)\n            || node.is_missing()\n            || !self",
+      "expect": ["documentation::collector::go_tests::go_member_with_a_syntax_error_stays_a_pending_owner", "documentation::collector::go_tests::go_member_beside_recovery_keeps_its_owners", "documentation::collector::assessment_tests::pending_go_field_query_exposes_assessment_instead_of_unusable_error"]
+    },
+    {
+      "name": "go-uncovered-member-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                .covers_with_budget(node.byte_range(), budget)?\n        {\n            return Ok(());",
+      "new": "                .covers_with_budget(node.byte_range(), budget)?\n            && self.index.profile != Profile::GoDoc\n        {\n            return Ok(());",
+      "expect": ["documentation::collector::go_tests::go_member_and_excluded_ranges"]
+    },
+    {
+      "name": "go-comment-line-end-is-ignored",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            \"comment\" if node.start_position().row != node.end_position().row => {",
+      "new": "            \"comment\" if node.start_position().row > node.end_position().row => {",
+      "expect": ["documentation::collector::go_tests::go_member_with_a_comment_that_ends_a_line_stays_a_pending_owner", "documentation::collector::go_tests::go_member_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "go-any-comment-child-keeps-the-member-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            \"comment\" if node.start_position().row != node.end_position().row => {",
+      "new": "            \"comment\" => {",
+      "expect": ["documentation::collector::go_tests::go_comment_inside_a_member_documents_nothing", "documentation::collector::go_tests::go_member_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "go-later-names-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            \"field_identifier\" if field => names.push(child),",
+      "new": "            \"field_identifier\" if field && names.is_empty() => names.push(child),",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_inventory_row_gives_one_document_to_both_names", "documentation::collector::go_tests::go_member_scan_charges_one_step_per_child", "documentation::collector::go_tests::go_field_name_width_costs_linear_work"]
+    },
+    {
+      "name": "go-method-name-is-a-field-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            \"field_identifier\" if field => names.push(child),",
+      "new": "            \"field_identifier\" => names.push(child),",
+      "expect": ["documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_member_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "go-every-named-child-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            \"field_identifier\" if field => names.push(child),\n            _ => {}",
+      "new": "            \"field_identifier\" if field => names.push(child),\n            _ if field && node.is_named() => names.push(child),\n            _ => {}",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_embedded_field_owns_as_its_declaration", "documentation::collector::go_tests::go_member_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "go-embedded-field-stays-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    Ok(Some(names))\n}",
+      "new": "    Ok((!field || !names.is_empty()).then_some(names))\n}",
+      "expect": ["documentation::collector::go_tests::go_embedded_field_owns_as_its_declaration", "documentation::collector::go_tests::go_undocumented_members_have_owners_and_no_assessment"]
+    },
+    {
+      "name": "go-element-projection-is-empty",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        } else if names.is_empty() {",
+      "new": "        } else if names.is_empty() && self.index.profile != Profile::GoDoc {",
+      "expect": ["documentation::collector::go_tests::go_embedded_field_owns_as_its_declaration", "documentation::collector::go_tests::go_interface_elements_own_as_their_nodes"]
+    },
+    {
+      "name": "go-slot-ordinal-off-by-one",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                ordinal: fields.len(),",
+      "new": "                ordinal: fields.len() + 1,",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_field_name_width_costs_linear_work"]
+    },
+    {
+      "name": "go-slot-role-is-binding",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                enclosing: declaration,\n                role: SlotRole::Field,",
+      "new": "                enclosing: declaration,\n                role: SlotRole::Binding,",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot"]
+    },
+    {
+      "name": "go-slot-enclosing-is-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let declaration = OwnerId(self.index.facts.owners.len());",
+      "new": "        let declaration = OwnerId(0);",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_field_queries_answer_per_slot_and_per_declaration", "documentation::collector::go_tests::go_fields_of_a_nested_struct_own_slots_in_their_own_declaration"]
+    },
+    {
+      "name": "go-declaration-node-stays-the-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields);",
+      "new": "        let _ = fields;",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_field_queries_answer_per_slot_and_per_declaration"]
+    },
+    {
+      "name": "go-slot-owner-node-is-the-root",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            self.index.owner_nodes.push(id);\n            fields.push(field);",
+      "new": "            self.index.owner_nodes.push(NodeId(0));\n            fields.push(field);",
+      "expect": ["documentation::collector::go_tests::go_member_beside_recovery_keeps_its_owners"]
+    },
+    {
+      "name": "go-name-across-adjacent-ranges-is-not-a-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;\n            if source.pieces().len() != 1 {\n                return Ok(());\n            }",
+      "expect": ["documentation::collector::go_tests::go_member_and_excluded_ranges"]
+    },
+    {
+      "name": "go-member-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    for &child in &canonical.children[canonical.nodes[member.0].children.clone()] {\n        budget.step()?;",
+      "new": "    for &child in &canonical.children[canonical.nodes[member.0].children.clone()] {\n        let _ = budget;",
+      "expect": ["documentation::collector::go_tests::go_member_scan_charges_one_step_per_child"]
+    },
+    {
+      "name": "go-member-scan-charges-per-earlier-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    for &child in &canonical.children[canonical.nodes[member.0].children.clone()] {\n        budget.step()?;",
+      "new": "    for &child in &canonical.children[canonical.nodes[member.0].children.clone()] {\n        for _ in 0..=names.len() {\n            budget.step()?;\n        }",
+      "expect": ["documentation::collector::go_tests::go_member_scan_charges_one_step_per_child", "documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-member-scan-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(names) = go_member_names(&self.index.canonical, id, budget)? else {",
+      "new": "        let Some(names) = crate::documentation::budget::infallible(go_member_names(\n            &self.index.canonical,\n            id,\n            &crate::documentation::budget::NoBudget,\n        )) else {",
+      "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-slot-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        for name in names {\n            budget.step()?;",
+      "new": "        for name in names {",
+      "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-slot-loop-charges-per-earlier-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        for name in names {\n            budget.step()?;",
+      "new": "        for name in names {\n            for _ in 0..=fields.len() {\n                budget.step()?;\n            }",
+      "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-slot-pieces-ignore-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "            let source = self\n                .index\n                .source\n                .pieces_with_budget(spelling, &crate::documentation::budget::NoBudget)?;",
+      "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-field-names-requested-from-the-cursor",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))",
+      "new": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))\n        || (profile == Profile::GoDoc && kind == \"field_declaration\")",
+      "expect": ["documentation::collector::go_tests::go_field_name_width_costs_linear_work", "documentation::collector::go_tests::go_member_count_costs_linear_work"]
+    },
+    {
+      "name": "go-retained-candidates-in-reverse-order",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.index.evidence.push(CandidateEvidence {\n                    fragment,\n                    disposition: if member.directive {\n                        CandidateDisposition::Directive\n                    } else {\n                        CandidateDisposition::Unattached\n                    },\n                });",
+      "new": "                self.index.evidence.insert(\n                    0,\n                    CandidateEvidence {\n                        fragment,\n                        disposition: if member.directive {\n                            CandidateDisposition::Directive\n                        } else {\n                            CandidateDisposition::Unattached\n                        },\n                    },\n                );",
+      "expect": ["documentation::collector::go_tests::go_retained_candidates_stay_in_source_order", "documentation::collector::go_tests::go_comments_that_document_no_member_leave_it_its_owners", "documentation::collector::go_tests::go_comment_inside_a_member_documents_nothing"]
+    },
+    {
+      "name": "go-function-body-gate-open",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::StatementList | Go::Block => 0,",
+      "new": "                Go::StatementList | Go::Block => 1,",
+      "expect": ["documentation::collector::go_tests::go_members_declared_in_a_function_body_own_nothing"]
+    },
+    {
+      "name": "go-negated-element-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::TypeIdentifier | Go::QualifiedType | Go::GenericType",
+      "new": "                Go::TypeIdentifier | Go::QualifiedType | Go::GenericType | Go::NegatedType",
+      "expect": ["documentation::collector::go_tests::go_elements_without_a_leading_name_and_signature_parts_own_nothing", "documentation::collector::go_tests::go_interface_elements_own_as_their_nodes"]
+    },
+    {
+      "name": "trailing-comment-seeds-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {",
+      "new": "            if prev.end_row() > row_first.start_row() {",
+      "expect": ["documentation::collector::go_tests::go_comments_that_document_no_member_leave_it_its_owners"]
+    },
+    {
+      "name": "error-ancestor-leaves-the-association-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if node.is_error() || node.is_missing() {\n            record\n                .qualification\n                .insert(UnresolvedReason::GrammarBoundary);\n        }",
+      "new": "        if node.is_error() || node.is_missing() {\n            let _ = &record;\n        }",
+      "expect": ["documentation::collector::go_tests::go_member_beside_recovery_keeps_its_owners"]
+    },
+    {
+      "name": "go-line-end-below-a-child-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            open.push((record.children.clone(), body));",
+      "new": "            let _ = body;",
+      "expect": ["documentation::collector::go_tests::go_line_end_below_a_child_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_after_a_closing_bracket_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_nested_members_are_read_on_their_own", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-error-method-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && node.kind() != \"method_elem\")\n            || node.is_missing()\n            || !self",
+      "expect": ["documentation::collector::go_tests::go_member_with_a_syntax_error_stays_a_pending_owner"]
+    },
+    {
+      "name": "go-error-type-element-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && node.kind() != \"type_elem\")\n            || node.is_missing()\n            || !self",
+      "expect": ["documentation::collector::go_tests::go_member_with_a_syntax_error_stays_a_pending_owner"]
+    },
+    {
+      "name": "go-line-end-rule-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if go_ends_member_early(&self.index.canonical, id, budget)? {",
+      "new": "        if false && go_ends_member_early(&self.index.canonical, id, budget)? {",
+      "expect": ["documentation::collector::go_tests::go_line_end_below_a_child_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_after_a_closing_bracket_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_nested_members_are_read_on_their_own", "documentation::collector::go_tests::go_line_end_and_excluded_ranges"]
+    },
+    {
+      "name": "go-closing-square-bracket-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(token.kind(), \")\" | \"]\" | \"}\")",
+      "new": "matches!(token.kind(), \")\" | \"}\")",
+      "expect": ["documentation::collector::go_tests::go_line_end_after_a_closing_bracket_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-closing-parenthesis-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(token.kind(), \")\" | \"]\" | \"}\")",
+      "new": "matches!(token.kind(), \"]\" | \"}\")",
+      "expect": ["documentation::collector::go_tests::go_line_end_below_a_child_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-closing-brace-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(token.kind(), \")\" | \"]\" | \"}\")",
+      "new": "matches!(token.kind(), \")\" | \"]\")",
+      "expect": ["documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-name-or-literal-ends-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    (token.is_named() || matches!(token.kind(), \")\" | \"]\" | \"}\")).then(|| token.end_position().row)",
+      "new": "    matches!(token.kind(), \")\" | \"]\" | \"}\").then(|| token.end_position().row)",
+      "expect": ["documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-every-token-ends-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    (token.is_named() || matches!(token.kind(), \")\" | \"]\" | \"}\")).then(|| token.end_position().row)",
+      "new": "    Some(token.end_position().row)",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
+    },
+    {
+      "name": "go-line-end-is-never-cleared",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        line_end = go_line_end(node);",
+      "new": "        line_end = go_line_end(node).or(line_end);",
+      "expect": ["documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
+    },
+    {
+      "name": "go-token-on-the-same-row-ends-the-member",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if line_end.is_some_and(|row| row < node.start_position().row) {",
+      "new": "        if line_end.is_some_and(|row| row <= node.start_position().row) {",
+      "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
+    },
+    {
+      "name": "go-token-ends-on-its-first-row",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": ".then(|| token.end_position().row)",
+      "new": ".then(|| token.start_position().row)",
+      "expect": ["documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
+    },
+    {
+      "name": "go-comment-is-a-token",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if kind == \"comment\" {\n            continue;\n        }\n        if !record.children.is_empty()",
+      "new": "        if !record.children.is_empty()",
+      "expect": ["documentation::collector::go_tests::go_comment_inside_a_member_documents_nothing", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-raw-string-is-read-token-by-token",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            && !matches!(kind, \"raw_string_literal\" | \"interpreted_string_literal\")",
+      "new": "            && !matches!(kind, \"interpreted_string_literal\")",
+      "expect": ["documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-interpreted-string-is-read-token-by-token",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            && !matches!(kind, \"raw_string_literal\" | \"interpreted_string_literal\")",
+      "new": "            && !matches!(kind, \"raw_string_literal\")",
+      "expect": ["documentation::collector::go_tests::go_line_end_after_a_name_a_literal_or_a_brace_keeps_the_member_pending", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-nested-struct-body-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(kind, \"field_declaration_list\" | \"interface_type\" | \"block\")",
+      "new": "matches!(kind, \"interface_type\" | \"block\")",
+      "expect": ["documentation::collector::go_tests::go_fields_of_a_nested_struct_own_slots_in_their_own_declaration", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners", "documentation::collector::go_tests::go_nested_members_are_read_on_their_own", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once", "documentation::collector::go_tests::go_line_end_scan_costs_linear_work"]
+    },
+    {
+      "name": "go-nested-interface-body-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(kind, \"field_declaration_list\" | \"interface_type\" | \"block\")",
+      "new": "matches!(kind, \"field_declaration_list\" | \"block\")",
+      "expect": ["documentation::collector::go_tests::go_members_own_wherever_their_type_is_written", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-function-literal-body-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(kind, \"field_declaration_list\" | \"interface_type\" | \"block\")",
+      "new": "matches!(kind, \"field_declaration_list\" | \"interface_type\")",
+      "expect": ["documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-nested-bodies-are-read-again",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if *body && kind == \"{\" {",
+      "new": "        if false && *body && kind == \"{\" {",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_costs_linear_work", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners", "documentation::collector::go_tests::go_line_end_scan_reads_each_token_once"]
+    },
+    {
+      "name": "go-line-end-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        member_reads::record();",
+      "new": "        let _ = budget;\n        member_reads::record();",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_reads_each_token_once", "documentation::collector::go_tests::go_wide_parameter_list_collection_observes_cancellation", "documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-line-end-scan-charges-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        member_reads::record();",
+      "new": "        budget.step()?;\n        budget.step()?;\n        member_reads::record();",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_reads_each_token_once", "documentation::collector::go_tests::go_wide_parameter_list_collection_observes_cancellation", "documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-line-end-scan-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if go_ends_member_early(&self.index.canonical, id, budget)? {",
+      "new": "        if crate::documentation::budget::infallible(go_ends_member_early(\n            &self.index.canonical,\n            id,\n            &crate::documentation::budget::NoBudget,\n        )) {",
+      "expect": ["documentation::collector::go_tests::go_wide_parameter_list_collection_observes_cancellation", "documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
+    },
+    {
+      "name": "go-line-end-reads-are-not-counted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        member_reads::record();",
+      "new": "        let _ = member_reads::record;",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_reads_each_token_once", "documentation::collector::go_tests::go_line_end_scan_costs_linear_work", "documentation::collector::go_tests::go_line_end_scan_reads_nothing_for_another_profile"]
+    },
+    {
+      "name": "java-fields-are-read-for-go-line-ends",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.field_slots(id, names, budget)\n    }\n\n    fn go_member_owners(",
+      "new": "        go_ends_member_early(&self.index.canonical, id, budget)?;\n        self.field_slots(id, names, budget)\n    }\n\n    fn go_member_owners(",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_reads_nothing_for_another_profile"]
+    },
+    {
+      "name": "go-every-node-is-read-for-line-ends",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
+      "new": "        go_ends_member_early(&self.index.canonical, id, budget)?;\n        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
+      "expect": ["documentation::collector::go_tests::go_line_end_scan_costs_linear_work"]
+    }
+  ]
+}
