@@ -1,7 +1,9 @@
 //! Go documentation in the source view: which declaration owns a comment, the text of
 //! the document and where each part of that text comes from. Every source is collected
-//! through both entry points, except in the last test, which collects nothing and pins
+//! through both entry points, except in the grammar tests, which collect nothing and pin
 //! the parse-tree shapes the other tests rely on.
+
+#![allow(clippy::single_range_in_vec_init, clippy::type_complexity)]
 
 #[cfg(feature = "go")]
 use crate::documentation::*;
@@ -1182,4 +1184,736 @@ fn go_grammar_shapes_the_unit_relies_on() {
             source.escape_ascii()
         );
     }
+}
+
+#[cfg(feature = "go")]
+const AWAITS_PROJECTION: &str = "Selected local or wrapper form awaits owner projection";
+
+#[cfg(feature = "go")]
+const NEEDS_PROJECTION: &str = "Recognized declaration requires a semantic projection";
+
+#[cfg(feature = "go")]
+fn site(node: tree_sitter::Node<'_>) -> (&'static str, Range<usize>) {
+    (node.kind(), node.byte_range())
+}
+
+/// Every document as its fragments and its text, for a parse the view does not read.
+#[cfg(feature = "go")]
+fn texts(index: &DocumentationIndex<'_>) -> Vec<(Vec<Range<usize>>, String)> {
+    index
+        .documents()
+        .map(|document| {
+            let fragments = (0..document.get().fragment_count())
+                .map(|at| {
+                    let fragment = index.facts().document_fragment(document, at).unwrap();
+                    fragment_span(fragment.get())
+                })
+                .collect();
+            let complete = index.complete_text(document).unwrap().unwrap();
+            (fragments, complete.text().to_owned())
+        })
+        .collect()
+}
+
+/// One owner as text: a node as kind and byte range; a field slot as its ordinal, the
+/// byte range of each piece of its name, and the node that encloses it; the file.
+#[cfg(feature = "go")]
+fn owner_text<'s>(index: &DocumentationIndex<'s>, owner: FactRef<'_, Owner<'s>>) -> String {
+    match owner.get() {
+        Owner::Node(declared) => {
+            let (kind, range) = site(declared.node());
+            format!("{kind} {}..{}", range.start, range.end)
+        }
+        Owner::Slot(slot) => {
+            assert_eq!(slot.role, SlotRole::Field);
+            assert!(!slot.source.has_excluded_gap());
+            let pieces: Vec<_> = slot
+                .source
+                .pieces()
+                .iter()
+                .map(|piece| format!("{}..{}", piece.range().start, piece.range().end))
+                .collect();
+            let enclosing = index.facts().slot_enclosing(owner).unwrap();
+            format!(
+                "slot {} {} in {}",
+                slot.ordinal,
+                pieces.join(","),
+                owner_text(index, enclosing)
+            )
+        }
+        Owner::File(file) => {
+            let (kind, range) = site(file.node());
+            format!("file {kind} {}..{}", range.start, range.end)
+        }
+        other => panic!("a node, a field slot or the file, found {other:?}"),
+    }
+}
+
+/// One association where the view does not reach: the position of its document, its
+/// resolution, its owners, its binding and its lexical scope. It may have no owner.
+#[cfg(feature = "go")]
+type Edge = (
+    usize,
+    Resolution,
+    Vec<String>,
+    (&'static str, Range<usize>),
+    (&'static str, Range<usize>),
+);
+
+#[cfg(feature = "go")]
+fn edges(index: &DocumentationIndex<'_>) -> Vec<Edge> {
+    let facts = index.facts();
+    index
+        .associations()
+        .map(|association| {
+            let attachment = association.get();
+            assert_eq!(attachment.convention.name(), "GoDoc");
+            assert_eq!(attachment.publication, Publication::Unknown);
+            let document = facts.associated_document(association).unwrap();
+            let owners = (0..attachment.owner_count())
+                .map(|at| owner_text(index, facts.associated_owner(association, at).unwrap()))
+                .collect();
+            (
+                index
+                    .documents()
+                    .position(|known| known == document)
+                    .unwrap(),
+                attachment.resolution,
+                owners,
+                site(attachment.binding.unwrap().node()),
+                site(attachment.lexical_scope.node()),
+            )
+        })
+        .collect()
+}
+
+/// One pending assessment: its reason, its node and the position of its document.
+#[cfg(feature = "go")]
+type Pending = (&'static str, (&'static str, Range<usize>), Option<usize>);
+
+/// The pending assessments in the order of their nodes; the contract states no order
+/// for them. Each one here is on the owner axis.
+#[cfg(feature = "go")]
+fn pending<'i, 's: 'i>(
+    index: &'i DocumentationIndex<'s>,
+    found: impl Iterator<Item = FactRef<'i, Assessment<'s>>>,
+) -> Vec<Pending> {
+    let mut all: Vec<Pending> = found
+        .map(|assessment| {
+            assert_eq!(assessment.get().axis, AssessmentAxis::Owner);
+            let document = index.assessed_document(assessment).unwrap();
+            (
+                assessment.get().reason,
+                site(assessment.get().node.unwrap().node()),
+                document.map(|document| {
+                    index
+                        .documents()
+                        .position(|known| known == document)
+                        .unwrap()
+                }),
+            )
+        })
+        .collect();
+    all.sort_by_key(|(reason, (_, range), document)| (range.start, range.end, *reason, *document));
+    all
+}
+
+/// Every retained candidate as disposition and byte range.
+#[cfg(feature = "go")]
+fn kept(index: &DocumentationIndex<'_>) -> Vec<(CandidateDisposition, Range<usize>)> {
+    index
+        .evidence()
+        .map(|candidate| {
+            let fragment = index.evidence_fragment(candidate).unwrap();
+            (candidate.get().disposition, fragment_span(fragment.get()))
+        })
+        .collect()
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_retained_candidates_stay_in_source_order() {
+    // Two comments that document nothing: one follows code on its row, the other is
+    // above a blank row.
+    let unbound: &[u8] = b"package p\nvar x = 1 // t\n\n// a\n\nfunc F() {}\n";
+    let mut expected = View::default();
+    assert_eq!(view(unbound), expected);
+    expected.evidence.extend([
+        (CandidateDisposition::Unattached, 20..24),
+        (CandidateDisposition::Unattached, 26..30),
+    ]);
+    assert_eq!(retained(unbound, Retain::Unbound), expected);
+    // A comment above a blank row and the directive of a selected run: one option keeps
+    // each, and the list is in source order whatever the dispositions are.
+    let mixed: &[u8] = b"package p\n// a\n\n// b\n//go:generate tool\nfunc F() {}\n";
+    let mut expected = owned(
+        comment(16..20, "b", [(0..1, Copied(19..20))]),
+        "function_declaration",
+        40..51,
+    );
+    assert_eq!(view(mixed), expected);
+    expected.evidence.extend([
+        (CandidateDisposition::Unattached, 10..14),
+        (CandidateDisposition::Directive, 21..39),
+    ]);
+    assert_eq!(retained(mixed, Retain::Both), expected);
+}
+
+/// Asserts that the source publishes nothing by default, that none of the nodes is an
+/// owner, and that each comment is kept on request, in order. The kept comments show
+/// that the collector saw them, so the empty view is an answer.
+#[cfg(feature = "go")]
+fn assert_owns_nothing(source: &[u8], nodes: &[(&str, Range<usize>)], comments: &[Range<usize>]) {
+    let name = source.escape_ascii();
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    let mut expected = View::default();
+    assert_eq!(agreed(&both), expected, "{name}");
+    for index in &both {
+        for (kind, range) in nodes {
+            assert_eq!(
+                index
+                    .node_projection(node_at(&parser, kind, range.clone()))
+                    .err(),
+                Some(OwnerError::UnsupportedOwner),
+                "{kind} {range:?} in {name}"
+            );
+        }
+    }
+    expected.evidence.extend(
+        comments
+            .iter()
+            .map(|range| (CandidateDisposition::Unattached, range.clone())),
+    );
+    assert_eq!(retained(source, Retain::Unbound), expected, "{name}");
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_members_declared_in_a_function_body_own_nothing() {
+    let cases: [(&[u8], &[(&str, Range<usize>)], &[Range<usize>]); 2] = [
+        (
+            b"package p\nfunc F() {\ntype T struct {\n// a\nX int\n}\n}\n",
+            &[("field_declaration", 42..47)],
+            &[37..41],
+        ),
+        (
+            b"package p\nfunc F() {\ntype I interface {\n// m\nM()\n// e\nio.Reader\n}\n}\n",
+            &[("method_elem", 45..48), ("type_elem", 54..63)],
+            &[40..44, 49..53],
+        ),
+    ];
+    for (source, members, comments) in cases {
+        assert_owns_nothing(source, members, comments);
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+fn go_elements_without_a_leading_name_and_signature_parts_own_nothing() {
+    // An interface element that does not open with a name, a type argument and a
+    // parameter: Go gives none of them a lead comment, and none is an owner here.
+    let cases: [(&[u8], &[(&str, Range<usize>)], &[Range<usize>]); 4] = [
+        (
+            b"package p\ntype I interface {\n// u\n~int\n}\n",
+            &[("type_elem", 34..38)],
+            &[29..33],
+        ),
+        (
+            b"package p\ntype I interface {\n// a\n~int | string\n// b\n*T\n// c\n[]int\n}\n",
+            &[
+                ("type_elem", 34..47),
+                ("type_elem", 53..55),
+                ("type_elem", 61..66),
+            ],
+            &[29..33, 48..52, 56..60],
+        ),
+        (
+            b"package p\nvar v Map[\n// c\nstring, int]\n",
+            &[("type_elem", 26..32), ("type_elem", 34..37)],
+            &[21..25],
+        ),
+        (
+            b"package p\nfunc F(\n// p\nx int) {}\n",
+            &[("parameter_declaration", 23..28)],
+            &[18..22],
+        ),
+    ];
+    for (source, parts, comments) in cases {
+        assert_owns_nothing(source, parts, comments);
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn go_member_with_a_syntax_error_stays_a_pending_owner() {
+    // Each member holds an error of its own: an `ERROR` node in the first four, a
+    // missing element type in the last. The type that holds the member has the error
+    // too, so the declaration and its spec are pending with it.
+    struct Case<'a> {
+        source: &'a [u8],
+        member: (&'static str, Range<usize>),
+        // The error inside the member: an `ERROR` node, or the zero-width missing node.
+        error: (&'static str, Range<usize>),
+        comment: Range<usize>,
+        text: &'a str,
+        scope: (&'static str, Range<usize>),
+        declaration: Range<usize>,
+        spec: Range<usize>,
+        // The comment inside the broken method, kept on request.
+        inside: &'a [Range<usize>],
+    }
+    let cases = [
+        Case {
+            source: b"package p\ntype S struct {\n// a\nX %% int\n}\n",
+            member: ("field_declaration", 31..39),
+            error: ("ERROR", 33..35),
+            comment: 26..30,
+            text: "a",
+            scope: ("field_declaration_list", 24..41),
+            declaration: 10..41,
+            spec: 15..41,
+            inside: &[],
+        },
+        Case {
+            source: b"package p\ntype S struct {\n// e\nio.%%Reader\n}\n",
+            member: ("field_declaration", 31..42),
+            error: ("ERROR", 34..36),
+            comment: 26..30,
+            text: "e",
+            scope: ("field_declaration_list", 24..44),
+            declaration: 10..44,
+            spec: 15..44,
+            inside: &[],
+        },
+        Case {
+            source: b"package p\ntype I interface {\n// m\nM(\n// e\nio.Reader\n}\n",
+            member: ("method_elem", 34..51),
+            error: (")", 51..51),
+            comment: 29..33,
+            text: "m",
+            scope: ("interface_type", 17..53),
+            declaration: 10..53,
+            spec: 15..53,
+            inside: &[37..41],
+        },
+        Case {
+            source: b"package p\ntype I interface {\n// e\nio.%%Reader\n}\n",
+            member: ("type_elem", 34..45),
+            error: ("ERROR", 37..39),
+            comment: 29..33,
+            text: "e",
+            scope: ("interface_type", 17..47),
+            declaration: 10..47,
+            spec: 15..47,
+            inside: &[],
+        },
+        Case {
+            source: b"package p\ntype S struct {\n// d\nX []\n}\n",
+            member: ("field_declaration", 31..35),
+            error: ("type_identifier", 35..35),
+            comment: 26..30,
+            text: "d",
+            scope: ("field_declaration_list", 24..37),
+            declaration: 10..37,
+            spec: 15..37,
+            inside: &[],
+        },
+    ];
+    for case in cases {
+        let name = case.source.escape_ascii();
+        let parser = AnyParser::parse(LANG::Go, case.source.to_vec(), None, None).unwrap();
+        let member = node_at(&parser, case.member.0, case.member.1.clone());
+        let error = node_at(&parser, case.error.0, case.error.1.clone());
+        assert!(member.has_error(), "{name}");
+        assert!(
+            error.is_error() || error.is_missing() || error.has_error(),
+            "{name}"
+        );
+        assert!(
+            member.start_byte() <= error.start_byte() && error.end_byte() <= member.end_byte(),
+            "{name}"
+        );
+        let options = DocumentationOptions {
+            retain_unbound: true,
+            ..DocumentationOptions::default()
+        };
+        for index in &indexes(&parser, options) {
+            assert_eq!(
+                texts(index),
+                [(vec![case.comment.clone()], case.text.to_owned())],
+                "{name}"
+            );
+            // The error is the reason the stream gives, so the association exists; it
+            // has no owner, because its target is pending.
+            assert_eq!(
+                edges(index),
+                [(
+                    0,
+                    Resolution::Unresolved(UnresolvedReason::GrammarBoundary),
+                    vec![],
+                    case.member.clone(),
+                    case.scope.clone(),
+                )],
+                "{name}"
+            );
+            assert_eq!(
+                pending(index, index.assessments()),
+                [
+                    (
+                        NEEDS_PROJECTION,
+                        ("type_declaration", case.declaration.clone()),
+                        None
+                    ),
+                    (NEEDS_PROJECTION, ("type_spec", case.spec.clone()), None),
+                    (NEEDS_PROJECTION, case.member.clone(), None),
+                    (AWAITS_PROJECTION, case.member.clone(), Some(0)),
+                ],
+                "{name}"
+            );
+            let inside: Vec<_> = case
+                .inside
+                .iter()
+                .map(|range| (CandidateDisposition::Unattached, range.clone()))
+                .collect();
+            assert_eq!(kept(index), inside, "{name}");
+            assert!(index.node_projection(member).unwrap().pending(), "{name}");
+            assert_eq!(
+                index.node_owners(member).err(),
+                Some(OwnerError::PendingOwner),
+                "{name}"
+            );
+            // expected: the file and the package clause.
+            assert_eq!(index.facts().owners().len(), 2, "{name}");
+        }
+    }
+}
+
+#[cfg(feature = "go")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn go_member_grammar_shapes_the_unit_relies_on() {
+    // The names of a field declaration are its children of kind `field_identifier`, in
+    // order, and they are the children the grammar gives the field `name`. A field that
+    // embeds a type has none, and `_` is a name like any other.
+    let source: &[u8] = b"package p\ntype S struct {\nX, Y int `t`\n_ int\n*io.Reader\nN struct {\nA int\n}\n}\ntype I interface {\nM() int\nio.Reader\n}\n";
+    let parser = clean(source);
+    let members: [(&str, Range<usize>, &[Range<usize>]); 7] = [
+        ("field_declaration", 26..38, &[26..27, 29..30]),
+        ("field_declaration", 39..44, &[39..40]),
+        ("field_declaration", 45..55, &[]),
+        ("field_declaration", 56..74, &[56..57]),
+        ("field_declaration", 67..72, &[67..68]),
+        // The name of a method is a `field_identifier` as well, so the kind of the
+        // member decides whether such a child names a field.
+        ("method_elem", 96..103, &[96..97]),
+        ("type_elem", 104..113, &[]),
+    ];
+    for (kind, range, names) in members {
+        let member = node_at(&parser, kind, range.clone());
+        let mut cursor = member.walk();
+        let mut by_field = Vec::new();
+        let mut by_kind = Vec::new();
+        assert!(cursor.goto_first_child());
+        loop {
+            if cursor.field_name() == Some("name") {
+                by_field.push(cursor.node().byte_range());
+            }
+            if cursor.node().kind() == "field_identifier" {
+                by_kind.push(cursor.node().byte_range());
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        assert_eq!(by_kind, names, "{kind} {range:?}");
+        assert_eq!(by_field, names, "{kind} {range:?}");
+    }
+    assert_eq!(&source[39..40], b"_");
+    // expected: the seven members above are every member of the source.
+    assert_eq!(
+        parser
+            .root_node()
+            .preorder()
+            .filter(|found| matches!(
+                found.kind(),
+                "field_declaration" | "method_elem" | "type_elem"
+            ))
+            .count(),
+        7
+    );
+
+    // A comment between the parts of a member is a child of the member. Only a block
+    // comment that holds a line feed ends on a later row than it starts on; a carriage
+    // return alone is no line end in Go, and the grammar counts no row for it.
+    let inside: [(&[u8], Range<usize>, (&str, Range<usize>), bool); 6] = [
+        (
+            b"package p\ntype S struct {\n// d\nX /* a\n b */ int\n}\n",
+            33..43,
+            ("field_declaration", 31..47),
+            true,
+        ),
+        (
+            b"package p\ntype I interface {\n// m\nM() /* a\n b */ int\n}\n",
+            38..48,
+            ("method_elem", 34..52),
+            true,
+        ),
+        (
+            b"package p\ntype I interface {\n// e\nA | /* a\n b */ B\n}\n",
+            38..48,
+            ("type_elem", 34..50),
+            true,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX, /* c */ Y int\n}\n",
+            34..41,
+            ("field_declaration", 31..47),
+            false,
+        ),
+        (
+            b"package p\ntype S struct {\n// a\nX,\n// b\nY int\n}\n",
+            34..38,
+            ("field_declaration", 31..44),
+            false,
+        ),
+        (
+            b"package p\ntype S struct {\n// d\nX /* a\r b */ int\n}\n",
+            33..43,
+            ("field_declaration", 31..47),
+            false,
+        ),
+    ];
+    for (source, comment, member, breaks) in inside {
+        let parser = clean(source);
+        let comment = node_at(&parser, "comment", comment);
+        assert_eq!(
+            comment.parent().map(site),
+            Some(member),
+            "{}",
+            source.escape_ascii()
+        );
+        assert_eq!(
+            comment.start_position().row != comment.end_position().row,
+            breaks,
+            "{}",
+            source.escape_ascii()
+        );
+    }
+
+    // A comment inside a function type is a child of that type and not of the member.
+    let parser = clean(b"package p\ntype S struct {\n// d\nX func() /* a\n b */ int\n}\n");
+    let comment = node_at(&parser, "comment", 40..50);
+    assert_eq!(comment.parent().map(site), Some(("function_type", 33..54)));
+    assert_eq!(
+        comment.parent().and_then(|found| found.parent()).map(site),
+        Some(("field_declaration", 31..54))
+    );
+
+    // A line feed after a name ends the member, as it does in Go: two declarations that
+    // each embed a type, and no field named `X`.
+    let parser = clean(b"package p\ntype S struct {\n// d\nX\nint\n}\n");
+    let fields = named_in(node_at(&parser, "field_declaration_list", 24..38));
+    assert_eq!(
+        shapes(&fields),
+        [
+            ("comment", 26..30),
+            ("field_declaration", 31..32),
+            ("field_declaration", 33..36),
+        ]
+    );
+    assert_eq!(shapes(&named_in(fields[1])), [("type_identifier", 31..32)]);
+    assert_eq!(shapes(&named_in(fields[2])), [("type_identifier", 33..36)]);
+}
+
+/// The tokens below a node, in source order, each with whether the grammar names it: a
+/// node without children, or a string literal as one token. Comments are left out.
+#[cfg(feature = "go")]
+fn tokens(node: tree_sitter::Node<'_>) -> Vec<(&'static str, bool)> {
+    let mut found = Vec::new();
+    let mut open = vec![node];
+    while let Some(next) = open.pop() {
+        let string = matches!(
+            next.kind(),
+            "raw_string_literal" | "interpreted_string_literal"
+        );
+        if next.kind() == "comment" {
+            continue;
+        }
+        if next.child_count() == 0 || string {
+            found.push((next.kind(), next.is_named()));
+        } else {
+            let children: Vec<_> = next.children(&mut next.walk()).collect();
+            open.extend(children.into_iter().rev());
+        }
+    }
+    found
+}
+
+/// The kind of every child of a node, named or not, in order.
+#[cfg(feature = "go")]
+fn child_kinds(node: tree_sitter::Node<'_>) -> Vec<&'static str> {
+    node.children(&mut node.walk())
+        .map(|child| child.kind())
+        .collect()
+}
+
+#[cfg(feature = "go")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn go_token_shapes_the_line_end_rule_relies_on() {
+    // Go ends a line after an identifier, a literal, `)`, `]` or `}`. In the pinned
+    // grammar the identifiers and the literals are exactly the tokens it names: every
+    // keyword, operator and bracket is a token without a name.
+    let source: &[u8] = b"package p\ntype S struct {\nX [iota + len(nil)]int `a`\nY [true]map[string]*pkg.T \"b\"\nZ [1.5 + 2i + 'c' + 3]chan<- func(a ...int) (r bool)\n_ struct{}\nW interface{ ~int | G[int, string] }\nV [false]int\n}\n";
+    let parser = clean(source);
+    let list = node_at(&parser, "field_declaration_list", 24..198);
+    let mut named = std::collections::BTreeSet::new();
+    let mut unnamed = std::collections::BTreeSet::new();
+    for (kind, is_named) in tokens(list) {
+        if is_named {
+            named.insert(kind);
+        } else {
+            unnamed.insert(kind);
+        }
+    }
+    assert_eq!(
+        named.into_iter().collect::<Vec<_>>(),
+        [
+            "false",
+            "field_identifier",
+            "float_literal",
+            "identifier",
+            "imaginary_literal",
+            "int_literal",
+            "interpreted_string_literal",
+            "iota",
+            "nil",
+            "package_identifier",
+            "raw_string_literal",
+            "rune_literal",
+            "true",
+            "type_identifier",
+        ]
+    );
+    assert_eq!(
+        unnamed.into_iter().collect::<Vec<_>>(),
+        [
+            "(",
+            ")",
+            "*",
+            "+",
+            ",",
+            ".",
+            "...",
+            "<-",
+            "[",
+            "]",
+            "chan",
+            "func",
+            "interface",
+            "map",
+            "struct",
+            "{",
+            "|",
+            "}",
+            "~",
+        ]
+    );
+
+    // A string literal is a node with children, also when it is empty (an empty raw
+    // string has a content node without a byte), so it is no token of its own accord;
+    // the rule takes it as one. A raw string may span rows.
+    let source: &[u8] = b"package p\ntype S struct {\nX int `a\nb`\nY int \"\"\nZ int ``\n}\n";
+    let parser = clean(source);
+    let strings: [(&str, Range<usize>, &[&str]); 3] = [
+        (
+            "raw_string_literal",
+            32..37,
+            &["`", "raw_string_literal_content", "`"],
+        ),
+        ("interpreted_string_literal", 44..46, &["\"", "\""]),
+        (
+            "raw_string_literal",
+            53..55,
+            &["`", "raw_string_literal_content", "`"],
+        ),
+    ];
+    for (kind, range, children) in strings {
+        let string = node_at(&parser, kind, range);
+        assert!(string.is_named());
+        assert_eq!(child_kinds(string), children);
+    }
+    let spanning = node_at(&parser, "raw_string_literal", 32..37);
+    assert_eq!(
+        (spanning.start_position().row, spanning.end_position().row),
+        (2, 3)
+    );
+
+    // The members of a nested struct or interface type and the statements of a function
+    // literal stand between a `{` and a `}` that are children of one node; in an
+    // interface type the keyword is a child of that node as well.
+    let source: &[u8] = b"package p\ntype S struct {\nA struct {\nX int\n}\nI interface {\nM()\n}\nF [len(func() int {\nreturn 1\n}())]int\n}\n";
+    let parser = clean(source);
+    let bodies: [(&str, Range<usize>, &[&str]); 3] = [
+        (
+            "field_declaration_list",
+            35..44,
+            &["{", "field_declaration", "}"],
+        ),
+        (
+            "interface_type",
+            47..64,
+            &["interface", "{", "method_elem", "}"],
+        ),
+        ("block", 83..95, &["{", "statement_list", "}"]),
+    ];
+    for (kind, range, children) in bodies {
+        assert_eq!(child_kinds(node_at(&parser, kind, range)), children);
+    }
+
+    // After the `]` of an array length the grammar reads on past a line end, where Go
+    // ends the line: one field declaration over two rows.
+    let parser = clean(b"package p\ntype S struct {\n// d\nX [2]\nint\n}\n");
+    let field = node_at(&parser, "field_declaration", 31..40);
+    assert_eq!(
+        shapes(&named_in(field)),
+        [("field_identifier", 31..32), ("array_type", 33..40)]
+    );
+    let array = node_at(&parser, "array_type", 33..40);
+    assert_eq!(
+        child_kinds(array),
+        ["[", "int_literal", "]", "type_identifier"]
+    );
+    let close = array.child(2).unwrap();
+    let element = array.child(3).unwrap();
+    assert_eq!(
+        (close.end_position().row, element.start_position().row),
+        (3, 4)
+    );
+
+    // With a name between the brackets the grammar reads an embedded generic type, which
+    // ends at the line end as in Go: two field declarations.
+    let parser = clean(b"package p\ntype S struct {\n// d\nX [N]\nT\n}\n");
+    let list = node_at(&parser, "field_declaration_list", 24..40);
+    assert_eq!(
+        shapes(&named_in(list)),
+        [
+            ("comment", 26..30),
+            ("field_declaration", 31..36),
+            ("field_declaration", 37..38),
+        ]
+    );
+    let embedded = node_at(&parser, "field_declaration", 31..36);
+    assert_eq!(shapes(&named_in(embedded)), [("generic_type", 31..36)]);
+
+    // A comment after the parameters of a function type is a child of that type, below
+    // the member, and the result after it is read into the same type.
+    let parser =
+        clean(b"package p\ntype I interface {\n// d\nE | func() /* stop\n here */ B | C\n}\n");
+    let inside = node_at(&parser, "comment", 45..61);
+    let function = inside.parent().unwrap();
+    assert_eq!(site(function), ("function_type", 38..63));
+    assert_eq!(site(function.parent().unwrap()), ("type_elem", 34..67));
 }

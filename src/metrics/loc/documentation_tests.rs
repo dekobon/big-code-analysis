@@ -607,8 +607,11 @@ fn documentation_go_source_and_legacy_views_are_independent() {
         source: &'a [u8],
         loc: [u64; 6],
         dloc_rows: &'a [usize],
-        // A run is a maximal sequence of comments in which each one starts on the row
-        // where the one before it ends, or on the next row.
+        // A run is a maximal sequence of comments with no other node between them, in
+        // which each one starts on the row where the one before it ends, or on the next
+        // row. Code before the first comment on its row does not split the run, so the
+        // rows `/* t1` and `{ // t` have one each; the comment after code is in the run
+        // and in no document.
         comment_runs: usize,
     }
     let counters = || {
@@ -2600,4 +2603,298 @@ fn documentation_kotlin_source_and_legacy_views_are_independent() {
     // The context row need not publish a document; the others control both positive deltas.
     assert_ne!(renders_total, 0);
     assert_ne!(evidence_total, 0);
+}
+
+#[cfg(feature = "go")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_go_member_sources_keep_their_legacy_rows() {
+    use big_code_analysis_ast::documentation::streaming::positional::{
+        evidence_built, members_materialized, positional_runs_collected,
+    };
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, included_range_visits, observations,
+    };
+    // Struct fields and interface elements, as the source-view tests of
+    // `go_tests.rs` use them. The legacy rows were measured before the collector gave
+    // these members owners, and they do not depend on it.
+    struct Row<'a> {
+        source: &'a [u8],
+        syntax_error: bool,
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+        documents: usize,
+        // The rule of `comment_runs` in the test above.
+        comment_runs: usize,
+    }
+    let counters = || {
+        [
+            observations().visits,
+            observations().renders,
+            evidence_built::observed(),
+            members_materialized::observed(),
+            positional_runs_collected::observed(),
+            included_range_visits::observed(),
+        ]
+    };
+    let sources = [
+        Row {
+            source: b"package p\ntype S struct {\n// audit\nX int\n}\n",
+            syntax_error: false,
+            loc: [5, 4, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // `_ int` separates the two comments.
+        Row {
+            source: b"package p\ntype S struct {\n// pad\n_ int\n// two\n_, X int\n}\n",
+            syntax_error: false,
+            loc: [7, 5, 0, 2, 0, 2],
+            dloc_rows: &[2, 4],
+            documents: 2,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype S struct {\n// audit\nio.Reader\n}\n",
+            syntax_error: false,
+            loc: [5, 4, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // An element separates each comment from the next.
+        Row {
+            source: b"package p\ntype I interface {\n// a\nint | string\n// c\nG[int]\n// d\nE\n// f\nM(x int) (int, error)\n// g\nMap[string, int]\n}\n",
+            syntax_error: false,
+            loc: [13, 8, 0, 5, 0, 5],
+            dloc_rows: &[2, 4, 6, 8, 10],
+            documents: 5,
+            comment_runs: 5,
+        },
+        // The second comment is inside the method that follows the first.
+        Row {
+            source: b"package p\ntype I interface {\n// m\nM(s struct {\n// d\nX int\n})\n}\n",
+            syntax_error: false,
+            loc: [8, 6, 0, 2, 0, 2],
+            dloc_rows: &[2, 4],
+            documents: 2,
+            comment_runs: 2,
+        },
+        // `// t` follows code on row 2 and `// d` is on the next row: one run, and
+        // only row 3 documents.
+        Row {
+            source: b"package p\ntype S struct {\nX int // t\n// d\nY int\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 2, 0, 1],
+            dloc_rows: &[3],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // A blank row separates the two comments, and another separates the second
+        // from the field.
+        Row {
+            source: b"package p\ntype S struct {\nX int // t\n\n// lost\n\nY int\n}\n",
+            syntax_error: false,
+            loc: [8, 5, 0, 2, 2, 0],
+            dloc_rows: &[],
+            documents: 0,
+            comment_runs: 2,
+        },
+        // The second comment is inside the field that follows the first.
+        Row {
+            source: b"package p\ntype S struct {\n// d\nX, /* c */ Y int\n}\n",
+            syntax_error: false,
+            loc: [5, 4, 0, 2, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype S struct {\n// d\nX /* a\n b */ int\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 3, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype S struct {\n// d\nX func() /* a\n b */ int\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 3, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\nfunc F() {\ntype T struct {\n// a\nX int\n}\n}\n",
+            syntax_error: false,
+            loc: [7, 6, 0, 1, 0, 0],
+            dloc_rows: &[],
+            documents: 0,
+            comment_runs: 1,
+        },
+        Row {
+            source: b"package p\ntype I interface {\n// u\n~int\n}\n",
+            syntax_error: false,
+            loc: [5, 4, 0, 1, 0, 0],
+            dloc_rows: &[],
+            documents: 0,
+            comment_runs: 1,
+        },
+        Row {
+            source: b"package p\ntype S struct {\n// a\nX %% int\n}\n",
+            syntax_error: true,
+            loc: [5, 4, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // A field separates each comment from the next.
+        Row {
+            source: b"package p\ntype S struct {\n// a\nX int\n// b\nY %% int\n// c\nZ int\n}\n",
+            syntax_error: true,
+            loc: [9, 6, 0, 3, 0, 3],
+            dloc_rows: &[2, 4, 6],
+            documents: 3,
+            comment_runs: 3,
+        },
+        // Members that Go ends before the end of their node, and members over several
+        // rows that Go reads whole. The collector keeps the first three pending.
+        Row {
+            source: b"package p\ntype S struct {\n// d\nX [2]\nint\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // The second comment is inside the field that follows the first.
+        Row {
+            source: b"package p\ntype S struct {\n// d\nX [2] // c\nint\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 2, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype I interface {\n// d\nE | func() /* stop\n here */ B | C\n}\n",
+            syntax_error: false,
+            loc: [6, 5, 0, 3, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 2,
+        },
+        Row {
+            source: b"package p\ntype I interface {\n// d\nM(\n\ta int,\n\tb int,\n) error\n}\n",
+            syntax_error: false,
+            loc: [8, 7, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+            comment_runs: 1,
+        },
+        // A field separates each comment from the next.
+        Row {
+            source: b"package p\ntype S struct {\n// d\nA struct {\n// x\nX int\n// y\nY int\n}\n}\n",
+            syntax_error: false,
+            loc: [10, 7, 0, 3, 0, 3],
+            dloc_rows: &[2, 4, 6],
+            documents: 3,
+            comment_runs: 3,
+        },
+    ];
+    for row in sources {
+        let name = row.source.escape_ascii();
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Go, row.source.to_vec(), None, None).unwrap();
+        assert_eq!(
+            parser.ts_tree().root_node().has_error(),
+            row.syntax_error,
+            "{name}"
+        );
+        let idle = counters();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = counters();
+        let space = analyze(
+            Source::new(LANG::Go, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = counters();
+
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+
+        // The collection moves each counter on this thread, so a zero across `analyze` is
+        // a reading.
+        let [visits, renders, built, materialized, scanned, covered] =
+            std::array::from_fn(|at| collected[at] - idle[at]);
+        // expected: the walk enters every node of the tree once.
+        assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
+        // expected: one render per published document.
+        assert_eq!(index.documents().len(), row.documents, "{name}");
+        assert_eq!(renders, row.documents, "{name}");
+        // expected: under default options the positional stream builds one member for
+        // each fragment of a selected run, and none for a trailing member.
+        let fragments: usize = index
+            .documents()
+            .map(|document| document.get().fragment_count())
+            .sum();
+        assert_eq!(built, fragments, "{name}");
+        // expected: every comment is a member of exactly one run, and the source view
+        // materializes each run once.
+        let comments = parser
+            .root_node()
+            .preorder()
+            .filter(|node| node.kind() == "comment")
+            .count();
+        assert_eq!(materialized, comments, "{name}");
+        // expected: the source view scans every run once, at its last comment.
+        assert_eq!(scanned, row.comment_runs, "{name}");
+        // Not exact: the number of included-range questions is the collector's own
+        // accounting and follows from no fact of the tree.
+        assert_ne!(covered, 0, "{name}");
+        // expected: in these sources a document is published exactly where the legacy
+        // view counts a row.
+        assert_eq!(row.documents == 0, row.dloc_rows.is_empty(), "{name}");
+
+        // The same six counters across `analyze`.
+        let [visits, renders, built, materialized, scanned, covered] =
+            std::array::from_fn(|at| analyzed[at] - collected[at]);
+        // expected: 0 and 0, because `analyze` builds no documentation index.
+        assert_eq!(visits, 0, "{name}");
+        assert_eq!(renders, 0, "{name}");
+        // expected: 0, because the legacy view builds no source evidence.
+        assert_eq!(built, 0, "{name}");
+        // expected: 0, because the legacy view walks members without a buffer.
+        assert_eq!(materialized, 0, "{name}");
+        // expected: the legacy view scans every run once as well, at its last comment.
+        assert_eq!(scanned, row.comment_runs, "{name}");
+        // expected: 0, because the legacy view has no source context to ask.
+        assert_eq!(covered, 0, "{name}");
+    }
 }
