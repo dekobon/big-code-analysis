@@ -1012,6 +1012,8 @@ mod csharp_tests;
 #[cfg(test)]
 mod form_tests;
 #[cfg(test)]
+mod go_tests;
+#[cfg(test)]
 mod named_tests;
 #[cfg(test)]
 mod projection_tests;

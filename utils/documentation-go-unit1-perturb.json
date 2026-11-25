@@ -1,0 +1,119 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "go-positional-docs-off",
+      "file": "big-code-analysis-ast/src/checker/go.rs",
+      "old": "const SOURCE_POSITIONAL_DOCS: bool = true;",
+      "new": "const SOURCE_POSITIONAL_DOCS: bool = false;",
+      "expect": ["documentation::collector::go_tests::go_declaration_kinds_own_the_comment_above_them", "documentation::collector::go_tests::go_group_and_its_specs_have_separate_documents", "documentation::collector::go_tests::go_adjacent_comments_join_into_one_run", "documentation::collector::go_tests::go_empty_comment_row_stays_inside_the_run", "documentation::collector::go_tests::go_blank_source_row_detaches_a_run", "documentation::collector::go_tests::go_directive_rows_are_evidence_and_not_prose", "documentation::collector::go_tests::go_trailing_comment_documents_nothing", "documentation::collector::go_tests::go_local_declaration_has_no_document_and_no_owner", "documentation::collector::go_tests::go_import_has_no_document_and_no_owner", "documentation::collector::go_tests::go_documents_of_one_file_stay_separate_and_in_source_order", "documentation::collector::go_tests::go_fixture_function_owns_its_comment", "documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file", "documentation::collector::go_tests::go_text_cleanup_removes_only_the_markers_and_one_space"]
+    },
+    {
+      "name": "go-gated-kinds-not-targets",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "        _ => outside_function_body_with_budget(node, ancestors, budget),",
+      "new": "        _ => Ok(false),",
+      "expect": ["documentation::collector::go_tests::go_declaration_kinds_own_the_comment_above_them", "documentation::collector::go_tests::go_group_and_its_specs_have_separate_documents"]
+    },
+    {
+      "name": "go-function-body-gate-open",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::StatementList | Go::Block => 0,",
+      "new": "                Go::StatementList | Go::Block => 1,",
+      "expect": ["documentation::collector::go_tests::go_local_declaration_has_no_document_and_no_owner"]
+    },
+    {
+      "name": "go-empty-comment-row-ends-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "    Ok(R::Checker::is_comment(next)\n        && (next.start_row() <= comment.end_row()",
+      "new": "    Ok(R::Checker::is_comment(next)\n        && node_bytes(comment, code) != b\"//\"\n        && (next.start_row() <= comment.end_row()",
+      "expect": ["documentation::collector::go_tests::go_empty_comment_row_stays_inside_the_run"]
+    },
+    {
+      "name": "blank-row-keeps-target-below",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "        && R::start_row(&next, budget)? == comment.end_row().saturating_add(1)",
+      "new": "        && R::start_row(&next, budget)? >= comment.end_row().saturating_add(1)",
+      "expect": ["documentation::collector::go_tests::go_blank_source_row_detaches_a_run", "documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file"]
+    },
+    {
+      "name": "blank-row-continues-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (next.start_row() == comment.end_row().saturating_add(1)",
+      "new": "            || (next.start_row() >= comment.end_row().saturating_add(1)",
+      "expect": ["documentation::collector::go_tests::go_blank_source_row_detaches_a_run"]
+    },
+    {
+      "name": "go-colon-directive-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        && rest.get(word) == Some(&b':')",
+      "new": "        && rest.get(word) == Some(&b';')",
+      "expect": ["documentation::collector::go_tests::go_directive_rows_are_evidence_and_not_prose", "documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file"]
+    },
+    {
+      "name": "trailing-comment-seeds-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {",
+      "new": "            if prev.end_row() > row_first.start_row() {",
+      "expect": ["documentation::collector::go_tests::go_trailing_comment_documents_nothing"]
+    },
+    {
+      "name": "go-line-marker-three-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "(if profile == Profile::GoDoc { 2 } else { 3 }, 0, false)",
+      "new": "(if profile == Profile::GoDoc { 3 } else { 3 }, 0, false)",
+      "expect": ["documentation::collector::go_tests::go_text_cleanup_removes_only_the_markers_and_one_space"]
+    },
+    {
+      "name": "go-block-marker-three-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "let prefix = if profile == Profile::GoDoc { 2 } else { 3 };",
+      "new": "let prefix = if profile == Profile::GoDoc { 3 } else { 3 };",
+      "expect": ["documentation::collector::go_tests::go_text_cleanup_removes_only_the_markers_and_one_space"]
+    },
+    {
+      "name": "go-block-star-decoration-removed",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "if c_block && profile != Profile::GoDoc {",
+      "new": "if c_block {",
+      "expect": ["documentation::collector::go_tests::go_text_cleanup_removes_only_the_markers_and_one_space"]
+    },
+    {
+      "name": "line-fragment-keeps-terminator",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "    if bytes.starts_with(b\"//\")\n        || bytes.starts_with(b\"#\")",
+      "new": "    if bytes.starts_with(b\"#\")",
+      "expect": ["documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file"]
+    },
+    {
+      "name": "go-import-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "            PackageClause,\n",
+      "new": "            PackageClause,\n            ImportDeclaration,\n            ImportSpec,\n",
+      "expect": ["documentation::collector::go_tests::go_import_has_no_document_and_no_owner"]
+    },
+    {
+      "name": "same-row-comment-leaves-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "        && (next.start_row() <= comment.end_row()",
+      "new": "        && (next.start_row() < comment.end_row()",
+      "expect": ["documentation::collector::go_tests::go_adjacent_comments_join_into_one_run"]
+    },
+    {
+      "name": "go-package-clause-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "            PackageClause,\n",
+      "new": "",
+      "expect": ["documentation::collector::go_tests::go_declaration_kinds_own_the_comment_above_them", "documentation::collector::go_tests::go_directive_rows_are_evidence_and_not_prose", "documentation::collector::go_tests::go_documents_of_one_file_stay_separate_and_in_source_order", "documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file"]
+    },
+    {
+      "name": "go-function-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "            FunctionDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::go_tests::go_declaration_kinds_own_the_comment_above_them", "documentation::collector::go_tests::go_adjacent_comments_join_into_one_run", "documentation::collector::go_tests::go_empty_comment_row_stays_inside_the_run", "documentation::collector::go_tests::go_blank_source_row_detaches_a_run", "documentation::collector::go_tests::go_directive_rows_are_evidence_and_not_prose", "documentation::collector::go_tests::go_trailing_comment_documents_nothing", "documentation::collector::go_tests::go_documents_of_one_file_stay_separate_and_in_source_order", "documentation::collector::go_tests::go_fixture_function_owns_its_comment", "documentation::collector::go_tests::go_line_endings_and_the_end_of_the_file", "documentation::collector::go_tests::go_text_cleanup_removes_only_the_markers_and_one_space"]
+    }
+  ]
+}
