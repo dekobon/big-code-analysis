@@ -38,7 +38,8 @@ struct Doc {
 /// What one collection published: the documents, the owner of each association as
 /// resolution, node kind and byte range, each retained candidate as disposition and byte
 /// range, and the number of pending assessments. The default value is an index that
-/// holds none of them.
+/// holds none of them. What is the same for every source here is asserted by
+/// `published` and is in no expected value. Node queries are not part of it.
 #[cfg(feature = "go")]
 #[derive(Debug, Default, PartialEq, Eq)]
 struct View {
@@ -144,6 +145,21 @@ fn run_of(origin: &Origin<'_>) -> Run {
     }
 }
 
+/// The byte range of a fragment. The same holds for every fragment here, so no expected
+/// view states it: the spelling is a comment, and its node is the `comment` node that
+/// starts with it. The node may end one byte later, where it holds the CR of a CRLF.
+#[cfg(feature = "go")]
+fn fragment_span(fragment: &Fragment<'_>) -> Range<usize> {
+    let range = span(fragment.source());
+    assert_eq!(fragment.form(), FragmentForm::Comment);
+    let carrier = fragment.node().unwrap().node();
+    assert_eq!(
+        (carrier.kind(), carrier.start_byte()),
+        ("comment", range.start)
+    );
+    range
+}
+
 /// The node that alone owns the association, as every owner here is.
 #[cfg(feature = "go")]
 fn owner_node<'s>(
@@ -175,10 +191,7 @@ fn published(index: &DocumentationIndex<'_>) -> View {
                 role: (owner_kind != Some("package_clause")).then(|| document.get().role()),
                 composition: document.get().composition(),
                 fragments: (0..document.get().fragment_count())
-                    .map(|at| {
-                        let fragment = facts.document_fragment(document, at).unwrap();
-                        span(fragment.get().source())
-                    })
+                    .map(|at| fragment_span(facts.document_fragment(document, at).unwrap().get()))
                     .collect(),
                 text: complete.text().to_owned(),
                 map: complete
@@ -191,16 +204,22 @@ fn published(index: &DocumentationIndex<'_>) -> View {
         .collect();
     let owners = index
         .associations()
-        .map(|association| {
+        .enumerate()
+        .map(|(position, association)| {
             let attachment = association.get();
             let declaration = owner_node(facts, association);
+            // The same for every association here, so no expected view states them. Each
+            // document has one association, at the document's own position.
+            assert_eq!(attachment.convention.name(), "GoDoc");
+            assert_eq!(attachment.publication, Publication::Unknown);
+            let document = facts.associated_document(association).unwrap();
+            assert_eq!(index.documents().nth(position), Some(document));
             // Both follow from the tree: the binding is the owner itself, and the lexical
             // scope is the parent of the first comment of the document.
             assert_eq!(
                 attachment.binding.map(NodeEvidence::node),
                 Some(declaration)
             );
-            let document = facts.associated_document(association).unwrap();
             let first = facts.document_fragment(document, 0).unwrap();
             let first_comment = first.get().node().unwrap().node();
             assert_eq!(
@@ -218,9 +237,14 @@ fn published(index: &DocumentationIndex<'_>) -> View {
         .evidence()
         .map(|candidate| {
             let fragment = index.evidence_fragment(candidate).unwrap();
-            (candidate.get().disposition, span(fragment.get().source()))
+            (candidate.get().disposition, fragment_span(fragment.get()))
         })
         .collect();
+    // The same for every source here: the Go adapter is partial, and a qualification
+    // record belongs to a documentation command that names its declaration, which Go
+    // does not have.
+    assert_eq!(index.capability(), Capability::Partial);
+    assert_eq!(index.qualifications().len(), 0);
     View {
         documents,
         owners,
@@ -434,6 +458,7 @@ fn go_declaration_kinds_own_the_comment_above_them() {
         // its document.
         let query = index.node_associations(spec).unwrap();
         assert_eq!(query.associations().len(), 0);
+        assert!(!query.projection_pending());
         assert_eq!(query.assessments().count(), 0);
     }
 }
@@ -585,6 +610,9 @@ fn go_blank_source_row_detaches_a_run() {
         Retain::Unbound,
         (CandidateDisposition::Unattached, 10..14),
     );
+    // Keeping directives does not keep the detached comment.
+    let detached: &[u8] = b"package p\n// a\n\n// b\nfunc F() {}";
+    assert_eq!(retained(detached, Retain::Directives), view(detached));
 }
 
 #[cfg(feature = "go")]
@@ -601,6 +629,9 @@ fn go_directive_rows_are_evidence_and_not_prose() {
         Retain::Directives,
         (CandidateDisposition::Directive, 19..37),
     );
+    // Keeping unbound candidates does not keep the directive of a selected run.
+    let selected: &[u8] = b"package p\n// audit\n//go:generate tool\nfunc F() {}";
+    assert_eq!(retained(selected, Retain::Unbound), view(selected));
     // A directive before, inside and after the prose, and a comment that only looks
     // like one: `// go:generate` has a space after the marker.
     let prose: [(&[u8], Doc, Range<usize>); 4] = [
@@ -641,6 +672,8 @@ fn go_directive_rows_are_evidence_and_not_prose() {
             source.escape_ascii()
         );
     }
+    // A run that holds only directives documents nothing. That is the collector's answer
+    // today, pinned as it is; whether such a run should be a document is not decided.
     // In the first source a blank row also separates the run from the package clause;
     // its control sets both options.
     let directives_alone: [(&[u8], Retain, Range<usize>); 3] = [
