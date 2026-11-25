@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_lua_source_and_legacy_views_are_independent"],
+  "cases": [
+    {
+      "name": "next-row-comment-leaves-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (next.start_row() == comment.end_row().saturating_add(1)",
+      "new": "            || (next.start_row() == comment.end_row()",
+      "expect": ["metrics::loc::documentation_tests::documentation_lua_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "ldoc-two-dashes-open-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(s.starts_with(b\"---\") && !ldoc_end_marker(s, budget)?)",
+      "new": "    Ok(s.starts_with(b\"--\") && !ldoc_end_marker(s, budget)?)",
+      "expect": ["metrics::loc::documentation_tests::documentation_lua_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "ldoc-long-doc-comment-opens-no-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        return Ok(body.first() == Some(&b'-'));",
+      "new": "        return Ok(body.first() == Some(&b'+'));",
+      "expect": ["metrics::loc::documentation_tests::documentation_lua_source_and_legacy_views_are_independent"]
+    }
+  ]
+}
