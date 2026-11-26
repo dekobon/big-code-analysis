@@ -114,6 +114,16 @@ fn run_of(origin: &Origin<'_>) -> Run {
 }
 
 #[cfg(feature = "csharp")]
+fn fragment_span(item: &Fragment<'_>) -> Range<usize> {
+    assert_eq!(item.form(), FragmentForm::Comment);
+    let range = span(item.source());
+    let node = item.node().unwrap().node();
+    assert_eq!(node.kind(), "comment");
+    assert_eq!(node.byte_range(), range);
+    range
+}
+
+#[cfg(feature = "csharp")]
 fn published(index: &DocumentationIndex<'_>) -> View {
     let facts = index.facts();
     let documents = index
@@ -126,7 +136,7 @@ fn published(index: &DocumentationIndex<'_>) -> View {
                 fragments: (0..document.get().fragment_count())
                     .map(|at| {
                         let fragment = facts.document_fragment(document, at).unwrap();
-                        span(fragment.get().source())
+                        fragment_span(fragment.get())
                     })
                     .collect(),
                 text: complete.text().to_owned(),
@@ -172,7 +182,7 @@ fn published(index: &DocumentationIndex<'_>) -> View {
         .evidence()
         .map(|candidate| {
             let fragment = index.evidence_fragment(candidate).unwrap();
-            (candidate.get().disposition, span(fragment.get().source()))
+            (candidate.get().disposition, fragment_span(fragment.get()))
         })
         .collect();
     View {
@@ -824,5 +834,40 @@ fn csharp_grammar_shapes_the_unit_relies_on() {
         );
         assert!(top[0].is_extra());
         assert_eq!(&source[top[0].end_byte()..top[1].start_byte()], ending);
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_two_declarations_keep_document_and_association_order() {
+    // Both independent comments precede different already-supported declarations.
+    let source = b"class C {\n///first\nint P { get; set; }\n///second\nevent System.Action E { add {} remove {} }\n}";
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    let seen = agreed(&both);
+    assert_eq!(seen.documents.len(), 2);
+    assert_eq!(seen.documents[0].text, "first");
+    assert_eq!(seen.documents[1].text, "second");
+    assert_eq!(seen.owners[0].1, "property_declaration");
+    assert_eq!(seen.owners[1].1, "event_declaration");
+    assert_eq!(seen.documents[0].fragments, vec![10..18]);
+    assert_eq!(seen.documents[1].fragments, vec![39..48]);
+    assert_eq!(seen.assessments, 0);
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_local_and_top_level_fields_do_not_publish_documents() {
+    let local = b"class C { void M() { ///local\nint x = 1; } }";
+    let top = b"///top\nint x = 1;";
+    for (source, range) in [(local.as_slice(), 21..29), (top, 0..6)] {
+        assert_eq!(view(source), View::default());
+        assert_eq!(
+            retained(source),
+            View {
+                evidence: vec![(CandidateDisposition::Unattached, range)],
+                ..View::default()
+            }
+        );
     }
 }
