@@ -26,6 +26,12 @@ for historical reference.
 
 ### Added
 
+- The unstable PHP source documentation collector gives a single-name property
+  declaration a property slot and a single-name constant declaration a binding
+  slot, each enclosed by its declaration. Multi-name declarations, promoted
+  parameters and `define()` calls remain pending. Legacy LOC rows do not move.
+  (#1668)
+
 - The unstable Ruby YARD collector now projects visibility-wrapped definitions to
   their inner method and attribute calls to ordered property slots, with one
   document shared by all names of a call. Constants and aliases stay pending;

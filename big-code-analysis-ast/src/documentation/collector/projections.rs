@@ -155,6 +155,53 @@ impl Builder<'_> {
         if self.index.profile == Profile::Yard && node.kind() == "call" {
             return self.ruby_call_owners(id, budget);
         }
+        if self.index.profile == Profile::BcaPhpSource
+            && matches!(node.kind(), "property_declaration" | "const_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.php_declaration_slot(id, budget);
+        }
+        Ok(())
+    }
+
+    fn php_declaration_slot(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let property =
+            self.index.canonical.nodes[id.0].evidence.node().kind() == "property_declaration";
+        let Some(name) = php_single_name(&self.index.canonical, id, property, budget)? else {
+            return Ok(());
+        };
+        let source = self.index.source.pieces_with_budget(
+            self.index.canonical.nodes[name.0]
+                .evidence
+                .node()
+                .byte_range(),
+            budget,
+        )?;
+        let enclosing = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        let slot = OwnerId(self.index.facts.owners.len());
+        self.index.facts.owners.push(Owner::Slot(Slot {
+            enclosing,
+            role: if property {
+                SlotRole::Property
+            } else {
+                SlotRole::Binding
+            },
+            ordinal: 0,
+            source,
+        }));
+        self.index.associations_by_owner.push(Vec::new());
+        self.index.assessments_by_owner.push(Vec::new());
+        self.index.qualifications_by_owner.push(Vec::new());
+        self.index.owner_nodes.push(id);
+        self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);
         Ok(())
     }
 
@@ -686,6 +733,50 @@ pub(super) fn csharp_declarator_names<B: WorkBudget>(
         names.push(name);
     }
     Ok((!names.is_empty()).then_some(names))
+}
+
+// Only one element is projected. Comments are not structural children.
+pub(super) fn php_single_name<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    property: bool,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    let element_kind = if property {
+        "property_element"
+    } else {
+        "const_element"
+    };
+    let name_kind = if property { "variable_name" } else { "name" };
+    let mut element = None;
+    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {
+        budget.step()?;
+        let kind = canonical.nodes[child.0].evidence.node().kind();
+        if kind == "comment" {
+            continue;
+        }
+        if kind == element_kind && element.replace(child).is_some() {
+            return Ok(None);
+        }
+    }
+    let Some(element) = element else {
+        return Ok(None);
+    };
+    let mut name = None;
+    for &child in &canonical.children[canonical.nodes[element.0].children.clone()] {
+        budget.step()?;
+        let kind = canonical.nodes[child.0].evidence.node().kind();
+        if kind == "comment" {
+            continue;
+        }
+        if kind == "=" {
+            break;
+        }
+        if kind == name_kind && name.replace(child).is_some() {
+            return Ok(None);
+        }
+    }
+    Ok(name)
 }
 
 pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(
