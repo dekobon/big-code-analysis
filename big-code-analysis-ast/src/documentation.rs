@@ -4,7 +4,7 @@
 //! owners. Fragments add included source spelling, documents add composition
 //! and content state, and associations add profile-qualified attachment.
 //! Collection retains immutable source facts, local text and prepared owner queries.
-//! All items are unstable direct-AST plumbing; no root facade is introduced.
+//! All items are unstable direct-AST plumbing.
 //!
 //! The collector stores flat node, occurrence and membership arenas. Text and
 //! maps are materialized once per document. Structural work is linear in visits,

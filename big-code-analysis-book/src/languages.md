@@ -120,7 +120,7 @@ content states rather than inferring that every form is supported. See
 | --- | --- | --- |
 | `Bash` | `shdoc` | Unavailable |
 | `C` | `Doxygen` | Partial |
-| `Cpp` (C/C++) | `Doxygen` | Partial |
+| `Cpp` (C++) | `Doxygen` | Partial |
 | `Csharp` | `CsharpXml` | Partial |
 | `Elixir` | `Elixir` | Unavailable |
 | `Go` | `GoDoc` | Partial |
