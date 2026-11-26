@@ -233,13 +233,11 @@ fn check_policy(ast: &Ast, lang: LANG, expected: Expectation, filename: Option<&
             assert_eq!(index.profile(), profile, "{lang}");
             assert_eq!(index.capability(), Capability::Partial, "{lang}");
             assert_eq!(index.assessments().len(), 0, "{lang}");
-            if let Some(filename) = filename {
-                assert_eq!(
-                    index.context().logical_filename.as_deref(),
-                    Some(filename),
-                    "{lang}"
-                );
-            }
+            assert_eq!(
+                index.context().logical_filename.as_deref(),
+                filename,
+                "{lang}"
+            );
             assert_primary_extraction(lang, Ok(projection(&index)));
         }
         Expectation::Rejected(profile) => {
@@ -326,11 +324,14 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
         let ast = Ast::parse(Source::new(lang, &bytes)).unwrap();
         assert_eq!(ast.language(), lang);
         check_policy(&ast, lang, expected, None);
-        // Mozjs, Mozcpp, Ccomment and Preproc have no filename that selects their grammar.
-        if !matches!(
-            lang,
-            LANG::Mozjs | LANG::Mozcpp | LANG::Ccomment | LANG::Preproc
-        ) {
+        // Mozcpp, Ccomment and Preproc have no filename that selects their grammar.
+        if !matches!(lang, LANG::Mozcpp | LANG::Ccomment | LANG::Preproc) {
+            // The fixture is shared with Javascript; `.jsm` is the extension Mozjs owns.
+            let filename = if lang == LANG::Mozjs {
+                "primary.jsm"
+            } else {
+                filename
+            };
             let path = directory.path().join(filename);
             std::fs::write(&path, &bytes).unwrap();
             let from_path = Ast::from_path(&path).unwrap();
@@ -399,6 +400,12 @@ fn the_projection_tells_rust_results_apart() {
             )
             .unwrap();
         assert_eq!(projection(&index), expected, "{bytes}");
+        if bytes.starts_with("//!") {
+            let association = index.associations().next().unwrap();
+            assert_eq!(association.get().resolution, Resolution::Resolved);
+            let owner = index.facts().associated_owner(association, 0).unwrap();
+            assert!(matches!(owner.get(), Owner::File(_)), "{bytes}");
+        }
     }
 }
 

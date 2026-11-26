@@ -139,6 +139,15 @@
       "expect": [
         "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
       ]
+    },
+    {
+      "name": "variants-jsm-selects-no-language",
+      "file": "big-code-analysis-ast/src/langs.rs",
+      "old": "        [jsm],",
+      "new": "        [],",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
     }
   ]
 }
