@@ -106,6 +106,13 @@
       "old": "    Ok(builder.index)\n}",
       "new": "    for association in &mut builder.index.facts.associations {\n        if association.resolution == Resolution::Unresolved(UnresolvedReason::Ambiguous) {\n            association.resolution = Resolution::Resolved;\n        }\n    }\n    Ok(builder.index)\n}",
       "expect": ["documentation::tests::qualification_oracle_rejects_same_reasons_on_the_wrong_candidate", "documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    },
+    {
+      "name": "perl-file-document-is-a-primary-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    role: DocumentRole::FilePackage,",
+      "new": "                    role: DocumentRole::Primary,",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
     }
   ]
 }

@@ -359,19 +359,19 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 966.0
+value = 978.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 136.0
+value = 137.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::finish"
 metric = "nexits"
-value = 5.0
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -455,13 +455,13 @@ value = 13.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "halstead.effort"
-value = 72422.98375857045
+value = 81796.34738938176
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "nexits"
-value = 7.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -539,13 +539,13 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "abc"
-value = 58.29236656715869
+value = 60.249481325568276
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "halstead.effort"
-value = 99507.69266781778
+value = 102783.07983778053
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -581,7 +581,7 @@ value = 77507.87166066223
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 53.61902647381804
+value = 54.46099521676041
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -599,7 +599,7 @@ value = 23.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 155069.99356991026
+value = 157081.76096151394
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -1079,7 +1079,7 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 584.0
+value = 650.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"

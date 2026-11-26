@@ -133,7 +133,7 @@ content states rather than inferring that every form is supported. See
 | `Mozcpp` | `Doxygen` | Partial |
 | `Mozjs` | `JSDoc` | Partial |
 | `Objc` | `Doxygen` | Partial |
-| `Perl` | `POD` | Unavailable |
+| `Perl` | `POD` | Partial |
 | `Php` | `BcaPhpSource` | Partial |
 | `Python` | `Python` | Unavailable |
 | `Ruby` | `YARD` | Partial |

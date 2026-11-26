@@ -4,6 +4,14 @@ use super::budget::WorkBudget;
 
 crate::observation::counter!(bytes_read, cfg(any(test, feature = "test-support")));
 
+/// Charges one byte that the caller reads itself, in a scan that keeps a
+/// state of its own from byte to byte.
+pub(crate) fn one<B: WorkBudget>(budget: &B) -> Result<(), B::Error> {
+    budget.bytes(1)?;
+    bytes_read::record();
+    Ok(())
+}
+
 pub(crate) fn position<B: WorkBudget>(
     bytes: &[u8],
     predicate: impl Fn(u8) -> bool,

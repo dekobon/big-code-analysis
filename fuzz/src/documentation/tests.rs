@@ -83,6 +83,27 @@ fn positive(index: &DocumentationIndex<'_>, row: &Value) {
     assert_eq!(piece.bytes(), complete.text().as_bytes());
 }
 
+// The inventory row states the heading profile's owner; the default profile gives the file.
+fn file_document(index: &DocumentationIndex<'_>, row: &Value) {
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let document = index.documents().next().unwrap();
+    let fragment = index.facts().document_fragment(document, 0).unwrap();
+    assert_eq!(document.get().fragment_count(), 1);
+    assert_eq!(document.get().role(), DocumentRole::FilePackage);
+    assert_eq!(fragment.get().source().pieces().len(), 1);
+    assert_eq!(
+        fragment.get().source().pieces()[0].range(),
+        range(&row["fragments"][0])
+    );
+    assert_eq!(text(index).text(), row["text"].as_str().unwrap());
+    let association = index.associations().next().unwrap();
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().owner_count(), 1);
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    assert!(matches!(owner.get(), Owner::File(_)));
+}
+
 #[test]
 #[allow(clippy::too_many_lines)] // Registration checks bytes, parse shape, and executed semantic oracles together.
 fn registry_executes_every_dispatch_and_edge_assertion() {
@@ -95,7 +116,7 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
     .unwrap();
     let mut names = BTreeSet::new();
     let mut dispatch = BTreeSet::new();
-    let mut counts = [0; 3];
+    let mut counts = [0; 4];
     for seed in &registry {
         let name = seed["name"].as_str().unwrap();
         assert!(names.insert(name.to_owned()), "duplicate seed {name}");
@@ -177,6 +198,10 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
                         assert_eq!(index.unwrap().capability(), Capability::NoDeclarationModel);
                         counts[2] += 1;
                     }
+                    "file-document" => {
+                        file_document(index.unwrap(), row);
+                        counts[3] += 1;
+                    }
                     _ => panic!("unknown dispatch assertion"),
                 }
             } else {
@@ -203,7 +228,7 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             _ => assert_eq!(result, Ok(Outcome::Checked)),
         }
     }
-    assert_eq!(counts, [17, 6, 2]);
+    assert_eq!(counts, [17, 5, 2, 1]);
     assert_eq!(dispatch, (0..25).collect());
     let actual: BTreeSet<_> = std::fs::read_dir(root.join("corpus/documentation"))
         .unwrap()

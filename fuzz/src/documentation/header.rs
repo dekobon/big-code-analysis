@@ -147,7 +147,7 @@ pub(super) fn expected_profile(
     } else if alternate
         || matches!(
             language,
-            LANG::Python | LANG::Perl | LANG::Elixir | LANG::Bash | LANG::Tcl | LANG::Irules
+            LANG::Python | LANG::Elixir | LANG::Bash | LANG::Tcl | LANG::Irules
         )
     {
         Err(CollectionError::AdapterUnavailable { language, profile })

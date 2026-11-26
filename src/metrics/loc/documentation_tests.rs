@@ -2981,3 +2981,1689 @@ fn documentation_go_member_sources_keep_their_legacy_rows() {
         assert_eq!(covered, 0, "{name}");
     }
 }
+
+/// One Perl source of the POD unit with its legacy values, measured before the collector
+/// read any of them: name, bytes, `[sloc, ploc, lloc, cloc, blank, dloc]` and the
+/// zero-based documentation rows.
+#[cfg(feature = "perl")]
+type PerlPodSource = (&'static str, &'static [u8], [u64; 6], &'static [usize]);
+
+#[cfg(feature = "perl")]
+static PERL_POD_SOURCES: [PerlPodSource; 261] = [
+    (
+        "a01_primary",
+        b"=head2 f\n\nAudit\n\n=cut\n\nsub f {}",
+        [7, 1, 0, 5, 1, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a02_two_blocks",
+        b"my $x = 1;\n=head1 A\n\na\n\n=cut\nmy $y = 2;\n=head1 B\n\nb\n\n=cut\nmy $z \
+          = 3;\n",
+        [13, 3, 3, 10, 0, 10],
+        &[1, 2, 3, 4, 5, 7, 8, 9, 10, 11],
+    ),
+    (
+        "a03_in_sub",
+        b"sub f {\n    my $x = 1;\n\n=pod\n\nDoc.\n\n=cut\n\n    return $x;\n}\n",
+        [11, 4, 2, 5, 2, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "a04_adjacent",
+        b"=head1 A\n\na\n\n=cut\n=head1 B\n\nb\n\n=cut\n",
+        [10, 0, 0, 10, 0, 10],
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    ),
+    (
+        "a05_begin_html",
+        b"=begin html\n\n<p>x</p>\n\n=end html\n\n=cut\n",
+        [7, 0, 0, 7, 0, 7],
+        &[0, 1, 2, 3, 4, 5, 6],
+    ),
+    (
+        "a06_cut_with_text",
+        b"=head1 A\n\na\n\n=cut here is text\nmy $y = 2;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a07_cut_digit",
+        b"=head1 A\n\ntext\n\n=cut2\nmy $y = 2;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a08_command_and_cut",
+        b"=pod\n=cut\n",
+        [2, 0, 0, 2, 0, 2],
+        &[0, 1],
+    ),
+    (
+        "a09_whitespace_line",
+        b"=pod\n\nx\n \n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a10_blank_lines",
+        b"=pod\n\n\n\ny\n\n\n=cut\n",
+        [8, 0, 0, 8, 0, 8],
+        &[0, 1, 2, 3, 4, 5, 6, 7],
+    ),
+    (
+        "a11_collision",
+        b"=head2 f\n\nAudit\n\n=cut\n\nsub f {}\nsub f {}",
+        [8, 2, 0, 5, 1, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a12_package",
+        b"package Foo;\n\n=head1 NAME\n\nFoo\n\n=cut\n\nsub new {}\n",
+        [9, 2, 1, 5, 2, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "a13_nested_sub",
+        b"sub o {\n  sub i {\n=head2 i\n\nInner.\n\n=cut\n  }\n}\n",
+        [9, 4, 0, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "a14_begin_colon_comment",
+        b"=begin :comment\n\nx\n\n=end :comment\n\n=cut\n",
+        [7, 0, 0, 7, 0, 7],
+        &[0, 1, 2, 3, 4, 5, 6],
+    ),
+    (
+        "a15_item_tab",
+        b"=item\t*\n\ny\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a16_vertical_tab",
+        b"=pod\x0bx\n\ny\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a17_cut_form_feed",
+        b"=pod\n\nx\n\n=cut\x0cfoo\nmy $y;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a18_end_marker_inside",
+        b"=pod\n\n__END__\n\n=cut\nmy $x;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "a19_uppercase_cut",
+        b"=pod\n\ny\n\n=CUT\nmy $x;\n",
+        [6, 0, 0, 6, 0, 6],
+        &[0, 1, 2, 3, 4, 5],
+    ),
+    (
+        "b01_crlf",
+        b"=head1 A\r\n\r\na\r\n\r\n=cut\r\nsub f {}\r\n",
+        [6, 1, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "b02_unterminated",
+        b"my $x = 1;\n\n=head1 NAME\n\nNever closed.\n",
+        [5, 1, 1, 3, 1, 3],
+        &[2, 3, 4],
+    ),
+    (
+        "b03_unterminated_no_final_lf",
+        b"my $x = 1;\n\n=head1 NAME\n\nNever closed.",
+        [5, 1, 1, 3, 1, 3],
+        &[2, 3, 4],
+    ),
+    (
+        "b04_unterminated_blank_rows",
+        b"=head1 NAME\n\nNever closed.\n\n\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "b05_cut_at_end_of_input",
+        b"=pod\n\nx\n\n=cut",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "b06_crlf_unterminated",
+        b"=pod\r\n\r\nx\r\n",
+        [3, 0, 0, 3, 0, 3],
+        &[0, 1, 2],
+    ),
+    (
+        "b07_crlf_cut_at_end",
+        b"=pod\r\n\r\nx\r\n\r\n=cut\r\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    ("b08_command_line_only", b"=pod\n", [1, 0, 0, 1, 0, 1], &[0]),
+    (
+        "c01_comment_only",
+        b"=begin comment\n\nnot prose\n\n=end comment\n\n=cut\n",
+        [7, 0, 0, 7, 0, 0],
+        &[],
+    ),
+    (
+        "c02_two_comment_only",
+        b"=begin comment\n\na\n\n=end comment\n\n=cut\n\nmy $x;\n\n=for comment b\n\n=\
+          cut\n",
+        [13, 1, 1, 10, 2, 0],
+        &[],
+    ),
+    (
+        "c03_comment_then_document",
+        b"=begin comment\n\nx\n\n=end comment\n\n=cut\n\n=head1 A\n\na\n\n=cut\n",
+        [13, 0, 0, 12, 1, 5],
+        &[8, 9, 10, 11, 12],
+    ),
+    (
+        "c04_mixed",
+        b"=head2 f\n\nAudit\n\n=begin comment\n\nnot prose\n\n=end comment\n\n=cut\n\n\
+          sub f { return 1; }\n__END__\n=head1 NAME\n\nData docs\n\n=cut\n",
+        [19, 2, 1, 16, 1, 16],
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 15, 16, 17, 18],
+    ),
+    (
+        "c05_region_first",
+        b"=for comment\nInternal note.\n\n=head1 NAME\n\nFoo - bar\n\n=cut\n",
+        [8, 0, 0, 8, 0, 8],
+        &[0, 1, 2, 3, 4, 5, 6, 7],
+    ),
+    (
+        "c06_document_then_mixed",
+        b"=head1 A\n\na\n\n=cut\n\n=head1 B\n\n=for comment x\n\nb\n\n=cut\n",
+        [13, 0, 0, 12, 1, 12],
+        &[0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12],
+    ),
+    (
+        "c07_command_in_paragraph",
+        b"=head1 A\n\ntext\n=for comment x\n\nmore\n\n=cut\n",
+        [8, 0, 0, 8, 0, 8],
+        &[0, 1, 2, 3, 4, 5, 6, 7],
+    ),
+    (
+        "w01_stray_cut",
+        b"my $x = 1;\n=cut\nmy $y = 2;\n",
+        [3, 1, 1, 2, 0, 2],
+        &[1, 2],
+    ),
+    (
+        "w02_digit_command",
+        b"my $x = 1;\n=1\ntext\n=cut\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "w03_head_dash",
+        b"=head-x\n\ntext\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w04_indented",
+        b"my $x = 1;\n  =head1 NAME\n\ntext\n\n=cut\n",
+        [6, 1, 1, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "w05_same_row",
+        b"my $x = 1; =head1 NAME\n\ntext\n\n=cut\n",
+        [5, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w06_cutting_opens",
+        b"my $x;\n=cutting\ntext\n=cut\nmy $y;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "w07_cutting_closes",
+        b"=head1 A\n\ntext\n\n=cutting\nmy $y = 2;\n=cut\n",
+        [7, 1, 1, 6, 0, 6],
+        &[0, 1, 2, 3, 4, 6],
+    ),
+    (
+        "w08_nul_in_text",
+        b"=pod\n\na\x00b\n\n=cut\n",
+        [5, 2, 0, 3, 1, 3],
+        &[0, 1, 2],
+    ),
+    (
+        "w09_nul_after_cut",
+        b"=pod\n\nx\n\n=cut\x00foo\nmy $y;\n",
+        [6, 2, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w10_carriage_returns_only",
+        b"=pod\r\rx\r\r=cut\rmy $x;\r",
+        [1, 0, 0, 1, 0, 1],
+        &[0],
+    ),
+    (
+        "w11_carriage_return_in_text",
+        b"=pod\n\na\rb\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w12_carriage_return_at_end",
+        b"=pod\n\nx\n\n=cut\r",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w13_byte_order_mark",
+        b"\xef\xbb\xbf=pod\n\nx\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w14_carriage_return_before",
+        b"my $x;\r=pod\n\nx\n\n=cut\n",
+        [5, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w15_withheld_then_document",
+        b"my $x = 1;\n  =head1 X\n\nx\n\n=cut\n=head1 A\n\na\n\n=cut\n",
+        [11, 1, 1, 10, 0, 10],
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    ),
+    (
+        "w16_underscore_command",
+        b"my $x = 1;\n=_x\ntext\n=cut\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "w17_command_with_dot",
+        b"=pod.\n\nx\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "w18_stray_cut_first",
+        b"=cut\n\nx\n\n=cut\nmy $y;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "r01_error_before",
+        b"%%%% (\n=pod\n\nx\n\n=cut\n",
+        [6, 1, 0, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "r02_missing_semicolon",
+        b"my $x = 1,\n=pod\n\nx\n\n=cut\n2;\n",
+        [7, 2, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "r03_unclosed_sub",
+        b"sub f {\n=pod\n\nx\n\n=cut\n",
+        [6, 2, 0, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "r04_error_after",
+        b"=pod\n\nx\n\n=cut\n}}}}\n",
+        [6, 1, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "r05_return_before",
+        b"sub f {\nreturn\n=pod\n\nx\n\n=cut\n1;\n}\n",
+        [9, 4, 1, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "s01_hash_comment",
+        b"# leads f\nsub f {}\n",
+        [2, 1, 0, 1, 0, 0],
+        &[],
+    ),
+    (
+        "s02_heredoc",
+        b"my $t = <<'EOT';\n=head1 NAME\n\nnot pod\n\n=cut\nEOT\n",
+        [7, 7, 1, 0, 0, 0],
+        &[],
+    ),
+    (
+        "s03_string",
+        b"my $s = \"\n=pod\n\nx\n\n=cut\n\";\nmy $after = 2;\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "s04_word_list",
+        b"my @a = qw(\n=pod\n\nx\n\n=cut\n);\nmy $after = 2;\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "s05_pattern",
+        b"my $r = qr/\n=pod\n\nx\n\n=cut\n/x;\nmy $after = 2;\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "s06_unclosed_string",
+        b"my $s = \"abc\n=pod\n\nx\n\n=cut\n",
+        [6, 1, 0, 0, 5, 0],
+        &[],
+    ),
+    (
+        "s07_in_list",
+        b"my @a = (\n1,\n=pod\n\nx\n\n=cut\n2);\n",
+        [8, 4, 1, 0, 4, 0],
+        &[],
+    ),
+    (
+        "s08_command_at_end_of_input",
+        b"=pod",
+        [1, 1, 0, 0, 0, 0],
+        &[],
+    ),
+    (
+        "s09_no_semicolon_before",
+        b"my $x = 1\n=pod\n\nx\n\n=cut\n;\n",
+        [7, 4, 1, 0, 3, 0],
+        &[],
+    ),
+    (
+        "d01_end",
+        b"__END__\n=head1 NAME\n\nAudit\n\n=cut\n",
+        [6, 1, 0, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    ("d02_data", b"__DATA__\nrow\n", [2, 2, 0, 0, 0, 0], &[]),
+    (
+        "d03_end_at_end_of_input",
+        b"__END__",
+        [1, 1, 0, 0, 0, 0],
+        &[],
+    ),
+    (
+        "d04_end_in_sub",
+        b"sub f {\n__END__\n=pod\n\nx\n\n=cut\n",
+        [7, 2, 0, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "i01_invalid_utf8",
+        b"=head1 A\n\n\xff\n\n=cut\n",
+        [5, 0, 0, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    ("e01_empty", b"", [0, 0, 0, 0, 0, 0], &[]),
+    (
+        "e02_code_only",
+        b"sub f { return 1; }\n",
+        [1, 1, 1, 0, 0, 0],
+        &[],
+    ),
+    (
+        "g01_unterminated_whitespace_rows",
+        b"my $x = 1;\n=pod\nabc\n \n \n",
+        [5, 1, 1, 4, 0, 4],
+        &[1, 2, 3, 4],
+    ),
+    (
+        "g02_stray_cut_then_cut",
+        b"my $x = 1;\n=cut\nnot perl at all (\n=cut\nmy $y = 2;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "g03_indented_then_code",
+        b"my $x = 1;\n  =head1 NAME\n\ntext\n\n=cut\nmy $y = 2;\n",
+        [7, 2, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "g04_digit_then_code",
+        b"my $x = 1;\n=1\ntext\n=cut\nmy $y = 2;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "g05_underscore_then_code",
+        b"my $x = 1;\n=_x\ntext\n=cut\nmy $y = 2;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "g06_head_dash_then_code",
+        b"my $x = 1;\n=head-x\ntext\n=cut\nmy $y = 2;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "g07_cutting_closes",
+        b"=head1 A\n\na\n\n=cutting\nmy $y = 2;\n",
+        [6, 1, 1, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "g08_cutting_opens_then_code",
+        b"my $x = 1;\n=cutting\ntext\n=cut\nmy $y = 2;\n",
+        [5, 2, 2, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "g09_cutting_then_garbage",
+        b"=head1 A\n\na\n\n=cutting\nnot perl at all (\n=cut\nmy $y = 2;\n",
+        [8, 1, 0, 7, 0, 7],
+        &[0, 1, 2, 3, 4, 6, 7],
+    ),
+    (
+        "g10_unterminated_whitespace_rows_data",
+        b"1;\n__END__\n=pod\nabc\n \n \n",
+        [6, 2, 1, 2, 2, 2],
+        &[2, 3],
+    ),
+    (
+        "g11_whitespace_line_ends_region",
+        b"=for comment x\n \nprose\n=cut\n",
+        [4, 0, 0, 4, 0, 4],
+        &[0, 1, 2, 3],
+    ),
+    (
+        "g12_digit_in_data_section",
+        b"1;\n__END__\n=1\ntext\n=cut\n",
+        [5, 5, 1, 0, 0, 0],
+        &[],
+    ),
+    (
+        "x01_two_blocks",
+        b"my $x = 1;\n=head1 A\n\na\n\n=cut\nmy $y = 2;\n=head1 B\n\nb\n\n=cut\n",
+        [12, 2, 2, 10, 0, 10],
+        &[1, 2, 3, 4, 5, 7, 8, 9, 10, 11],
+    ),
+    (
+        "r06_empty_tag",
+        b"my $s = <<\"\";\n=pod\n\nprint \"MARK\";\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "r07_empty_tag_single",
+        b"my $s = <<'';\n=pod\n\nprint \"MARK\";\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "r08_empty_tag_then_real",
+        b"my $s = <<\"\";\nlit\n\nprint \"MARK\";\n\n=pod\n\nreal\n\n=cut\n",
+        [10, 3, 2, 5, 2, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "r09_control_d",
+        b"1;\n\x04\n=pod\n\nd\n\n=cut\n",
+        [7, 2, 1, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "r10_control_z",
+        b"1;\n\x1a\n=pod\n\nd\n\n=cut\n",
+        [7, 2, 1, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "r11_format_at_opener",
+        b"format STDOUT =\n=pod\n.\n",
+        [3, 1, 0, 2, 0, 2],
+        &[1, 2],
+    ),
+    (
+        "r12_error_then_real",
+        b"sub isn't { 1 }\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 1, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "r13_error_between",
+        b"=pod\n\nx\n\n=cut\n}}}}\n=pod\n\ny\n\n=cut\n",
+        [11, 1, 0, 10, 0, 10],
+        &[0, 1, 2, 3, 4, 6, 7, 8, 9, 10],
+    ),
+    (
+        "f01_named",
+        b"format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f02_default_name",
+        b"format =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f03_qualified",
+        b"format Pkg::F =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f04_no_spaces",
+        b"format STDOUT=\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f05_trailing_blanks",
+        b"format STDOUT =  \t\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f06_trailing_comment",
+        b"format STDOUT = # c\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 6, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f07_name_next_row",
+        b"format\nSTDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [11, 6, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f08_equals_next_row",
+        b"format STDOUT\n=\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [11, 6, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f09_comments_between",
+        b"format # a\nSTDOUT # b\n=\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [12, 7, 2, 7, 0, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "f10_indented",
+        b"  format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f11_after_statement",
+        b"my $q = 1; format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f12_in_sub",
+        b"sub g {\nformat STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n}\n",
+        [12, 7, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f13_carriage_return",
+        b"format STDOUT =\r\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f14_after_label",
+        b"L: format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f15_no_last_line",
+        b"format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n2;\n",
+        [8, 3, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f16_then_real",
+        b"format STDOUT =\n1\n.\n2;\n\n=pod\n\nreal\n\n=cut\n",
+        [10, 4, 1, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f17_real_then_format",
+        b"=pod\n\nd\n\n=cut\nformat STDOUT =\n1\n.\n2;\nprint \"MARK\";\n",
+        [10, 5, 2, 5, 0, 5],
+        &[0, 1, 2, 3, 4],
+    ),
+    (
+        "f18_inside_and_after",
+        b"format STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n\n=pod\n\nreal\n\n=cut\n",
+        [16, 5, 2, 10, 1, 10],
+        &[2, 3, 4, 5, 6, 11, 12, 13, 14, 15],
+    ),
+    (
+        "f19_last_line_blanks",
+        b"format STDOUT =\n1\n. \t\r\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [11, 5, 2, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f20_crlf",
+        b"format STDOUT =\r\n1\r\n.\r\n2;\r\n\r\n=pod\r\n\r\nd\r\n\r\n=cut\r\nprint \"\
+          MARK\";\r\n",
+        [11, 5, 2, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f21_two_formats",
+        b"format A =\n1\n.\n2;\nformat B =\n3\n.\n4;\n\n=pod\n\nd\n\n=cut\nprint \"MAR\
+          K\";\n",
+        [15, 9, 3, 5, 1, 5],
+        &[9, 10, 11, 12, 13],
+    ),
+    (
+        "f22_opener_in_body",
+        b"format A =\nformat B =\n1\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [12, 6, 2, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f23_method",
+        b"my $o = bless {};\nsub format { 7 }\nmy $v = $o->format;\n\n=pod\n\nd\n\n=cu\
+          t\nprint \"MARK\";\n",
+        [10, 4, 3, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "f24_hash_key",
+        b"my %h = (format => 1);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f25_hash_key_next_row",
+        b"my %h = (format\n=> 1);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [9, 3, 2, 5, 1, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f26_in_string",
+        b"my $s = 'format STDOUT =';\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f27_in_comment",
+        b"# format STDOUT =\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 1, 1, 6, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f28_upper_case",
+        b"FORMAT STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f29_subscript",
+        b"my %h; $h{format} =\n1;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [9, 3, 3, 5, 1, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f30_quote_in_picture",
+        b"format F =\na 'b\n.\nmy $s = ';\n=pod\n\nd\n\n=cut\n';\nprint \"MARK\";\n",
+        [11, 5, 1, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "f31_opener_in_picture",
+        b"format F =\n1; print <<EOT;\n.\nmy $s = '\nEOT\n=pod\n\nd\n\n=cut\n';\nprint \
+          \"MARK\";\n",
+        [12, 6, 2, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f32_excluded_after",
+        b"format STDOUT =\n1\n.\n2;\nmy $k = 3;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\
+          \n",
+        [12, 6, 3, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f34_dot_then_text",
+        b"format STDOUT =\n1\n. x;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [11, 6, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "f35_indented_dot",
+        b"format STDOUT =\n1\n .\n2;\n=pod\n\nd\n\n=cut\n3\n.\n4;\n",
+        [12, 7, 2, 5, 0, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "f36_stray_cut_in_format",
+        b"format STDOUT =\n1;\n=cut\n1\n.\n2;\n",
+        [6, 2, 1, 4, 0, 4],
+        &[2, 3, 4, 5],
+    ),
+    (
+        "f37_comment_only_in_format",
+        b"format STDOUT =\n1;\n=begin comment\n\nx\n\n=end comment\n\n=cut\n1\n.\n2;\n",
+        [12, 5, 2, 7, 0, 0],
+        &[],
+    ),
+    (
+        "f33_keyword_like",
+        b"forXmat STDOUT =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 5, 2, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h01_in_string",
+        b"my $s = \"@{[ <<EOT ]}\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h02_in_string_reference",
+        b"my $s = \"${\\ <<EOT }\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h03_in_qq",
+        b"my $s = qq{@{[ <<EOT ]}};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h04_in_pattern_code",
+        b"my $r = 'a' =~ /(?{ <<EOT })/;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h05_in_substitution",
+        b"my $t = 'a';\n$t =~ s/a/<<EOT/e;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h06_in_m",
+        b"my $r = 'a' =~ m{@{[ <<EOT ]}};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h07_in_qr",
+        b"my $r = qr{@{[ <<EOT ]}};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h08_tilde_tag",
+        b"my $s = \"@{[ <<~EOT ]}\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h09_quoted_tag",
+        b"my $s = qq{@{[ <<\"EOT\" ]}};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h10_digit_tag",
+        b"my $s = qq{@{[ <<1 ]}};\n=pod\n\nd\n\n=cut\n1\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h11_file_handle",
+        b"my $fh = \\*STDOUT;\nprint $fh <<\"EOT\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"M\
+          ARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h12_file_handle_digit",
+        b"my $fh = \\*STDOUT;\nprint $fh <<1;\n=pod\n\nd\n\n=cut\n1\nprint \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h13_file_handle_tilde",
+        b"my $fh = \\*STDOUT;\nprint $fh <<~EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\
+          \";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h30_block_file_handle",
+        b"print {*STDOUT} <<EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h14_single_quoted",
+        b"my $s = 'a <<EOT b';\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h15_q",
+        b"my $s = q{<<EOT};\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h16_shift",
+        b"my $s = 1<<2;\nmy $t = $s << 3;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [9, 3, 3, 5, 1, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "h17_arrows_in_string",
+        b"my $s = \"<<< x >>> 1 << 2\";\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h18_word_in_string",
+        b"my $s = \"a<<b\";\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h19_then_real",
+        b"my $s = qq{@{[ <<\"1;\" ]}};\nlit;\n1;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\
+          \n",
+        [10, 4, 4, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h20_opener_row_blank",
+        b"my $s = <<EOT; \n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 4, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h21_crlf",
+        b"my $s = <<EOT;\r\n=pod\r\n\r\nd\r\n\r\n=cut\r\nEOT\r\nprint \"MARK\";\r\n",
+        [8, 4, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h22_late_body",
+        b"my $s = <<EOT; \nlit\nEOT\n;\nmy $t = '\nEOT\n=pod\n\nd\n\n=cut\n';\nprint \
+          \"MARK\";\n",
+        [13, 7, 2, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "h23_end_row_blank",
+        b"my $s = <<EOT;\nlit\nEOT \n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [10, 5, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "h24_end_row_tab_indented",
+        b"my $s = <<~EOT;\nlit\nEOT\t\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [10, 5, 2, 5, 0, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "h25_then_real",
+        b"my $s = <<EOT;\nlit\nEOT\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 2, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h26_two_on_a_row",
+        b"my @s = (<<EOT, <<EOU);\na\nEOT\nb\nEOU\n\n=pod\n\nd\n\n=cut\nprint \"MARK\"\
+          ;\n",
+        [12, 6, 2, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "h27_comment_after_opener",
+        b"my $s = <<EOT; # c\nlit\nEOT\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 2, 6, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h28_end_row_crlf",
+        b"my $s = <<EOT;\nlit\nEOT\r\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 2, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h29_late_then_real",
+        b"my $s = <<EOT; \nlit;\nEOT\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 3, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h31_shift_before_digit",
+        b"my $t = 2; my $s = $t <<2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h32_shift_after_blank",
+        b"my $t = 2; my $s = $t <<$t;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h33_string_with_blank",
+        b"my $s = \"a b\";\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h34_then_code",
+        b"my $s = <<EOT;\nlit\nEOT\n\nmy $k = 3;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\
+          \n",
+        [12, 5, 3, 5, 2, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "h37_in_backticks",
+        b"my $s = `@{[ <<EOT ]}`;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h38_in_qx",
+        b"my $s = qx{@{[ <<EOT ]}};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h39_file_handle_bare",
+        b"my $fh = \\*STDOUT;\nprint $fh <<EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\
+          \";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h40_file_handle_single_quoted",
+        b"my $fh = \\*STDOUT;\nprint $fh <<'EOT';\n=pod\n\nd\n\n=cut\nEOT\nprint \"MAR\
+          K\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h41_file_handle_backslash",
+        b"my $fh = \\*STDOUT;\nprint $fh <<\\EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MAR\
+          K\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h42_file_handle_underscore",
+        b"my $fh = \\*STDOUT;\nprint $fh <<_E;\n=pod\n\nd\n\n=cut\n_E\nprint \"MARK\";\
+          \n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h43_file_handle_command",
+        b"my $fh = \\*STDOUT;\nprint $fh <<`EOT`;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MAR\
+          K\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h44_opener_on_second_row",
+        b"my $k = 1;\nmy $s = <<EOT;\nlit\nEOT\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [11, 5, 3, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "h35_operator_in_string",
+        b"my $s = \"<<\";\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h36_empty_tag_in_qq",
+        b"my $s = qq{@{[ <<\"\" ]}};\n=pod\n\nprint \"MARK\";\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "q01_escaped_bang",
+        b"my $s = q!a\\!;\n=pod\n\nd\n\n=cut\n!;\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q02_escaped_brace",
+        b"my $s = q{a\\};\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q03_escaped_words",
+        b"my @s = qw!a\\!;\n=pod\n\nd\n\n=cut\n!;\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q04_nested_words",
+        b"my @s = qw{a{b};\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q05_escaped_backslash",
+        b"my $s = q{a\\\\};\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q06_nested_q",
+        b"my $s = q{a{b}c};\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q07_words",
+        b"my @s = qw(a b);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q08_nested_literals",
+        b"my %h; my $s = qq{ $h{qq{ $h{qq{ x }} }} };\n\n=pod\n\nd\n\n=cut\nprint \"MA\
+          RK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "t01_heredoc_dq",
+        b"my $s = <<\"EOT\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t02_heredoc_sq",
+        b"my $s = <<'EOT';\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t03_heredoc_indented",
+        b"my $s = <<~EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t04_heredoc_backslash",
+        b"my $s = <<\\EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t05_heredoc_in_call",
+        b"sub g { 7 }\nmy $s = g(<<EOT);\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [9, 9, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t06_heredoc_in_subscript",
+        b"my %h; my $s = $h{<<EOT};\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 3, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t07_heredoc_two",
+        b"my @s = (<<EOT, <<EOU);\n=pod\n\nd\n\n=cut\nEOT\n=head1 X\n\n=cut\nEOU\nprin\
+          t \"MARK\";\n",
+        [12, 12, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t08_heredoc_in_heredoc",
+        b"my $s = <<EOA;\n@{[ <<EOT ]}\n=pod\n\nd\n\n=cut\nEOT\nEOA\nprint \"MARK\";\n",
+        [10, 10, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t09_heredoc_print",
+        b"print STDOUT <<EOT;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t10_heredoc_continues",
+        b"my %h = (a => <<EOT,\n=pod\n\nd\n\n=cut\nEOT\n  b => 2);\nprint \"MARK\";\n",
+        [9, 7, 0, 0, 2, 0],
+        &[],
+    ),
+    (
+        "t11_q_brace",
+        b"my $s = q{\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t12_q_paren",
+        b"my $s = q(\n=pod\n\nd\n\n=cut\n);\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t13_q_word_delimiter",
+        b"my $s = q X\n=pod\n\nd\n\n=cut\nX;\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t14_q_hash",
+        b"my $s = q#\n=pod\n\nd\n\n=cut\n#;\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t15_qq_brace",
+        b"my $s = qq{\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t16_m_brace",
+        b"my $s = 'a' =~ m{\n=pod\n\nd\n\n=cut\n}x;\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t17_qr_slash",
+        b"my $s = qr/\n=pod\n\nd\n\n=cut\n/x;\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t18_s_pattern",
+        b"my $s = 'a'; $s =~ s/\n=pod\n\nd\n\n=cut\n/b/x;\nprint \"MARK\";\n",
+        [8, 8, 3, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t19_s_replacement",
+        b"my $s = 'a'; $s =~ s{a}{\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 8, 3, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t20_tr",
+        b"my $s = 'a'; $s =~ tr/a/\n=pod\n\nd\n\n=cut\n/;\nprint \"MARK\";\n",
+        [8, 8, 3, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t21_y",
+        b"my $s = 'a'; $s =~ y/a/\n=pod\n\nd\n\n=cut\n/;\nprint \"MARK\";\n",
+        [8, 8, 3, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t22_single_quoted",
+        b"my $s = '\n=pod\n\nd\n\n=cut\n';\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t23_backticks",
+        b"my $s = `\n=pod\n\nd\n\n=cut\n`;\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t24_qx",
+        b"my $s = qx{\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t25_heredoc_command",
+        b"my $s = <<`EOT`;\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "t26_end_same_row",
+        b"1; __END__\n=pod\n\nd\n\n=cut\n",
+        [6, 1, 1, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "t27_end_as_key",
+        b"my %h = (__END__ => 1);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 0, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "t28_format_then_pod",
+        b"format STDOUT =\nline\n.\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [9, 7, 1, 0, 2, 0],
+        &[],
+    ),
+    (
+        "t29_format_tick_name",
+        b"format Pkg'F =\n1;\n=pod\n\nd\n\n=cut\n1\n.\n2;\n",
+        [10, 1, 0, 0, 9, 0],
+        &[],
+    ),
+    (
+        "t30_bareword_assignment",
+        b"my $y\n=pod\n;\nprint \"MARK\";\n",
+        [4, 4, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "n01_source_filter",
+        b"use Filter::Util::Call;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "r14_hidden_block",
+        b"my $s = q'a\\'b';\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 1, 0, 0, 7, 0],
+        &[],
+    ),
+    (
+        "r15_command_before_data",
+        b"my $x = (1;\nmy $s = \"\n=pod\n\";\n__END__\n=pod\n\nd\n\n=cut\n",
+        [10, 5, 2, 5, 0, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "r16_command_in_data_only",
+        b"my $x = (1;\n__END__\n=pod\n\nd\n\n=cut\n",
+        [7, 2, 1, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "r17_command_before_error",
+        b"my $s = '\n=pod\n';\nmy $x = (1;\n",
+        [4, 4, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "r18_no_command_line",
+        b"my $x = (1;\nmy $s = \"\n=1\n==\n= a\n =pod\nx=pod\n\";\n",
+        [8, 8, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "r19_error_without_pod",
+        b"my $x = (1;\nmy $y = 2;\n",
+        [2, 2, 2, 0, 0, 0],
+        &[],
+    ),
+    (
+        "r21_block_with_a_node",
+        b"my $x = (1;\n\n=head1 A\n\na\n\n=cut\n",
+        [7, 1, 1, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "f38_value_heredoc",
+        b"format F =\n@x;\nqq{@{[ <<TAG ]}};\n1\n.\n2;\n=pod\n\nd\n\n=cut\nTAG\n.\n2;\
+          \n",
+        [14, 9, 4, 5, 0, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f39_value_escaped_q",
+        b"format F =\n@x;\nq!abc\\!;\n1\n.\n2;\n=pod\n\nd\n\n=cut\n!\n.\n2;\n",
+        [14, 9, 4, 5, 0, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f40_value_list",
+        b"format F =\n@x;\n$a, $b\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [12, 6, 3, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f41_dot_where_values",
+        b"format F =\n@x\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [11, 5, 2, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f42_value_string",
+        b"format F =\n@x;\n\"a\"\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [12, 6, 3, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f43_value_brackets",
+        b"format F =\n@x;\n[ $a,\n$b ]\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [13, 7, 3, 5, 1, 5],
+        &[7, 8, 9, 10, 11],
+    ),
+    (
+        "f44_tilde_fields",
+        b"format F =\n~~@x;\n$a\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [12, 6, 3, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f45_field_in_comment",
+        b"format F =\n1\n# @x\n.\n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [12, 5, 2, 6, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f46_values_then_picture",
+        b"format F =\n@x;\n$a,\n@y;\n$b;\ntext\n. \n2;\n\n=pod\n\nd\n\n=cut\nprint \"M\
+          ARK\";\n",
+        [15, 9, 5, 5, 1, 5],
+        &[9, 10, 11, 12, 13],
+    ),
+    (
+        "f47_value_dot_blank",
+        b"format F =\n@x\n. \n2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [11, 5, 2, 5, 1, 5],
+        &[5, 6, 7, 8, 9],
+    ),
+    (
+        "f48_value_crlf",
+        b"format F =\r\n@x;\r\n$a\r\n.\r\n2;\r\n\r\n=pod\r\n\r\nd\r\n\r\n=cut\r\nprint \
+          \"MARK\";\r\n",
+        [12, 6, 3, 5, 1, 5],
+        &[6, 7, 8, 9, 10],
+    ),
+    (
+        "f49_method_assignment",
+        b"my $o = bless {};\n$o->format =\n1;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 3, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "f50_glob_assignment",
+        b"sub g { 7 }\n*format =\n\\&g;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [10, 4, 2, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "h45_block_handle_blanks",
+        b"my $fh = \\*STDOUT;\nprint {$fh} <<  \"EOT\";\n=pod\n\nd\n\n=cut\nEOT\nprint \
+          \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h46_bare_handle_empty_tag",
+        b"print STDOUT << \"\";\n=pod\n\nprint \"MARK\";\n",
+        [4, 1, 1, 3, 0, 3],
+        &[1, 2, 3],
+    ),
+    (
+        "h47_glob_handle_tabs",
+        b"print {*STDOUT} <<\t\t'EOT';\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "h52_block_handle_command",
+        b"my $fh = \\*STDOUT;\nprint {$fh} << `EOT`;\n=pod\n\nd\n\n=cut\nEOT\nprint \"\
+          MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h48_scalar_handle_blank",
+        b"my $fh = \\*STDOUT;\nprint $fh << \"EOT\";\n\n=pod\n\nd\n\n=cut\nprint \"MAR\
+          K\";\n",
+        [9, 3, 3, 5, 1, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "h49_tilde_blank",
+        b"my $fh = \\*STDOUT;\nprint {$fh} <<~ \"EOT\";\n=pod\n\nd\n\n=cut\nEOT\nprint \
+          \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h50_shift_by_bareword",
+        b"my $t = 2; my $x = $t <<EOT;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "h51_shift_after_blanks",
+        b"my $t = 2; my $x = $t <<  2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q09_escaped_open_then_string",
+        b"my $x = q(a\\(b); my $s = \"x);\n=pod\n\nd\n\n=cut\n\";\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q10_tr_escaped_open",
+        b"my $t = 'a';\n$t =~ tr{a\\{}{b}; my $s = \"x}{y};\n=pod\n\nd\n\n=cut\n\";\np\
+          rint \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q11_y_escaped_open",
+        b"my $t = 'a';\n$t =~ y(a\\()(b); my $s = \"x)(y);\n=pod\n\nd\n\n=cut\n\";\npr\
+          int \"MARK\";\n",
+        [9, 4, 3, 5, 0, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q12_escaped_open_closed",
+        b"my $x = q(a\\(b); my $s = \"x)\";\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q13_two_parts_with_space",
+        b"my $t = 'a';\n$t =~ s{a}\n  {b}g; $t =~ tr{a} {b};\n\n=pod\n\nd\n\n=cut\npri\
+          nt \"MARK\";\n",
+        [10, 4, 4, 5, 1, 5],
+        &[4, 5, 6, 7, 8],
+    ),
+    (
+        "q14_hash_delimiter",
+        b"my $s = q#a#;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q15_quote_delimiter",
+        b"my $s = q'ab'; my $m = 'a' =~ m'b';\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q16_flags",
+        b"my $t = 'a';\n$t =~ s/a/b/gi; $t =~ tr/a/b/r; my $m = $t =~ m{a}x;\n\n=pod\n\
+          \nd\n\n=cut\nprint \"MARK\";\n",
+        [9, 3, 5, 5, 1, 5],
+        &[3, 4, 5, 6, 7],
+    ),
+    (
+        "q17_escaped_in_evaluated",
+        b"my $s = qq{a\\}b}; my $r = qr(a\\)b);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\
+          \n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q18_core_operator",
+        b"my $x = CORE::q{\n=pod\n\nd\n\n=cut\n};\nprint \"MARK\";\n",
+        [8, 3, 2, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q19_division",
+        b"my $z = time / 2; my $s = \"/; 1; \"; my $u = \";\n=pod\n\nd\n\n=cut\n\";\n# \
+          \"\nprint \"MARK\";\n",
+        [9, 4, 4, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q20_old_separator",
+        b"my $x = Foo'bar(1); my $s = '; 1; '; my $u = ';\n=pod\n\nd\n\n=cut\n';\n# '\
+          \nprint \"MARK\";\n",
+        [9, 4, 4, 5, 0, 5],
+        &[1, 2, 3, 4, 5],
+    ),
+    (
+        "q21_word_before_arrow",
+        b"my %k = (y => 1, s => 2, q => 3);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q22_pattern_after_keyword",
+        b"my @m = split /,/, 'a,b'; my $n = 1 if $m[0] =~ /a/; my @o = grep /b/, @m;\n\
+          \n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 4, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q23_pattern_after_word",
+        b"my $m = lc /A/;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q24_plain_division",
+        b"my $z = 4 / 2; my $w = $z / 2;\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q25_word_in_subscript",
+        b"my %k; my $v = $k{q}; my $w = { 1 };\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 3, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "q26_short_identifier",
+        b"my $v = 1; sub go { 7 }\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 2, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+    (
+        "t31_data_as_key",
+        b"my %h = (__DATA__ => 1);\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
+        [8, 2, 0, 5, 1, 5],
+        &[2, 3, 4, 5, 6],
+    ),
+];
+
+#[cfg(feature = "perl")]
+fn perl_loc(source: &[u8]) -> ([u64; 6], Vec<usize>) {
+    let space = analyze(
+        Source::new(LANG::Perl, source),
+        MetricsOptions::default().with_only(&[Metric::Loc]),
+    )
+    .unwrap();
+    let loc = &space.metrics.loc;
+    (
+        [
+            loc.sloc(),
+            loc.ploc(),
+            loc.lloc(),
+            loc.cloc(),
+            loc.blank(),
+            loc.dloc(),
+        ],
+        (0..=source.len())
+            .filter(|row| loc.dloc.lines.contains(*row))
+            .collect(),
+    )
+}
+
+#[cfg(feature = "perl")]
+#[test]
+fn documentation_perl_pod_legacy_rows() {
+    for &(name, source, loc, rows) in &PERL_POD_SOURCES {
+        assert_eq!(perl_loc(source), (loc, rows.to_vec()), "{name}");
+    }
+}
+
+#[cfg(feature = "perl")]
+#[test]
+fn documentation_perl_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::{
+        Content, DocumentationContext, DocumentationOptions, observations,
+    };
+    let counters = || {
+        let seen = observations();
+        [
+            seen.visits,
+            seen.renders,
+            seen.owner_projections,
+            seen.polls,
+        ]
+    };
+    let (mut documents, mut texts, mut pending) = (0, 0, 0);
+    for &(name, source, loc, rows) in &PERL_POD_SOURCES {
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Perl, source.to_vec(), None, None).unwrap();
+        let idle = counters();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = counters();
+        let complete = index
+            .documents()
+            .filter(|document| matches!(document.get().content(), Content::Complete { .. }))
+            .count();
+        let [visits, renders, owners, polls] = std::array::from_fn(|at| collected[at] - idle[at]);
+        // expected: the walk enters every node once.
+        assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
+        // expected: one render for each document that has a complete text.
+        assert_eq!(renders, complete, "{name}");
+        // expected: the file is the only owner.
+        assert_eq!(owners, 1, "{name}");
+        // The checkpoint total has no closed form over these sources. Every collection
+        // makes the seven explicit checkpoints of one without a document.
+        assert!(polls >= 7, "{name}: {polls}");
+        documents += index.documents().len();
+        texts += complete;
+        pending += index.assessments().len();
+
+        assert_eq!(perl_loc(source), (loc, rows.to_vec()), "{name}");
+        // expected: the metric walk enters no collector node, renders no text, projects
+        // no owner and polls no budget.
+        assert_eq!(counters(), collected, "{name}");
+    }
+    // expected: over the 261 sources, 93 blocks are documents, 87 of them with a
+    // complete text (five have pending text, one is no UTF-8). The reader's own
+    // tests withhold 29 blocks and the rules for literal text 92; five documents have
+    // pending text, 12 data sections are reported, and 10 files are marked for POD
+    // that the grammar may hide: 148 assessments.
+    assert_eq!((documents, texts, pending), (93, 87, 148));
+}

@@ -25,11 +25,11 @@
       "expect": ["documentation::collector::form_tests::java_unnamed_field_form_is_pending_in_default_queries", "documentation::collector::form_tests::javascript_binding_form_is_pending_in_default_queries"]
     },
     {
-      "name": "deferred-perl-is-empty-success",
+      "name": "deferred-python-is-empty-success",
       "file": "big-code-analysis-ast/src/documentation/options.rs",
-      "old": "Self::Python | Self::Pod | Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules",
-      "new": "Self::Python | Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules",
-      "expect": ["documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
+      "old": "Self::Python | Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules",
+      "new": "Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules",
+      "expect": ["documentation::collector::tests::deferred_python_adapter_is_not_an_empty_success", "documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
     },
     {
       "name": "rdoc-alternate-becomes-incompatible",

@@ -86,8 +86,13 @@
       "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps"],
       "ineligible": ["ordinary standalone leading run", "empty marked block", "function-body annotation"],
       "pending": ["tagged virtual/table forms", "native table-field/parameter comments", "assignment/return/field slots", "publication"]
+    },
+    "Perl": {
+      "implemented": ["inline POD block as file documentation", "several blocks in source order", "local POD text and maps without the =cut line", "comment-only blocks as directive evidence"],
+      "ineligible": ["# comments", "POD-like text in strings, heredocs, word lists and patterns that the grammar reads"],
+      "pending": ["data-section POD", "text of a block that mixes prose and comment regions", "blocks that perl and POD processors read differently", "blocks beside excluded bytes", "blocks where perl may read literal text: after a recovery node, in a format or after one whose end is not known, beside a here-document or a quote-like literal that perl reads differently from the grammar", "POD that the grammar hides behind a recovery node: one assessment for the file", "unique-heading inference and sub or package owners", "publication"]
     }
   },
-  "deferred": ["Python", "Perl", "Elixir", "Bash", "Tcl", "Irules"],
+  "deferred": ["Python", "Elixir", "Bash", "Tcl", "Irules"],
   "helpers": ["Ccomment", "Preproc"]
 }

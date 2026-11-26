@@ -4,6 +4,8 @@
 //! section after `__END__`, which the grammar leaves as one leaf.
 
 use crate::Perl;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::byte_scan as scan;
 use crate::lang_helpers::doc_comment::pod_comment_region;
 use crate::node::{Ancestors, Node};
 
@@ -95,19 +97,24 @@ fn pod_rows(
 /// POD block outside one. Perl's `\s` takes a vertical tab, which
 /// `is_ascii_whitespace` does not.
 fn opens_pod(line: &[u8]) -> bool {
+    infallible(opens_pod_with_budget(line, &NoBudget))
+}
+
+pub(crate) fn opens_pod_with_budget<B: WorkBudget>(
+    line: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     let Some(rest) = line.strip_prefix(b"=") else {
-        return false;
+        return Ok(false);
     };
-    let word = rest
-        .iter()
-        .position(|byte| !byte.is_ascii_alphanumeric())
-        .unwrap_or(rest.len());
+    let word =
+        scan::position(rest, |byte| !byte.is_ascii_alphanumeric(), budget)?.unwrap_or(rest.len());
     let (command, after) = rest.split_at(word);
-    command.first().is_some_and(u8::is_ascii_alphabetic)
+    Ok(command.first().is_some_and(u8::is_ascii_alphabetic)
         && command != b"cut"
         && after
             .first()
-            .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'\x0b')
+            .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'\x0b'))
 }
 
 /// Whether `and`, a Perl `and` token whose parent is `parent`, is the

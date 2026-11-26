@@ -82,7 +82,7 @@ use big_code_analysis_ast::documentation::{
     feature = "c-family-helpers"
 ))]
 use big_code_analysis_ast::test_support::documentation::{
-    assert_primary_extraction, primary, source,
+    assert_primary_extraction, inventory, primary, source,
 };
 
 #[cfg(any(
@@ -193,8 +193,55 @@ fn projection(index: &DocumentationIndex<'_>) -> serde_json::Value {
 #[derive(Clone, Copy)]
 enum Expectation {
     Row(Profile),
+    // The inventory row names the owner of a profile that is not the default one.
+    FileDocument(Profile),
     Rejected(Profile),
     Helper,
+}
+
+#[cfg(any(
+    feature = "bash",
+    feature = "c",
+    feature = "c-family-helpers",
+    feature = "cpp",
+    feature = "csharp",
+    feature = "elixir",
+    feature = "go",
+    feature = "groovy",
+    feature = "irules",
+    feature = "java",
+    feature = "javascript",
+    feature = "kotlin",
+    feature = "lua",
+    feature = "mozcpp",
+    feature = "mozjs",
+    feature = "objc",
+    feature = "perl",
+    feature = "php",
+    feature = "python",
+    feature = "ruby",
+    feature = "rust",
+    feature = "tcl",
+    feature = "typescript",
+))]
+fn check_file_document(index: &DocumentationIndex<'_>, lang: LANG) {
+    let row = &inventory()[lang.to_string()];
+    assert_eq!(
+        projection(index),
+        serde_json::json!([{
+            "fragments": row["fragments"], "text": row["text"],
+            "owner": null, "owner_kind": null
+        }]),
+        "{lang}"
+    );
+    let associations: Vec<_> = index.associations().collect();
+    let [association] = associations.as_slice() else {
+        panic!("{lang}: one association")
+    };
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().owner_count(), 1);
+    let owner = index.facts().associated_owner(*association, 0).unwrap();
+    assert!(matches!(owner.get(), Owner::File(_)), "{lang}");
 }
 
 #[cfg(any(
@@ -228,7 +275,7 @@ fn check_policy(ast: &Ast, lang: LANG, expected: Expectation, filename: Option<&
         &DocumentationOptions::default(),
     );
     match expected {
-        Expectation::Row(profile) => {
+        Expectation::Row(profile) | Expectation::FileDocument(profile) => {
             let index = result.unwrap();
             assert_eq!(index.profile(), profile, "{lang}");
             assert_eq!(index.capability(), Capability::Partial, "{lang}");
@@ -238,7 +285,11 @@ fn check_policy(ast: &Ast, lang: LANG, expected: Expectation, filename: Option<&
                 filename,
                 "{lang}"
             );
-            assert_primary_extraction(lang, Ok(projection(&index)));
+            if matches!(expected, Expectation::Row(_)) {
+                assert_primary_extraction(lang, Ok(projection(&index)));
+            } else {
+                check_file_document(&index, lang);
+            }
         }
         Expectation::Rejected(profile) => {
             assert_eq!(
@@ -289,9 +340,9 @@ fn check_policy(ast: &Ast, lang: LANG, expected: Expectation, filename: Option<&
 ))]
 #[test]
 fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() {
-    use Expectation::{Helper, Rejected, Row};
+    use Expectation::{FileDocument, Helper, Rejected, Row};
     let directory = tempfile::tempdir().unwrap();
-    let mut counts = (0, 0, 0);
+    let mut counts = (0, 0, 0, 0);
     for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
         let expected = match lang {
             LANG::Rust => Row(Profile::Rust),
@@ -307,7 +358,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             LANG::Go => Row(Profile::GoDoc),
             LANG::Ruby => Row(Profile::Yard),
             LANG::Lua => Row(Profile::Ldoc),
-            LANG::Perl => Rejected(Profile::Pod),
+            LANG::Perl => FileDocument(Profile::Pod),
             LANG::Elixir => Rejected(Profile::Elixir),
             LANG::Bash => Rejected(Profile::Shdoc),
             LANG::Tcl => Rejected(Profile::Ruff),
@@ -318,6 +369,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             Row(_) => counts.0 += 1,
             Rejected(_) => counts.1 += 1,
             Helper => counts.2 += 1,
+            FileDocument(_) => counts.3 += 1,
         }
         let filename = primary(lang);
         let bytes = source(filename);
@@ -339,11 +391,11 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             check_policy(&from_path, lang, expected, Some(filename));
         }
     }
-    let ran = counts.0 + counts.1 + counts.2;
+    let ran = counts.0 + counts.1 + counts.2 + counts.3;
     assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
     assert!(ran > 0);
     #[cfg(feature = "all-languages")]
-    assert_eq!(counts, (17, 6, 2));
+    assert_eq!(counts, (17, 5, 2, 1));
 }
 
 #[cfg(feature = "rust")]

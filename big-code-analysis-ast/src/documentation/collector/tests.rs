@@ -1134,7 +1134,6 @@ fn named_profiles_distinguish_deferred_incompatible_and_available() {
             } else if alternate
                 || [
                     LANG::Python,
-                    LANG::Perl,
                     LANG::Elixir,
                     LANG::Bash,
                     LANG::Tcl,
