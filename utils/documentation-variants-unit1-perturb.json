@@ -1,0 +1,153 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--test",
+    "api",
+    "documentation_variants"
+  ],
+  "cases": [
+    {
+      "name": "variants-every-error-is-reported-as-cancelled",
+      "file": "src/spaces/ast.rs",
+      "old": "        self.inner.documentation(context, options)\n",
+      "new": "        self.inner\n            .documentation(context, options)\n            .map_err(|_| CollectionError::Cancelled)\n",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-rejected-adapter-is-an-empty-success",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            return Err(CollectionError::AdapterUnavailable { language, profile });",
+      "new": "            return Ok(profile);",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-helper-capability-is-partial",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            capability: if profile == Profile::Helper {",
+      "new": "            capability: if false && profile == Profile::Helper {",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-helpers-routed-to-doxygen",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            LANG::Ccomment | LANG::Preproc => Self::Helper,",
+      "new": "            LANG::Ccomment | LANG::Preproc => Self::Doxygen,",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-mozjs-routed-to-the-typescript-profile",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            LANG::Javascript | LANG::Mozjs => Self::Jsdoc,",
+      "new": "            LANG::Javascript => Self::Jsdoc,\n            LANG::Mozjs => Self::BcaTypescriptSource,",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-tsx-routed-to-the-jsdoc-profile",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            LANG::Typescript | LANG::Tsx => Self::BcaTypescriptSource,",
+      "new": "            LANG::Typescript => Self::BcaTypescriptSource,\n            LANG::Tsx => Self::Jsdoc,",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-mozcpp-routed-to-the-helper-profile",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            LANG::C | LANG::Cpp | LANG::Mozcpp | LANG::Objc => Self::Doxygen,",
+      "new": "            LANG::C | LANG::Cpp | LANG::Objc => Self::Doxygen,\n            LANG::Mozcpp => Self::Helper,",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-ast-parses-mozcpp-as-cpp",
+      "file": "src/spaces/ast.rs",
+      "old": "        let inner = AnyParser::parse(lang, code.into_owned(), preproc_path, preproc)?;",
+      "new": "        let lang = if lang == LANG::Mozcpp { LANG::Cpp } else { lang };\n        let inner = AnyParser::parse(lang, code.into_owned(), preproc_path, preproc)?;",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-path-provenance-not-stored",
+      "file": "src/spaces/ast.rs",
+      "old": "        ast.provenance = provenance;\n",
+      "new": "        let _ = provenance;\n",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-text-copied-twice",
+      "file": "big-code-analysis-ast/src/documentation/text.rs",
+      "old": "            self.text.push_str(valid);",
+      "new": "            self.text.push_str(valid);\n            self.text.push_str(valid);",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast",
+        "documentation_variants::the_projection_tells_rust_results_apart",
+        "documentation_variants::the_projection_names_no_owner_for_an_unresolved_or_slot_association"
+      ]
+    },
+    {
+      "name": "variants-documents-in-reverse-order",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "        self.documents_ordered.iter().map(|&ordinal| FactRef {",
+      "new": "        self.documents_ordered.iter().rev().map(|&ordinal| FactRef {",
+      "expect": [
+        "documentation_variants::the_projection_tells_rust_results_apart"
+      ]
+    },
+    {
+      "name": "variants-inventory-ruby-owner-kind-changed",
+      "file": "tests/fixtures/documentation/inventory.json",
+      "old": "    \"selected_owner_kind\": \"method\",",
+      "new": "    \"selected_owner_kind\": \"singleton_method\",",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-inventory-csharp-text-changed",
+      "file": "tests/fixtures/documentation/inventory.json",
+      "old": "    \"text\": \"<summary>audit</summary>\",",
+      "new": "    \"text\": \"audit\",",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-helpers-required-to-have-declaration-text",
+      "file": "big-code-analysis-ast/src/test_support/documentation.rs",
+      "old": "        LANG::Ccomment | LANG::Preproc => Requirement::NoDeclarationModel,",
+      "new": "        LANG::Ccomment | LANG::Preproc => Requirement::DeclarationText,",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    },
+    {
+      "name": "variants-jsm-selects-no-language",
+      "file": "big-code-analysis-ast/src/langs.rs",
+      "old": "        [jsm],",
+      "new": "        [],",
+      "expect": [
+        "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
+      ]
+    }
+  ]
+}
