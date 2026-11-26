@@ -6916,3 +6916,61 @@ fn documentation_elixir_legacy_rows_hold_no_attribute_documentation() {
         );
     }
 }
+#[cfg(feature = "elixir")]
+#[test]
+fn documentation_elixir_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::*;
+    let mut totals = [0; 4];
+    for (source, loc) in ELIXIR_ATTRIBUTE_SOURCES {
+        let name = String::from_utf8_lossy(source);
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Elixir, source.to_vec(), None, None).unwrap();
+        let idle = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let texts = index
+            .documents()
+            .filter(|document| matches!(document.get().content(), Content::Complete { .. }))
+            .count();
+        // The collection moves each counter on this thread, so a zero across `analyze`
+        // is a reading.
+        // expected: the walk enters every node once.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        // expected: one render per complete text; a pending value is not rendered.
+        assert_eq!(collected.renders - idle.renders, texts, "{name}");
+        // expected: the file, and every module and group that became an owner.
+        assert_eq!(
+            collected.owner_projections - idle.owner_projections,
+            index.facts().owners().len(),
+            "{name}"
+        );
+        assert_ne!(collected.polls - idle.polls, 0, "{name}");
+        totals[0] += index.documents().len();
+        totals[1] += texts;
+        totals[2] += index.associations().len();
+        totals[3] += index.facts().owners().len();
+        assert_eq!(elixir_loc(source), (loc, Vec::new()), "{name}");
+        let analyzed = observations();
+        // expected: `analyze` builds no documentation index.
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(
+            analyzed.owner_projections - collected.owner_projections,
+            0,
+            "{name}"
+        );
+        assert_eq!(analyzed.polls - collected.polls, 0, "{name}");
+    }
+    // expected: the documents, complete texts, associations and owners of all rows, as
+    // the views of `collector/elixir_tests.rs` state them for a parse of the whole source.
+    assert_eq!(totals, [232, 192, 232, 737]);
+}

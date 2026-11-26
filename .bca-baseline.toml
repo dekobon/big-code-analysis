@@ -359,7 +359,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 978.0
+value = 982.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -539,13 +539,13 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "abc"
-value = 60.249481325568276
+value = 62.32976816898969
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "halstead.effort"
-value = 102783.07983778053
+value = 107107.95031171045
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -557,7 +557,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "nexits"
-value = 13.0
+value = 14.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
