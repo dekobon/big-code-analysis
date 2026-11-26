@@ -177,8 +177,6 @@
       "old": "                && !matches!(record.field, Some(\"declaration\" | \"value\"))",
       "new": "                && !record.evidence.node().is_named()",
       "expect": [
-        "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
         "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
         "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member"
       ]
@@ -193,38 +191,30 @@
         "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
         "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
         "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
       "name": "export-statement-is-not-a-wrapper",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "matches!(kind, \"export_statement\" | \"ambient_declaration\")",
-      "new": "matches!(kind, \"ambient_declaration\")",
+      "old": "Profile::BcaTypescriptSource => matches!(\n            kind,\n            \"export_statement\"\n                | \"ambient_declaration\"\n                | \"expression_statement\"\n                | \"await_expression\"\n        ),",
+      "new": "Profile::BcaTypescriptSource => matches!(\n            kind,\n            \"ambient_declaration\"\n                | \"expression_statement\"\n                | \"await_expression\"\n        ),",
       "expect": [
         "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
         "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
         "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
         "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
-        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
       "name": "ambient-declaration-is-not-a-wrapper",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "matches!(kind, \"export_statement\" | \"ambient_declaration\")",
-      "new": "matches!(kind, \"export_statement\")",
+      "old": "Profile::BcaTypescriptSource => matches!(\n            kind,\n            \"export_statement\"\n                | \"ambient_declaration\"\n                | \"expression_statement\"\n                | \"await_expression\"\n        ),",
+      "new": "Profile::BcaTypescriptSource => matches!(\n            kind,\n            \"export_statement\"\n                | \"expression_statement\"\n                | \"await_expression\"\n        ),",
       "expect": [
         "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
       ]
     },
     {
@@ -244,9 +234,7 @@
       "new": "                NativeRules::<T>::target(node, code, ancestors, budget)",
       "expect": [
         "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member",
-        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::typescript_block_before_a_decorator_documents_the_decorated_class_or_member"
       ]
     },
     {
@@ -257,9 +245,7 @@
       "expect": [
         "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
         "documentation::collector::ts_tests::tsx_block_before_a_decorator_documents_the_decorated_class_or_member",
-        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -268,20 +254,8 @@
       "old": "            \"lexical_declaration\"\n                | \"variable_declaration\"",
       "new": "            \"variable_declaration\"",
       "expect": [
-        "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
-      ]
-    },
-    {
-      "name": "namespace-statement-needs-no-slot",
-      "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "                | \"expression_statement\"\n                | \"required_parameter\"",
-      "new": "                | \"required_parameter\"",
-      "expect": [
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
       ]
     },
     {
@@ -291,19 +265,7 @@
       "new": "|| node.kind() == \"then\")",
       "expect": [
         "documentation::collector::ts_tests::typescript_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
-      ]
-    },
-    {
-      "name": "ambient-wrapper-skips-comments",
-      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "                && !record.evidence.node().is_named()\n            {",
-      "new": "                && (!record.evidence.node().is_named() || record.evidence.node().is_extra())\n            {",
-      "expect": [
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_block_before_export_or_declare_documents_the_wrapped_declaration"
       ]
     },
     {
@@ -462,9 +424,7 @@
         "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
         "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -489,9 +449,7 @@
         "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected",
         "documentation::collector::ts_tests::typescript_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -518,9 +476,7 @@
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -547,9 +503,7 @@
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -576,9 +530,7 @@
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -605,9 +557,7 @@
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {
@@ -634,9 +584,7 @@
         "documentation::collector::ts_tests::tsx_module_tag_makes_the_block_a_file_document",
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source",
-        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block",
-        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
-        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+        "documentation::collector::ts_tests::tsx_function_with_a_jsx_element_owns_its_leading_block"
       ]
     },
     {

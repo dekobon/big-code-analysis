@@ -44,6 +44,7 @@ pub(crate) enum WorkPhase {
     Collection,
     Classification,
     Projection,
+    TsAwait,
     Ranges,
     Batch,
     Text,

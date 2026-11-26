@@ -79,8 +79,8 @@
     {
       "name": "first-name-only",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "matches!(node.kind(), \"comment\" | \"html_comment\")",
-      "new": "node.kind() == \"identifier\"",
+      "old": "        for &name in &canonical.children[declarator.children.clone()] {\n            budget.step()?;\n            let node = canonical.nodes[name.0].evidence.node();\n            if matches!(node.kind(), \"comment\" | \"html_comment\") {",
+      "new": "        for &name in &canonical.children[declarator.children.clone()] {\n            budget.step()?;\n            let node = canonical.nodes[name.0].evidence.node();\n            if node.kind() == \"identifier\" {",
       "expect": [
         "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
         "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"

@@ -26,6 +26,11 @@ for historical reference.
 
 ### Added
 
+- TypeScript and TSX documentation collection now resolves anonymous default exports,
+  namespaces, named variable declarators, and `using`/`await using` assignment owners.
+  `declare` wrappers skip comment children. Parameter slots remain pending; legacy
+  documentation metrics are unchanged.
+
 - C# source documentation now associates a field, constant, or event-field comment
   with one field slot per declared name, keeping the declaration as its enclosing node.
 

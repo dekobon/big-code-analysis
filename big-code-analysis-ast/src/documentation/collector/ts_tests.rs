@@ -3,9 +3,13 @@
 //! parse-tree shapes. Node queries are not part of the view.
 
 #[cfg(feature = "typescript")]
+use crate::documentation::budget::WorkBudget;
+#[cfg(feature = "typescript")]
 use crate::documentation::*;
 #[cfg(feature = "typescript")]
 use crate::{AnyParser, LANG};
+#[cfg(feature = "typescript")]
+use std::cell::Cell;
 #[cfg(feature = "typescript")]
 use std::ops::Range;
 
@@ -310,7 +314,7 @@ fn clean(language: LANG, source: &[u8]) -> AnyParser {
 
 #[cfg(feature = "typescript")]
 fn view(language: LANG, source: &[u8], retain_unbound: bool) -> View {
-    let parser = clean(language, source);
+    let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
     let options = DocumentationOptions {
         retain_unbound,
         ..DocumentationOptions::default()
@@ -813,15 +817,11 @@ fn tsx_nearest_block_before_the_declaration_is_selected() {
 
 #[cfg(feature = "typescript")]
 fn module_tag_makes_the_block_a_file_document(language: LANG) {
-    let mut with_const = file_owned(
+    let with_const = file_owned(
         comment(0..28, "@packageDocumentation", [(0..21, Copied(4..25))]),
         0..49,
     );
-    // The const and its export wrapper await projections today, not the file document.
-    with_const.assessments = unordered([
-        pending(NEEDS_PROJECTION, ("export_statement", 29..48), None),
-        pending(NEEDS_PROJECTION, ("lexical_declaration", 36..48), None),
-    ]);
+    // A file document has no binding edge to the now-resolved const declaration.
     check(
         language,
         b"/** @packageDocumentation */\nexport const x = 1;\n",
@@ -954,78 +954,104 @@ fn tsx_function_with_a_jsx_element_owns_its_leading_block() {
     );
 }
 
-// Today's pending forms intentionally move when anonymous default exports, namespaces,
-// const bindings and the child of a declare wrapper gain owner projections.
+// The error in the lexical declaration is kept pending; unit 2 resolves valid owners.
 #[cfg(feature = "typescript")]
 fn forms_without_an_owner_keep_their_document_and_no_association(language: LANG) {
-    // bca: suppress(halstead) -- one table of the ten cases of the group and their views.
-    let source = b"/** above */\ndeclare /** inside */ function f(): void;\n";
-    check_retained(
-        language,
-        source,
-        unowned(
-            comment(0..12, "above", [(0..5, Copied(4..9))]),
-            ("ambient_declaration", 13..54),
-            &[],
-        ),
-        CandidateDisposition::Unattached,
-        21..34,
-    );
-    let rows: [(&[u8], Doc, Site, &[Site]); 8] = [
+    for (source, bound, extra) in [
         (
-            b"/**audit*/\nexport default function() {}\n",
-            comment(0..10, "audit", [(0..5, Copied(3..8))]),
-            ("export_statement", 11..39),
-            &[],
+            b"/**audit*/\nconst x = ;\n".as_slice(),
+            ("lexical_declaration", 11..22),
+            vec![("lexical_declaration", 11..22)],
         ),
         (
-            b"/**audit*/\nexport default class {}\n",
-            comment(0..10, "audit", [(0..5, Copied(3..8))]),
-            ("export_statement", 11..34),
-            &[],
+            b"/**audit*/\nvar x = ;\n",
+            ("variable_declaration", 11..20),
+            vec![("variable_declaration", 11..20)],
         ),
         (
-            b"/** d */\nnamespace N {}\n",
-            comment(0..8, "d", [(0..1, Copied(4..5))]),
-            ("expression_statement", 9..23),
-            &[("expression_statement", 9..23)],
-        ),
-        (
-            b"/** d */\nexport namespace N {}\n",
-            comment(0..8, "d", [(0..1, Copied(4..5))]),
-            ("export_statement", 9..30),
-            &[],
-        ),
-        (
-            b"/** d */\ndeclare namespace N {}\n",
-            comment(0..8, "d", [(0..1, Copied(4..5))]),
-            ("ambient_declaration", 9..31),
-            &[],
-        ),
-        (
-            b"/**audit*/\nconst x = 1;\n",
-            comment(0..10, "audit", [(0..5, Copied(3..8))]),
-            ("lexical_declaration", 11..23),
-            &[("lexical_declaration", 11..23)],
-        ),
-        (
-            b"/** d */\nexport const x = 1;\n",
-            comment(0..8, "d", [(0..1, Copied(4..5))]),
-            ("export_statement", 9..28),
-            &[("export_statement", 9..28), ("lexical_declaration", 16..28)],
-        ),
-        (
-            b"/** d */\ndeclare const x: number;\n",
-            comment(0..8, "d", [(0..1, Copied(4..5))]),
-            ("ambient_declaration", 9..33),
-            &[
-                ("ambient_declaration", 9..33),
-                ("lexical_declaration", 17..33),
+            b"/**audit*/\nnamespace N { %%% }\n",
+            ("expression_statement", 11..30),
+            vec![
+                ("expression_statement", 11..30),
+                ("internal_module", 11..30),
             ],
         ),
-    ];
-    for (source, document, bound, extra) in rows {
-        check(language, source, &unowned(document, bound, extra));
+        (
+            b"/**audit*/\nusing h = ;\n",
+            ("expression_statement", 11..22),
+            vec![
+                ("expression_statement", 11..22),
+                ("assignment_expression", 11..20),
+            ],
+        ),
+        (
+            b"/**audit*/\nusing h: Disposable = open();\n",
+            ("expression_statement", 11..40),
+            vec![
+                ("expression_statement", 11..40),
+                ("assignment_expression", 11..39),
+            ],
+        ),
+    ] {
+        let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+        assert!(parser.ts_tree().root_node().has_error());
+        let options = DocumentationOptions::default();
+        let context = DocumentationContext::default();
+        let root = parser.ts_tree().root_node();
+        let typed = published(&parser.documentation(&context, &options).unwrap(), root);
+        let raw = published(
+            &collect(
+                language,
+                parser.ts_tree(),
+                parser.code(),
+                &context,
+                &options,
+            )
+            .unwrap(),
+            root,
+        );
+        assert_eq!(typed, raw);
+        assert_eq!(
+            typed,
+            unowned(
+                comment(0..10, "audit", [(0..5, Copied(3..8))]),
+                bound,
+                &extra
+            )
+        );
+    }
+    for source in [
+        b"/**audit*/\ndeclare function f(: void;\n".as_slice(),
+        b"/**audit*/\nexport default function( {\n",
+    ] {
+        let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+        assert!(parser.ts_tree().root_node().has_error());
+        let context = DocumentationContext::default();
+        let options = DocumentationOptions {
+            retain_unbound: true,
+            ..DocumentationOptions::default()
+        };
+        let root = parser.ts_tree().root_node();
+        let typed = published(&parser.documentation(&context, &options).unwrap(), root);
+        let raw = published(
+            &collect(
+                language,
+                parser.ts_tree(),
+                parser.code(),
+                &context,
+                &options,
+            )
+            .unwrap(),
+            root,
+        );
+        assert_eq!(typed, raw);
+        assert_eq!(
+            typed,
+            View {
+                evidence: vec![(CandidateDisposition::Unattached, 0..10)],
+                ..View::default()
+            }
+        );
     }
 }
 
@@ -1422,4 +1448,920 @@ fn typescript_grammar_shapes_the_unit_relies_on() {
 fn tsx_grammar_shapes_the_unit_relies_on() {
     grammar_shapes_the_unit_relies_on(LANG::Tsx);
     tsx_element_shape();
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_ambient_comment_control(language: LANG) {
+    check_retained(
+        language,
+        b"/** above */\ndeclare /** inside */ function f(): void;\n",
+        wrapped(
+            comment(0..12, "above", [(0..5, Copied(4..9))]),
+            ("function_signature", 35..54),
+            ("ambient_declaration", 13..54),
+        ),
+        CandidateDisposition::Unattached,
+        21..34,
+    );
+}
+
+#[cfg(feature = "typescript")]
+#[allow(clippy::too_many_lines)]
+fn unit2_restricted_keywords(language: LANG) {
+    for (source, kind, range, extras) in [
+        (
+            b"/** d */\nnamespace /*\n*/ N {}\n".as_slice(),
+            "expression_statement",
+            9..29,
+            vec![],
+        ),
+        (
+            b"/** d */\nexport namespace\nN {}\n",
+            "export_statement",
+            9..30,
+            vec![],
+        ),
+        (
+            b"/** d */\ndeclare namespace\nN {}\n",
+            "ambient_declaration",
+            9..31,
+            vec![],
+        ),
+        (
+            b"/** d */\nawait\nusing x = f();\n".as_slice(),
+            "expression_statement",
+            9..29,
+            vec![],
+        ),
+        (
+            b"/** d */\nawait /*\n*/ using x = f();\n",
+            "expression_statement",
+            9..35,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nusing\nx = f();\n".as_slice(),
+            "expression_statement",
+            11..25,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nawait using\nx = f();\n",
+            "expression_statement",
+            11..31,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nusing /*\n*/ x = f();\n",
+            "expression_statement",
+            11..31,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nusing /*\r*/ x = f();\n",
+            "expression_statement",
+            11..31,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nusing /*\xe2\x80\xa8*/ x = f();\n",
+            "expression_statement",
+            11..33,
+            vec![],
+        ),
+        (
+            b"/**audit*/\nusing /*\xe2\x80\xa9*/ x = f();\n",
+            "expression_statement",
+            11..33,
+            vec![],
+        ),
+        (
+            b"/**audit*/\ndeclare /*\n*/ function f(): void;\n",
+            "ambient_declaration",
+            11..44,
+            vec![("ambient_declaration", 11..44)],
+        ),
+        (
+            b"/**audit*/\ndeclare /*\n*/ namespace N {}\n",
+            "ambient_declaration",
+            11..39,
+            vec![("ambient_declaration", 11..39)],
+        ),
+        (
+            b"/**audit*/\ndeclare /*\n*/ const x: number;\n",
+            "ambient_declaration",
+            11..41,
+            vec![("ambient_declaration", 11..41)],
+        ),
+        (
+            b"/**audit*/\nexport default async /*\n*/ function() {}\n",
+            "export_statement",
+            11..51,
+            vec![],
+        ),
+    ] {
+        let fragment = if source.starts_with(b"/** d */") {
+            0..8
+        } else {
+            0..10
+        };
+        let document = if source.starts_with(b"/** d */") {
+            comment(fragment, "d", [(0..1, Copied(4..5))])
+        } else {
+            comment(fragment, "audit", [(0..5, Copied(3..8))])
+        };
+        check(language, source, &unowned(document, (kind, range), &extras));
+    }
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_restricted_keywords() {
+    unit2_restricted_keywords(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_restricted_keywords() {
+    unit2_restricted_keywords(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_declare_global_stays_pending(language: LANG) {
+    check(
+        language,
+        b"/** d */\ndeclare global { }\n",
+        &unowned(
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
+            ("ambient_declaration", 9..27),
+            &[],
+        ),
+    );
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_declare_global_stays_pending() {
+    unit2_declare_global_stays_pending(LANG::Typescript);
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_declare_global_stays_pending() {
+    unit2_declare_global_stays_pending(LANG::Tsx);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_ambient_comment_control() {
+    unit2_ambient_comment_control(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_ambient_comment_control() {
+    unit2_ambient_comment_control(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+#[allow(clippy::too_many_lines)]
+fn unit2_owner_forms(language: LANG) {
+    let rows: [(&[u8], Doc, Site, Site); 19] = [
+        (
+            b"/**audit*/\nexport default function() {}\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("function_expression", 26..39),
+            ("export_statement", 11..39),
+        ),
+        (
+            b"/**audit*/\nexport default function* () {}\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("generator_function", 26..41),
+            ("export_statement", 11..41),
+        ),
+        (
+            b"/**audit*/\nexport default class {}\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("class", 26..34),
+            ("export_statement", 11..34),
+        ),
+        (
+            b"/** above */\ndeclare /** inside */ function f(): void;\n",
+            comment(0..12, "above", [(0..5, Copied(4..9))]),
+            ("function_signature", 35..54),
+            ("ambient_declaration", 13..54),
+        ),
+        (
+            b"/** d */\nnamespace N {}\n",
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
+            ("internal_module", 9..23),
+            ("expression_statement", 9..23),
+        ),
+        (
+            b"/** d */\nexport namespace N {}\n",
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
+            ("internal_module", 16..30),
+            ("export_statement", 9..30),
+        ),
+        (
+            b"/** d */\ndeclare namespace N {}\n",
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
+            ("internal_module", 17..31),
+            ("ambient_declaration", 9..31),
+        ),
+        (
+            b"/**audit*/\nconst x = 1;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 17..22),
+            ("lexical_declaration", 11..23),
+        ),
+        (
+            b"/**audit*/\nlet x: number;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 15..24),
+            ("lexical_declaration", 11..25),
+        ),
+        (
+            b"/**audit*/\nvar x = 1;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 15..20),
+            ("variable_declaration", 11..21),
+        ),
+        (
+            b"/**audit*/\nexport const x = 1;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 24..29),
+            ("export_statement", 11..30),
+        ),
+        (
+            b"/**audit*/\ndeclare const x: number;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 25..34),
+            ("ambient_declaration", 11..35),
+        ),
+        (
+            b"/**audit*/\nusing h = open();\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("assignment_expression", 11..27),
+            ("expression_statement", 11..28),
+        ),
+        (
+            b"/**audit*/\nawait using h = open();\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("assignment_expression", 17..33),
+            ("expression_statement", 11..34),
+        ),
+        (
+            b"/**audit*/\nawait /* gap */ using h = open();\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("assignment_expression", 27..43),
+            ("expression_statement", 11..44),
+        ),
+        (
+            b"/**audit*/\nconst a = 1, b = 2;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 17..22),
+            ("lexical_declaration", 11..30),
+        ),
+        (
+            b"/**audit*/\nconst /* gap */ a = 1;\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("variable_declarator", 27..32),
+            ("lexical_declaration", 11..33),
+        ),
+        (
+            b"/**audit*/\nusing /* gap */ h = open();\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("assignment_expression", 11..37),
+            ("expression_statement", 11..38),
+        ),
+        (
+            b"/**audit*/\nnamespace /* gap */ N {}\n",
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            ("internal_module", 11..35),
+            ("expression_statement", 11..35),
+        ),
+    ];
+    for (source, document, owner, binding) in rows {
+        check(
+            language,
+            source,
+            &wrapped(document, owner.clone(), binding.clone()),
+        );
+        let parser = clean(language, source);
+        let context = DocumentationContext::default();
+        let options = DocumentationOptions::default();
+        for index in [
+            parser.documentation(&context, &options).unwrap(),
+            collect(
+                language,
+                parser.ts_tree(),
+                parser.code(),
+                &context,
+                &options,
+            )
+            .unwrap(),
+        ] {
+            let owner_node = node_at(&parser, owner.0, owner.1.clone());
+            let binding_node = node_at(&parser, binding.0, binding.1.clone());
+            for node in [owner_node, binding_node] {
+                let projection = index.node_projection(node).unwrap();
+                assert!(!projection.pending());
+                assert_eq!(projection.owners().len(), 1);
+                let prepared = index.node_associations(node).unwrap();
+                assert!(!prepared.projection_pending());
+                assert_eq!(prepared.associations().len(), 1);
+                let handle = projection.owners().next().unwrap();
+                assert_eq!(
+                    index
+                        .owner_associations(handle)
+                        .unwrap()
+                        .associations()
+                        .len(),
+                    1
+                );
+            }
+        }
+    }
+    let parser = clean(language, b"const x = 1;\n");
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    for index in [
+        parser.documentation(&context, &options).unwrap(),
+        collect(
+            language,
+            parser.ts_tree(),
+            parser.code(),
+            &context,
+            &options,
+        )
+        .unwrap(),
+    ] {
+        for node in [
+            node_at(&parser, "lexical_declaration", 0..12),
+            node_at(&parser, "variable_declarator", 6..11),
+        ] {
+            let projection = index.node_projection(node).unwrap();
+            assert!(!projection.pending());
+            assert_eq!(projection.owners().len(), 1);
+            let prepared = index.node_associations(node).unwrap();
+            assert!(!prepared.projection_pending());
+            assert_eq!(prepared.associations().len(), 0);
+            let handle = projection.owners().next().unwrap();
+            assert_eq!(
+                index
+                    .owner_associations(handle)
+                    .unwrap()
+                    .associations()
+                    .len(),
+                0
+            );
+        }
+    }
+    check(
+        language,
+        b"/**one*/\nconst a = 1;\n/**two*/\nnamespace N {}\n",
+        &View {
+            documents: vec![
+                comment(0..8, "one", [(0..3, Copied(3..6))]),
+                comment(22..30, "two", [(0..3, Copied(25..28))]),
+            ],
+            associations: vec![
+                link(
+                    0,
+                    ("variable_declarator", 15..20),
+                    ("lexical_declaration", 9..21),
+                ),
+                link(
+                    1,
+                    ("internal_module", 31..45),
+                    ("expression_statement", 31..45),
+                ),
+            ],
+            ..View::default()
+        },
+    );
+    check(
+        language,
+        b"namespace N {\n/**audit*/\nconst x = 1;\n}\n",
+        &View {
+            documents: vec![comment(14..24, "audit", [(0..5, Copied(17..22))])],
+            associations: vec![link(
+                0,
+                ("variable_declarator", 31..36),
+                ("lexical_declaration", 25..37),
+            )],
+            ..View::default()
+        },
+    );
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_owner_forms() {
+    unit2_owner_forms(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_owner_forms() {
+    unit2_owner_forms(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+#[allow(clippy::too_many_lines)]
+fn unit2_literal_boundaries(language: LANG) {
+    let sources: [&[u8]; 3] = [
+        b"const x = '\\n/** audit */\\nexport default function() {}\\n';\n/**real*/\nconst f = 1;\n",
+        b"const x = \"\\n/** audit */\\nexport default function() {}\\n\";\n/**real*/\nconst f = 1;\n",
+        b"const x = `\n/** audit */\nexport default function() {}\n`;\n/**real*/\nconst f = 1;\n",
+    ];
+    for source in sources {
+        let comment_start = source.len() - b"/**real*/\nconst f = 1;\n".len();
+        let declaration_start = comment_start + b"/**real*/\n".len();
+        check(
+            language,
+            source,
+            &wrapped(
+                comment(
+                    comment_start..comment_start + 9,
+                    "real",
+                    [(0..4, Copied(comment_start + 3..comment_start + 7))],
+                ),
+                (
+                    "variable_declarator",
+                    declaration_start + 6..declaration_start + 11,
+                ),
+                (
+                    "lexical_declaration",
+                    declaration_start..declaration_start + 12,
+                ),
+            ),
+        );
+    }
+    let block = b"/*\n/** audit */\nexport default function() {}\n*/\n/**real*/\nfunction f() {}\n";
+    let jsx = b"const x = <div>\n/** audit */\nexport default function() {}\n</div>;\n/**real*/\nfunction f() {}\n";
+    let assertion = b"const a = <number>b;\n/**real*/\nfunction f() {}\n";
+    let default_assertion =
+        b"export default <Config>{ a: 1 };\n/**real*/\nexport function f() {}\n";
+    let body_assertion = b"function g() { return <number>b; }\n/**real*/\nfunction f() {}\n";
+    let expected_function = |start, binding: Site, owner: Site| View {
+        documents: vec![comment(
+            start..start + 9,
+            "real",
+            [(0..4, Copied(start + 3..start + 7))],
+        )],
+        associations: vec![link(0, owner, binding)],
+        ..View::default()
+    };
+    check(language, block, &View::default());
+    if language == LANG::Tsx {
+        check(
+            language,
+            jsx,
+            &expected_function(
+                66,
+                ("function_declaration", 76..91),
+                ("function_declaration", 76..91),
+            ),
+        );
+        for source in [assertion.as_slice(), default_assertion] {
+            check(language, source, &View::default());
+        }
+        check(
+            language,
+            body_assertion,
+            &View {
+                assessments: unordered([pending(
+                    NEEDS_PROJECTION,
+                    ("function_declaration", 0..34),
+                    None,
+                )]),
+                ..expected_function(
+                    35,
+                    ("function_declaration", 45..60),
+                    ("function_declaration", 45..60),
+                )
+            },
+        );
+    } else {
+        check(
+            language,
+            jsx,
+            &View {
+                assessments: unordered([pending(
+                    NEEDS_PROJECTION,
+                    ("lexical_declaration", 0..91),
+                    None,
+                )]),
+                ..View::default()
+            },
+        );
+        check(
+            language,
+            assertion,
+            &expected_function(
+                21,
+                ("function_declaration", 31..46),
+                ("function_declaration", 31..46),
+            ),
+        );
+        check(
+            language,
+            default_assertion,
+            &expected_function(
+                33,
+                ("export_statement", 43..65),
+                ("function_declaration", 50..65),
+            ),
+        );
+        check(
+            language,
+            body_assertion,
+            &expected_function(
+                35,
+                ("function_declaration", 45..60),
+                ("function_declaration", 45..60),
+            ),
+        );
+    }
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+#[derive(Default)]
+struct TsSteps {
+    steps: Cell<usize>,
+    bytes: Cell<usize>,
+    stop: Option<usize>,
+    stop_byte: Option<usize>,
+}
+
+#[cfg(feature = "typescript")]
+impl WorkBudget for TsSteps {
+    type Error = SourceError;
+
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+
+    #[cfg(feature = "typescript")]
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.stop == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "typescript")]
+    fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        self.bytes.set(self.bytes.get() + count);
+        if self.stop_byte == Some(self.bytes.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_budgeted_binding_scan(language: LANG) {
+    for (source, expected_steps, expected_owner) in [
+        (b"/**audit*/\nconst x = 1;\n".as_slice(), 3, Some(17..22)),
+        (b"/**audit*/\nconst /* gap */ a = 1;\n", 4, Some(27..32)),
+        (b"/**audit*/\nconst a = 1, b = 2;\n", 3, Some(17..22)),
+        (b"/**audit*/\nconst { x } = o;\n", 3, None),
+    ] {
+        let parser = clean(language, source);
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "lexical_declaration")
+            .unwrap();
+        let id = index
+            .canonical
+            .lookup(declaration.as_tree_sitter())
+            .unwrap();
+        let budget = TsSteps::default();
+        let found = super::projections::ts_binding_declarator(&index.canonical, id, &budget)
+            .unwrap()
+            .map(|child| index.canonical.nodes[child.0].evidence.node().byte_range());
+        assert_eq!(found, expected_owner);
+        // expected: keyword, optional comment, first declarator, then one name lookup.
+        assert_eq!(budget.steps.get(), expected_steps);
+        assert_eq!(budget.bytes.get(), 0);
+        for step in 1..=expected_steps {
+            let budget = TsSteps {
+                stop: Some(step),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                super::projections::ts_binding_declarator(&index.canonical, id, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), step);
+        }
+    }
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_budgeted_binding_scan() {
+    unit2_budgeted_binding_scan(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_budgeted_binding_scan() {
+    unit2_budgeted_binding_scan(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_budgeted_await_scan(language: LANG) {
+    for (source, expected_steps, expected_bytes) in [
+        (b"/**audit*/\nawait using h = open();\n".as_slice(), 3, 2),
+        (
+            b"/**audit*/\nawait /* a */ /* b */ using h = open();\n",
+            5,
+            18,
+        ),
+    ] {
+        let parser = clean(language, source);
+        let statement = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "await_expression")
+            .unwrap();
+        let node = crate::Node::from_tree_sitter(statement.as_tree_sitter());
+        let parent = crate::Node::from_tree_sitter(statement.parent().unwrap().as_tree_sitter());
+        let chain = [parent];
+        let ancestors = crate::Ancestors::known(&chain);
+        let budget = TsSteps::default();
+        assert!(super::ts_await_using(&node, source, ancestors, &budget).unwrap());
+        assert_eq!(budget.steps.get(), expected_steps);
+        // expected: await-to-assignment gap, then using-to-name gap.
+        assert_eq!(budget.bytes.get(), expected_bytes);
+        for step in 1..=expected_steps {
+            let budget = TsSteps {
+                stop: Some(step),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                super::ts_await_using(&node, source, ancestors, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), step);
+        }
+        for byte in 1..=expected_bytes {
+            let budget = TsSteps {
+                stop_byte: Some(byte),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                super::ts_await_using(&node, source, ancestors, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.bytes.get(), byte);
+        }
+    }
+    let source = format!(
+        "/**audit*/\nawait {}using h = open();\n",
+        "/* gap */ ".repeat(1_200)
+    );
+    let parser = clean(language, source.as_bytes());
+    let options = DocumentationOptions::default();
+    let context = DocumentationContext::default();
+    let result = crate::documentation::budget::cancel_in_phase(
+        crate::documentation::budget::WorkPhase::TsAwait,
+        || parser.documentation(&context, &options),
+    );
+    assert!(matches!(result, Err(CollectionError::Cancelled)));
+    assert_eq!(
+        parser
+            .documentation(&context, &options)
+            .unwrap()
+            .associations()
+            .len(),
+        1
+    );
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_budgeted_await_scan() {
+    unit2_budgeted_await_scan(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_budgeted_await_scan() {
+    unit2_budgeted_await_scan(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_restricted_keyword_costs(language: LANG) {
+    for (source, expected_steps, expected_bytes) in [
+        (
+            b"/** d */\nexport default async function() {}\n".as_slice(),
+            2,
+            1,
+        ),
+        (
+            b"/** d */\nexport default async /* a */ /* b */ function() {}\n",
+            4,
+            17,
+        ),
+        (
+            b"/** d */\nexport default async /*\n*/ function() {}\n",
+            3,
+            4,
+        ),
+    ] {
+        let parser = clean(language, source);
+        let node = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "function_expression")
+            .unwrap();
+        let value = crate::Node::from_tree_sitter(node.as_tree_sitter());
+        let budget = TsSteps::default();
+        let result = super::ts_async_export_value(&value, source, &budget).unwrap();
+        assert_eq!(result, !source.windows(3).any(|w| w == b"/*\n"));
+        // expected: `async`, optional comment children, and `function` are polled once.
+        assert_eq!(budget.steps.get(), expected_steps);
+        // expected: the gap between `async` and `function`, through a terminator if present.
+        assert_eq!(budget.bytes.get(), expected_bytes);
+        for step in 1..=expected_steps {
+            let budget = TsSteps {
+                stop: Some(step),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                super::ts_async_export_value(&value, source, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), step);
+        }
+        for byte in 1..=expected_bytes {
+            let budget = TsSteps {
+                stop_byte: Some(byte),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                super::ts_async_export_value(&value, source, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.bytes.get(), byte);
+        }
+    }
+    for (source, expected_steps, expected_bytes) in [
+        (b"/** d */\ndeclare abstract class A {}\n".as_slice(), 2, 1),
+        (
+            b"/** d */\ndeclare /* a */ /* b */ abstract class A {}\n",
+            4,
+            17,
+        ),
+        (b"/** d */\ndeclare /*\n*/ abstract class A {}\n", 3, 4),
+    ] {
+        let parser = clean(language, source);
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let ambient = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "ambient_declaration")
+            .unwrap();
+        let id = index.canonical.lookup(ambient.as_tree_sitter()).unwrap();
+        let budget = TsSteps::default();
+        let builder = super::Builder {
+            index,
+            drafts: Vec::new(),
+            pending_attributes: Vec::new(),
+            rust_values: std::collections::HashMap::new(),
+            names: super::super::names::Names::default(),
+            pod_doubt: super::pod_doubt::Doubt::default(),
+            pod_hidden: super::pod::Hidden::default(),
+            tcl_scan: crate::lang_helpers::tcl_scan::CommandScan::default(),
+        };
+        let result = builder.ts_ambient_continues(id, &budget).unwrap();
+        assert_eq!(result, !source.windows(3).any(|w| w == b"/*\n"));
+        // expected: `declare`, optional comment children, then the first declaration child.
+        assert_eq!(budget.steps.get(), expected_steps);
+        // expected: every gap byte until the first line terminator, or the full gap.
+        assert_eq!(budget.bytes.get(), expected_bytes);
+        for step in 1..=expected_steps {
+            let budget = TsSteps {
+                stop: Some(step),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                builder.ts_ambient_continues(id, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), step);
+        }
+        for byte in 1..=expected_bytes {
+            let budget = TsSteps {
+                stop_byte: Some(byte),
+                ..TsSteps::default()
+            };
+            assert!(matches!(
+                builder.ts_ambient_continues(id, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.bytes.get(), byte);
+        }
+    }
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_restricted_keyword_costs() {
+    unit2_restricted_keyword_costs(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_restricted_keyword_costs() {
+    unit2_restricted_keyword_costs(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_binding_collection_cancels(language: LANG) {
+    use crate::documentation::budget;
+    let source = format!("/**audit*/\nconst {}x = 1;\n", "/* gap */ ".repeat(2_048));
+    let parser = clean(language, source.as_bytes());
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let result = budget::cancel_in_phase(budget::WorkPhase::Projection, || {
+        parser.documentation(&context, &options)
+    });
+    assert!(matches!(result, Err(CollectionError::Cancelled)));
+    let completed = parser.documentation(&context, &options).unwrap();
+    assert_eq!(completed.associations().len(), 1);
+}
+
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_binding_collection_cancels() {
+    unit2_binding_collection_cancels(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_binding_collection_cancels() {
+    unit2_binding_collection_cancels(LANG::Tsx);
+}
+
+#[cfg(feature = "typescript")]
+fn unit2_controls(language: LANG) {
+    for source in [
+        b"/**audit*/\nconst { x } = o;\n".as_slice(),
+        b"/**audit*/\nx = 1;\n",
+        b"/**audit*/\nexport default 1;\n",
+    ] {
+        check_retained(
+            language,
+            source,
+            View::default(),
+            CandidateDisposition::Unattached,
+            0..10,
+        );
+    }
+    for source in [
+        b"/**audit*/\nusing a = open(), b = open();\n".as_slice(),
+        b"/**audit*/\nlet\nx = 1;\n",
+    ] {
+        check_retained(
+            language,
+            source,
+            View::default(),
+            CandidateDisposition::Unattached,
+            0..10,
+        );
+    }
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn typescript_unit2_controls() {
+    unit2_controls(LANG::Typescript);
+}
+#[cfg(feature = "typescript")]
+#[test]
+fn tsx_unit2_controls() {
+    unit2_controls(LANG::Tsx);
 }

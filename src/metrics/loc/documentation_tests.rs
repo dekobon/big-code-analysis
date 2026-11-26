@@ -8089,13 +8089,18 @@ fn documentation_csharp_unit2_declarations_keep_legacy_rows() {
 #[cfg(feature = "typescript")]
 #[test]
 fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
     use big_code_analysis_ast::{AnyParser, documentation::*};
 
     let sources: &[(&[u8], &[usize], usize)] = &[
         (b"/**audit*/\nexport default function() {}\n", &[0], 1),
         (b"/**audit*/\nexport default function* () {}\n", &[0], 1),
         (b"/**audit*/\nexport default class {}\n", &[0], 1),
-        (b"/** above */\ndeclare /** inside */ function f(): void;\n", &[0], 1),
+        (
+            b"/** above */\ndeclare /** inside */ function f(): void;\n",
+            &[0],
+            1,
+        ),
         (b"/** d */\nnamespace N {}\n", &[0], 1),
         (b"/** d */\nexport namespace N {}\n", &[0], 1),
         (b"/** d */\ndeclare namespace N {}\n", &[0], 1),
@@ -8106,6 +8111,7 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
         (b"/**audit*/\ndeclare const x: number;\n", &[0], 1),
         (b"/**audit*/\nusing h = open();\n", &[0], 1),
         (b"/**audit*/\nawait using h = open();\n", &[0], 1),
+        (b"/**audit*/\nawait /* gap */ using h = open();\n", &[0], 1),
         (b"/**audit*/\nconst { x } = o;\n", &[], 0),
         (b"/**audit*/\nx = 1;\n", &[], 0),
         (
@@ -8114,10 +8120,12 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
             2,
         ),
     ];
+    let mut rendered = 0;
     for language in [LANG::Typescript, LANG::Tsx] {
         for &(source, expected_rows, expected_documents) in sources {
             let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
             let idle = observations();
+            let unbuilt = evidence_built::observed();
             let index = parser
                 .documentation(
                     &DocumentationContext::default(),
@@ -8125,6 +8133,7 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
                 )
                 .unwrap();
             let collected = observations();
+            let built = evidence_built::observed();
             let space = analyze(
                 Source::new(language, source),
                 MetricsOptions::default().with_only(&[Metric::Loc]),
@@ -8142,11 +8151,21 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
             );
             assert_eq!(loc.dloc(), expected_rows.len() as u64);
             assert_eq!(index.documents().len(), expected_documents);
-            assert_eq!(collected.visits - idle.visits, parser.root_node().preorder().count());
+            // expected: one selected block contributes one marker member.
+            assert_eq!(built - unbuilt, expected_documents);
+            // expected: the collector visits each tree node once on entry.
+            assert_eq!(
+                collected.visits - idle.visits,
+                parser.root_node().preorder().count()
+            );
+            // expected: one completed render for each selected document.
             assert_eq!(collected.renders - idle.renders, expected_documents);
+            rendered += collected.renders - idle.renders;
+            // expected: legacy analyze never enters a source-view walk or renders text.
             assert_eq!(analyzed.visits, collected.visits);
             assert_eq!(analyzed.renders, collected.renders);
+            assert_eq!(evidence_built::observed(), built);
         }
     }
+    assert!(rendered > 0);
 }
-

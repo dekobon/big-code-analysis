@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_ts_unit2_owners_do_not_change_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "legacy-event-removed",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        LegacyEvent::BoundComment(member) => {",
+      "new": "        LegacyEvent::BoundComment(member) if false => {",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_ts_unit2_owners_do_not_change_legacy_rows"
+      ]
+    }
+  ]
+}

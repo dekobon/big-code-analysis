@@ -692,7 +692,7 @@ fn mozjs_wide_variable_binding_cancels_during_owner_projection() {
 fn typescript_variable_binding_remains_pending() {
     let parser = AnyParser::parse(
         LANG::Typescript,
-        b"/**audit*/\nconst f = 1;".to_vec(),
+        b"/**audit*/\nconst f = 1, g = 2;".to_vec(),
         None,
         None,
     )
@@ -708,11 +708,34 @@ fn typescript_variable_binding_remains_pending() {
         .preorder()
         .find(|node| node.kind() == "lexical_declaration")
         .unwrap();
+    let declarator = declaration
+        .children()
+        .find(|node| node.kind() == "variable_declarator")
+        .unwrap();
+    let projection = index.node_projection(declaration.as_tree_sitter()).unwrap();
+    assert!(!projection.pending());
+    assert_eq!(projection.owners().len(), 1);
+    let owner = projection.owners().next().unwrap();
+    assert!(matches!(owner.get(), Owner::Node(node) if node.node() == declarator.as_tree_sitter()));
     assert!(
-        index
-            .node_projection(declaration.as_tree_sitter())
+        !index
+            .node_projection(declarator.as_tree_sitter())
             .unwrap()
             .pending()
+    );
+    assert_eq!(
+        index
+            .node_projection(declarator.as_tree_sitter())
+            .unwrap()
+            .owners()
+            .len(),
+        1
+    );
+    assert!(
+        !index
+            .node_associations(declarator.as_tree_sitter())
+            .unwrap()
+            .projection_pending()
     );
 }
 

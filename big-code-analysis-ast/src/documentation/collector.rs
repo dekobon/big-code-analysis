@@ -377,10 +377,55 @@ impl<'s> Builder<'s> {
         let wrapper_child = matches!(
             self.index.profile,
             Profile::Jsdoc | Profile::BcaTypescriptSource
-        ) && ancestors
-            .parent(node)
-            .is_some_and(|parent| is_wrapper(self.index.profile, parent.kind()));
-        let qualifies = if wrapper_child {
+        ) && ancestors.parent(node).is_some_and(|parent| {
+            matches!(parent.kind(), "export_statement" | "ambient_declaration")
+        });
+        let typescript_child = self.index.profile == Profile::BcaTypescriptSource
+            && match node.kind() {
+                "function_expression" | "generator_function" | "class" => {
+                    ancestors
+                        .parent(node)
+                        .is_some_and(|parent| parent.kind() == "export_statement")
+                        && self.index.canonical.nodes[id.0].field == Some("value")
+                        && ts_async_export_value(node, self.index.source.bytes(), budget)?
+                }
+                "internal_module" => {
+                    ancestors.parent(node).is_some_and(|parent| {
+                        matches!(
+                            parent.kind(),
+                            "export_statement" | "ambient_declaration" | "expression_statement"
+                        )
+                    }) && match (node.child(0), node.child_by_field_name("name")) {
+                        (Some(keyword), Some(name)) => ts_line_continues(
+                            self.index.source.bytes(),
+                            keyword.end_byte(),
+                            name.start_byte(),
+                            budget,
+                        )?,
+                        _ => false,
+                    }
+                }
+                "assignment_expression" => {
+                    let parent = ancestors.parent(node);
+                    let statement = parent
+                        .is_some_and(|parent| parent.kind() == "expression_statement")
+                        || (parent.is_some_and(|parent| parent.kind() == "await_expression")
+                            && ancestors
+                                .iter(node)
+                                .nth(1)
+                                .is_some_and(|outer| outer.0.kind() == "expression_statement"));
+                    statement && ts_using_assignment(node, self.index.source.bytes(), budget)?
+                }
+                "await_expression" => {
+                    super::budget::in_phase(budget, super::budget::WorkPhase::TsAwait, || {
+                        ts_await_using(node, self.index.source.bytes(), ancestors, budget)
+                    })?
+                }
+                _ => false,
+            };
+        let qualifies = if typescript_child {
+            true
+        } else if wrapper_child {
             T::owner_candidate(node, self.index.source.bytes(), ancestors, budget)?
         } else {
             NativeRules::<T>::target(node, self.index.source.bytes(), ancestors, budget)?
@@ -950,11 +995,104 @@ impl<'s> Builder<'s> {
     }
 }
 
+fn ts_line_continues<B: WorkBudget>(
+    code: &[u8],
+    start: usize,
+    end: usize,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(gap) = code.get(start..end) else {
+        return Ok(false);
+    };
+    for (at, &byte) in gap.iter().enumerate() {
+        budget.bytes(1)?;
+        if matches!(byte, b'\r' | b'\n')
+            || (byte == 0xe2
+                && matches!(gap.get(at..at + 3), Some(b"\xe2\x80\xa8" | b"\xe2\x80\xa9")))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn ts_using_assignment<B: WorkBudget>(
+    assignment: &Node<'_>,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let (Some(using), Some(left)) = (assignment.child(0), assignment.child_by_field_name("left"))
+    else {
+        return Ok(false);
+    };
+    if using.kind() != "using" || left.kind() != "identifier" {
+        return Ok(false);
+    }
+    ts_line_continues(code, using.end_byte(), left.start_byte(), budget)
+}
+
+fn ts_async_export_value<B: WorkBudget>(
+    value: &Node<'_>,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(async_token) = value.child(0).filter(|child| child.kind() == "async") else {
+        return Ok(true);
+    };
+    let function = super::budget::child(value, |child| child.kind() == "function", budget)?;
+    let Some(function) = function else {
+        return Ok(false);
+    };
+    ts_line_continues(code, async_token.end_byte(), function.start_byte(), budget)
+}
+
+fn ts_await_using<'s, B: WorkBudget>(
+    node: &Node<'s>,
+    code: &[u8],
+    ancestors: Ancestors<'s, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if ancestors
+        .parent(node)
+        .is_none_or(|parent| parent.kind() != "expression_statement")
+    {
+        return Ok(false);
+    }
+    let await_token = super::budget::child(node, |child| child.kind() == "await", budget)?;
+    let Some(await_token) = await_token else {
+        return Ok(false);
+    };
+    let child = super::budget::child(
+        node,
+        |child| child.is_named() && !matches!(child.kind(), "comment" | "html_comment"),
+        budget,
+    )?;
+    match child {
+        Some(assignment) if assignment.kind() == "assignment_expression" => {
+            if !ts_line_continues(
+                code,
+                await_token.end_byte(),
+                assignment.start_byte(),
+                budget,
+            )? {
+                return Ok(false);
+            }
+            ts_using_assignment(&assignment, code, budget)
+        }
+        _ => Ok(false),
+    }
+}
+
 fn is_wrapper(profile: Profile, kind: &str) -> bool {
     match profile {
-        Profile::Jsdoc | Profile::BcaTypescriptSource => {
-            matches!(kind, "export_statement" | "ambient_declaration")
-        }
+        Profile::Jsdoc => matches!(kind, "export_statement" | "ambient_declaration"),
+        Profile::BcaTypescriptSource => matches!(
+            kind,
+            "export_statement"
+                | "ambient_declaration"
+                | "expression_statement"
+                | "await_expression"
+        ),
         Profile::Yard => matches!(
             kind,
             "if_modifier" | "unless_modifier" | "body_statement" | "block_body" | "then"
