@@ -7,8 +7,6 @@ use crate::{AnyParser, LANG};
     feature = "groovy",
     feature = "csharp",
     feature = "php",
-    feature = "javascript",
-    feature = "mozjs",
     feature = "typescript",
     feature = "ruby",
     feature = "lua"
@@ -130,20 +128,35 @@ fn php_promoted_form_is_pending_in_default_queries() {
 }
 #[cfg(feature = "javascript")]
 #[test]
-fn javascript_binding_form_is_pending_in_default_queries() {
-    assert_pending_form(
-        LANG::Javascript,
-        "/**audit*/\nconst f = () => 1;",
-        "lexical_declaration",
-    );
+fn javascript_binding_form_is_resolved_in_default_queries() {
+    assert_resolved_binding_form(LANG::Javascript);
 }
 #[cfg(feature = "mozjs")]
 #[test]
-fn mozjs_binding_form_is_pending_in_default_queries() {
-    assert_pending_form(
-        LANG::Mozjs,
-        "/**audit*/\nconst f = () => 1;",
-        "lexical_declaration",
+fn mozjs_binding_form_is_resolved_in_default_queries() {
+    assert_resolved_binding_form(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn assert_resolved_binding_form(language: LANG) {
+    let parser = AnyParser::parse(
+        language,
+        b"/**audit*/\nconst f = () => 1;".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(index.associations().len(), 1);
+    let association = index.associations().next().unwrap();
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    assert!(
+        matches!(owner.get(), Owner::Node(node) if node.node().kind() == "variable_declarator")
     );
 }
 #[cfg(feature = "typescript")]

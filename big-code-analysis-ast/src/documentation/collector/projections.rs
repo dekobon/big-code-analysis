@@ -118,6 +118,31 @@ impl Builder<'_> {
         if self.index.profile == Profile::GoDoc {
             return self.go_member_owners(id, budget);
         }
+        if self.index.profile == Profile::Jsdoc
+            && matches!(
+                node.kind(),
+                "lexical_declaration" | "variable_declaration" | "using_declaration"
+            )
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.js_first_declarator_owner(id, budget);
+        }
+        Ok(())
+    }
+
+    fn js_first_declarator_owner(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        if let Some(declarator) = budget::in_phase(budget, budget::WorkPhase::Projection, || {
+            js_first_declarator_with_budget(&self.index.canonical, id, budget)
+        })? {
+            self.add_owner(id, Owner::Node(declarator));
+        }
         Ok(())
     }
 
@@ -423,6 +448,30 @@ impl Builder<'_> {
         self.pending_name(id);
         Ok(())
     }
+}
+
+pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(
+    canonical: &CanonicalNodes<'s>,
+    id: NodeId,
+    budget: &B,
+) -> Result<Option<NodeEvidence<'s>>, B::Error> {
+    for &child in &canonical.children[canonical.nodes[id.0].children.clone()] {
+        budget.step()?;
+        let declarator = &canonical.nodes[child.0];
+        if declarator.evidence.node().kind() != "variable_declarator" {
+            continue;
+        }
+        for &name in &canonical.children[declarator.children.clone()] {
+            budget.step()?;
+            let node = canonical.nodes[name.0].evidence.node();
+            if matches!(node.kind(), "comment" | "html_comment") {
+                continue;
+            }
+            return Ok((node.kind() == "identifier").then_some(declarator.evidence));
+        }
+        return Ok(None);
+    }
+    Ok(None)
 }
 
 // Field names are not requested for this profile (`fields_needed`), so a

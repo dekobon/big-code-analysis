@@ -4671,12 +4671,27 @@ fn documentation_perl_source_and_legacy_views_are_independent() {
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
 #[test]
 fn documentation_js_variable_projection_does_not_change_legacy_rows() {
-    use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
     const BOTH: &[LANG] = &[LANG::Javascript, LANG::Mozjs];
     let rows: &[(&[u8], [u64; 6], &[usize])] = &[
-        (b"/**audit*/\nconst f = () => 1;\n", [2, 1, 1, 1, 0, 1], &[0]),
-        (b"/**audit*/\nconst a = 1, b = 2;\n", [2, 1, 1, 1, 0, 1], &[0]),
-        (b"/**audit*/\nexport const e = 3;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (
+            b"/**audit*/\nconst f = () => 1;\n",
+            [2, 1, 1, 1, 0, 1],
+            &[0],
+        ),
+        (
+            b"/**audit*/\nconst a = 1, b = 2;\n",
+            [2, 1, 1, 1, 0, 1],
+            &[0],
+        ),
+        (
+            b"/**audit*/\nexport const e = 3;\n",
+            [2, 1, 1, 1, 0, 1],
+            &[0],
+        ),
         (b"/**audit*/\nusing u = f();\n", [2, 1, 1, 1, 0, 1], &[0]),
     ];
     for &language in BOTH {
@@ -4684,20 +4699,49 @@ fn documentation_js_variable_projection_does_not_change_legacy_rows() {
             continue;
         }
         for &(source, expected, dloc_rows) in rows {
-            let parser = crate::langs::AnyParser::parse(language, source.to_vec(), None, None)
-                .unwrap();
+            let parser =
+                crate::langs::AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+            let idle = observations();
+            let unbuilt = evidence_built::observed();
             let index = parser
-                .documentation(&DocumentationContext::default(), &DocumentationOptions::default())
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
                 .unwrap();
+            let collected = observations();
+            let built = evidence_built::observed();
             assert_eq!(index.documents().len(), 1);
+            // expected: one collector visit per grammar node, one rendered selected block,
+            // one source marker, the file, and exactly one first-declarator projection.
+            assert_eq!(
+                collected.visits - idle.visits,
+                parser.root_node().preorder().count()
+            );
+            assert_eq!(collected.renders - idle.renders, 1);
+            assert_eq!(built - unbuilt, 1);
+            assert_eq!(collected.owner_projections - idle.owner_projections, 2);
             let space = analyze(
                 Source::new(language, source),
                 MetricsOptions::default().with_only(&[Metric::Loc]),
             )
             .unwrap();
+            let analyzed = observations();
+            // expected: legacy analysis builds no collector index or rendered source evidence.
+            assert_eq!(analyzed.visits - collected.visits, 0);
+            assert_eq!(analyzed.renders - collected.renders, 0);
+            assert_eq!(analyzed.owner_projections - collected.owner_projections, 0);
+            assert_eq!(evidence_built::observed() - built, 0);
             let loc = &space.metrics.loc;
             assert_eq!(
-                [loc.sloc(), loc.ploc(), loc.lloc(), loc.cloc(), loc.blank(), loc.dloc()],
+                [
+                    loc.sloc(),
+                    loc.ploc(),
+                    loc.lloc(),
+                    loc.cloc(),
+                    loc.blank(),
+                    loc.dloc()
+                ],
                 expected
             );
             assert_eq!(

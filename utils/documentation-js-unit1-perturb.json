@@ -108,11 +108,11 @@
     {
       "name": "variable-declaration-is-no-source-target",
       "file": "big-code-analysis-ast/src/roles/js_family.rs",
-      "old": "                    first_declarator_with_budget(node, budget)\n                }\n                $lang::ExportStatement",
-      "new": "                    first_declarator_with_budget(node, budget).map(|_| false)\n                }\n                $lang::ExportStatement",
+      "old": "                $lang::VariableDeclaration\n                | $lang::LexicalDeclaration\n                | $lang::UsingDeclaration => first_declarator_with_budget(node, budget),",
+      "new": "                $lang::VariableDeclaration\n                | $lang::LexicalDeclaration\n                | $lang::UsingDeclaration => first_declarator_with_budget(node, budget).map(|_| false),",
       "expect": [
-        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
-        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
       ]
     },
     {
@@ -144,11 +144,11 @@
     {
       "name": "variable-declaration-needs-no-slot",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "            \"lexical_declaration\"\n                | \"variable_declaration\"\n                | \"expression_statement\"",
+      "old": "            \"lexical_declaration\"\n                | \"variable_declaration\"\n                | \"using_declaration\"\n                | \"expression_statement\"",
       "new": "            \"expression_statement\"",
       "expect": [
-        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
-        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
       ]
     },
     {
@@ -170,9 +170,7 @@
       "new": "                && !matches!(record.field, Some(\"declaration\" | \"value\"))\n                && false\n            {",
       "expect": [
         "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
-        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",
-        "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome",
-        "documentation::collector::js_tests::mozjs_declarations_awaiting_an_owner_keep_their_pending_outcome"
+        "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding"
       ]
     },
     {

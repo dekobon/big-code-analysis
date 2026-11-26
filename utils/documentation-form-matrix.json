@@ -33,14 +33,14 @@
       "pending": ["signature/promoted/property/constant slots", "define constant slots and imported callees", "PhpDocumentor alternate", "publication"]
     },
     "Javascript": {
-      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection"],
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection", "first identifier-bound variable declarator"],
       "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
-      "pending": ["virtual naming directives", "variable/assignment/member slots", "full export/member inventory", "publication"]
+      "pending": ["virtual naming directives", "assignment/member slots", "full export/member inventory", "publication"]
     },
     "Mozjs": {
-      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection"],
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection", "first identifier-bound variable declarator"],
       "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
-      "pending": ["virtual naming directives", "variable/assignment/member slots", "full export/member inventory", "publication"]
+      "pending": ["virtual naming directives", "assignment/member slots", "full export/member inventory", "publication"]
     },
     "Typescript": {
       "implemented": ["basic function", "export/ambient declaration projection", "module/packageDocumentation file precedence", "leading selection"],

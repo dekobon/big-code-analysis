@@ -1,0 +1,13 @@
+{
+  "scope": "JavaScript and Mozjs first declarator binding owners, issue 1669 unit 2",
+  "base": "3f2bfc9a64643056db61c97375190f2dbd5bc8c6",
+  "evidence_base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "grammar": {
+    "runtime": "0.26.13",
+    "javascript": "0.25.0",
+    "mozjs": "2.6.1"
+  },
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/js_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "review_status": "rebased from the reviewed revision 2 prototype with the implementation addendum"
+}

@@ -480,9 +480,9 @@ macro_rules! js_doc_gates {
             budget: &B,
         ) -> Result<bool, B::Error> {
             match node.kind_id().into() {
-                $lang::VariableDeclaration | $lang::LexicalDeclaration => {
-                    first_declarator_with_budget(node, budget)
-                }
+                $lang::VariableDeclaration
+                | $lang::LexicalDeclaration
+                | $lang::UsingDeclaration => first_declarator_with_budget(node, budget),
                 $lang::ExportStatement => export_with_budget(node, budget),
                 $lang::ExpressionStatement => assignment_with_budget(node, budget),
                 _ => Ok(doc_target::owns(node, code, ancestors)),
