@@ -7898,3 +7898,51 @@ fn documentation_elixir_source_and_legacy_views_are_independent() {
     // the views of `collector/elixir_tests.rs` state them for a parse of the whole source.
     assert_eq!(totals, [232, 192, 232, 737]);
 }
+#[cfg(feature = "ruby")]
+#[test]
+fn documentation_ruby_unit2_legacy_rows_stay_in_place() {
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    for (source, expected, rows) in [
+        (
+            b"class C\n# audit\nprivate def f; end\nend".as_slice(),
+            [4, 3, 2, 1, 0, 1],
+            &[1][..],
+        ),
+        (
+            b"class C\n# a\npublic def self.g; end\n# b\nprivate_class_method def self.h; end\n# c\nmodule_function def k; end\n# d\nprotected def e; end\nend".as_slice(),
+            [10, 6, 5, 4, 0, 4],
+            &[1, 3, 5, 7],
+        ),
+    ] {
+        let parser = crate::langs::AnyParser::parse(LANG::Ruby, source.to_vec(), None, None)
+            .unwrap();
+        let idle = observations();
+        let index = parser
+            .documentation(&DocumentationContext::default(), &DocumentationOptions::default())
+            .unwrap();
+        let collected = observations();
+        assert_ne!(index.documents().len(), 0);
+        assert!(collected.visits > idle.visits);
+        assert!(collected.renders > idle.renders);
+        let space = analyze(
+            Source::new(LANG::Ruby, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [loc.sloc(), loc.ploc(), loc.lloc(), loc.cloc(), loc.blank(), loc.dloc()],
+            expected,
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
+        );
+        assert_eq!(observations().visits, collected.visits);
+        assert_eq!(observations().renders, collected.renders);
+    }
+}
