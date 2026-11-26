@@ -106,6 +106,49 @@ selected directly when analysing source files:
 - `Ccomment`: C/C++ comments.
 - `Preproc`: C/C++ preprocessor macros.
 
+## Documentation profiles {#documentation-profiles}
+
+`DocumentationOptions::default()` selects the profile below for each `LANG` variant.
+The profile name is `Profile::name()`; a shared grammar can still have a distinct
+language variant. "Unavailable" means the default profile currently returns
+`CollectionError::AdapterUnavailable`, not that the source has no documentation.
+The implemented adapters have partial support: check pending assessments and
+content states rather than inferring that every form is supported. See
+[Extracting source documentation](library/documentation.md).
+
+| `LANG` variant | Default `Profile::name()` | Adapter |
+| --- | --- | --- |
+| `Bash` | `shdoc` | Unavailable |
+| `C` | `Doxygen` | Partial |
+| `Cpp` (C++) | `Doxygen` | Partial |
+| `Csharp` | `CsharpXml` | Partial |
+| `Elixir` | `Elixir` | Unavailable |
+| `Go` | `GoDoc` | Partial |
+| `Groovy` | `Groovydoc` | Partial |
+| `Irules` | `Irules` | Unavailable |
+| `Java` | `Javadoc` | Partial |
+| `Javascript` | `JSDoc` | Partial |
+| `Kotlin` | `KDoc` | Partial |
+| `Lua` | `LDoc` | Partial |
+| `Mozcpp` | `Doxygen` | Partial |
+| `Mozjs` | `JSDoc` | Partial |
+| `Objc` | `Doxygen` | Partial |
+| `Perl` | `POD` | Unavailable |
+| `Php` | `BcaPhpSource` | Partial |
+| `Python` | `Python` | Unavailable |
+| `Ruby` | `YARD` | Partial |
+| `Rust` | `Rust` | Partial |
+| `Tcl` | `Ruff` | Unavailable |
+| `Tsx` | `BcaTypescriptSource` | Partial |
+| `Typescript` | `BcaTypescriptSource` | Partial |
+| `Ccomment` | `Helper` | No declaration model |
+| `Preproc` | `Helper` | No declaration model |
+
+`PhpDocumentor` for `Php` and `RDoc` for `Ruby` are recognized alternate
+profiles but currently unavailable. A profile for another language returns
+`UnsupportedProfile`. The [form inventory](../../../docs/development/documentation_extraction_cases.md#ownership)
+lists required forms; it is not a claim that every adapter implements them.
+
 > **Note:** Since #720 the Mozilla/Gecko C++ dialect is exposed as the
 > `Mozcpp` `LANG` variant (backed by the vendored `bca-tree-sitter-mozcpp`
 > crate, pulled in by the opt-in `mozcpp` feature). It is a public,

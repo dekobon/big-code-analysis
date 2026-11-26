@@ -7,12 +7,11 @@ counting, and which outcomes its tests must establish. It assumes familiarity
 with the project's [grammar dispatch](grammar_dispatch.md) and
 [tree-sitter](https://tree-sitter.github.io/tree-sitter/) syntax trees.
 
-The extraction API is planned work under
-[#1654](https://github.com/dekobon/big-code-analysis/issues/1654). Operation and
-type names below describe required behavior; they do not claim an API is already
-available. The current public surface is listed in [STABILITY.md](../../STABILITY.md).
-Track implementation status and review evidence in the issues, rather than in
-this contract.
+The direct-AST collector and a hidden root `Ast::documentation` method are available;
+adapter support remains partial. This contract describes required outcomes, not a
+claim that every form is implemented. The current stable public surface is listed in
+[STABILITY.md](../../STABILITY.md). Track per-adapter status and review evidence in
+[#1654](https://github.com/dekobon/big-code-analysis/issues/1654), not in this contract.
 
 ## Recognition serves two consumers {#recognition}
 
