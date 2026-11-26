@@ -5,6 +5,87 @@ use serde_json::{Value, json};
 
 use crate::{LANG, Metric, MetricsOptions, Source, analyze};
 
+#[cfg(feature = "java")]
+#[test]
+fn documentation_java_package_and_forms_keep_legacy_rows() {
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+    for (source, loc, rows, documents) in [
+        (
+            &b"/**pkg*/\npackage p;\nclass C {}\n"[..],
+            [3, 2, 0, 1, 0, 0],
+            &[][..],
+            1,
+        ),
+        (
+            include_bytes!("../../../tests/fixtures/documentation/sources/java-selection.java"),
+            [5, 1, 0, 4, 0, 3],
+            &[0, 1, 2],
+            1,
+        ),
+        (
+            include_bytes!("../../../tests/fixtures/documentation/sources/java-empty.java"),
+            [2, 1, 0, 1, 0, 0],
+            &[],
+            1,
+        ),
+        (
+            include_bytes!("../../../tests/fixtures/documentation/sources/java-record.java"),
+            [2, 1, 0, 1, 0, 1],
+            &[0],
+            1,
+        ),
+        (
+            include_bytes!("../../../tests/fixtures/documentation/sources/java-compact.java"),
+            [2, 1, 0, 1, 0, 1],
+            &[0],
+            1,
+        ),
+    ] {
+        let parser = AnyParser::parse(LANG::Java, source.to_vec(), None, None).unwrap();
+        assert!(!parser.root_node().has_error());
+        let idle = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        assert_eq!(index.documents().len(), documents);
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count()
+        );
+        assert_eq!(collected.renders - idle.renders, documents);
+        let space = analyze(
+            Source::new(LANG::Java, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = observations();
+        let found = &space.metrics.loc;
+        assert_eq!(
+            [
+                found.sloc(),
+                found.ploc(),
+                found.lloc(),
+                found.cloc(),
+                found.blank(),
+                found.dloc()
+            ],
+            loc
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|at| found.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            rows
+        );
+        assert_eq!(analyzed.visits - collected.visits, 0);
+        assert_eq!(analyzed.renders - collected.renders, 0);
+    }
+}
+
 #[cfg(feature = "rust")]
 #[test]
 fn documentation_rust_literal_source_and_legacy_views_are_independent() {

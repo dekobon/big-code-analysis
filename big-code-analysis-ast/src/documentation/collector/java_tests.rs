@@ -68,6 +68,7 @@ fn documents(index: &DocumentationIndex<'_>) -> Vec<Doc> {
         .documents()
         .map(|document| {
             assert_eq!(document.get().composition(), Composition::Single);
+            assert_eq!(document.get().role(), DocumentRole::Primary);
             let fragments = (0..document.get().fragment_count())
                 .map(|position| {
                     let fragment = index.facts().document_fragment(document, position).unwrap();
@@ -93,6 +94,7 @@ fn associations(index: &DocumentationIndex<'_>) -> Vec<Edge> {
     index
         .associations()
         .map(|association| {
+            assert_eq!(association.get().convention.name(), "Javadoc");
             let document = index.facts().associated_document(association).unwrap();
             let owners = (0..association.get().owner_count())
                 .map(|position| {
