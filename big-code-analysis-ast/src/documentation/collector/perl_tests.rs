@@ -1982,7 +1982,8 @@ fn perl_pod_with_a_comment_region_has_pending_text() {
 fn perl_pod_block_with_a_foreign_opener_is_withheld() {
     // These are undecided states, not answers: perl, `Pod::Simple` and the grammar do not
     // read the same block here. No option retains such a block as a candidate.
-    let cases: [(&[u8], Range<usize>); 11] = [
+    let cases: [(&[u8], Range<usize>); 12] = [
+        (b" =pod\n\nx\n\n=cut\n", 1..14),
         (b"my $x = 1;\n=cut\nmy $y = 2;\n", 11..27),
         (b"=cut\n\nx\n\n=cut\nmy $y;\n", 0..13),
         (b"my $x = 1;\n=1\ntext\n=cut\n", 11..23),
@@ -2050,6 +2051,10 @@ fn perl_pod_block_with_a_disputed_end_is_withheld() {
 #[test]
 fn perl_pod_block_with_a_lone_carriage_return_is_withheld() {
     assert_views([
+        (
+            b"=pod\n\na\rb\r\n\n=cut\n",
+            pending([withheld(LINE_END, 0..16)]),
+        ),
         (
             b"=pod\r\rx\r\r=cut\rmy $x;\r",
             pending([withheld(LINE_END, 0..21)]),
@@ -2531,6 +2536,14 @@ fn perl_pod_after_an_unread_here_document_opener_is_withheld() {
     // between `<<` or `<<~` and a quoted tag, which may be empty.
     assert_views([
         (
+            b"my $s = \"<<<EOT\";\n\n=pod\n\nd\n\n=cut\n",
+            pending([withheld(UNREAD_OPENER, 19..32)]),
+        ),
+        (
+            b"my $fh = \\*STDOUT; print {$fh}\t<<2;\n=pod\n\nmy $inside = 6 * 7;\n\n=cut\n2\nprint \"MARK\";\n",
+            pending([withheld(UNREAD_OPENER, 36..67)]),
+        ),
+        (
             b"my $s = \"@{[ <<EOT ]}\";\n=pod\n\nd\n\n=cut\nEOT\nprint \"MARK\";\n",
             pending([withheld(UNREAD_OPENER, 24..37)]),
         ),
@@ -2759,6 +2772,10 @@ fn perl_pod_after_a_literal_the_grammar_reads_is_a_document() {
     // between; `#` and `'` as delimiters; flags; an escaped closing bracket in `qq` and
     // `qr`; patterns behind `split`, `=~` and `grep`; divisions; a name of two bytes.
     assert_views([
+        (
+            b"my @s = qw{<<EOT};\n\n=pod\n\nd\n\n=cut\n",
+            documents([doc(20..33, "=pod\n\nd")]),
+        ),
         (
             b"my $s = 'a <<EOT b';\n\n=pod\n\nd\n\n=cut\nprint \"MARK\";\n",
             documents([doc(22..35, "=pod\n\nd")]),
@@ -4404,6 +4421,8 @@ fn perl_operator_behind_core_is_read_as_a_literal() {
 #[cfg(feature = "perl")]
 #[test]
 fn pod_classifiers_charge_what_they_read_and_answer_as_before() {
+    assert!(pod_comment_region(b"=for comment\nold();"));
+    assert!(!pod_comment_region(b"=forcomment\nold();\n\n=cut"));
     let counted = |text: &[u8]| {
         let budget = Counting::default();
         let answer = pod_comment_region_with_budget(text, &budget).unwrap();
@@ -5055,4 +5074,49 @@ fn perl_literal_forms_that_perl_reads_as_text_are_known_differences() {
             documents([doc(34..49, "=pod\n\nLIT")]),
         ),
     ]);
+}
+
+// test-lang-gates: hand-written(perl) — the row helper is used only for Perl data leaves.
+#[cfg(feature = "perl")]
+#[test]
+fn perl_data_section_row_helper_keeps_its_original_boundaries() {
+    use crate::lang_helpers::perl::{PerlDataSectionRows, perl_data_section_rows};
+
+    let cases: [(&[u8], usize, &[PerlDataSectionRows]); 3] = [
+        (
+            b"__END__\n=for comment\nold();\n\n=cut\n",
+            7,
+            &[PerlDataSectionRows::Pod {
+                first: 1,
+                last: 4,
+                documentation: false,
+            }],
+        ),
+        (
+            b"__DATA__\n=pod\n=head1 X\n=cut2\n",
+            8,
+            &[PerlDataSectionRows::Pod {
+                first: 1,
+                last: 3,
+                documentation: true,
+            }],
+        ),
+        (
+            b"__DATA__\n=pod\n=cut2\nplain data\n",
+            8,
+            &[
+                PerlDataSectionRows::Pod {
+                    first: 1,
+                    last: 2,
+                    documentation: true,
+                },
+                PerlDataSectionRows::Data(3),
+            ],
+        ),
+    ];
+    for (source, leaf_start, expected) in cases {
+        let mut rows = Vec::new();
+        perl_data_section_rows(&source[leaf_start..], 0, |row| rows.push(row));
+        assert_eq!(rows, expected, "{}", source.escape_ascii());
+    }
 }
