@@ -4667,3 +4667,707 @@ fn documentation_perl_source_and_legacy_views_are_independent() {
     // that the grammar may hide: 148 assessments.
     assert_eq!((documents, texts, pending), (93, 87, 148));
 }
+
+/// Every Tcl source of the Ruff documentation tests of the AST crate, with the tuple
+/// `[sloc, ploc, lloc, cloc, blank, dloc]` and the comment rows, counted from 0, that the
+/// metric gave it before any of those documents existed.
+#[cfg(feature = "tcl")]
+static TCL_RUFF_SOURCES: [(&[u8], [u64; 6], &[usize]); 327] = [
+    // a01_primary
+    (b"proc f {} {\n# audit\nreturn\n}", [4, 3, 2, 1, 0, 0], &[1]),
+    // a02_primary_final_lf
+    (b"proc f {} {\n# audit\nreturn\n}\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // b01_leading_blank_rows
+    (b"proc f {} {\n\n\n# audit\n# more\nreturn\n}\n", [7, 3, 2, 2, 2, 0], &[3, 4]),
+    // b02_blank_row_ends
+    (b"proc f {} {\n# first\n\n# second\nreturn\n}\n", [6, 3, 2, 2, 1, 0], &[1, 3]),
+    // b03_space_row_ends
+    (b"proc f {} {\n# a\n   \n# b\nreturn\n}\n", [6, 3, 2, 2, 1, 0], &[1, 3]),
+    // b04_command_ends
+    (b"proc f {} {\n# first\nset x 1\n# plain\n# later\n}", [6, 3, 2, 3, 0, 0], &[1, 3, 4]),
+    // b05_indented
+    (b"proc f {} {\n    # a\n    # b\n    return\n}\n", [5, 3, 2, 2, 0, 0], &[1, 2]),
+    // b06_brace_row
+    (b"proc f {} { # audit\nreturn\n}\n", [3, 3, 2, 1, 0, 0], &[0]),
+    // b07_brace_row_no_space
+    (b"proc f {} {# audit\n# more\nreturn\n}\n", [4, 3, 2, 2, 0, 0], &[0, 1]),
+    // b08_empty_comment_row
+    (b"proc f {} {\n# a\n#\n# b\nreturn\n}\n", [6, 3, 2, 3, 0, 0], &[1, 2, 3]),
+    // b09_bare_backslash_row
+    (b"proc f {} {\n# a\n\\\n# b\nreturn\n}\n", [6, 3, 2, 3, 0, 0], &[1, 2, 3]),
+    // b10_only_comment
+    (b"proc f {} {\n# a\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // b11_command_first
+    (b"proc f {} {\nset x 1\n# later\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // m01_contract
+    (b"proc f {} {\n# first\nset x 1\n#ruff\n# later\n}", [6, 3, 2, 3, 0, 0], &[1, 3, 4]),
+    // m02_marker_with_text
+    (b"proc f {} {\n# first\nset x 1\n#ruff later\n}", [5, 3, 2, 2, 0, 0], &[1, 3]),
+    // m03_marker_in_plain_run
+    (b"proc f {} {\n# first\nset x 1\n# plain\n#ruff\n# later\n}\n", [7, 3, 2, 4, 0, 0], &[1, 3, 4, 5]),
+    // m04_marked_block_only
+    (b"proc f {} {\nset x 1\n#ruff\n# later\n}\n", [5, 3, 2, 2, 0, 0], &[2, 3]),
+    // m05_two_marked_blocks
+    (b"proc f {} {\nset x 1\n#ruff a\nset y 2\n#ruff b\n# c\n}\n", [7, 4, 3, 3, 0, 0], &[2, 4, 5]),
+    // m06_marker_in_lead
+    (b"proc f {} {\n# a\n#ruff b\n# c\nreturn\n}\n", [6, 3, 2, 3, 0, 0], &[1, 2, 3]),
+    // m07_marker_first_row
+    (b"proc f {} {\n#ruff\n# a\n\n# b\n}\n", [6, 2, 1, 3, 1, 0], &[1, 2, 4]),
+    // m08_marker_after_blank_row
+    (b"proc f {} {\n# a\n\n#ruff b\n}\n", [5, 2, 1, 2, 1, 0], &[1, 3]),
+    // m10_row_text
+    (b"proc f {} {\n## doubled\n#x\n#  two\n# trail  \n#ruff  w\n#ruff \n#end\n}\n", [9, 2, 1, 7, 0, 0], &[1, 2, 3, 4, 5, 6, 7]),
+    // m13_tab_separators
+    (b"proc f {} {\n#\ty\n#ruff\tz\n#ruff\t w\n}\n", [5, 2, 1, 3, 0, 0], &[1, 2, 3]),
+    // m11_empty_boundary_rows
+    (b"proc f {} {\n#ruff\n# a\n#ruff\n}\n", [5, 2, 1, 3, 0, 0], &[1, 2, 3]),
+    // m12_only_empty_row
+    (b"proc f {} {\n#\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // m14_empty_row_then_blank_row
+    (b"proc f {} {\n#\n\n# after\n}\n", [5, 2, 1, 2, 1, 0], &[1, 3]),
+    // o01_options_in_and_after_block
+    (b"proc f {} {\n# a\n#ruffopt includedformats html\n# b\nset x 1\n# plain\n#ruffopt excludedformats {html}\n}\n", [8, 3, 2, 5, 0, 0], &[1, 2, 3, 5, 6]),
+    // o02_options_only
+    (b"proc f {} {\n#ruffopt includedformats html\nreturn\n}\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // o03_options_before_lead
+    (b"proc f {} {\n#ruffopt a b\n\n# lead\n}\n", [5, 2, 1, 2, 1, 0], &[1, 3]),
+    // o04_options_blank_then_row
+    (b"proc f {} {\n# a\n#ruffopt x y\n\n# b\n}\n", [6, 2, 1, 3, 1, 0], &[1, 2, 4]),
+    // o07_blank_row_then_options
+    (b"proc f {} {\n# a\n\n#ruffopt x y\n# b\n}\n", [6, 2, 1, 3, 1, 0], &[1, 3, 4]),
+    // o05_longer_word
+    (b"proc f {} {\n#ruffoptions x\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // o06_options_after_semicolon
+    (b"proc f {} {\nset x 1 ;#ruffopt a b\n}\n", [3, 3, 2, 1, 0, 0], &[1]),
+    // m20_other_words_in_lead
+    (b"proc f {} {\n#rufftail x\n# ruff spaced\n#ruffian\n}\n", [5, 2, 1, 3, 0, 0], &[1, 2, 3]),
+    // m21_other_words_after_command
+    (b"proc f {} {\n# a\nset x 1\n#rufftail\n# ruff\n#ruff\x0cff\n}\n", [7, 3, 2, 4, 0, 0], &[1, 3, 4, 5]),
+    // b12_after_semicolon
+    (b"proc f {} {\n# a\nset x 1 ;# after\n;# lead semi\n#ruff m\n}\n", [6, 4, 2, 4, 0, 0], &[1, 2, 3, 4]),
+    // b13_marker_after_semicolon
+    (b"proc f {} {\nset x 1\n;#ruff x\n}\n", [4, 4, 2, 1, 0, 0], &[2]),
+    // b20_nested_marker_rows
+    (b"proc f {} {\n# lead\nif {$x} {\n#ruff nested\n}\nputs {\n#ruff string\n}\n}\n", [9, 6, 3, 3, 0, 0], &[1, 3, 6]),
+    // b21_nested_marker_only
+    (b"proc f {} {\nif {$x} {\n#ruff nested\n}\n}\n", [5, 4, 2, 1, 0, 0], &[2]),
+    // c01_continued_row_text
+    (b"proc f {} {\n# audit \\\nmore text\nreturn\n}\n", [5, 4, 3, 1, 0, 0], &[1]),
+    // c02_continued_row_comment
+    (b"proc f {} {\n# a \\\n# b\nreturn\n}\n", [5, 3, 2, 2, 0, 0], &[1, 2]),
+    // c03_even_run
+    (b"proc f {} {\n# a \\\\\n# b\n}\n", [4, 2, 1, 2, 0, 0], &[1, 2]),
+    // c04_marker_below_continued_plain
+    (b"proc f {} {\nset x 1\n# plain \\\n#ruff\n# later\n}\n", [6, 3, 2, 3, 0, 0], &[2, 3, 4]),
+    // c05_marker_below_bare_rows
+    (b"proc f {} {\nset x 1\n# plain \\\n\\\n#ruff x\n}\n", [6, 3, 2, 3, 0, 0], &[2, 3, 4]),
+    // c06_blank_row_ends_the_line
+    (b"proc f {} {\nset x 1\n# plain \\\n\n#ruff x\n}\n", [6, 3, 2, 2, 1, 0], &[2, 4]),
+    // c07_continued_row_crlf
+    (b"proc f {} {\r\n# audit \\\r\nreturn\r\n}\r\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // c08_continued_options_row
+    (b"proc f {} {\n#ruffopt a \\\n#ruff\n# later\n}\n", [5, 2, 1, 3, 0, 0], &[1, 2, 3]),
+    // a03_crlf
+    (b"proc f {} {\r\n# audit\r\n#ruff\r\n# more\r\nreturn\r\n}\r\n", [6, 3, 2, 3, 0, 0], &[1, 2, 3]),
+    // a04_lone_cr_in_comment
+    (b"proc f {} {\n# a\rb\nreturn\n}\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // k01_stray_bracket
+    (b"proc f {} {\n# audit\nputs ]\nreturn\n}\nproc g {} {\n# doc g\n}\n", [8, 6, 4, 2, 0, 0], &[1, 6]),
+    // k02_semicolon_after_word
+    (b"proc f {} {\n# a\nreturn;# done\n#ruff b\n}\n", [5, 3, 1, 3, 0, 0], &[1, 2, 3]),
+    // k03_recovery_after_brace
+    (b"proc f {} {;# c\nreturn\n}\n", [3, 3, 2, 1, 0, 0], &[0]),
+    // k04_missing_token_in_command
+    (b"proc f {} {\n# a\nset x 1; set y 2\n#ruff b\n}\n", [5, 3, 3, 2, 0, 0], &[1, 3]),
+    // k08_recovery_after_command
+    (b"proc f {} {\n# a\n# b\nset x 1 # text\n}\n", [5, 3, 2, 3, 0, 0], &[1, 2, 3]),
+    // k12_recovery_row
+    (b"proc f {} {\n# a\n]\n# b\n}\n", [5, 3, 1, 2, 0, 0], &[1, 3]),
+    // k09_missing_bracket_in_command
+    (b"proc f {} {\n# a\nputs [x\n}\nproc g {} {\n# b\n}\n", [7, 5, 3, 2, 0, 0], &[1, 5]),
+    // k05_recovery_holds_lead
+    (b"proc f {} {\n# a\nset x 1 # text\n#ruff\n# later\n}\n", [6, 4, 2, 4, 0, 0], &[1, 2, 3, 4]),
+    // k06_nul_in_first_row
+    (b"proc f {} {\n# a\x00b\nreturn\n}\n", [4, 4, 3, 1, 0, 0], &[1]),
+    // k07_nul_in_second_row
+    (b"proc f {} {\n# a\n# b\x00c\nreturn\n}\n", [5, 4, 1, 2, 0, 0], &[1, 2]),
+    // k10_recovery_holds_marker_row
+    (b"proc f {} {\n# lead\nset x 1\n#ruff a\nset y 2 # text\n#ruff c\n}\n", [7, 4, 3, 4, 0, 0], &[1, 3, 4, 5]),
+    // k11_nul_in_marker_row
+    (b"proc f {} {\n# lead\nset x 1\n#ruff b\x00c\nreturn\n}\n", [6, 5, 2, 2, 0, 0], &[1, 3]),
+    // k13_recovery_on_continued_row
+    (b"proc f {} {\nif {1} {} \\\n#ruff b\n}\n", [4, 4, 2, 1, 0, 0], &[2]),
+    // k14_directive_then_cut_comment
+    (b"proc f {} {\n#ruffopt a b\n# a\x00b\nreturn\n}\n", [5, 4, 1, 2, 0, 0], &[1, 2]),
+    // n01_qualified_name
+    (b"proc ::ns::f {} {\n# n\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n02_arguments_word
+    (b"proc f args {\n# a\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n03_variable_name
+    (b"proc $name {} {\n# dyn\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n04_command_name
+    (b"proc [mk] {} {\n# dyn\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n05_quoted_name
+    (b"proc \"g\" {} {\n# q\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n06_braced_name
+    (b"proc {h} {} {\n# b\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // n10_name_of_two_parts
+    (b"proc a$b {} {\n# c\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n11_expansion
+    (b"proc {*}$spec\nproc g {} {\n# doc g\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // n12_quoted_body
+    (b"proc f {} \"\n# q\n\"\n", [3, 3, 1, 0, 0, 0], &[]),
+    // n13_word_body
+    (b"proc f {} return\n", [1, 1, 1, 0, 0, 0], &[]),
+    // n14_missing_body
+    (b"proc f {}\nproc g {} {\n# doc g\nreturn\n}\n", [5, 4, 3, 1, 0, 0], &[2]),
+    // n15_malformed_arguments
+    (b"proc a {} {\n# doc a\nreturn\n}\nproc bad {x {\n# doc bad\n}\nproc c {} {\n# doc c\nreturn\n}\n", [11, 9, 4, 2, 0, 0], &[1, 8]),
+    // n16_recovery_in_name
+    (b"proc [a;] {} {\n# c\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n17_recovery_in_arguments
+    (b"proc f {a;} {\n# c\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n18_brace_in_name
+    (b"proc f{ {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // n19_quoted_word_in_arguments
+    (b"proc f {a \"b\"} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // p01_continued_comment
+    (b"# c \\\nproc g {} {\n# inner\n}\nproc h {} {\n# doc h\n}\n", [7, 4, 2, 3, 0, 0], &[0, 2, 5]),
+    // p02_bare_rows
+    (b"# c \\\n\\\nproc g {} {\n# inner\n}\n", [5, 2, 1, 3, 0, 0], &[0, 1, 3]),
+    // p03_blank_row_ends_line
+    (b"# c \\\n\nproc g {} {\n# inner\n}\n", [5, 2, 1, 2, 1, 0], &[0, 3]),
+    // p04_even_run
+    (b"# c \\\\\nproc g {} {\n# inner\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p05_crlf_bare_row
+    (b"# c \\\r\n\\\r\nproc g {} {\r\n# inner\r\n}\r\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // p06_crlf_continued_command
+    (b"foo a \\\r\nproc g {} {\r\n# inner\r\n}\r\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // p16_continued_comment_then_command
+    (b"# c \\\nJUNK\nproc g {} {\n# inner\n}\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // p17_plain_comment_then_command
+    (b"# c\nJUNK\nproc g {} {\n# inner\n}\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // p19_continued_comment_alone
+    (b"# c \\\nproc g {} {\n# inner\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p18_continued_comment_dynamic_name
+    (b"# c \\\nproc $name {} {\n# x\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p20_semicolon_on_continued_row
+    (b"# c \\\n;proc f {} {\n# doc\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p21_command_on_continued_row
+    (b"# c \\\nputs a ; proc g {} {\n# doc\n}\n", [4, 2, 2, 2, 0, 0], &[0, 2]),
+    // p22_two_continued_rows
+    (b"# c \\\nset x 1 \\\n; proc g {} {\n# b\n}\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // p23_words_on_continued_rows
+    (b"# c \\\nJUNK \\\nbar ; proc g {} {\n# b\n}\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // p24_continued_command_then_semicolon
+    (b"set x 1 \\\n; proc g {} {\n# b\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // p25_semicolon_on_continued_row_crlf
+    (b"# c \\\r\n;proc g {} {\r\n# b\r\n}\r\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p26_two_procedures_on_continued_row
+    (b"# c \\\nproc a {} {\n# a\n};proc b {} {\n# b\n}\n", [6, 3, 2, 3, 0, 0], &[0, 2, 4]),
+    // p27_two_procedures_on_one_row
+    (b"# c\nproc a {} {\n# a\n};proc b {} {\n# b\n}\n", [6, 3, 2, 3, 0, 0], &[0, 2, 4]),
+    // p28_continued_comment_after_semicolon
+    (b";# c \\\nproc g {} {\n# b\n}\n", [4, 3, 1, 2, 0, 0], &[0, 2]),
+    // p29_plain_comment_then_semicolon
+    (b"# c\n;proc g {} {\n# b\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // p07_slots_cross_a_line
+    (b"proc f\n{} {\n# audit\n}\nproc g {} {\n# doc g\n}\n", [7, 5, 2, 2, 0, 0], &[2, 5]),
+    // p08_backslash_newline_between_slots
+    (b"proc f {} \\\n{\n# audit\n}\n", [4, 3, 1, 1, 0, 0], &[2]),
+    // p09_extra_word
+    (b"proc f {} {\n# audit\n} extra\nproc g {} {\n# doc g\n}\n", [6, 4, 3, 2, 0, 0], &[1, 4]),
+    // p10_comment_after_body
+    (b"proc f {} {\n# audit\n} # trailing\n", [3, 2, 1, 2, 0, 0], &[1, 2]),
+    // p11_semicolon_after_body
+    (b"proc f {} {\n# audit\n};proc g {} {\n# doc g\n}\n", [5, 3, 2, 2, 0, 0], &[1, 3]),
+    // p12_two_procedures_one_row
+    (b"proc f {} {\n# a\n} proc g {} {\n# b\n}\n", [5, 3, 2, 2, 0, 0], &[1, 3]),
+    // p13_command_then_procedure
+    (b"set x 1 proc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // p14_semicolon_then_procedure
+    (b"set x 1 ; proc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // p15_spaces_at_end_of_input
+    (b"proc f {} {\n# a\n}   ", [3, 2, 1, 1, 0, 0], &[1]),
+    // s01_namespace
+    (b"namespace eval n {\nproc f {} {\n# audit\nreturn\n}\n}\n", [6, 5, 3, 1, 0, 0], &[2]),
+    // s02_procedure_in_procedure
+    (b"proc outer {} {\n# outer doc\nproc inner {} {\n# inner doc\n}\n}\n", [6, 4, 2, 2, 0, 0], &[1, 3]),
+    // s03_under_inner_error
+    (b"proc f {} {\n# doc f\nset x 1\n\nproc g {} {\n# doc g\nreturn 2\n}\n", [8, 5, 3, 2, 1, 0], &[1, 5]),
+    // s05_nested_dynamic_name
+    (b"namespace eval n {\nproc $name {} {\n# x\n}\n}\n", [5, 4, 2, 1, 0, 0], &[2]),
+    // s04_root_error
+    (b"proc f {{a0 { {a1 { {a2 { {a3 {} {\n# audit\n}\nproc g {} {\n# doc g\n}\n", [6, 4, 2, 2, 0, 0], &[1, 4]),
+    // s08_root_error_after_the_procedure
+    (b"proc g {} {\n# doc g\n}\nproc h {a} {set s  \"\"\"{\"{$a(proc k {} {\n\n\"\"{\"", [6, 4, 1, 1, 1, 0], &[1]),
+    // a06_two_documented
+    (b"proc f {} {\n# doc f\nreturn 1\n}\nproc g {a b} {\n# doc g\nreturn 2\n}\n", [8, 6, 4, 2, 0, 0], &[1, 5]),
+    // a07_one_undocumented
+    (b"proc f {} {\nreturn 1\n}\nproc g {} {\n# doc g\nreturn 2\n}\n", [7, 6, 4, 1, 0, 0], &[4]),
+    // p31_command_below
+    (b"proc g {} {\n# inner\n}\nJUNK\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // p30_word_after_body
+    (b"proc f {} {\n# doc\n} extra\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // q01_two_comment_rows_crlf
+    (b"# a\r\n# b\n", [2, 0, 0, 2, 0, 0], &[0, 1]),
+    // q02_blank_row_short
+    (b"proc f {} {\n# first\n\n# second\n}\n", [5, 2, 1, 2, 1, 0], &[1, 3]),
+    // q03_continued_short
+    (b"proc f {} {\n# a \\\n# b\n}\n", [4, 2, 1, 2, 0, 0], &[1, 2]),
+    // q04_comment_above
+    (b"# c\nproc g {} {\n# inner\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // q05_text_rows
+    (b"proc f {} {\n# first\nset x 1\n#ruff later\n# a \\\\\n}\n", [6, 3, 2, 3, 0, 0], &[1, 3, 4]),
+    // q06_variable_body
+    (b"proc f {} $body\n", [1, 1, 1, 0, 0, 0], &[]),
+    // c09_marker_on_continued_command
+    (b"proc f {} {\nset x 1 \\\n#ruff notdoc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // c10_rows_on_continued_command
+    (b"proc f {} {\nset x 1 \\\n#ruff b\n# c\n}\n", [5, 3, 2, 2, 0, 0], &[2, 3]),
+    // c11_marker_on_continued_expr
+    (b"proc f {} {\nexpr 1 \\\n#ruff b\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // c12_directive_on_continued_command
+    (b"proc f {} {\nset x 1 \\\n#ruffopt a b\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // c13_marker_on_continued_command_crlf
+    (b"proc f {} {\r\nset x 1 \\\r\n#ruff b\r\n}\r\n", [4, 3, 3, 1, 0, 0], &[2]),
+    // c14_marker_below_command
+    (b"proc f {} {\nset x 1\n#ruff b\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // c15_marker_after_semicolon_and_backslash
+    (b"proc f {} {\n# lead\nset x 1 ;\\\n#ruff b\n}\n", [5, 3, 2, 2, 0, 0], &[1, 3]),
+    // d01_qualified_proc
+    (b"::proc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d02_quoted_proc
+    (b"\"proc\" f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d03_braced_proc
+    (b"{proc} f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d04_escaped_proc
+    (b"pr\\oc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d05_expanded_proc
+    (b"{*}proc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d06_evaluated_words
+    (b"eval proc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // p32_semicolon_then_continued_line_end
+    (b"set x 1 ;\\\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // p33_backslash_starts_the_source
+    (b"\\\nproc f {} {\n# a\n}\n", [4, 3, 1, 1, 0, 0], &[2]),
+    // p34_vertical_tab_after_body
+    (b"proc f {} {\n# doc\n}\x0bextra\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // p35_crlf_continued_word_after_body
+    (b"proc f {} {\n# a\n} \\\r\nextra\r\n", [4, 3, 3, 1, 0, 0], &[1]),
+    // p36_continued_line_end_after_body
+    (b"proc f {} {\n# doc\n} \\\n\n", [4, 2, 1, 1, 1, 0], &[1]),
+    // p37_semicolon_then_continued_comment
+    (b"proc f {} {\n# doc\n};# c \\\nextra\n", [4, 3, 2, 2, 0, 0], &[1, 2]),
+    // e01_open_brace_on_the_line
+    (b"set x {a ; proc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // e02_open_bracket_on_the_line
+    (b"set x [a ; proc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // e03_recovered_comment_on_continued_row
+    (b"set x 1 # c \\\n; proc g {} {\n# doc\n}\n", [4, 3, 2, 2, 0, 0], &[0, 2]),
+    // e04_stray_brace_on_the_line
+    (b"} ; proc g {} {\n# d\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // r01_carriage_return_between_words
+    (b"proc f\r{} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // r02_carriage_return_after_body
+    (b"proc f {} {\n# doc\n}\rextra\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // r03_carriage_return_before_procedure
+    (b"set x 1\rproc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // r04_carriage_return_is_a_blank_row
+    (b"proc f {} {\n# a\n\r# b\n}\n", [4, 2, 1, 2, 0, 0], &[1, 2]),
+    // r05_carriage_returns_around_a_row
+    (b"proc f {} {\r# a\n\rset x 1\r#ruff b\n}\n", [3, 3, 2, 2, 0, 0], &[0, 1]),
+    // c19_directive_below_command
+    (b"proc f {} {\nset x 1\n#ruffopt a b\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // k15_directive_above_whole_comment
+    (b"proc f {} {\n#ruffopt a b\n# ab\nreturn\n}\n", [5, 3, 2, 2, 0, 0], &[1, 2]),
+    // c16_backslash_row_between_rows
+    (b"proc f {} {\n# lead\n\\\n# b\n}\n", [5, 2, 1, 3, 0, 0], &[1, 2, 3]),
+    // c17_backslash_row_then_blank_row
+    (b"proc f {} {\n# lead\n\\\n\n# b\n}\n", [6, 2, 1, 2, 2, 0], &[1, 4]),
+    // c18_backslash_row_then_blank_row_crlf
+    (b"proc f {} {\r\n# lead\r\n\\\r\n\r\n# b\r\n}\r\n", [6, 3, 2, 2, 1, 0], &[1, 4]),
+    // z01_end_of_file_character
+    (b"set x 1\n\x1a\nproc g {} {\n# doc\n}\n", [5, 4, 3, 1, 0, 0], &[3]),
+    // z02_open_brace_on_the_line_above
+    (b"set x {a ;\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // s06_procedure_in_command_substitution
+    (b"[proc f {} {\n# doc\n}]\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // s07_procedure_in_eval_script
+    (b"eval {proc f {} {\n# doc\n}}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // c20_blank_row_then_backslash_row
+    (b"proc f {} {\n# lead\n\n\\\n# b\n}\n", [6, 2, 1, 3, 1, 0], &[1, 3, 4]),
+    // p39_one_row_procedure_on_continued_row
+    (b"# c \\\nproc a {} {};proc b {} {\n# b\n}\n", [4, 2, 2, 2, 0, 0], &[0, 2]),
+    // p38_word_after_semicolon
+    (b"set x 1 ; set y 2 proc g {} {\n# doc\n}\n", [3, 2, 3, 1, 0, 0], &[1]),
+    // q30_form_feed_before
+    (b"\x0cproc g {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // q31_no_break_space_before
+    (b"\xc2\xa0proc g {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // p40_parameter_list_glued_to_body
+    (b"proc f {}{\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // p41_named_parameters_glued_to_body
+    (b"proc f {a b}{\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // p42_keyword_glued_to_braced_name
+    (b"proc{f} {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // g01_body_ends_early
+    (b"proc f {} {\n# a }\n# b\n}\n", [4, 2, 1, 2, 0, 0], &[1, 2]),
+    // g02_body_ends_late
+    (b"proc f {} {\n# doc {\n}\n# }\n", [4, 2, 1, 2, 0, 0], &[1, 3]),
+    // g03_quoted_brace_in_body
+    (b"proc f {} {\n# doc\nset s \"{\"\n}\n# more\n}\n", [6, 4, 2, 2, 0, 0], &[1, 4]),
+    // g04_marker_row_opens_a_brace
+    (b"proc f {} {\n#ruff a {\n}\n# }\n", [4, 2, 1, 2, 0, 0], &[1, 3]),
+    // g05_parameter_list_ends_early
+    (b"proc g {a {b \"}\"}} {\n# a\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // g06_directive_in_parted_body
+    (b"proc f {} {\n#ruffopt a b\n# doc {\n}\n# }\n", [5, 2, 1, 3, 0, 0], &[1, 2, 4]),
+    // g07_parted_body_without_rows
+    (b"proc f {} {\nset s \"{\"\n}\n}\n", [4, 4, 2, 0, 0, 0], &[]),
+    // g08_parted_body_and_computed_name
+    (b"proc $name {} {\n# a }\n# b\n}\n", [4, 2, 1, 2, 0, 0], &[1, 2]),
+    // g09_parted_body_on_a_continued_comment_line
+    (b"# c \\\nproc f {} {\n# a }\n# b\n}\n", [5, 2, 1, 3, 0, 0], &[0, 2, 3]),
+    // g10_bracket_holds_a_quoted_close_brace
+    (b"proc f {} {\n# doc\nset s [list \"}\"]\n}\n", [4, 3, 2, 1, 0, 0], &[1]),
+    // h01_brace_pair_over_two_procedures
+    (b"proc g {} {\n# {\n}\nproc f {} {\n# doc\n}\n# }\n", [7, 4, 2, 3, 0, 0], &[1, 4, 6]),
+    // h02_quoted_brace_in_earlier_body
+    (b"proc g {} {\nset s \"{\"\n}\nproc f {} {\n# doc\n}\n}\n", [7, 6, 3, 1, 0, 0], &[4]),
+    // h03_bracket_holds_a_quoted_brace
+    (b"proc g {} {\nset s [list \"{\"]\n}\nproc f {} {\n# doc\n}\n}\n", [7, 6, 3, 1, 0, 0], &[4]),
+    // h04_escaped_backslash_before_brace
+    (b"proc g {} {\n# \\\\{\n}\nproc f {} {\n# doc\n}\n}\n", [7, 5, 2, 2, 0, 0], &[1, 4]),
+    // h05_earlier_word_of_another_command
+    (b"if {1} {\n# {\n}\nproc f {} {\n# doc\n}\n# }\n", [7, 4, 2, 3, 0, 0], &[1, 4, 6]),
+    // h06_comment_after_semicolon_in_earlier_body
+    (b"proc g {} {\nset x 1 ;# {\n}\nproc f {} {\n# doc\n}\n# }\n", [7, 5, 3, 3, 0, 0], &[1, 4, 6]),
+    // h07_earlier_word_never_ends
+    (b"proc g {} {\n# if {\nputs a\n}\nproc f {} {\n# doc\n}\n", [7, 5, 3, 2, 0, 0], &[1, 5]),
+    // h08_brace_left_open_by_the_grammar
+    (b"set s $a# {\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // h09_word_after_semicolon
+    (b"set a 1 ;{# {\n}\nproc g {} {\n# doc\n}\n# }\n", [6, 4, 3, 3, 0, 0], &[0, 3, 5]),
+    // h10_word_after_line_end
+    (b"set a 1\n{# {\n}\nproc g {} {\n# doc\n}\n# }\n", [7, 5, 3, 3, 0, 0], &[1, 4, 6]),
+    // h11_word_after_bracket
+    (b"set s [{# {\n} a]\nproc g {} {\n# doc\n}\n# }\n", [6, 4, 2, 3, 0, 0], &[0, 3, 5]),
+    // h12_word_after_expansion_prefix
+    (b"list {*}{# {\n}\nproc g {} {\n# doc\n}\n# }\n", [6, 4, 2, 3, 0, 0], &[0, 3, 5]),
+    // h13_word_at_the_start_of_the_source
+    (b"{# {\n}\nproc g {} {\n# doc\n}\n# }\n", [6, 4, 2, 3, 0, 0], &[0, 3, 5]),
+    // h14_open_brace_inside_a_bracket
+    (b"set x [a {b] ;\nproc g {} {\n# doc\n}\n", [4, 3, 3, 1, 0, 0], &[2]),
+    // j01_balanced_pair_in_a_row
+    (b"proc g {} {\n# {}\n}\nproc f {} {\n# doc\n}\n", [6, 4, 2, 2, 0, 0], &[1, 4]),
+    // j02_brace_pair_over_two_rows
+    (b"proc g {} {\n# {\n# }\n}\nproc f {} {\n# doc\n}\n", [7, 4, 2, 3, 0, 0], &[1, 2, 5]),
+    // j03_escaped_brace_in_a_row
+    (b"proc g {} {\n# \\{\n}\nproc f {} {\n# doc\n}\n", [6, 4, 2, 2, 0, 0], &[1, 4]),
+    // j04_quoted_word_with_a_balanced_pair
+    (b"proc g {} {\nset s \"{}\"\n}\nproc f {} {\n# doc\n}\n", [6, 5, 3, 1, 0, 0], &[4]),
+    // j05_regular_expression_in_braces
+    (b"set re {^[a-z]{1,4}$}\nproc f {} {\n# doc\nregexp {^[a-z]{1,4}$} $s\n}\n", [5, 4, 3, 1, 0, 0], &[2]),
+    // j06_crlf_line_ends
+    (b"set x {a b}\r\nproc f {} {\r\n# doc {}\r\n}\r\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // j07_procedure_after_a_word_that_ends_late
+    (b"proc g {} {\n# {\n}\n# }\nproc f {} {\n# doc\n}\n", [7, 4, 2, 3, 0, 0], &[1, 3, 5]),
+    // j15_procedure_inside_and_procedure_after
+    (b"if {0} {\nset s \"{\"\n}\nproc g {} {\n# doc\n}\n}\nproc h {} {\n# later\n}\n", [10, 8, 4, 2, 0, 0], &[4, 8]),
+    // j08_brace_inside_a_bare_word
+    (b"set s a{b ;\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // j09_braces_in_a_recovered_bare_word
+    (b"list ){{}\nproc f {} {\n# doc\n}\n", [4, 3, 1, 1, 0, 0], &[2]),
+    // j10_quoted_open_brace
+    (b"set s \"{\"\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // j11_escaped_open_brace
+    (b"set s \\{\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // j12_brace_in_a_comment_of_the_file
+    (b"# {\nproc f {} {\n# doc\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // j13_expansion_and_word_after_semicolon
+    (b"set l [list {*}{a b}] ;{c} d\nproc g {} {\n# doc\n}\n", [4, 3, 5, 1, 0, 0], &[2]),
+    // j14_braced_variable_name
+    (b"set v ${name}\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // j16_braced_word_three_lines_above
+    (b"set s {a b}\nset t 1\nset u 2\nproc g {} {\n# doc\n}\n", [6, 5, 4, 1, 0, 0], &[4]),
+    // l01_text_after_a_close_brace
+    (b"set s {a}b\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // l02_text_after_a_close_quote
+    (b"set s \"a\"b\nproc f {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // l03_quoted_close_brace_in_earlier_body
+    (b"proc g {} {\nset s \"}\"\n}\nproc f {} {\n# doc\n}\n", [6, 5, 3, 1, 0, 0], &[4]),
+    // l04_hash_inside_a_command_opens_a_brace
+    (b"set x 1 # c {\nproc f {} {\n# doc\n}\n}\n", [5, 4, 2, 2, 0, 0], &[0, 2]),
+    // l05_array_index_over_lines
+    (b"set s $a(\nproc f {} {\n# doc\n}\n)\n", [5, 4, 1, 1, 0, 0], &[2]),
+    // l06_open_bracket_before_semicolon
+    (b"set x [a ;\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // l07_command_tcl_does_not_reach
+    (b"}\nproc f {} {\n# doc\n}\n", [4, 3, 1, 1, 0, 0], &[2]),
+    // l09_hash_inside_a_command_opens_a_quote
+    (b"set x 1 # \"\nproc f {} {\n# doc\n}\n\"\n", [5, 4, 2, 2, 0, 0], &[0, 2]),
+    // l08_nested_procedure_whose_body_ends_early
+    (b"namespace eval n {\nproc f {} {\n# a }\n# b\n}\n}\n", [6, 4, 2, 2, 0, 0], &[2, 3]),
+    // t01_brace_in_continued_comment
+    (b"# c \\\nproc g {} {\n# { \\\n}\nproc f {} {\n# doc\n}\n# }\n", [8, 4, 2, 4, 0, 0], &[0, 2, 5, 7]),
+    // t02_no_brace_in_continued_comment
+    (b"# c \\\nproc g {} {\n# x \\\n}\nproc f {} {\n# doc\n}\n# }\n", [8, 4, 2, 4, 0, 0], &[0, 2, 5, 7]),
+    // t03_braced_row_in_continued_comment
+    (b"# c \\\n{a \"{\"}\nproc f {} {\n# doc\n}\n", [5, 3, 3, 2, 0, 0], &[0, 3]),
+    // t04_late_word_in_early_word
+    (b"proc g {} {\n# }\nproc h {} {\n# {{\n}\n}\nproc f {} {\n# doc\n}\n# }\n", [10, 6, 3, 4, 0, 0], &[1, 3, 7, 9]),
+    // t05_late_word_of_if_in_early_word
+    (b"proc g {} {\n# }\nif {0} {\n# {{\n}\n}\nproc f {} {\n# doc\n}\n# }\n", [10, 6, 3, 4, 0, 0], &[1, 3, 7, 9]),
+    // t06_balanced_nested_procedure
+    (b"proc g {} {\n# x\nproc h {} {\n# y\n}\n}\nproc f {} {\n# doc\n}\n", [9, 6, 3, 3, 0, 0], &[1, 3, 7]),
+    // t07_cr_in_comment_then_open_brace
+    (b"# c\rset x {\nproc f {} {\n# doc\n}\n}\n", [5, 3, 1, 2, 0, 0], &[0, 2]),
+    // t08_cr_in_comment_then_procedure
+    (b"# c\rproc g {} {\n# {\n}\nproc f {} {\n# doc\n}\n# }\n", [7, 3, 1, 4, 0, 0], &[0, 1, 4, 6]),
+    // t09_cr_in_comment_after_semicolon
+    (b"set x 1 ;# c\rset y {\nproc f {} {\n# doc\n}\n}\n", [5, 4, 2, 2, 0, 0], &[0, 2]),
+    // t10_lf_in_comment_control
+    (b"# c\nset x 1\nproc f {} {\n# doc\n}\n", [5, 3, 2, 2, 0, 0], &[0, 3]),
+    // t11_byte_order_mark
+    (b"\xef\xbb\xbfproc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // e05_semicolon_in_parens
+    (b"puts a(;) ; proc g {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // e06_stray_bracket_on_the_line
+    (b"] ; proc g {} {\n# d\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // l10_procedure_in_a_bracket_after_a_comment
+    (b"[# c\nproc f {} {\n# doc\n};]", [4, 3, 2, 2, 0, 0], &[0, 2]),
+    // l11_procedure_in_a_bracket_after_a_semicolon
+    (b"[;proc f {} {\n# doc\n};]", [3, 2, 1, 1, 0, 0], &[1]),
+    // l12_bracket_glued_before_proc
+    (b"set x 1];[]proc f {} {\n# doc\n}\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // u01_word_and_crlf_above
+    (b"JUNK\r\nproc g {} {\r\n# doc\r\n}\r\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u02_two_backslashes_and_line_end_above
+    (b"JUN\\\\\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u03_word_and_two_backslashes_above
+    (b"JUNK\\\\\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u04_quoted_word_above
+    (b"set s \"a b\"\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u05_bracket_above
+    (b"set s [a b]\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u06_array_index_above
+    (b"set s $a(1)\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u07_braced_variable_name_above
+    (b"set s ${a b}\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u08_end_of_file_byte_above
+    (b"JUNK\x1a\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u09_continued_comment_above_and_word_below
+    (b"# c \\\nproc g {} {\n# doc\n}\nJUNK\n", [5, 3, 2, 2, 0, 0], &[0, 2]),
+    // u10_braced_word_and_text_after_body
+    (b"proc f {} {\n# doc\n} {a}JUNK\n", [3, 2, 3, 1, 0, 0], &[1]),
+    // u11_comment_above
+    (b"# abc\nproc g {} {\n# doc\n}\n", [4, 2, 1, 2, 0, 0], &[0, 2]),
+    // u12_word_above
+    (b"X\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+    // u13_blank_row_above
+    (b"JUNK\n\nproc g {} {\n# doc\n}\n", [5, 3, 2, 1, 1, 0], &[3]),
+    // u14_word_after_body_and_blank
+    (b"proc f {} {\n# doc\n} JUNK\n", [3, 2, 2, 1, 0, 0], &[1]),
+    // d07_quoted_parameter_list
+    (b"proc f \"x\" {\n# doc\n}\n", [3, 3, 0, 0, 0, 0], &[]),
+    // d08_bracket_glued_before_proc
+    (b"[]proc f {} {\n# doc\n}\n", [3, 2, 1, 1, 0, 0], &[1]),
+    // d09_brace_in_the_middle_of_a_word_above
+    (b"set s a{\nproc f {} {\n# doc\n}\nset t }\n", [5, 5, 1, 0, 0, 0], &[]),
+    // d10_quote_in_the_middle_of_a_word_above
+    (b"set s a\"\nproc f {} {\n# doc\n}\nset t b\"\n", [5, 5, 1, 0, 0, 0], &[]),
+    // d11_quote_in_a_braced_word_above
+    (b"set q {\"}\nproc f {} {\n# doc\n}\nset r {\"}\n", [5, 5, 1, 0, 0, 0], &[]),
+    // d12_dollar_at_the_end_of_a_word_above
+    (b"set s a$\nproc f {} {\n# doc\n}\n", [4, 3, 1, 0, 1, 0], &[]),
+    // d13_carriage_returns_as_line_ends
+    (b"proc f {} {\r# doc\r}\r", [1, 1, 0, 1, 0, 0], &[0]),
+    // v01_a_line_end_ends_a_command
+    (b"a b\nc", [2, 2, 1, 0, 0, 0], &[]),
+    // v02_and_so_does
+    (b"a;b ;c", [1, 1, 2, 0, 0, 0], &[]),
+    // v03_a_comment_where_a_command_starts
+    (b"# c\na", [2, 1, 0, 1, 0, 0], &[0]),
+    // v04_a_in_a_command_is_a_word
+    (b"a # b\nc", [2, 2, 1, 0, 0, 0], &[]),
+    // v05_a_comment_after
+    (b"a ;# c\nb", [2, 2, 1, 1, 0, 0], &[0]),
+    // v06_a_backslash_continues_a_comment
+    (b"# c \\\na\nb", [3, 2, 1, 1, 0, 0], &[0]),
+    // v07_two_backslashes_do_not
+    (b"# c \\\\\na", [2, 1, 0, 1, 0, 0], &[0]),
+    // v08_more_than_four_words
+    (b"a b c d e f", [1, 1, 0, 0, 0, 0], &[]),
+    // v09_a_vertical_tab_a_form_feed_and_a_tab_separat
+    (b"a\x0bb\x0cc\td", [1, 1, 0, 0, 0, 0], &[]),
+    // v10_a_backslash_and_a_line_end_separate_words
+    (b"a \\\nb\nc", [3, 3, 1, 0, 0, 0], &[]),
+    // v11_also_directly_after_a_word
+    (b"a\\\nb", [2, 2, 0, 0, 0, 0], &[]),
+    // v12_and_they_are_white_space_before_a_command
+    (b"\\\na", [2, 2, 0, 0, 0, 0], &[]),
+    // v13_any_other_backslash_starts_a_word
+    (b"\\a b", [1, 1, 0, 0, 0, 0], &[]),
+    // v14_and_hides_a_blank_in_a_word
+    (b"a\\ b c", [1, 1, 0, 0, 0, 0], &[]),
+    // v15_a_backslash_at_the_end_of_the_file_is_a_word
+    (b"a\\", [1, 1, 0, 0, 0, 0], &[]),
+    // v16_a_carriage_return_alone_ends_a_line
+    (b"a\rb", [1, 1, 0, 0, 0, 0], &[]),
+    // v17_cr_lf_is_one_line_end
+    (b"a\r\nb", [2, 2, 1, 0, 0, 0], &[]),
+    // v18_a_carriage_return_ends_a_comment
+    (b"# c\ra", [1, 1, 0, 1, 0, 0], &[0]),
+    // v19_a_backslash_and_cr_lf_are_white_space
+    (b"a \\\r\nb", [2, 2, 1, 0, 0, 0], &[]),
+    // v20_the_byte_0x1a_ends_the_file
+    (b"a\x1ab", [1, 1, 0, 0, 0, 0], &[]),
+    // v21_a_byte_order_mark_is_part_of_the_first_word
+    (b"\xef\xbb\xbfa b", [1, 1, 0, 0, 0, 0], &[]),
+    // v22_a_braced_word
+    (b"a {b c} d", [1, 1, 1, 0, 0, 0], &[]),
+    // v23_braces_nest
+    (b"a {b {c} d} e", [1, 1, 2, 0, 0, 0], &[]),
+    // v24_a_backslash_hides_a_brace
+    (b"a {b \\} c} d", [1, 1, 1, 0, 0, 0], &[]),
+    // v25_a_line_end_in_a_braced_word_ends_nothing
+    (b"a {b\nc}\nd", [3, 3, 3, 0, 0, 0], &[]),
+    // v26_a_comment_is_not_special_in_a_braced_word
+    (b"a {# }\nb", [2, 2, 0, 1, 0, 0], &[0]),
+    // v27_nor_is_a_quote_the_word_ends_at_the_first_br
+    (b"a {\"}\"} b", [1, 1, 1, 0, 0, 0], &[]),
+    // v28_a_backslash_and_a_line_end_after_a_brace_sep
+    (b"a {b}\\\nc", [2, 2, 1, 0, 0, 0], &[]),
+    // v29_any_other_byte_after_a_close_brace_is_a_pars
+    (b"a {b}c\nd", [2, 2, 2, 0, 0, 0], &[]),
+    // v30_a_brace_that_never_closes_is_a_parse_error
+    (b"a {b\nc", [2, 2, 1, 0, 0, 0], &[]),
+    // v31_a_quoted_word
+    (b"a \"b c\" d", [1, 1, 0, 0, 0, 0], &[]),
+    // v32_a_line_end_in_a_quoted_word_ends_nothing
+    (b"a \"b\nc\"\nd", [3, 3, 1, 0, 0, 0], &[]),
+    // v33_a_backslash_hides_a_quote
+    (b"a \"b \\\" c\" d", [1, 1, 0, 0, 0, 0], &[]),
+    // v34_a_byte_after_a_close_quote_is_a_parse_error
+    (b"a \"b\"c\nd", [2, 2, 1, 0, 0, 0], &[]),
+    // v35_a_quote_in_a_bare_word_is_a_word_byte
+    (b"a b\"c d\"", [1, 1, 0, 0, 0, 0], &[]),
+    // v36_a_quote_that_never_closes_is_a_parse_error
+    (b"a \"b", [1, 1, 0, 0, 0, 0], &[]),
+    // v37_a_bracket_holds_a_script
+    (b"a [b c] d", [1, 1, 0, 0, 0, 0], &[]),
+    // v38_a_line_end_in_it_ends_a_command_of_that_scri
+    (b"a [b\nc] d", [2, 2, 0, 0, 0, 0], &[]),
+    // v39_a_comment_in_it_hides_a_bracket
+    (b"a [b ;# c ]\n] d", [2, 2, 0, 1, 0, 0], &[0]),
+    // v40_a_bracket_in_the_middle_of_a_word
+    (b"a x[b]y z", [1, 1, 0, 0, 0, 0], &[]),
+    // v41_a_bracket_in_a_quoted_word_with_a_quoted_wor
+    (b"a \"b [c \"d\"] e\" f", [1, 1, 0, 0, 0, 0], &[]),
+    // v42_a_braced_word_in_a_bracket_hides_a_bracket
+    (b"a [b {c ]} d] e", [1, 1, 1, 0, 0, 0], &[]),
+    // v43_a_word_that_starts_with_a_bracket
+    (b"[a]b c", [1, 1, 0, 0, 0, 0], &[]),
+    // v44_a_close_bracket_outside_a_bracket_is_a_word
+    (b"a]b [c]]", [1, 1, 1, 0, 0, 0], &[]),
+    // v45_a_bracket_that_never_closes_is_a_parse_error
+    (b"a [b\nc", [2, 2, 0, 0, 0, 0], &[]),
+    // v46_an_array_index_holds_white_space
+    (b"a $a(c d) e", [1, 1, 0, 0, 0, 0], &[]),
+    // v47_and_line_ends
+    (b"a $a(c\nd) e", [2, 2, 1, 0, 0, 0], &[]),
+    // v48_an_index_after_no_name
+    (b"a $(c d) e", [1, 1, 0, 0, 0, 0], &[]),
+    // v49_one_colon_ends_the_name_no_index
+    (b"a $a:(c d)", [1, 1, 1, 0, 0, 0], &[]),
+    // v50_two_colons_are_part_of_the_name
+    (b"a $a::(c d) e", [1, 1, 0, 0, 0, 0], &[]),
+    // v51_a_bracket_in_an_index
+    (b"a $a(c [d e] f) g", [1, 1, 0, 0, 0, 0], &[]),
+    // v52_an_index_in_an_index
+    (b"a $a(c $a(d e) f) g", [1, 1, 0, 0, 0, 0], &[]),
+    // v53_a_braced_variable_name_reads_to_the_next_clo
+    (b"a ${v w} d", [1, 1, 0, 0, 0, 0], &[]),
+    // v54_a_brace_after_a_name_is_a_word_byte
+    (b"a $v{b c}", [1, 1, 2, 0, 0, 0], &[]),
+    // v55_an_index_that_never_closes_is_a_parse_error
+    (b"a $a(c", [1, 1, 0, 0, 0, 0], &[]),
+    // v56_and_so_is_a_braced_name
+    (b"a ${v", [1, 1, 0, 0, 0, 0], &[]),
+    // v57_the_expansion_prefix_before_a_bare_word
+    (b"{*}a b", [1, 1, 0, 0, 0, 0], &[]),
+    // v58_before_a_braced_word
+    (b"a {*}{b c} d", [1, 1, 1, 0, 0, 0], &[]),
+    // v59_before_a_quoted_word
+    (b"a {*}\"b c\" d", [1, 1, 0, 0, 0, 0], &[]),
+    // v60_before_white_space_is_a_word_of_its_own
+    (b"a {*} b", [1, 1, 0, 0, 0, 0], &[]),
+    // v61_also_before_a_backslash_and_a_line_end
+    (b"a {*}\\\nb", [2, 2, 0, 0, 0, 0], &[]),
+    // v62_a_second_prefix_is_a_braced_word_and_a_byte
+    (b"a {*}{*}b", [1, 1, 1, 0, 0, 0], &[]),
+    // v63_no_other_braced_word_is_a_prefix
+    (b"a {**}b", [1, 1, 1, 0, 0, 0], &[]),
+    // y01_an_excluded_byte_in_a_command_and_one_in_the
+    (b"a b\nc d", [2, 2, 1, 0, 0, 0], &[]),
+    // y02_an_excluded_byte_in_a_braced_word
+    (b"a {b c}\nd", [2, 2, 2, 0, 0, 0], &[]),
+    // y03_an_excluded_first_byte
+    (b"xa\nb", [2, 2, 1, 0, 0, 0], &[]),
+    // y04_a_line_end_directly_after_an_excluded_byte
+    (b"x\na\nb", [3, 3, 2, 0, 0, 0], &[]),
+    // y05_an_escaped_line_end_after_an_excluded_byte
+    (b"x \\\na\nb", [3, 3, 1, 0, 0, 0], &[]),
+    // y06_carriage_returns_after_an_excluded_byte
+    (b"x\ra\rb c", [1, 1, 0, 0, 0, 0], &[]),
+    // y07_cr_lf_whose_line_feed_is_excluded
+    (b"ab\r\nc\nd", [3, 3, 2, 0, 0, 0], &[]),
+    // y08_the_byte_0x1a_after_an_excluded_byte
+    (b"x\x1a\na", [2, 2, 1, 0, 0, 0], &[]),
+    // q32_bracket_and_index_above
+    (b"set s [list $a(1)]\nproc g {} {\n# doc\n}\n", [4, 3, 2, 1, 0, 0], &[2]),
+];
+
+/// The tuple of a source, its comment rows and its documentation rows.
+#[cfg(feature = "tcl")]
+fn tcl_loc(source: &[u8]) -> ([u64; 6], Vec<usize>, Vec<usize>) {
+    let space = analyze(
+        Source::new(LANG::Tcl, source),
+        MetricsOptions::default().with_only(&[Metric::Loc]),
+    )
+    .unwrap();
+    let loc = &space.metrics.loc;
+    let rows = |keep: &dyn Fn(usize) -> bool| (0..=source.len()).filter(|row| keep(*row)).collect();
+    (
+        [
+            loc.sloc(),
+            loc.ploc(),
+            loc.lloc(),
+            loc.cloc(),
+            loc.blank(),
+            loc.dloc(),
+        ],
+        rows(&|row| {
+            loc.cloc.only_comment_line_starts.contains(row)
+                || loc.cloc.code_comment_line_starts.contains(row)
+        }),
+        rows(&|row| loc.dloc.lines.contains(row)),
+    )
+}
+
+#[cfg(feature = "tcl")]
+#[test]
+fn documentation_tcl_legacy_rows_hold_no_ruff_documentation() {
+    for (source, tuple, comments) in TCL_RUFF_SOURCES {
+        // expected: the comment rows of the table, and no documentation row. The Tcl role
+        // table claims no documentation comment, so a body comment is a comment row and
+        // nothing more.
+        assert_eq!(
+            tcl_loc(source),
+            (tuple, comments.to_vec(), Vec::new()),
+            "{}",
+            source.escape_ascii()
+        );
+    }
+}
