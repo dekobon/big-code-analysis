@@ -68,6 +68,7 @@ fn documents(index: &DocumentationIndex<'_>) -> Vec<Doc> {
         .documents()
         .map(|document| {
             assert_eq!(document.get().composition(), Composition::Single);
+            assert_eq!(document.get().role(), DocumentRole::Primary);
             let fragments = (0..document.get().fragment_count())
                 .map(|position| {
                     let fragment = index.facts().document_fragment(document, position).unwrap();
@@ -93,6 +94,10 @@ fn associations(index: &DocumentationIndex<'_>) -> Vec<Edge> {
     index
         .associations()
         .map(|association| {
+            assert_eq!(association.get().convention.name(), "Javadoc");
+            if !matches!(association.get().binding, Some(node) if node.node().kind() == "package_declaration") {
+                assert_eq!(association.get().publication, Publication::Unknown);
+            }
             let document = index.facts().associated_document(association).unwrap();
             let owners = (0..association.get().owner_count())
                 .map(|position| {
@@ -181,15 +186,24 @@ fn both(
     options: DocumentationOptions,
     check: impl Fn(tree_sitter::Node<'_>, &DocumentationIndex<'_>),
 ) {
+    both_context(source, &DocumentationContext::default(), options, check);
+}
+
+#[cfg(feature = "java")]
+fn both_context(
+    source: &str,
+    context: &DocumentationContext,
+    options: DocumentationOptions,
+    check: impl Fn(tree_sitter::Node<'_>, &DocumentationIndex<'_>),
+) {
     let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
-    let context = DocumentationContext::default();
     for index in [
-        parser.documentation(&context, &options).unwrap(),
+        parser.documentation(context, &options).unwrap(),
         collect(
             LANG::Java,
             parser.ts_tree(),
             parser.code(),
-            &context,
+            context,
             &options,
         )
         .unwrap(),
@@ -244,6 +258,469 @@ fn slot(ordinal: usize, name: Range<usize>, declaration: &str) -> String {
         "Slot(Field #{ordinal} {}..{} in Node({declaration}))",
         name.start, name.end
     )
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_package_publication_depends_only_on_explicit_logical_filename() {
+    let source = "/**pkg*/\npackage p;\nclass C {}";
+    let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+    assert!(!parser.root_node().has_error());
+    for (filename, expected) in [
+        (None, Publication::Unknown),
+        (Some("package-info.java"), Publication::Eligible),
+        (Some("Other.java"), Publication::Ineligible),
+        (Some("package-info.javx"), Publication::Ineligible),
+        (Some("dir/package-info.java"), Publication::Ineligible),
+    ] {
+        let context = DocumentationContext {
+            logical_filename: filename.map(str::to_owned),
+        };
+        for index in [
+            parser
+                .documentation(&context, &DocumentationOptions::default())
+                .unwrap(),
+            collect(
+                LANG::Java,
+                parser.ts_tree(),
+                parser.code(),
+                &context,
+                &DocumentationOptions::default(),
+            )
+            .unwrap(),
+        ] {
+            assert_eq!(index.capability(), Capability::Partial);
+            assert_eq!(index.qualifications().len(), 0);
+            assert_eq!(documents(&index), [(vec![0..8], Some("pkg".to_owned()))]);
+            assert_eq!(
+                associations(&index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    vec!["Node(package_declaration 9..19)".to_owned()],
+                    Some("package_declaration 9..19".to_owned()),
+                    "program 0..30".to_owned()
+                )]
+            );
+            assert_eq!(
+                index.associations().next().unwrap().get().publication,
+                expected
+            );
+            assert_eq!(assessments(&index, index.assessments()), []);
+            let target = node(parser.ts_tree().root_node(), "package_declaration", 9..19);
+            let query = index.node_associations(target).unwrap();
+            assert!(!query.projection_pending());
+            assert_eq!(query.associations().len(), 1);
+        }
+    }
+    for (source, filename, kind, range, text, publication) in [
+        (
+            "/**mod*/\nmodule m { }",
+            "module-info.java",
+            "module_declaration",
+            9..21,
+            "mod",
+            Publication::Unknown,
+        ),
+        (
+            "/**pkg*/\n@Deprecated\npackage p;\n",
+            "package-info.java",
+            "package_declaration",
+            9..31,
+            "pkg",
+            Publication::Eligible,
+        ),
+    ] {
+        let context = DocumentationContext {
+            logical_filename: Some(filename.to_owned()),
+        };
+        both_context(
+            source,
+            &context,
+            DocumentationOptions::default(),
+            |root, index| {
+                assert!(!root.has_error());
+                assert_eq!(documents(index), [(vec![0..8], Some(text.to_owned()))]);
+                let association = index.associations().next().unwrap();
+                assert_eq!(index.associations().len(), 1);
+                assert_eq!(association.get().publication, publication);
+                let owner = index.facts().associated_owner(association, 0).unwrap();
+                assert_eq!(
+                    owner_text(index, owner),
+                    format!("Node({kind} {}..{})", range.start, range.end)
+                );
+                assert_eq!(
+                    index
+                        .node_associations(node(root, kind, range.clone()))
+                        .unwrap()
+                        .associations()
+                        .len(),
+                    1
+                );
+                assert_eq!(assessments(index, index.assessments()), []);
+            },
+        );
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_unresolved_package_retains_filename_publication() {
+    let context = DocumentationContext {
+        logical_filename: Some("package-info.java".to_owned()),
+    };
+    both_context(
+        "/**p\\u0041*/\npackage p;\nclass C {}",
+        &context,
+        DocumentationOptions::default(),
+        |_root, index| {
+            assert_eq!(index.documents().len(), 1);
+            assert_eq!(index.associations().len(), 1);
+            let association = index.associations().next().unwrap();
+            assert_eq!(
+                association.get().resolution,
+                Resolution::Unresolved(UnresolvedReason::GrammarBoundary)
+            );
+            assert_eq!(association.get().publication, Publication::Eligible);
+            assert_eq!(
+                owner_text(
+                    index,
+                    index.facts().associated_owner(association, 0).unwrap()
+                ),
+                "Node(package_declaration 13..23)"
+            );
+        },
+    );
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_two_documents_only_package_publication_depends_on_filename() {
+    let source = "/**pkg*/\npackage p;\n/**type*/\nclass C {}";
+    let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+    assert!(!parser.root_node().has_error());
+    for (filename, expected) in [
+        (None, Publication::Unknown),
+        (Some("package-info.java"), Publication::Eligible),
+        (Some("Other.java"), Publication::Ineligible),
+    ] {
+        let context = DocumentationContext {
+            logical_filename: filename.map(str::to_owned),
+        };
+        both_context(
+            source,
+            &context,
+            DocumentationOptions::default(),
+            |root, index| {
+                assert_eq!(
+                    documents(index),
+                    [
+                        (vec![0..8], Some("pkg".to_owned())),
+                        (vec![20..29], Some("type".to_owned())),
+                    ]
+                );
+                let publications: Vec<_> = index
+                    .associations()
+                    .map(|edge| edge.get().publication)
+                    .collect();
+                assert_eq!(publications, [expected, Publication::Unknown]);
+                assert_eq!(index.associations().len(), 2);
+                let package = node(root, "package_declaration", 9..19);
+                let class = node(root, "class_declaration", 30..40);
+                assert_eq!(
+                    index
+                        .node_associations(package)
+                        .unwrap()
+                        .associations()
+                        .len(),
+                    1
+                );
+                assert_eq!(
+                    index.node_associations(class).unwrap().associations().len(),
+                    1
+                );
+            },
+        );
+    }
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_broken_package_has_text_but_no_publication_edge() {
+    let context = DocumentationContext {
+        logical_filename: Some("package-info.java".to_owned()),
+    };
+    let options = DocumentationOptions::default();
+    let valid = AnyParser::parse(
+        LANG::Java,
+        b"/**pkg*/\npackage p;\nclass C {}".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let valid_index = valid.documentation(&context, &options).unwrap();
+    assert_eq!(valid_index.associations().len(), 1);
+    assert_eq!(
+        valid_index.associations().next().unwrap().get().publication,
+        Publication::Eligible
+    );
+    let broken = AnyParser::parse(LANG::Java, b"/**pkg*/\npackage p".to_vec(), None, None).unwrap();
+    let target = node(broken.ts_tree().root_node(), "package_declaration", 9..18);
+    assert!(target.has_error());
+    assert!(node(broken.ts_tree().root_node(), ";", 18..18).is_missing());
+    both_context("/**pkg*/\npackage p", &context, options, |root, index| {
+        assert!(node(root, "package_declaration", 9..18).has_error());
+        assert_eq!(documents(index), [(vec![0..8], Some("pkg".to_owned()))]);
+        assert_eq!(index.associations().len(), 0);
+        let query = index
+            .node_associations(node(root, "package_declaration", 9..18))
+            .unwrap();
+        assert!(query.projection_pending());
+        assert_eq!(query.assessments().count(), 2);
+    });
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_excluded_gap_before_package_prevents_attachment() {
+    let source = "/**pkg*/\npackage p;\nclass C {}";
+    let context = DocumentationContext {
+        logical_filename: Some("package-info.java".to_owned()),
+    };
+    let included = restricted(source, &[0..source.len()]);
+    let control = collect(
+        LANG::Java,
+        &included,
+        source.as_bytes(),
+        &context,
+        &unbound(),
+    )
+    .unwrap();
+    assert_eq!(control.documents().len(), 1);
+    assert_eq!(
+        control.associations().next().unwrap().get().publication,
+        Publication::Eligible
+    );
+    let tree = restricted(source, &[0..8, 9..source.len()]);
+    let index = collect(LANG::Java, &tree, source.as_bytes(), &context, &unbound()).unwrap();
+    assert_eq!(documents(&index), []);
+    assert_eq!(index.associations().len(), 0);
+    assert_eq!(evidence(&index), [(CandidateDisposition::Unattached, 0..8)]);
+    let target = node(tree.root_node(), "package_declaration", 9..19);
+    assert_eq!(
+        index
+            .node_associations(target)
+            .unwrap()
+            .associations()
+            .len(),
+        0
+    );
+}
+
+// test-lang-gates: hand-written(java) — exercises the Java-only publication helper directly.
+#[cfg(feature = "java")]
+#[test]
+fn java_package_filename_comparison_charges_every_compared_byte() {
+    let budget = Counting::default();
+    assert_eq!(
+        super::assembly::java_package_publication(None, &budget).unwrap(),
+        Publication::Unknown
+    );
+    assert_eq!(budget.bytes.get(), 0);
+    for (name, expected, compared) in [
+        ("Other.java", Publication::Ineligible, 0),
+        ("package-info.javx", Publication::Ineligible, 17),
+        ("package-info.java", Publication::Eligible, 17),
+    ] {
+        let budget = Counting::default();
+        assert_eq!(
+            super::assembly::java_package_publication(Some(name), &budget).unwrap(),
+            expected
+        );
+        assert_eq!(budget.bytes.get(), compared);
+    }
+    let budget = Counting {
+        fail_bytes_at: Some(1),
+        ..Counting::default()
+    };
+    assert!(matches!(
+        super::assembly::java_package_publication(Some("package-info.java"), &budget),
+        Err(SourceError::Cancelled)
+    ));
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_package_publication_comparison_observes_collection_cancellation() {
+    let source = "/**pkg*/\npackage p;\nclass C {}";
+    let parser = AnyParser::parse(LANG::Java, source.as_bytes().to_vec(), None, None).unwrap();
+    let options = DocumentationOptions::default();
+    for raw in [false, true] {
+        let collect_with = |name: &str| {
+            let context = DocumentationContext {
+                logical_filename: Some(name.to_owned()),
+            };
+            let before = crate::documentation::byte_scan::bytes_read::observed();
+            let before_charges = observations().byte_charges;
+            let publication = if raw {
+                collect(
+                    LANG::Java,
+                    parser.ts_tree(),
+                    parser.code(),
+                    &context,
+                    &options,
+                )
+                .unwrap()
+                .associations()
+                .next()
+                .unwrap()
+                .get()
+                .publication
+            } else {
+                parser
+                    .documentation(&context, &options)
+                    .unwrap()
+                    .associations()
+                    .next()
+                    .unwrap()
+                    .get()
+                    .publication
+            };
+            (
+                publication,
+                crate::documentation::byte_scan::bytes_read::observed() - before,
+                observations().byte_charges - before_charges,
+            )
+        };
+        let (ineligible, baseline_bytes, baseline_charges) = collect_with("Other.java");
+        let (eligible, charged_bytes, charged_calls) = collect_with("package-info.java");
+        let (same_length, _, same_length_charges) = collect_with("Package-info.java");
+        assert_eq!(ineligible, Publication::Ineligible);
+        assert_eq!(eligible, Publication::Eligible);
+        assert_eq!(same_length, Publication::Ineligible);
+        // expected: equal source scans; only the 17-byte exact filename is compared.
+        assert_eq!(charged_bytes - baseline_bytes, b"package-info.java".len());
+        // expected: the equal-length context copy costs the same; the first
+        // differing byte of Package-info.java costs one instead of seventeen.
+        assert_eq!(
+            charged_calls - same_length_charges,
+            b"package-info.java".len() - 1
+        );
+        // expected: Other.java copies seven fewer characters and compares none.
+        assert_eq!(
+            charged_calls - baseline_charges,
+            b"package-info.java".len() + 7
+        );
+    }
+
+    let context = DocumentationContext {
+        logical_filename: Some("package-info.java".to_owned()),
+    };
+    let before = observations();
+    let complete = parser.documentation(&context, &options).unwrap();
+    assert_eq!(
+        complete.associations().next().unwrap().get().publication,
+        Publication::Eligible
+    );
+    let polls = observations().polls - before.polls;
+    assert!(polls > 0);
+    for checkpoint in 1..=polls {
+        let result = crate::documentation::budget::cancel_after(checkpoint, || {
+            parser.documentation(&context, &options)
+        });
+        assert!(
+            matches!(result, Err(CollectionError::Cancelled)),
+            "{checkpoint}"
+        );
+    }
+    let complete = crate::documentation::budget::cancel_after(polls + 1, || {
+        parser.documentation(&context, &options)
+    })
+    .unwrap();
+    assert_eq!(
+        complete.associations().next().unwrap().get().publication,
+        Publication::Eligible
+    );
+}
+
+#[cfg(feature = "java")]
+#[test]
+fn java_forms_fixtures_and_four_star_document_keep_their_text() {
+    for (source, fragment, owner, text, superseded) in [
+        (
+            include_str!("../../../../tests/fixtures/documentation/sources/java-selection.java"),
+            19..23,
+            24..34,
+            "",
+            Some(0..18),
+        ),
+        (
+            include_str!("../../../../tests/fixtures/documentation/sources/java-empty.java"),
+            0..4,
+            5..15,
+            "",
+            None,
+        ),
+        (
+            include_str!("../../../../tests/fixtures/documentation/sources/java-record.java"),
+            0..17,
+            18..36,
+            "Record doc",
+            None,
+        ),
+        (
+            include_str!("../../../../tests/fixtures/documentation/sources/java-compact.java"),
+            0..17,
+            18..42,
+            "Record doc",
+            None,
+        ),
+        ("/****/\nclass C {}", 0..6, 7..17, "*", None),
+    ] {
+        both(source, unbound(), |root, index| {
+            assert_eq!(index.documents().len(), 1);
+            let document = index.documents().next().unwrap();
+            assert_eq!(
+                documents(index),
+                [(vec![fragment.clone()], Some(text.to_owned()))]
+            );
+            let kind = if source.contains("record R") {
+                "record_declaration"
+            } else {
+                "class_declaration"
+            };
+            let expected_owner = format!("{kind} {}..{}", owner.start, owner.end);
+            assert_eq!(
+                associations(index),
+                [(
+                    0,
+                    Resolution::Resolved,
+                    vec![format!("Node({expected_owner})")],
+                    Some(expected_owner),
+                    format!("program 0..{}", source.len())
+                )]
+            );
+            assert_eq!(
+                index.associations().next().unwrap().get().publication,
+                Publication::Unknown
+            );
+            assert_eq!(assessments(index, index.assessments()), []);
+            let target = node(root, kind, owner.clone());
+            assert_eq!(
+                index
+                    .node_associations(target)
+                    .unwrap()
+                    .associations()
+                    .len(),
+                1
+            );
+            let expected = superseded.clone().map_or_else(Vec::new, |range| {
+                vec![(CandidateDisposition::Superseded, range)]
+            });
+            assert_eq!(evidence(index), expected);
+            assert_eq!(document.get().fragment_count(), 1);
+        });
+    }
 }
 
 #[cfg(feature = "java")]
@@ -1402,6 +1879,7 @@ struct Counting {
     steps: Cell<usize>,
     bytes: Cell<usize>,
     fail_at: Option<usize>,
+    fail_bytes_at: Option<usize>,
 }
 
 #[cfg(feature = "java")]
@@ -1422,7 +1900,11 @@ impl WorkBudget for Counting {
     #[cfg(feature = "java")]
     fn bytes(&self, count: usize) -> Result<(), SourceError> {
         self.bytes.set(self.bytes.get() + count);
-        Ok(())
+        if self.fail_bytes_at == Some(self.bytes.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
 }
 

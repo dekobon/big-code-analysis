@@ -1,0 +1,34 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--test",
+    "api",
+    "java_path_provenance_decides_package_publication_but_display_labels_do_not"
+  ],
+  "cases": [
+    {
+      "name": "java-facade-provenance-not-supplied",
+      "file": "src/spaces/ast.rs",
+      "old": "            Some(PathProvenance(read_from)) if context.logical_filename.is_none() => read_from,",
+      "new": "            Some(PathProvenance(read_from)) if false && context.logical_filename.is_none() => read_from,",
+      "expect": [
+        "documentation_facade::java_path_provenance_decides_package_publication_but_display_labels_do_not"
+      ]
+    },
+    {
+      "name": "java-facade-display-label-used",
+      "file": "src/spaces/ast.rs",
+      "old": "            _ => context,",
+      "new": "            _ => &DocumentationContext { logical_filename: Some(\"package-info.java\".to_owned()) },",
+      "expect": [
+        "documentation_facade::java_path_provenance_decides_package_publication_but_display_labels_do_not"
+      ]
+    }
+  ]
+}

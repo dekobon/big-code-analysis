@@ -91,6 +91,8 @@ pub struct Observations {
     pub target_computations: usize,
     /// Byte visits in shared classifier scans.
     pub classifier_bytes: usize,
+    /// Calls that charged the collection budget for source bytes.
+    pub byte_charges: usize,
     /// Outer Doxygen structural scanner iterations.
     pub structural_bytes: usize,
     /// Doxygen structural classifier calls.
@@ -153,6 +155,7 @@ pub fn observations() -> Observations {
         target_queries: recognition::target_queries::observed(),
         target_computations: recognition::target_computations::observed(),
         classifier_bytes: byte_scan::bytes_read::observed(),
+        byte_charges: budget::byte_charges::observed(),
         structural_bytes: crate::lang_helpers::doxygen::structural_bytes::observed(),
         structural_calls: crate::lang_helpers::doxygen::structural_calls::observed(),
         intersection_searches: source::intersection_searches::observed(),

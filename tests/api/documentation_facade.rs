@@ -9,6 +9,59 @@
 
 #![allow(clippy::single_range_in_vec_init, clippy::naive_bytecount)]
 
+#[cfg(feature = "java")]
+#[test]
+fn java_path_provenance_decides_package_publication_but_display_labels_do_not() {
+    use big_code_analysis::LANG;
+    use big_code_analysis::{Ast as JavaAst, Source as JavaSource};
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext as JavaContext, DocumentationOptions as JavaOptions, Publication,
+    };
+    let java_source = b"/**pkg*/\npackage p;\nclass C {}\n";
+    let directory = tempfile::tempdir().unwrap();
+    for (name, expected) in [
+        ("package-info.java", Publication::Eligible),
+        ("Other.java", Publication::Ineligible),
+    ] {
+        let path = directory.path().join(name);
+        std::fs::write(&path, java_source).unwrap();
+        let ast = JavaAst::from_path(&path).unwrap();
+        let index = ast
+            .documentation(&JavaContext::default(), &JavaOptions::default())
+            .unwrap();
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(
+            index.associations().next().unwrap().get().publication,
+            expected
+        );
+        let explicit = JavaContext {
+            logical_filename: Some("Other.java".to_owned()),
+        };
+        assert_eq!(
+            ast.documentation(&explicit, &JavaOptions::default())
+                .unwrap()
+                .associations()
+                .next()
+                .unwrap()
+                .get()
+                .publication,
+            Publication::Ineligible
+        );
+    }
+    let labelled = JavaAst::parse(
+        JavaSource::new(LANG::Java, java_source).with_name(Some("package-info.java".to_owned())),
+    )
+    .unwrap();
+    let index = labelled
+        .documentation(&JavaContext::default(), &JavaOptions::default())
+        .unwrap();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(
+        index.associations().next().unwrap().get().publication,
+        Publication::Unknown
+    );
+}
+
 #[cfg(feature = "rust")]
 use std::ops::Range;
 #[cfg(feature = "rust")]
@@ -123,7 +176,7 @@ fn collected(ast: &Ast) -> DocumentationIndex<'_> {
 }
 
 #[cfg(feature = "rust")]
-fn logical_filename<'i>(index: &'i DocumentationIndex<'_>) -> Option<&'i str> {
+fn rust_logical_filename<'i>(index: &'i DocumentationIndex<'_>) -> Option<&'i str> {
     index.context().logical_filename.as_deref()
 }
 
@@ -502,7 +555,7 @@ fn a_file_read_from_a_path_supplies_its_final_component() {
         // The display name is the whole path as given; only its final component is
         // the logical filename.
         assert_eq!(ast.name(), path.to_str());
-        assert_eq!(logical_filename(&collected(&ast)), Some("lib.rs"));
+        assert_eq!(rust_logical_filename(&collected(&ast)), Some("lib.rs"));
     }
     assert_ne!(spellings[1].to_str(), spellings[0].to_str());
     // The name is supplied as it is written: upper case, a space, a hyphen, a second
@@ -510,11 +563,11 @@ fn a_file_read_from_a_path_supplies_its_final_component() {
     let as_written = "Año Package-Info.v2.rs";
     let odd = written(directory.path(), as_written, b"///audit\nfn f() {}\n");
     let odd = Ast::from_path(&odd).unwrap();
-    assert_eq!(logical_filename(&collected(&odd)), Some(as_written));
+    assert_eq!(rust_logical_filename(&collected(&odd)), Some(as_written));
     // A relative path: cargo runs an integration test in the package root.
     let relative = Ast::from_path(Path::new("src/lib.rs")).unwrap();
     assert_eq!(relative.name(), Some("src/lib.rs"));
-    assert_eq!(logical_filename(&collected(&relative)), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&collected(&relative)), Some("lib.rs"));
     // A path without a final component names a directory, so there is no `Ast` to
     // hold a provenance.
     let above = nested.join("..");
@@ -536,7 +589,7 @@ fn a_symbolic_link_supplies_its_own_name() {
     assert_eq!(ast.name(), link.to_str());
     let index = collected(&ast);
     assert_eq!(index.documents().len(), 1);
-    assert_eq!(logical_filename(&index), Some("link.rs"));
+    assert_eq!(rust_logical_filename(&index), Some("link.rs"));
 }
 
 // test-lang-gates: hand-written(rust) — `from_path` picks the grammar from the
@@ -548,7 +601,7 @@ fn an_ast_read_from_a_path_prints_its_language_and_display_name_only() {
     let path = written(directory.path(), "lib.rs", b"///audit\nfn f() {}\n");
     let read = Ast::from_path(&path).unwrap();
     // This `Ast` holds a provenance.
-    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&collected(&read)), Some("lib.rs"));
     // expected: the language and the display name, as before the field existed; `..`
     // stands for every other field.
     assert_eq!(
@@ -569,15 +622,15 @@ fn a_display_label_never_becomes_a_logical_filename() {
         let labelled =
             Ast::parse(Source::new(LANG::Rust, source).with_name(Some(label.to_owned()))).unwrap();
         assert_eq!(labelled.name(), Some(label));
-        assert_eq!(logical_filename(&collected(&labelled)), None);
+        assert_eq!(rust_logical_filename(&collected(&labelled)), None);
         let taken = adopted(source, &[0..source.len()], Some(label));
         assert_eq!(taken.name(), Some(label));
-        assert_eq!(logical_filename(&collected(&taken)), None);
+        assert_eq!(rust_logical_filename(&collected(&taken)), None);
     }
     // The same bytes read from that path: the name is known.
     let read = Ast::from_path(&path).unwrap();
     assert_eq!(read.source(), source);
-    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&collected(&read)), Some("lib.rs"));
 }
 
 #[cfg(feature = "rust")]
@@ -588,7 +641,7 @@ fn an_explicit_logical_filename_always_wins() {
     let read = Ast::from_path(&written(directory.path(), "lib.rs", source)).unwrap();
     let options = DocumentationOptions::default();
     // The provenance is there to be overridden.
-    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&collected(&read)), Some("lib.rs"));
     for ast in [
         read,
         parsed(source),
@@ -597,7 +650,7 @@ fn an_explicit_logical_filename_always_wins() {
         // A name with a directory is passed on whole, and an empty name is a name too.
         for explicit in ["other.rs", "nested/other.rs", ""] {
             let index = ast.documentation(&named(explicit), &options).unwrap();
-            assert_eq!(logical_filename(&index), Some(explicit));
+            assert_eq!(rust_logical_filename(&index), Some(explicit));
         }
     }
 }
@@ -712,7 +765,7 @@ fn a_file_read_from_a_path_is_cancelled_as_a_parsed_source_is() {
     let options = DocumentationOptions::default();
     let read = Ast::from_path(&path).unwrap();
     // Every collection below is given the name the path supplies.
-    assert_eq!(logical_filename(&collected(&read)), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&collected(&read)), Some("lib.rs"));
     let documents = || {
         read.documentation(&context, &options)
             .map(|index| index.documents().len())
@@ -846,7 +899,7 @@ fn the_other_ast_operations_neither_collect_nor_change_what_is_collected() {
     assert_eq!(idle.renders - unbuilt.renders, 0);
     assert_eq!(idle.owner_projections - unbuilt.owner_projections, 0);
     assert_eq!(idle.polls - unbuilt.polls, 0);
-    assert_eq!(logical_filename(&before), Some("lib.rs"));
+    assert_eq!(rust_logical_filename(&before), Some("lib.rs"));
     let view = published(&before);
 
     let metrics = |options: MetricsOptions| ast.metrics(options).unwrap().metrics.loc.dloc();

@@ -563,7 +563,7 @@ value = 13.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 81.0
+value = 85.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -581,7 +581,7 @@ value = 77507.87166066223
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 54.46099521676041
+value = 56.16048432839589
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -599,13 +599,13 @@ value = 23.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 157081.76096151394
+value = 163157.6394904263
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "nexits"
-value = 7.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
