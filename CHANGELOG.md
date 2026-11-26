@@ -26,6 +26,9 @@ for historical reference.
 
 ### Added
 
+- C# source documentation now associates a field, constant, or event-field comment
+  with one field slot per declared name, keeping the declaration as its enclosing node.
+
 - The unstable AST documentation collector now gives single-name Kotlin `val`,
   `var` and `const val` properties a `Property` slot enclosed by their property
   declaration. Destructuring properties and constructor/function parameters

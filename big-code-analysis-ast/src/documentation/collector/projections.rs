@@ -116,6 +116,18 @@ impl Builder<'_> {
         {
             return self.java_field_slots(id, budget);
         }
+        if self.index.profile == Profile::CsharpXml
+            && matches!(node.kind(), "field_declaration" | "event_field_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            let Some(names) = csharp_declarator_names(&self.index.canonical, id, budget)? else {
+                return Ok(());
+            };
+            return self.field_slots(id, names, budget);
+        }
         if self.index.profile == Profile::GoDoc {
             return self.go_member_owners(id, budget);
         }
@@ -488,6 +500,43 @@ impl Builder<'_> {
         self.pending_name(id);
         Ok(())
     }
+}
+
+// C# nests its declarators under one variable_declaration, including event fields.
+// Comments and modifiers are not names; every child read costs one budget step.
+pub(super) fn csharp_declarator_names<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    budget: &B,
+) -> Result<Option<Vec<NodeId>>, B::Error> {
+    let mut names = Vec::new();
+    let mut variables = None;
+    let outer = canonical.nodes[declaration.0].children.clone();
+    for &child in &canonical.children[outer] {
+        budget.step()?;
+        if canonical.nodes[child.0].evidence.node().kind() == "variable_declaration" {
+            variables = Some(child);
+            break;
+        }
+    }
+    let Some(variables) = variables else {
+        return Ok(None);
+    };
+    for &child in &canonical.children[canonical.nodes[variables.0].children.clone()] {
+        budget.step()?;
+        let declarator = &canonical.nodes[child.0];
+        if !matches!(declarator.evidence.node().kind(), "variable_declarator") {
+            continue;
+        }
+        let Some(&name) = canonical.children[declarator.children.clone()].first() else {
+            return Ok(None);
+        };
+        if canonical.nodes[name.0].evidence.node().kind() != "identifier" {
+            return Ok(None);
+        }
+        names.push(name);
+    }
+    Ok((!names.is_empty()).then_some(names))
 }
 
 pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(

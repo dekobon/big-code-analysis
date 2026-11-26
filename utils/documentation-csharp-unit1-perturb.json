@@ -50,7 +50,7 @@
       "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
       "old": "(if profile == Profile::GoDoc { 2 } else { 3 }, 0, false)",
       "new": "(if profile == Profile::GoDoc { 2 } else { 2 }, 0, false)",
-      "expect": ["documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation", "documentation::collector::csharp_tests::csharp_expression_bodied_property_and_indexer_own_their_documentation", "documentation::collector::csharp_tests::csharp_adjacent_documentation_lines_join_into_one_run", "documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim", "documentation::collector::csharp_tests::csharp_bare_documentation_line_is_a_present_empty_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+      "expect": ["documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation", "documentation::collector::csharp_tests::csharp_expression_bodied_property_and_indexer_own_their_documentation", "documentation::collector::csharp_tests::csharp_adjacent_documentation_lines_join_into_one_run", "documentation::collector::csharp_tests::csharp_plain_comments_and_directives_do_not_detach_documentation", "documentation::collector::csharp_tests::csharp_xml_markup_stays_verbatim", "documentation::collector::csharp_tests::csharp_bare_documentation_line_is_a_present_empty_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation", "documentation::collector::csharp_tests::csharp_two_declarations_keep_document_and_association_order"]
     },
     {
       "name": "first-line-space-kept",
@@ -85,7 +85,7 @@
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
       "old": "disposition: if member.selection == markers::MarkerSelection::Superseded {",
       "new": "disposition: if member.selection != markers::MarkerSelection::Superseded {",
-      "expect": ["documentation::collector::csharp_tests::csharp_plain_comment_ends_the_run_and_older_lines_are_superseded", "documentation::collector::csharp_tests::csharp_documentation_attaches_before_an_attribute_and_not_after_it", "documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation"]
+      "expect": ["documentation::collector::csharp_tests::csharp_plain_comment_ends_the_run_and_older_lines_are_superseded", "documentation::collector::csharp_tests::csharp_documentation_attaches_before_an_attribute_and_not_after_it", "documentation::collector::csharp_tests::csharp_excluded_placements_give_no_document", "documentation::collector::csharp_tests::csharp_line_endings_and_trailing_documentation", "documentation::collector::csharp_tests::csharp_two_unattached_fragments_keep_their_source_order", "documentation::collector::csharp_tests::csharp_local_and_top_level_fields_do_not_publish_documents", "documentation::collector::csharp_tests::csharp_later_documentation_inside_a_field_is_only_retained_evidence"]
     }
   ]
 }

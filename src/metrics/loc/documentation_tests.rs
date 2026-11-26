@@ -7970,3 +7970,118 @@ fn documentation_elixir_source_and_legacy_views_are_independent() {
     // the views of `collector/elixir_tests.rs` state them for a parse of the whole source.
     assert_eq!(totals, [232, 192, 232, 737]);
 }
+
+#[cfg(feature = "csharp")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn documentation_csharp_unit2_declarations_keep_legacy_rows() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row {
+        source: &'static [u8],
+        loc: [u64; 6],
+        dloc_rows: &'static [usize],
+        documents: usize,
+    }
+    let rows = [
+        Row {
+            source: b"class C {\n///both\nint a, b;\n}",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            source: b"class C {\n///one\nconst int K = 1;\n}",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            source: b"class C {\n///both\nevent System.Action E1, E2;\n}",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            source: b"class C {\n///first\nint a;\n///second\nevent System.Action B;\n}",
+            loc: [6, 4, 0, 2, 0, 2],
+            dloc_rows: &[1, 3],
+            documents: 2,
+        },
+        Row {
+            source: b"class C {\n///broken\nconst int K = ;\n}",
+            loc: [4, 3, 0, 1, 0, 1],
+            dloc_rows: &[1],
+            documents: 1,
+        },
+        Row {
+            source: b"class C {\n#if X\n///branch\nint a;\n#endif\n}",
+            loc: [6, 5, 0, 1, 0, 1],
+            dloc_rows: &[2],
+            documents: 1,
+        },
+        Row {
+            source: b"class C { void M() { ///local\nint x = 1; } }",
+            loc: [2, 2, 1, 1, 0, 0],
+            dloc_rows: &[],
+            documents: 0,
+        },
+    ];
+    let mut total_renders = 0;
+    for row in rows {
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Csharp, row.source.to_vec(), None, None).unwrap();
+        let idle = observations();
+        let idle_evidence = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        // expected: the walker visits each node exactly once; one render per document.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count()
+        );
+        assert_eq!(index.documents().len(), row.documents);
+        assert_eq!(collected.renders - idle.renders, row.documents);
+        total_renders += collected.renders - idle.renders;
+        // expected: each selected leading XML comment builds one evidence fragment.
+        assert_eq!(built - idle_evidence, row.documents);
+        let space = analyze(
+            Source::new(LANG::Csharp, row.source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = observations();
+        assert_eq!(analyzed.visits - collected.visits, 0);
+        assert_eq!(analyzed.renders - collected.renders, 0);
+        assert_eq!(evidence_built::observed() - built, 0);
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{}",
+            row.source.escape_ascii(),
+        );
+        assert_eq!(
+            (0..row.source.len())
+                .filter(|byte| loc.dloc.lines.contains(*byte))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+        );
+    }
+    assert_ne!(total_renders, 0);
+}
