@@ -120,6 +120,10 @@ big-code-analysis = "2"
 [ライブラリとして使う](https://dekobon.github.io/big-code-analysis/ja/library/index.html)の章を参照してください。
 API リファレンスは [docs.rs](https://docs.rs/big-code-analysis) にあります。
 
+`Ast::documentation` は保持した構文木からソース文書、意味上の所有者、テキストからソースへの対応を抽出します。
+現時点では非公開扱いの不安定な API です。利用可能な範囲と例は
+[ソース文書の抽出](https://dekobon.github.io/big-code-analysis/ja/library/documentation.html)を参照してください。
+
 Python バインディング（[PyO3](https://pyo3.rs/)）は
 [`big-code-analysis-py/`](./big-code-analysis-py/README.md) にあり、
 [PyPI の `big-code-analysis` パッケージ](https://pypi.org/project/big-code-analysis/)として同じメトリクスパイプラインを提供します。

@@ -28,8 +28,9 @@ AST test-support provides the same raw reader to AST recognition tests and root 
   hashes, binary hashes, grammar pins and views. `provenance.json` records revisions, the relationship
   between the D01 baseline and semantic base, and reference evidence.
 
-Extraction is not implemented here. `assert_primary_extraction` is the shared assertion for future
-adapters. It rejects unsupported or empty results and wrong selected kinds for source languages.
+Extraction is available through the direct-AST collector and a hidden root method;
+adapter support remains partial. `assert_primary_extraction` is the shared assertion for
+adapter implementations. It rejects unsupported or empty results and wrong selected kinds for source languages.
 For example, Python's primary projection is:
 
 ```json

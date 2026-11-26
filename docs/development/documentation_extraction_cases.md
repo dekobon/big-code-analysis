@@ -4,7 +4,9 @@ This is the independently specified form inventory for contributors implementing
 the [documentation extraction contract](documentation_extraction.md#acceptance-cases).
 It supplements the primary language roster with inputs that distinguish attachment,
 composition, text availability and profile choices. These are required outcomes,
-not observations from a shipped extractor. Profile definitions and references
+not a claim that each adapter currently implements every case. The direct-AST
+collector and a hidden root facade are available with partial adapter support.
+Profile definitions and references
 are in the contract.
 
 Each source cell expands `\n`, `\r`, `\t` and `\\` only. Inputs are standalone

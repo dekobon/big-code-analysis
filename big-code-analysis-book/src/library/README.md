@@ -46,6 +46,8 @@ the [`bca` CLI](../commands/index.html) is faster to wire up.
 - [Walking the AST directly](ast-traversal.md): count syntactic
   constructs, find nodes by kind, detect parse errors, or build a
   symbol table alongside the metrics walk.
+- [Extracting source documentation](documentation.md): read raw fragments,
+  cleaned local text, semantic owners and source origins from an `Ast`.
 - [Selecting metrics](selecting-metrics.md): compute only the metrics
   you need with `MetricsOptions::with_only`, including how dependent
   metrics pull in their inputs.
@@ -64,7 +66,8 @@ The library is on the `2.x` line and ships under a written
 held stable across patch and minor bumps, and breaking changes are
 reserved for the next major bump. Every example in this section
 compiles against the current published crate and is expected to keep
-compiling across `2.x` without edits.
+compiling across `2.x` without edits, except the documentation extraction
+example: it uses a hidden, unstable API that has no shape-stability promise.
 
 Metric *values* may still drift across minor bumps when a grammar pin
 moves or a metric definition is fixed; see

@@ -31,6 +31,10 @@ mod book_ast_traversal_examples;
 // test-lang-gates: hand-written(rust) — a `mod` declaration has no body
 //     to read; the grammar is named inside the file it points at
 #[cfg(feature = "rust")]
+mod book_documentation_examples;
+// test-lang-gates: hand-written(rust) — a `mod` declaration has no body
+//     to read; the grammar is named inside the file it points at
+#[cfg(feature = "rust")]
 mod book_library_examples;
 mod derive_eq_hash_ord;
 // test-lang-gates: hand-written(rust) — a `mod` declaration has no body

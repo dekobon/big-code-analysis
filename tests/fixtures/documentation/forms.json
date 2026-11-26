@@ -1,7 +1,7 @@
 {
   "contract": "../../../docs/development/documentation_extraction.md",
   "additional_required_cases": "../../../docs/development/documentation_extraction_cases.md",
-  "status": "independent requirements; extraction is not implemented or claimed conformant",
+  "status": "independent requirements; extraction is available with partial adapter support, not claimed conformant for every form",
   "range_notation": "Half-open bytes; spelling ranges refer to the exact occurrence in the raw file. Comment terminators exclude LF/CRLF. Owner ranges include the entire declaration unless a slot is named.",
   "cases": [
     {"path":"lua-first-file.lua","profile":"LDoc","documents":[{"fragments":[[0,8]],"owner":"file","text":"audit"}],"excluded_owners":["f"],"legacy":"Recognized documentation run; no attachment API exists. Recognition is tested with and without a following candidate; whole-metric capture is not extended."},
