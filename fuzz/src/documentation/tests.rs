@@ -56,8 +56,13 @@ fn positive(index: &DocumentationIndex<'_>, row: &Value) {
     assert_eq!(association.get().resolution, Resolution::Resolved);
     assert_eq!(association.get().owner_count(), 1);
     let owner = index.facts().associated_owner(association, 0).unwrap();
-    let Owner::Node(node) = owner.get() else {
-        panic!("positive must have a real declaration")
+    let node = match (owner.get(), index.profile()) {
+        // An Elixir definition is a group of its clauses, also with one clause.
+        (Owner::Group(group), Profile::Elixir) if group.pieces.len() == 1 => {
+            group.pieces[0].node.expect("a clause is a syntax node")
+        }
+        (Owner::Node(node), profile) if profile != Profile::Elixir => *node,
+        _ => panic!("positive must have a real declaration"),
     };
     assert_eq!(node.node().byte_range(), range(&row["owner"]));
     assert_eq!(
@@ -228,7 +233,7 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             _ => assert_eq!(result, Ok(Outcome::Checked)),
         }
     }
-    assert_eq!(counts, [18, 4, 2, 1]);
+    assert_eq!(counts, [19, 3, 2, 1]);
     assert_eq!(dispatch, (0..25).collect());
     let actual: BTreeSet<_> = std::fs::read_dir(root.join("corpus/documentation"))
         .unwrap()

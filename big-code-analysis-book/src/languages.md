@@ -122,7 +122,7 @@ content states rather than inferring that every form is supported. See
 | `C` | `Doxygen` | Partial |
 | `Cpp` (C++) | `Doxygen` | Partial |
 | `Csharp` | `CsharpXml` | Partial |
-| `Elixir` | `Elixir` | Unavailable |
+| `Elixir` | `Elixir` | Partial |
 | `Go` | `GoDoc` | Partial |
 | `Groovy` | `Groovydoc` | Partial |
 | `Irules` | `Irules` | Unavailable |

@@ -1132,7 +1132,7 @@ fn named_profiles_distinguish_deferred_incompatible_and_available() {
             let expected = if profile != default && !alternate {
                 Err(CollectionError::UnsupportedProfile { language, profile })
             } else if alternate
-                || [LANG::Python, LANG::Elixir, LANG::Bash, LANG::Irules].contains(&language)
+                || [LANG::Python, LANG::Bash, LANG::Irules].contains(&language)
             {
                 Err(CollectionError::AdapterUnavailable { language, profile })
             } else {

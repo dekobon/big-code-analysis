@@ -1,0 +1,42 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_elixir"],
+  "cases": [
+    {
+      "name": "elixir-profile-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };\n",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Elixir {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }\n",
+      "expect": ["metrics::loc::documentation_tests::documentation_elixir_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "elixir-pass-is-not-run",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    if profile == Profile::Elixir {\n        builder.elixir_attributes(&budget)?;\n    }\n",
+      "new": "",
+      "expect": ["metrics::loc::documentation_tests::documentation_elixir_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "elixir-string-text-is-a-documentation-row",
+      "file": "src/metrics/loc/elixir.rs",
+      "old": "                add_multiline_string_ploc(node, ancestors, stats, start);\n",
+      "new": "                stats.dloc.lines.insert(start);\n                add_multiline_string_ploc(node, ancestors, stats, start);\n",
+      "expect": ["metrics::loc::documentation_tests::documentation_elixir_legacy_rows_hold_no_attribute_documentation", "metrics::loc::documentation_tests::documentation_elixir_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "elixir-comment-rows-are-not-counted",
+      "file": "src/metrics/loc/elixir.rs",
+      "old": "            E::Comment => add_comment_lines::<Self>(node, code, ancestors, stats),\n",
+      "new": "            E::Comment => {}\n",
+      "expect": ["metrics::loc::documentation_tests::documentation_elixir_legacy_rows_hold_no_attribute_documentation", "metrics::loc::documentation_tests::documentation_elixir_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "elixir-module-body-statements-are-not-logical-lines",
+      "file": "src/metrics/loc/elixir.rs",
+      "old": "                                | E::DoBlock\n",
+      "new": "",
+      "expect": ["metrics::loc::documentation_tests::documentation_elixir_legacy_rows_hold_no_attribute_documentation", "metrics::loc::documentation_tests::documentation_elixir_source_and_legacy_views_are_independent"]
+    }
+  ]
+}

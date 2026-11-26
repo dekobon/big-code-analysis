@@ -130,6 +130,19 @@ for historical reference.
   `package` owns documentation yet. Legacy documentation rows are unchanged.
   (#1675)
 
+- The unstable AST documentation collector now reads Elixir documentation
+  attributes. A `@moduledoc` with one plain string documents its
+  `defmodule … do … end` module, and a `@doc` with one plain string documents
+  the group of clauses that the next `def`, `defp`, `defmacro` or `defmacrop`
+  of the same module body belongs to: one owner per kind, name and written
+  arity, also for one clause. A documented private definition keeps its source
+  document with ineligible publication. Every other attribute value, a
+  statement between an attribute and its definition, an attribute outside a
+  module body or inside `quote`, and a definition with another head stay
+  visible as pending assessments. A comment changes no outcome, and a statement
+  that no line end and no `;` separates from the one before it is not read.
+  Legacy documentation rows are unchanged. (#1676)
+
 ### Changed
 
 - JavaScript and Mozjs JSDoc variable declarations now associate their documentation

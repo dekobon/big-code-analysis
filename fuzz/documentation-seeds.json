@@ -273,7 +273,7 @@
       0
     ],
     "sha256": "bc51d2bc2ae36a524b04cc73f7bd24f1b8ad99c6d438ef32bcb6cff632a327a5",
-    "class": "deferred",
+    "class": "positive",
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "elixir",
     "fixture": "primary.ex",

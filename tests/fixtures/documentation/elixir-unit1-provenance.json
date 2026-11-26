@@ -1,0 +1,54 @@
+{
+  "scope": "Elixir @moduledoc and @doc attributes whose value is one plain string, in the body of a defmodule do-block: the module as owner, and one owner group per definition kind, name and written arity; every other documentation attribute as a pending assessment; Unit 1 of #1676",
+  "base": "6b72972d9743ba512042373b8599096bfae09696",
+  "grammar": {"runtime": "0.26.13", "elixir": "0.3.5"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/elixir_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": ["utils/documentation-elixir-unit1-perturb.json", "utils/documentation-elixir-unit1-legacy-perturb.json"],
+  "reference": {
+    "tool": "Elixir",
+    "version": "1.20.1, tag v1.20.1",
+    "evidence": "A reading of the compiler sources on 2026-11-24 and 2026-11-25: lib/elixir/lib/module.ex, lib/elixir/lib/kernel.ex, lib/elixir/lib/kernel/typespec.ex, lib/elixir/unicode/tokenizer.ex, and lib/elixir/src/elixir_def.erl, elixir_module.erl, elixir_tokenizer.erl, elixir_tokenizer.hrl, elixir_interpolation.erl, elixir_parser.yrl, elixir_quote.erl, elixir_utils.erl and elixir_dispatch.erl. Nothing was compiled or run.",
+    "qualification": "No Elixir or Erlang tool was installed or run. Every statement about what the compiler reads, stores or rejects is a reading of these files and is not confirmed by a run."
+  },
+  "legacy_measurement": {
+    "binary": "the root crate of 6b72972d9743ba512042373b8599096bfae09696, debug profile, through analyze() on the raw bytes",
+    "qualification": "Each source of the legacy oracle was measured before any production edit. The tuple is [sloc, ploc, lloc, cloc, blank, dloc]; dloc is 0 and no row is a documentation row for every source."
+  },
+  "known_differences": [
+    "The compiler gives a waiting @doc to the next definition of the module, whatever statements stand between, and a macro call between may define a function and take it (module.ex:1852-1865, 2415-2423; a reading). This unit reads past comments and other attributes only. After any other statement the attribute has no owner and one pending assessment.",
+    "@callback and @macrocallback take the waiting @doc (kernel/typespec.ex:118-135; a reading). This unit ends the run there and publishes no callback owner.",
+    "@typedoc documents the next type (kernel/typespec.ex:138-169; a reading). This unit publishes one pending assessment for a @typedoc and no type owner.",
+    "Where several @doc attributes reach one function, a later text replaces an earlier one, keyword values merge as metadata, and false hides the function (module.ex:1878-1909, 2169-2203; a reading). This unit publishes one pending document that holds every attribute, and selects none.",
+    "The compiler discards the documentation of defp and defmacrop with a warning (module.ex:1867-1876; a reading). This unit keeps the source document, with ineligible publication.",
+    "The compiler computes the value of a heredoc, an escape, an interpolation, a sigil or any other expression. This unit reads one plain string only: every other value is pending content.",
+    "The compiler rejects a string that holds a line break other than LF or CR LF, or a bidirectional formatting character (elixir_interpolation.erl:93-102, elixir_tokenizer.hrl:27-46; a reading). This unit keeps such a document with pending content.",
+    "A file with a syntax error does not compile. This unit still reads the statements without an error of a module that holds one, and leaves the module itself and its @moduledoc pending. Where the grammar recovered in a statement outside the blocks below it, this unit publishes what the statement holds with unresolved associations (grammar boundary).",
+    "Two statements with no line end and no ; between them are a syntax error for the compiler (elixir_parser.yrl:109-110, 331-333; a reading). The grammar can give two clean statements there, or make a part of the second statement of the first. This unit reads the token at the end of the node before the gap and the bytes of the gap, in every sequence and behind a recovery: a line feed that a ?\\ or ? character token takes (elixir_tokenizer.erl:224-251, 261-275; a reading) and a line feed behind a , token (:649-653, 1050-1051; a reading) do not count. It reads neither a statement that nothing separates from what stands before it nor anything below that statement.",
+    "The compiler pairs the quotes of a file from its start and fails at the end of a file whose last literal has no terminator (elixir_interpolation.erl:19-20, 25-26; a reading). The grammar recovers by dropping one quote and reads the rest of the file with text and code exchanged. This unit reads no statement that starts at or behind the first quote that the grammar dropped.",
+    "The compiler's tokenizer drops a comment (elixir_tokenizer.erl:197-204; a reading). The grammar gives a comment as a child of the node it stands in. This unit leaves comments out of every count and every position of children, so a comment that the tokenizer accepts changes no outcome.",
+    "The compiler's tokenizer rejects a comment that holds a bidirectional formatting character or a line break other than LF or CR LF (elixir_tokenizer.erl:1347-1350, elixir_tokenizer.hrl:27-46; a reading). The pinned grammar reads it as a plain comment (grammar.js:839), so this unit publishes a document in a file that the compiler rejects.",
+    "The compiler's tokenizer rejects a bare CR after ?\\ and after ? (elixir_tokenizer.erl:219-222, 256-259; a reading), also before a line feed. The pinned grammar reads a char node that holds the CR (grammar.js:255), so this unit reads the line feed after it as a separator and publishes what stands behind it.",
+    "An empty -> clause body is valid Elixir with a warning (elixir_parser.yrl:366; a reading). The pinned grammar fails on it and reads the next clause as a call whose arguments stand behind an ERROR ->, so a module in that clause lies below a joined node and has no owner and no assessment.",
+    "Behind a ?\\ or ? token that takes its line feed, a row that starts with +, - or [ continues the token's expression for the compiler (elixir_tokenizer.erl:501-502, 888-905; elixir_parser.yrl:163, 212, 283, 313; a reading). The pinned grammar starts a new statement there, which this unit joins to the character token and does not read.",
+    "A definition whose name is unquoted, whose head is an operator, a qualified name or has no parentheses around its arguments, and defguard, defguardp and defdelegate, define functions or macros for the compiler. This unit leaves them pending.",
+    "defprotocol and defimpl bodies and the keyword form of defmodule are modules for the compiler. This unit leaves them pending and assesses their documentation attributes.",
+    "Code in a block of a module body, such as the body of an if, runs when the module compiles, so an attribute there can document a definition there. This unit assesses the attribute and leaves the definition pending.",
+    "Kernel.@, Kernel.def and Kernel.defmodule written with their module, Module.put_attribute, and macros that set documentation are the same to the compiler. This unit does not see them and publishes nothing for them.",
+    "Inside quote the attributes and definitions are code that is injected where the quoted code is used. This unit publishes one pending assessment per quoted documentation attribute and no owner.",
+    "defmodule, def, defp, defmacro, defmacrop and @ are macros of Kernel (kernel.ex:3711, 5163, 5382, 5413, 5442, 5459; a reading). A module can exclude them from its imports and define its own, also through a use. This unit reads the words as written and cannot see imports.",
+    "The compiler normalizes a name outside ASCII to NFC and maps U+00B5 to U+03BC (unicode/tokenizer.ex:16-20, 472-474; a reading). This unit compares names by their bytes: two clauses whose names differ only in such a spelling are two groups.",
+    "By the reading the compiler accepts a NUL byte in a string (elixir_interpolation.erl:84-91). The pinned grammar gives a syntax error there, and this unit assesses the attribute as recovered."
+  ],
+  "pending": [
+    "Heredoc, escape, interpolation, sigil, false, nil and metadata values",
+    "Selection among several attributes for one owner",
+    "@typedoc with type owners, and callbacks",
+    "A statement between an attribute and its definition",
+    "defguard, defdelegate, and operator, unquote, qualified and unparenthesized heads",
+    "defprotocol, defimpl and the keyword form of defmodule",
+    "Attributes outside a module body, and quote templates",
+    "Publication of public definitions",
+    "Benchmark workloads and further fuzz seeds for Elixir"
+  ]
+}

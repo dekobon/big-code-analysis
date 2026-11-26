@@ -123,12 +123,7 @@ impl Profile {
         if profile != default && !alternate {
             return Err(CollectionError::UnsupportedProfile { language, profile });
         }
-        if alternate
-            || matches!(
-                profile,
-                Self::Python | Self::Elixir | Self::Shdoc | Self::Irules
-            )
-        {
+        if alternate || matches!(profile, Self::Python | Self::Shdoc | Self::Irules) {
             return Err(CollectionError::AdapterUnavailable { language, profile });
         }
         Ok(profile)

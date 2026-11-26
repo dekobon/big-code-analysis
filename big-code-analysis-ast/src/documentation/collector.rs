@@ -8,6 +8,7 @@ use super::*;
 use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
 
 mod assembly;
+mod elixir;
 mod pod;
 mod pod_doubt;
 mod pod_format;
@@ -97,6 +98,9 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         builder.add_owner(root_id, Owner::File(builder.index.source.node(root)?));
     }
     builder.walk::<T>(&budget)?;
+    if profile == Profile::Elixir {
+        builder.elixir_attributes(&budget)?;
+    }
     if profile != Profile::Helper {
         builder.finish(&budget)?;
     }
@@ -1028,6 +1032,8 @@ mod cancellation_tests;
 mod cost_tests;
 #[cfg(test)]
 mod csharp_tests;
+#[cfg(test)]
+mod elixir_tests;
 #[cfg(test)]
 mod form_tests;
 #[cfg(test)]

@@ -1,0 +1,1652 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "elixir-profile-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };\n",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Elixir {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module", "documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget", "documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
+    },
+    {
+      "name": "elixir-pass-is-not-run",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    if profile == Profile::Elixir {\n        builder.elixir_attributes(&budget)?;\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module", "documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-pass-runs-for-every-profile",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    if profile == Profile::Elixir {\n        builder.elixir_attributes(&budget)?;",
+      "new": "    if profile != Profile::Helper {\n        builder.elixir_attributes(&budget)?;",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_runs_for_the_elixir_profile_only"]
+    },
+    {
+      "name": "elixir-siblings-are-read-last-first",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for (at, &child) in children.iter().enumerate().rev() {\n",
+      "new": "        for (at, &child) in children.iter().enumerate() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-quote-is-read-as-code",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"quote\" => Word::Quote,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_quoted_code_is_a_template", "documentation::collector::elixir_tests::elixir_spellings_the_unit_does_not_see_publish_nothing", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-template-ends-below-its-call",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if !place.reads() {\n            return Ok(place);\n        }\n",
+      "new": "        if place == Place::Unreached {\n            return Ok(place);\n        }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_quoted_code_is_a_template", "documentation::collector::elixir_tests::elixir_spellings_the_unit_does_not_see_publish_nothing", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-unreadable-first-word-is-read-as-code",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !covers(index, target.byte_range(), budget)? {\n        return Ok(Word::Quote);\n    }\n",
+      "new": "    if !covers(index, target.byte_range(), budget)? {\n        return Ok(Word::Other);\n    }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-template-attribute-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if attribute && place != Place::Statement {\n",
+      "new": "        if attribute && place != Place::Statement && place != Place::Template {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_quoted_code_is_a_template", "documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-keyword-form-of-defmodule-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [_, _, body] if kind(canonical, body) == \"do_block\" => Some(body),\n",
+      "new": "        [_, _, body] if kind(canonical, body) == \"do_block\" => Some(body),\n        [_, arguments] => Some(arguments),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed"]
+    },
+    {
+      "name": "elixir-module-with-an-error-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if scope.node().has_error() || !covers(&self.index, scope.node().byte_range(), budget)? {\n",
+      "new": "        if !covers(&self.index, scope.node().byte_range(), budget)? {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read", "documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-module-with-excluded-bytes-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if scope.node().has_error() || !covers(&self.index, scope.node().byte_range(), budget)? {\n",
+      "new": "        if scope.node().has_error()\n            || (!covers(&self.index, scope.node().byte_range(), budget)? && false)\n        {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-pending-module-keeps-its-moduledoc",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            reading.unowned.append(&mut reading.moduledocs);\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read", "documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it"]
+    },
+    {
+      "name": "elixir-protocol-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        !matches!(self, Self::Quote | Self::Other)\n",
+      "new": "        !matches!(self, Self::Quote | Self::Other | Self::Protocol)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed"]
+    },
+    {
+      "name": "elixir-pending-module-has-no-groups",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.elixir_groups(module, &reading.groups, doubt, budget)\n",
+      "new": "        if self.index.canonical.nodes[module.0].evidence.node().has_error() {\n            return Ok(());\n        }\n        self.elixir_groups(module, &reading.groups, doubt, budget)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read", "documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it"]
+    },
+    {
+      "name": "elixir-comment-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        if (statement.kind() == \"comment\" || !statement.is_named()) && !recovered {\n",
+      "new": "        if !statement.is_named() && !recovered {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes"]
+    },
+    {
+      "name": "elixir-statements-need-no-separator",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    Ok(if apart { Gap::Apart } else { Gap::Joined })\n",
+      "new": "    Ok(if apart { Gap::Apart } else { Gap::Apart })\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it", "documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-semicolon-does-not-separate",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b';' if !comment => return Ok(true),\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-semicolon-in-a-comment-separates",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b';' if !comment => return Ok(true),\n",
+      "new": "            b';' => return Ok(true),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-backslash-does-not-continue-the-row",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\\\' => escaped = true,\n",
+      "new": "            b'\\\\' => {}\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-backslash-continues-a-comment",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\n' if lines && (comment || !escaped) => return Ok(true),\n",
+      "new": "            b'\\n' if lines && !escaped => return Ok(true),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-carriage-return-ends-the-continuation",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\r' if escaped => {}\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-attribute-name-is-matched-by-its-start",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b\"doc\" => Attribute::Doc,\n",
+      "new": "            name if name.starts_with(b\"doc\") => Attribute::Doc,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_spellings_the_unit_does_not_see_publish_nothing"]
+    },
+    {
+      "name": "elixir-attribute-read-is-a-value",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if let [open, close] = *arguments\n        && kind(canonical, open) == \"(\"\n        && kind(canonical, close) == \")\"\n    {\n        return Ok(Attribute::Other);\n    }\n",
+      "new": "    let _ = arguments;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes", "documentation::collector::elixir_tests::elixir_attribute_read_with_a_comment_sets_nothing"]
+    },
+    {
+      "name": "elixir-moduledoc-joins-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "                self.found.moduledocs.push(carrier(text));\n",
+      "new": "                self.run.push(carrier(text));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module", "documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document", "documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-moduledoc-ends-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "                self.found.moduledocs.push(carrier(text));\n",
+      "new": "                self.found.moduledocs.push(carrier(text));\n                self.release();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-moduledoc-role-is-primary",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                role: DocumentRole::FilePackage,\n",
+      "new": "                role: DocumentRole::Primary,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module", "documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-moduledoc-is-bound-to-the-module",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                binding: None,\n",
+      "new": "                binding: Some(module),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-other-attribute-ends-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            (Reads::Sets(Attribute::Other), true) => {}\n",
+      "new": "            (Reads::Sets(Attribute::Other), true) => self.release(),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes"]
+    },
+    {
+      "name": "elixir-run-is-kept-across-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            // Any other statement ends the run without an owner.\n            _ => self.release(),\n",
+      "new": "            // Any other statement ends the run without an owner.\n            _ => {}\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-run-is-dropped-at-the-end-of-the-body",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "    reader.release();\n    Ok(reader.found)\n",
+      "new": "    Ok(reader.found)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner"]
+    },
+    {
+      "name": "elixir-released-attribute-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_assess(AssessmentAxis::Owner, UNOWNED, carrier.node, module);\n",
+      "new": "            let _ = (carrier, module);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner", "documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-released-attribute-is-an-occurrence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_assess(AssessmentAxis::Owner, UNOWNED, carrier.node, module);\n",
+      "new": "            self.elixir_assess(AssessmentAxis::Occurrence, UNOWNED, carrier.node, module);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner"]
+    },
+    {
+      "name": "elixir-typedoc-is-read-past",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            (Reads::Sets(Attribute::Typedoc), true) => self.found.unowned.push(carrier(None)),\n",
+      "new": "            (Reads::Sets(Attribute::Typedoc), true) => {}\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes"]
+    },
+    {
+      "name": "elixir-typedoc-ends-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            (Reads::Sets(Attribute::Typedoc), true) => self.found.unowned.push(carrier(None)),\n",
+      "new": "            (Reads::Sets(Attribute::Typedoc), true) => {\n                self.found.unowned.push(carrier(None));\n                self.release();\n            }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes"]
+    },
+    {
+      "name": "elixir-callback-is-read-past",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"callback\" | b\"macrocallback\" => Attribute::Callback,\n",
+      "new": "        b\"callback\" | b\"macrocallback\" => Attribute::Other,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner"]
+    },
+    {
+      "name": "elixir-macrocallback-is-read-past",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"callback\" | b\"macrocallback\" => Attribute::Callback,\n",
+      "new": "        b\"callback\" => Attribute::Callback,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_between_leaves_the_attribute_without_an_owner"]
+    },
+    {
+      "name": "elixir-defmacro-is-no-definition",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"defmacro\" => Word::Definition(Kind::Defmacro),\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-private-functions-join-the-public-ones",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"defp\" => Word::Definition(Kind::Defp),\n",
+      "new": "        b\"defp\" => Word::Definition(Kind::Def),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity", "documentation::collector::elixir_tests::elixir_private_definitions_keep_their_document_as_ineligible"]
+    },
+    {
+      "name": "elixir-arity-is-not-part-of-the-key",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        let bucket = self.by_key.entry((kind, arity, hash.finish())).or_default();\n",
+      "new": "        let bucket = self.by_key.entry((kind, 0, hash.finish())).or_default();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-names-are-compared-by-length",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if left != right {\n            return Ok(false);\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-guard-is-not-read-past",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [left, operator, _] if kind(canonical, operator) == \"when\" => left,\n",
+      "new": "        [left, operator, _] if kind(canonical, operator) == \"unless\" => left,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-any-binary-operator-is-a-guard",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [left, operator, _] if kind(canonical, operator) == \"when\" => left,\n",
+      "new": "        [left, _, _] => left,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-unquote-names-a-definition",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "                && kind(canonical, name) == \"identifier\"\n                && !spelled(index, name, b\"unquote\") =>\n",
+      "new": "                && kind(canonical, name) == \"identifier\" =>\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-spliced-argument-is-counted",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            return Ok(None);\n        }\n        arity += 1;\n",
+      "new": "            arity += 0;\n        }\n        arity += 1;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-head-without-parentheses-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            if kind(canonical, *open) == \"(\" && kind(canonical, *close) == \")\" =>\n",
+      "new": "            if node(canonical, *open).start_byte() <= node(canonical, *close).start_byte() =>\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-guard-and-delegate-are-other-statements",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        b\"defguard\" | b\"defguardp\" | b\"defdelegate\" => Word::Unread,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-unread-definition-keeps-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            (Reads::Defines(_), false) | (Reads::Unread, _) => {\n                self.found.pending.push(child);\n                self.release();\n            }\n",
+      "new": "            (Reads::Defines(_), false) | (Reads::Unread, _) => {\n                self.found.pending.push(child);\n            }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending", "documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-unread-head-keeps-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            self.found.pending.push(child);\n            self.release();\n            return Ok(());\n",
+      "new": "            self.found.pending.push(child);\n            return Ok(());\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending"]
+    },
+    {
+      "name": "elixir-unread-head-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            self.found.pending.push(child);\n            self.release();\n            return Ok(());\n",
+      "new": "            self.release();\n            return Ok(());\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_definitions_that_are_not_read_stay_pending", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-group-holds-only-its-first-clause",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for &clause in &group.clauses {\n            step(budget)?;\n",
+      "new": "        for &clause in &group.clauses[..1] {\n            step(budget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-later-clauses-do-not-answer-for-the-group",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.index.canonical.nodes[clause.0].projection = Projection::Ready(vec![owner]);\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-group-scope-is-its-first-clause",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.add_owner(group.clauses[0], Owner::Group(OwnerGroup { scope, pieces }));\n",
+      "new": "        let scope = self.index.canonical.nodes[group.clauses[0].0].evidence;\n        self.add_owner(group.clauses[0], Owner::Group(OwnerGroup { scope, pieces }));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-one-clause-definition-is-a-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.add_owner(group.clauses[0], Owner::Group(OwnerGroup { scope, pieces }));\n",
+      "new": "        if let [clause] = group.clauses[..] {\n            let evidence = self.index.canonical.nodes[clause.0].evidence;\n            self.add_owner(clause, Owner::Node(evidence));\n        } else {\n            self.add_owner(group.clauses[0], Owner::Group(OwnerGroup { scope, pieces }));\n        }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-undocumented-definition-has-no-group",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            step(budget)?;\n            self.elixir_group(module, group, doubt, budget)?;\n",
+      "new": "            step(budget)?;\n            if group.carriers.is_empty() {\n                continue;\n            }\n            self.elixir_group(module, group, doubt, budget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module", "documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-text-keeps-its-quotes",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        .map(|(open, close)| node(canonical, open).end_byte()..node(canonical, close).start_byte()))\n",
+      "new": "        .map(|(open, close)| node(canonical, open).start_byte()..node(canonical, close).end_byte()))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text"]
+    },
+    {
+      "name": "elixir-heredoc-is-a-plain-string",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        .filter(|&(open, close)| kind(canonical, open) == \"\\\"\" && kind(canonical, close) == \"\\\"\")\n",
+      "new": "        .filter(|&(open, close)| kind(canonical, open) == kind(canonical, close))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text"]
+    },
+    {
+      "name": "elixir-escape-is-copied-as-written",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            Some((open, close))\n        }\n        _ => None,\n",
+      "new": "            Some((open, close))\n        }\n        [open, .., close] => Some((open, close)),\n        _ => None,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text"]
+    },
+    {
+      "name": "elixir-value-in-parentheses-is-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [open, value, close] if kind(canonical, open) == \"(\" && kind(canonical, close) == \")\" => {\n            Some(value)\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes"]
+    },
+    {
+      "name": "elixir-first-argument-is-the-value",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [value] => Some(value),\n",
+      "new": "        [value] | [value, ..] => Some(value),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attribute_is_read_past_comments_and_other_attributes", "documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text"]
+    },
+    {
+      "name": "elixir-rejected-characters-are-copied",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    if syntax::rejected(&index.source.bytes()[text.clone()], budget).map_err(Into::into)? {\n        return Ok((Content::PendingAdapter, Some(VALUE)));\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-lone-carriage-return-is-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\r' => next(1) != Some(b'\\n'),\n",
+      "new": "            b'\\r' => false,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-carriage-return-is-always-rejected",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\r' => next(1) != Some(b'\\n'),\n",
+      "new": "            b'\\r' => true,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-vertical-tab-and-form-feed-are-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            0x0b | 0x0c => true,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-next-line-character-is-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            0xc2 => next(1) == Some(0x85),\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-directional-controls-are-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "                (Some(0x80), Some(0xa8..=0xae)) | (Some(0x81), Some(0xa6..=0xa9))\n",
+      "new": "                (Some(0x80), Some(0xa8..=0xa9))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-neighbours-of-the-rejected-are-rejected",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "(Some(0x80), Some(0xa8..=0xae)) | (Some(0x81), Some(0xa6..=0xa9))",
+      "new": "(Some(0x80), Some(0xa7..=0xaf)) | (Some(0x81), Some(0xa5..=0xaa))",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once"]
+    },
+    {
+      "name": "elixir-pending-value-has-no-assessment",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if let Some((axis, reason)) = pending {\n",
+      "new": "        if let Some((axis, reason)) = pending.filter(|_| false) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_rows_the_language_continues_belong_to_the_value", "documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document", "documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-pending-value-is-not-surfaced-by-its-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.index.assessments_by_owner[owner.0].push(assessment);\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_node_and_owner_queries_answer_for_the_group_and_the_module"]
+    },
+    {
+      "name": "elixir-pending-value-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        return Ok((Content::PendingAdapter, Some(reason)));\n",
+      "new": "        return Ok((\n            Content::Unavailable(UnavailableReason::GrammarBoundary),\n            Some(reason),\n        ));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_rows_the_language_continues_belong_to_the_value", "documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-last-of-several-attributes-gives-the-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    let [\n        Carrier {\n            text: Some(text), ..\n        },\n    ] = carriers\n",
+      "new": "    let [\n        ..,\n        Carrier {\n            text: Some(text), ..\n        },\n    ] = carriers\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-several-attributes-await-composition",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    AssessmentAxis::Selection,\n    \"Several Elixir documentation attributes await selection\",\n",
+      "new": "    AssessmentAxis::Composition,\n    \"Several Elixir documentation attributes await selection\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-several-attributes-are-single",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            composition: if carriers.len() == 1 {\n                Composition::Single\n            } else {\n                Composition::AttributeSequence\n            },\n",
+      "new": "            composition: Composition::Single,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-document-holds-its-first-attribute-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for carrier in carriers {\n            step(budget)?;\n",
+      "new": "        for carrier in &carriers[..1] {\n            step(budget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-fragment-is-a-comment",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            fragments.push(self.fragment(source, evidence, FragmentForm::Attribute));\n",
+      "new": "            fragments.push(self.fragment(source, evidence, FragmentForm::Comment));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-binding-is-the-latest-clause",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            group.binding.get_or_insert(child);\n",
+      "new": "            group.binding = Some(child);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_several_attributes_for_one_owner_form_one_pending_document"]
+    },
+    {
+      "name": "elixir-association-has-no-binding",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            binding: attachment\n                .binding\n                .map(|id| self.index.canonical.nodes[id.0].evidence),\n",
+      "new": "            binding: None,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-lexical-scope-is-the-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            lexical_scope: self.index.canonical.nodes[scope.0].evidence,\n",
+      "new": "            lexical_scope: self.index.canonical.nodes[self.index.owner_nodes[owner.0].0].evidence,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-convention-is-the-inventory-label",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            convention: Convention(self.index.profile.name()),\n",
+      "new": "            convention: Convention(\"ElixirCompiler\"),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-private-macro-is-published",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            publication: if matches!(group.kind, Kind::Defp | Kind::Defmacrop) {\n",
+      "new": "            publication: if matches!(group.kind, Kind::Defp) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_private_definitions_keep_their_document_as_ineligible"]
+    },
+    {
+      "name": "elixir-every-definition-is-ineligible",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            publication: if matches!(group.kind, Kind::Defp | Kind::Defmacrop) {\n",
+      "new": "            publication: if matches!(\n                group.kind,\n                Kind::Def | Kind::Defp | Kind::Defmacro | Kind::Defmacrop\n            ) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity"]
+    },
+    {
+      "name": "elixir-statement-with-an-error-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            included && gap != Some(Gap::Joined) && !statement.has_error(),\n",
+      "new": "            included && gap != Some(Gap::Joined),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-recovered-attribute-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_assess(AssessmentAxis::Occurrence, RECOVERED, carrier, module);\n",
+      "new": "            let _ = (carrier, module);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read", "documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it"]
+    },
+    {
+      "name": "elixir-recovered-attribute-keeps-the-run",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "                self.found.recovered.push(child);\n                self.release();\n",
+      "new": "                self.found.recovered.push(child);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-error-node-is-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        if (statement.kind() == \"comment\" || !statement.is_named()) && !recovered {\n",
+      "new": "        if statement.kind() == \"comment\" || !statement.is_named() || recovered {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-error-above-leaves-the-association-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            .then_some(UnresolvedReason::ExcludedGap)\n            .or(attachment\n                .doubt\n                .then_some(UnresolvedReason::GrammarBoundary));\n",
+      "new": "            .then_some(UnresolvedReason::ExcludedGap);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_error_node_above_a_module_leaves_its_associations_unresolved", "documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-excluded-gap-is-no-barrier",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        self.barrier |= gap == Some(Gap::Hidden) && !self.run.is_empty();\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-excluded-gap-bars-without-an-attribute",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        self.barrier |= gap == Some(Gap::Hidden) && !self.run.is_empty();\n",
+      "new": "        self.barrier |= gap == Some(Gap::Hidden);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-barrier-outlives-its-attribute",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            group.carriers.append(&mut self.run);\n            self.barrier = false;\n",
+      "new": "            group.carriers.append(&mut self.run);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-barrier-outlives-a-release",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        self.found.unowned.append(&mut self.run);\n        self.barrier = false;\n",
+      "new": "        self.found.unowned.append(&mut self.run);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-excluded-gap-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !covers(index, leaf.start_byte()..start, budget)? {\n",
+      "new": "    if !covers(index, leaf.start_byte()..start, budget)? && start == 0 {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-statement-with-excluded-bytes-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        let included = !recovered && covers(self.index, statement.byte_range(), self.budget)?;\n",
+      "new": "        let included = !recovered;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-attribute-with-excluded-bytes-is-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if covers(&self.index, range, budget)?\n            && matches!(\n",
+      "new": "        if (covers(&self.index, range, budget)? || true)\n            && matches!(\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-attribute-outside-a-body-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if attribute && place != Place::Statement {\n            self.elixir_stray(id, place.reason(joined), budget)?;\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed", "documentation::collector::elixir_tests::elixir_quoted_code_is_a_template"]
+    },
+    {
+      "name": "elixir-typedoc-outside-a-body-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                Attribute::Doc | Attribute::Moduledoc | Attribute::Typedoc\n",
+      "new": "                Attribute::Doc | Attribute::Moduledoc\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed"]
+    },
+    {
+      "name": "elixir-definition-outside-a-body-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let read = place == Place::Statement && matches!(word, Word::Definition(_) | Word::Unread);\n",
+      "new": "        let read = matches!(word, Word::Definition(_) | Word::Unread);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed"]
+    },
+    {
+      "name": "elixir-definition-under-an-attribute-is-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if place != Place::Attribute && kind(&self.index.canonical, id) == \"call\" {\n",
+      "new": "        if kind(&self.index.canonical, id) == \"call\" {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_spellings_the_unit_does_not_see_publish_nothing"]
+    },
+    {
+      "name": "elixir-nested-block-is-a-body",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            Place::Body(_) => Place::Statement,\n",
+      "new": "            _ if kind(&self.index.canonical, id) == \"do_block\" => Place::Statement,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_attributes_outside_a_module_body_are_assessed"]
+    },
+    {
+      "name": "elixir-qualified-word-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        Some(&target) if kind(canonical, target) == \"identifier\" => node(canonical, target),\n",
+      "new": "        Some(&target) if kind(canonical, target) == \"identifier\" => node(canonical, target),\n        Some(&target) if kind(canonical, target) == \"dot\" => {\n            let target = node(canonical, target);\n            target.child_by_field_name(\"right\").unwrap_or(target)\n        }\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_spellings_the_unit_does_not_see_publish_nothing"]
+    },
+    {
+      "name": "elixir-read-counts-its-comment",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [_, arguments] => parts(canonical, arguments, budget)?,\n",
+      "new": "        [_, arguments] => children(canonical, arguments).to_vec(),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_attribute_read_with_a_comment_sets_nothing", "documentation::collector::elixir_tests::elixir_comment_is_no_structural_child"]
+    },
+    {
+      "name": "elixir-comment-is-a-structural-child",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if kind(canonical, child) != \"comment\" {\n            parts.push(child);\n        }\n",
+      "new": "        parts.push(child);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_clauses_join_one_group_by_kind_name_and_arity", "documentation::collector::elixir_tests::elixir_plain_string_is_the_only_value_with_text", "documentation::collector::elixir_tests::elixir_attribute_read_with_a_comment_sets_nothing", "documentation::collector::elixir_tests::elixir_comment_is_no_structural_child"]
+    },
+    {
+      "name": "elixir-comment-is-compared-as-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if written.kind() == \"comment\" {\n            gaps.push(None);\n            continue;\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-source-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"source\",\n",
+      "new": "    \"no_source\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read", "documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-do-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"do_block\",\n",
+      "new": "    \"no_do_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it", "documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-after-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"after_block\",\n",
+      "new": "    \"no_after_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-rescue-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"rescue_block\",\n",
+      "new": "    \"no_rescue_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-catch-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"catch_block\",\n",
+      "new": "    \"no_catch_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-else-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"else_block\",\n",
+      "new": "    \"no_else_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-body-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"body\",\n",
+      "new": "    \"no_body\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-block-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"block\",\n",
+      "new": "    \"no_block\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-anonymous-function-is-no-sequence",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    \"anonymous_function\",\n",
+      "new": "    \"no_anonymous_function\",\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-after-block-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"catch_block\", \"else_block\"];\n",
+      "new": "const SECTIONS: [&str; 4] = [\"no_section\", \"rescue_block\", \"catch_block\", \"else_block\"];\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_module_that_is_apart_or_an_operand_is_read"]
+    },
+    {
+      "name": "elixir-rescue-block-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"catch_block\", \"else_block\"];\n",
+      "new": "const SECTIONS: [&str; 4] = [\"after_block\", \"no_section\", \"catch_block\", \"else_block\"];\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_module_that_is_apart_or_an_operand_is_read"]
+    },
+    {
+      "name": "elixir-catch-block-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"catch_block\", \"else_block\"];\n",
+      "new": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"no_section\", \"else_block\"];\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_module_that_is_apart_or_an_operand_is_read"]
+    },
+    {
+      "name": "elixir-else-block-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"catch_block\", \"else_block\"];\n",
+      "new": "const SECTIONS: [&str; 4] = [\"after_block\", \"rescue_block\", \"catch_block\", \"no_section\"];\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_module_that_is_apart_or_an_operand_is_read"]
+    },
+    {
+      "name": "elixir-body-pass-reads-a-joined-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            included && gap != Some(Gap::Joined) && !statement.has_error(),\n",
+      "new": "            included && !statement.has_error(),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it"]
+    },
+    {
+      "name": "elixir-second-pass-forgets-the-gaps-of-a-body",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                gap: gaps.get(at).copied().flatten(),\n",
+      "new": "                gap: gaps.get(at).copied().flatten().filter(|_| inner != Place::Statement),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-child-after-a-recovery-is-not-compared",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        match self.recovery.or(self.statement.filter(|_| states)) {\n",
+      "new": "        match self.statement.filter(|_| states) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-hidden-recovery-is-no-recovery",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if node(canonical, child).has_error() {\n            return Ok(false);\n        }\n    }\n    Ok(true)\n",
+      "new": "        if node(canonical, child).has_error() {\n            return Ok(false);\n        }\n    }\n    Ok(false)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-error-node-can-be-joined",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        let unplaced = written.is_error() || written.is_missing();\n",
+      "new": "        let unplaced = written.is_missing();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_error_node_above_a_module_leaves_its_associations_unresolved"]
+    },
+    {
+      "name": "elixir-joined-call-is-read-below",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        Ok(if joined {\n            Place::Unreached\n        } else {\n            Place::Code\n        })\n",
+      "new": "        Ok(Place::Code)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-joined-statement-is-read-below",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            _ if joined => Place::Unreached,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-joined-module-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if !joined && word == Word::Module {\n",
+      "new": "        if word == Word::Module {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-joined-quote-is-a-template",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if !joined && word == Word::Quote {\n",
+      "new": "        if word == Word::Quote {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-joined-declaration-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if word.declares() && !read {\n",
+      "new": "        if word.declares() && !read && !joined {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-attribute-below-a-joined-statement-is-outside",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            Self::Unreached => RECOVERED,\n",
+      "new": "            Self::Unreached => OUTSIDE,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-joined-attribute-is-outside",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            _ if joined => RECOVERED,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_joined_statement_and_what_it_holds_are_not_read"]
+    },
+    {
+      "name": "elixir-hidden-gap-joins",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let joined = gap == Some(Gap::Joined);\n",
+      "new": "        let joined = gap.is_some_and(|gap| gap != Gap::Apart);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_excluded_ranges_bar_attachment_and_hide_words"]
+    },
+    {
+      "name": "elixir-every-child-of-a-module-is-its-body",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            Self::Module { call, body } if child == body => Self::Body(call),\n            Self::Module { .. } => Self::Code,\n",
+      "new": "            Self::Module { call, .. } => Self::Body(call),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-recovery-below-a-sequence-breaks-the-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if SEQUENCES.contains(&written.kind()) {\n            continue;\n        }\n        let known = stack.len();\n",
+      "new": "        let known = stack.len();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read", "documentation::collector::elixir_tests::elixir_statement_needs_a_line_end_or_semicolon_before_it"]
+    },
+    {
+      "name": "elixir-hidden-recovery-breaks-nothing",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if written.is_error() || stack.len() == known {\n",
+      "new": "        if written.is_error() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-doubt-stays-with-the-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                doubt: visit.doubt,\n",
+      "new": "                doubt: false,\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_error_node_above_a_module_leaves_its_associations_unresolved", "documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-statement-is-searched-for-no-recovery",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        visit.doubt = visit.doubt\n            || visit.gap.is_some()\n                && syntax::broken(canonical, visit.id, budget).map_err(Into::into)?;\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_error_node_above_a_module_leaves_its_associations_unresolved", "documentation::collector::elixir_tests::elixir_recovery_in_a_statement_leaves_what_it_holds_unresolved"]
+    },
+    {
+      "name": "elixir-token-is-a-statement",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    sequence && written.is_named() && !SECTIONS.contains(&written.kind())\n",
+      "new": "    sequence && !SECTIONS.contains(&written.kind())\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_module_that_is_apart_or_an_operand_is_read"]
+    },
+    {
+      "name": "elixir-clean-statement-is-searched",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !node(canonical, statement).has_error() {\n        return Ok(false);\n    }\n    // Every node of the stack holds an error.\n    let mut stack = vec![statement];\n",
+      "new": "    // Every node of the stack holds an error.\n    let mut stack = vec![statement];\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_primary_fixture_documents_its_definition_group", "documentation::collector::elixir_tests::elixir_moduledoc_documents_its_module"]
+    },
+    {
+      "name": "elixir-gaps-are-read-for-every-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !sequence && !node(canonical, parent).has_error() {\n        return Ok(Vec::new());\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-template-is-searched-for-gaps",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if !inner.reads() {\n            return Ok(Vec::new());\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-tear-is-not-searched",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let tear = syntax::tear(&self.index.canonical, budget).map_err(Into::into)?;\n",
+      "new": "        let tear = None;\n        let _ = budget;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_behind_a_torn_literal_is_not_read"]
+    },
+    {
+      "name": "elixir-statement-behind-a-tear-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if self.tear.is_some_and(|tear| start >= tear) {\n            return Ok(Some(Gap::Joined));\n        }\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_behind_a_torn_literal_is_not_read"]
+    },
+    {
+      "name": "elixir-quote-of-a-whole-string-is-a-tear",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            if torn && QUOTES.contains(&written.kind()) {\n",
+      "new": "            if QUOTES.contains(&written.kind()) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_with_a_syntax_error_is_not_read"]
+    },
+    {
+      "name": "elixir-last-tear-counts",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "                first = Some(first.map_or(at, |first| first.min(at)));\n",
+      "new": "                first = Some(first.map_or(at, |first| first.max(at)));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_behind_a_torn_literal_is_not_read"]
+    },
+    {
+      "name": "elixir-only-statements-stand-behind-a-tear",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        if self.tear.is_some_and(|tear| start >= tear) {\n",
+      "new": "        if states && self.tear.is_some_and(|tear| start >= tear) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_statement_behind_a_torn_literal_is_not_read"]
+    },
+    {
+      "name": "elixir-character-token-does-not-take-its-line-feed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let apart = separated(gap, escaped, spelled != b\",\", budget).map_err(Into::into)?;\n",
+      "new": "    let _ = escaped;\n    let apart = separated(gap, false, spelled != b\",\", budget).map_err(Into::into)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_line_feed_in_a_character_or_after_a_comma_joins_the_next_statement", "documentation::collector::elixir_tests::elixir_known_differences_of_the_grammar_keep_their_outcomes"]
+    },
+    {
+      "name": "elixir-escaped-line-feed-character-is-not-recognized",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        (leaf.kind() == \"char\" && spelled == b\"?\\\\\") || (leaf.is_error() && spelled == b\"?\");\n",
+      "new": "        leaf.is_error() && spelled == b\"?\";\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_line_feed_in_a_character_or_after_a_comma_joins_the_next_statement", "documentation::collector::elixir_tests::elixir_known_differences_of_the_grammar_keep_their_outcomes"]
+    },
+    {
+      "name": "elixir-bare-line-feed-character-is-not-recognized",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        (leaf.kind() == \"char\" && spelled == b\"?\\\\\") || (leaf.is_error() && spelled == b\"?\");\n",
+      "new": "        leaf.kind() == \"char\" && spelled == b\"?\\\\\";\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_line_feed_in_a_character_or_after_a_comma_joins_the_next_statement"]
+    },
+    {
+      "name": "elixir-any-character-token-takes-its-line-feed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        (leaf.kind() == \"char\" && spelled == b\"?\\\\\") || (leaf.is_error() && spelled == b\"?\");\n",
+      "new": "        leaf.kind() == \"char\" || (leaf.is_error() && spelled == b\"?\");\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_separator_behind_a_character_or_a_comma_is_read", "documentation::collector::elixir_tests::elixir_known_differences_of_the_grammar_keep_their_outcomes"]
+    },
+    {
+      "name": "elixir-any-question-mark-at-the-end-takes-its-line-feed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        (leaf.kind() == \"char\" && spelled == b\"?\\\\\") || (leaf.is_error() && spelled == b\"?\");\n",
+      "new": "        (leaf.kind() == \"char\" && spelled == b\"?\\\\\") || spelled.ends_with(b\"?\");\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_separator_behind_a_character_or_a_comma_is_read"]
+    },
+    {
+      "name": "elixir-last-token-is-not-walked",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    while let Some(&last) = children(&index.canonical, before).last() {\n        step(budget)?;\n        before = last;\n    }\n",
+      "new": "    let _ = children(&index.canonical, before);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_line_feed_in_a_character_or_after_a_comma_joins_the_next_statement"]
+    },
+    {
+      "name": "elixir-line-feed-after-a-comma-separates",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let apart = separated(gap, escaped, spelled != b\",\", budget).map_err(Into::into)?;\n",
+      "new": "    let apart = separated(gap, escaped, true, budget).map_err(Into::into)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_line_feed_in_a_character_or_after_a_comma_joins_the_next_statement"]
+    },
+    {
+      "name": "elixir-comment-after-a-comma-does-not-end-at-its-line-feed",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            b'\\n' if comment => comment = false,\n",
+      "new": "",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once", "documentation::collector::elixir_tests::elixir_separator_behind_a_character_or_a_comma_is_read"]
+    },
+    {
+      "name": "elixir-pass-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        builder.elixir_attributes(&budget)?;\n",
+      "new": "        builder.elixir_attributes(&crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-text-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    if syntax::rejected(&index.source.bytes()[text.clone()], budget).map_err(Into::into)? {\n",
+      "new": "    if crate::documentation::budget::infallible(syntax::rejected(\n        &index.source.bytes()[text.clone()],\n        &crate::documentation::budget::NoBudget,\n    )) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-text-copy-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    match builder.source(&index.source, text.clone(), budget) {\n",
+      "new": "    match builder.source(&index.source, text.clone(), &crate::documentation::budget::NoBudget) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-tear-search-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let tear = syntax::tear(&self.index.canonical, budget).map_err(Into::into)?;\n",
+      "new": "        let tear = crate::documentation::budget::infallible(syntax::tear(&self.index.canonical, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-visit-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_visit(visit, tear, &mut stack, budget)?;\n",
+      "new": "            self.elixir_visit(visit, tear, &mut stack, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-node-visit-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "    ) -> Result<(), SourceError> {\n        step(budget)?;\n",
+      "new": "    ) -> Result<(), SourceError> {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-node-reading-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let inner = self.elixir_node(&visit, budget)?;\n",
+      "new": "        let inner = self.elixir_node(&visit, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-reading-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let gaps = self.elixir_gaps(&mut visit, inner, tear, budget)?;\n",
+      "new": "        let gaps = self.elixir_gaps(&mut visit, inner, tear, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-child-push-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for (at, &child) in children.iter().enumerate().rev() {\n            step(budget)?;\n",
+      "new": "        for (at, &child) in children.iter().enumerate().rev() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-attribute-test-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let attribute = at_operator(&self.index.canonical, id, budget).map_err(Into::into)?;\n",
+      "new": "        let attribute = crate::documentation::budget::infallible(at_operator(&self.index.canonical, id, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-stray-attribute-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_stray(id, place.reason(joined), budget)?;\n",
+      "new": "            self.elixir_stray(id, place.reason(joined), &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-call-reading-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            return self.elixir_call(id, place, joined, budget);\n",
+      "new": "            return self.elixir_call(id, place, joined, &crate::documentation::budget::NoBudget);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-broken-statement-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                && syntax::broken(canonical, visit.id, budget).map_err(Into::into)?;\n",
+      "new": "                && crate::documentation::budget::infallible(syntax::broken(canonical, visit.id, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gaps-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let gaps = syntax::gaps(&self.index, visit.id, tear, budget)?;\n",
+      "new": "        let gaps = syntax::gaps(&self.index, visit.id, tear, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-module-reading-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_module(module, visit, &gaps, budget)?;\n",
+      "new": "            self.elixir_module(module, visit, &gaps, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-first-word-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let word = syntax::word(&self.index, id, budget)?;\n",
+      "new": "        let word = syntax::word(&self.index, id, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-module-shape-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            let body = syntax::module_body(&self.index.canonical, id, budget);\n            // The body is read when the pass reaches it.\n            if let Some(body) = body.map_err(Into::into)? {\n",
+      "new": "            let body = crate::documentation::budget::infallible(syntax::module_body(&self.index.canonical, id, &crate::documentation::budget::NoBudget));\n            // The body is read when the pass reaches it.\n            if let Some(body) = body {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-stray-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if covers(&self.index, range, budget)?\n",
+      "new": "        if covers(&self.index, range, &crate::documentation::budget::NoBudget)?\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-stray-name-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                attribute(&self.index, id, budget).map_err(Into::into)?,\n",
+      "new": "                crate::documentation::budget::infallible(attribute(&self.index, id, &crate::documentation::budget::NoBudget)),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-body-pass-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let mut reading = body::read(&self.index, body.id, gaps, budget)?;\n",
+      "new": "        let mut reading = body::read(&self.index, body.id, gaps, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-module-owner-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let owner = self.elixir_module_owner(module, &mut reading, budget)?;\n",
+      "new": "        let owner = self.elixir_module_owner(module, &mut reading, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-marks-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.elixir_marks(module, &reading, budget)?;\n",
+      "new": "        self.elixir_marks(module, &reading, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-moduledoc-document-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_document(&reading.moduledocs, owner, &attachment, budget)?;\n",
+      "new": "            self.elixir_document(&reading.moduledocs, owner, &attachment, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-groups-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.elixir_groups(module, &reading.groups, doubt, budget)\n",
+      "new": "        self.elixir_groups(module, &reading.groups, doubt, &crate::documentation::budget::NoBudget)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-module-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        if scope.node().has_error() || !covers(&self.index, scope.node().byte_range(), budget)? {\n",
+      "new": "        if scope.node().has_error()\n            || !covers(&self.index, scope.node().byte_range(), &crate::documentation::budget::NoBudget)?\n        {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-group-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for group in groups {\n            step(budget)?;\n",
+      "new": "        for group in groups {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-group-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "            self.elixir_group(module, group, doubt, budget)?;\n",
+      "new": "            self.elixir_group(module, group, doubt, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-unowned-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for carrier in &reading.unowned {\n            step(budget)?;\n",
+      "new": "        for carrier in &reading.unowned {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-recovered-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for &carrier in &reading.recovered {\n            step(budget)?;\n",
+      "new": "        for &carrier in &reading.recovered {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-pending-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for &definition in &reading.pending {\n            step(budget)?;\n",
+      "new": "        for &definition in &reading.pending {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-clause-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for &clause in &group.clauses {\n            step(budget)?;\n",
+      "new": "        for &clause in &group.clauses {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-clause-pieces-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                .pieces_with_budget(evidence.node().byte_range(), budget)?;\n            pieces.push(OwnerPiece {\n",
+      "new": "                .pieces_with_budget(evidence.node().byte_range(), &crate::documentation::budget::NoBudget)?;\n            pieces.push(OwnerPiece {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-group-document-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        self.elixir_document(&group.carriers, owner, &attachment, budget)\n",
+      "new": "        self.elixir_document(&group.carriers, owner, &attachment, &crate::documentation::budget::NoBudget)\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-fragment-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        for carrier in carriers {\n            step(budget)?;\n",
+      "new": "        for carrier in carriers {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-fragment-pieces-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "                .pieces_with_budget(evidence.node().byte_range(), budget)?;\n            fragments.push(self.fragment(source, evidence, FragmentForm::Attribute));\n",
+      "new": "                .pieces_with_budget(evidence.node().byte_range(), &crate::documentation::budget::NoBudget)?;\n            fragments.push(self.fragment(source, evidence, FragmentForm::Attribute));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-fragments-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let fragments = self.elixir_fragments(carriers, budget)?;\n",
+      "new": "        let fragments = self.elixir_fragments(carriers, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-content-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir.rs",
+      "old": "        let (content, pending) = content(&self.index, carriers, budget)?;\n",
+      "new": "        let (content, pending) = content(&self.index, carriers, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-step-helper-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    budget.step().map_err(Into::into)\n",
+      "new": "    let _ = budget;\n    Ok(())\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-child-view-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for &child in children(canonical, id) {\n        budget.step()?;\n        if kind(canonical, child) != \"comment\" {\n",
+      "new": "    for &child in children(canonical, id) {\n        let _ = budget;\n        if kind(canonical, child) != \"comment\" {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-coverage-helper-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    index\n        .source\n        .covers_with_budget(range, budget)\n        .map_err(Into::into)\n",
+      "new": "    let _ = budget;\n    Ok(crate::documentation::budget::infallible(\n        index\n            .source\n            .covers_with_budget(range, &crate::documentation::budget::NoBudget),\n    ))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-word-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let target = match parts(canonical, call, budget).map_err(Into::into)?.first() {\n",
+      "new": "    let target = match crate::documentation::budget::infallible(parts(canonical, call, &crate::documentation::budget::NoBudget)).first() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-first-word-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !covers(index, target.byte_range(), budget)? {\n",
+      "new": "    if !covers(index, target.byte_range(), &crate::documentation::budget::NoBudget)? {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-module-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    Ok(match *parts(canonical, module, budget)? {\n",
+      "new": "    Ok(match *crate::documentation::budget::infallible(parts(canonical, module, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-operator-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let operator = parts(canonical, statement, budget)?.first().copied();\n",
+      "new": "    let operator = crate::documentation::budget::infallible(parts(canonical, statement, &crate::documentation::budget::NoBudget)).first().copied();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-attribute-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let called = match parts(canonical, statement, budget)?.last() {\n",
+      "new": "    let called = match crate::documentation::budget::infallible(parts(canonical, statement, &crate::documentation::budget::NoBudget)).last() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-operand-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        Some(&operand) if kind(canonical, operand) == \"call\" => parts(canonical, operand, budget)?,\n",
+      "new": "        Some(&operand) if kind(canonical, operand) == \"call\" => crate::documentation::budget::infallible(parts(canonical, operand, &crate::documentation::budget::NoBudget)),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-argument-list-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        [_, arguments] => parts(canonical, arguments, budget)?,\n",
+      "new": "        [_, arguments] => crate::documentation::budget::infallible(parts(canonical, arguments, &crate::documentation::budget::NoBudget)),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-attribute-name-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let (called, arguments) = operand(canonical, statement, budget)?;\n",
+      "new": "    let (called, arguments) = crate::documentation::budget::infallible(operand(canonical, statement, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-value-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let (_, arguments) = operand(canonical, statement, budget)?;\n",
+      "new": "    let (_, arguments) = crate::documentation::budget::infallible(operand(canonical, statement, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-string-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let quotes = match *parts(canonical, string, budget)? {\n",
+      "new": "    let quotes = match *crate::documentation::budget::infallible(parts(canonical, string, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-text-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for (at, &byte) in text.iter().enumerate() {\n        budget.bytes(1)?;\n",
+      "new": "    for (at, &byte) in text.iter().enumerate() {\n        let _ = budget;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once", "documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for &byte in gap {\n        budget.bytes(1)?;\n",
+      "new": "    for &byte in gap {\n        let _ = budget;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once", "documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-tail-token-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    while let Some(&last) = children(&index.canonical, before).last() {\n        step(budget)?;\n",
+      "new": "    while let Some(&last) = children(&index.canonical, before).last() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    if !covers(index, leaf.start_byte()..start, budget)? {\n",
+      "new": "    if !covers(index, leaf.start_byte()..start, &crate::documentation::budget::NoBudget)? {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let apart = separated(gap, escaped, spelled != b\",\", budget).map_err(Into::into)?;\n",
+      "new": "    let apart = crate::documentation::budget::infallible(separated(gap, escaped, spelled != b\",\", &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-recovery-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for &child in children(canonical, id) {\n        budget.step()?;\n        if node(canonical, child).has_error() {\n            return Ok(false);\n",
+      "new": "    for &child in children(canonical, id) {\n        let _ = budget;\n        if node(canonical, child).has_error() {\n            return Ok(false);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-broken-node-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    while let Some(id) = stack.pop() {\n        budget.step()?;\n        let written = node(canonical, id);\n",
+      "new": "    while let Some(id) = stack.pop() {\n        let written = node(canonical, id);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-tear-node-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    while let Some(id) = stack.pop() {\n        budget.step()?;\n        let torn = node(canonical, id).is_error();\n",
+      "new": "    while let Some(id) = stack.pop() {\n        let torn = node(canonical, id).is_error();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-tear-child-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        for &child in children(canonical, id) {\n            budget.step()?;\n            let written = node(canonical, child);\n            if torn && QUOTES",
+      "new": "        for &child in children(canonical, id) {\n            let written = node(canonical, child);\n            if torn && QUOTES",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-broken-child-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        for &child in children(canonical, id) {\n            budget.step()?;\n            if node(canonical, child).has_error() {\n                stack.push(child);\n",
+      "new": "        for &child in children(canonical, id) {\n            if node(canonical, child).has_error() {\n                stack.push(child);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for &child in children(canonical, parent) {\n        step(budget)?;\n",
+      "new": "    for &child in children(canonical, parent) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-gap-answer-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        gaps.push(before.gap(index, &written, states, budget)?);\n",
+      "new": "        gaps.push(before.gap(index, &written, states, &crate::documentation::budget::NoBudget)?);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-gap-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            Some(before) if !unplaced => gap(index, before, start, budget).map(Some),\n",
+      "new": "            Some(before) if !unplaced => gap(index, before, start, &crate::documentation::budget::NoBudget).map(Some),\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan", "documentation::collector::elixir_tests::elixir_pass_charges_the_collection_budget"]
+    },
+    {
+      "name": "elixir-recovery-search-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        let recovers = recovery(canonical, child, budget).map_err(Into::into)?;\n",
+      "new": "        let recovers = crate::documentation::budget::infallible(recovery(canonical, child, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-name-comparison-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for (left, right) in source[left].iter().zip(&source[right]) {\n        budget.bytes(1)?;\n",
+      "new": "    for (left, right) in source[left].iter().zip(&source[right]) {\n        let _ = budget;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_gap_string_and_name_scans_read_each_byte_once", "documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-head-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let Some(&first) = parts(canonical, arguments, budget)?.first() else {\n",
+      "new": "    let Some(&first) = crate::documentation::budget::infallible(parts(canonical, arguments, &crate::documentation::budget::NoBudget)).first() else {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-guard-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    Ok(Some(match *parts(canonical, first, budget)? {\n",
+      "new": "    Ok(Some(match *crate::documentation::budget::infallible(parts(canonical, first, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-argument-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    for &argument in arguments {\n        budget.step()?;\n",
+      "new": "    for &argument in arguments {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-argument-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "        let target = parts(canonical, argument, budget)?.first().copied();\n",
+      "new": "        let target = crate::documentation::budget::infallible(parts(canonical, argument, &crate::documentation::budget::NoBudget)).first().copied();\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-named-head-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let (name, list) = match *parts(canonical, head, budget)? {\n",
+      "new": "    let (name, list) = match *crate::documentation::budget::infallible(parts(canonical, head, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-argument-list-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let list = parts(canonical, list, budget)?;\n",
+      "new": "    let list = crate::documentation::budget::infallible(parts(canonical, list, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-arity-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    Ok(arity(index, &list, budget)?.map(|arity| (name, arity)))\n",
+      "new": "    Ok(crate::documentation::budget::infallible(arity(index, &list, &crate::documentation::budget::NoBudget)).map(|arity| (name, arity)))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-guard-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    let Some(head) = guarded(canonical, arguments, budget)? else {\n",
+      "new": "    let Some(head) = crate::documentation::budget::infallible(guarded(canonical, arguments, &crate::documentation::budget::NoBudget)) else {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-named-head-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    named_call(index, head, budget)\n",
+      "new": "    Ok(crate::documentation::budget::infallible(named_call(index, head, &crate::documentation::budget::NoBudget)))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-definition-children-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "    match *parts(canonical, statement, budget)? {\n",
+      "new": "    match *crate::documentation::budget::infallible(parts(canonical, statement, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-head-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/syntax.rs",
+      "old": "            head(index, arguments, budget)\n",
+      "new": "            Ok(crate::documentation::budget::infallible(head(index, arguments, &crate::documentation::budget::NoBudget)))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "    for (at, &child) in children(&index.canonical, body).iter().enumerate() {\n        step(budget)?;\n",
+      "new": "    for (at, &child) in children(&index.canonical, body).iter().enumerate() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        let included = !recovered && covers(self.index, statement.byte_range(), self.budget)?;\n",
+      "new": "        let included = !recovered && covers(self.index, statement.byte_range(), &crate::documentation::budget::NoBudget)?;\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-attribute-test-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        if at_operator(canonical, child, self.budget).map_err(Into::into)? {\n",
+      "new": "        if crate::documentation::budget::infallible(at_operator(canonical, child, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-attribute-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            let sets = attribute(self.index, child, self.budget).map_err(Into::into)?;\n",
+      "new": "            let sets = crate::documentation::budget::infallible(attribute(self.index, child, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-word-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            word(self.index, child, self.budget)?\n",
+      "new": "            word(self.index, child, &crate::documentation::budget::NoBudget)?\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-statement-value-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        plain(&self.index.canonical, statement, self.budget).map_err(Into::into)\n",
+      "new": "        Ok(crate::documentation::budget::infallible(plain(&self.index.canonical, statement, &crate::documentation::budget::NoBudget)))\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-head-reading-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        let key = definition(self.index, child, self.budget).map_err(Into::into)?;\n",
+      "new": "        let key = crate::documentation::budget::infallible(definition(self.index, child, &crate::documentation::budget::NoBudget));\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-name-hash-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            self.budget.bytes(1).map_err(Into::into)?;\n            hash.write_u8(byte);\n",
+      "new": "            hash.write_u8(byte);\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-candidate-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "        for &group in bucket.iter() {\n            step(self.budget)?;\n",
+      "new": "        for &group in bucket.iter() {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    },
+    {
+      "name": "elixir-name-comparison-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/elixir/body.rs",
+      "old": "            if same(source, known, name.clone(), self.budget).map_err(Into::into)? {\n",
+      "new": "            if crate::documentation::budget::infallible(same(source, known, name.clone(), &crate::documentation::budget::NoBudget)) {\n",
+      "expect": ["documentation::collector::elixir_tests::elixir_pass_charges_every_loop_and_byte_scan"]
+    }
+  ]
+}

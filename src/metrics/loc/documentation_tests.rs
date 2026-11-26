@@ -5591,3 +5591,2310 @@ fn documentation_js_variable_projection_does_not_change_legacy_rows() {
         }
     }
 }
+
+#[cfg(feature = "elixir")]
+#[allow(clippy::large_const_arrays)]
+const ELIXIR_ATTRIBUTE_SOURCES: [(&[u8], [u64; 6]); 291] = [
+    // a01_primary
+    (
+        b"defmodule M do\n  @doc \"audit\"\n  def f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // b01_moduledoc
+    (
+        b"defmodule M do\n@moduledoc \"audit\"\nend",
+        [3, 3, 2, 0, 0, 0],
+    ),
+    // b02_moduledoc_after_definition
+    (
+        b"defmodule M do\ndef f(), do: :ok\n@moduledoc \"audit\"\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // b03_moduledoc_then_doc
+    (
+        concat!(
+            "defmodule M do\n@moduledoc \"m\"\n@doc \"d\"\ndef f(), do: :ok\n",
+            "end"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // b04_doc_then_moduledoc
+    (
+        concat!(
+            "defmodule M do\n@doc \"d\"\n@moduledoc \"m\"\ndef f(), do: :ok\n",
+            "end"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // b05_nested_modules
+    (
+        concat!(
+            "defmodule A do\n@moduledoc \"a\"\ndefmodule B do\n@moduledoc \"b",
+            "\"\n@doc \"g\"\ndef g(), do: 1\nend\n@doc \"f\"\ndef f(), do: 2",
+            "\nend"
+        )
+        .as_bytes(),
+        [10, 10, 8, 0, 0, 0],
+    ),
+    // b06_undocumented
+    (b"defmodule M do\ndef f(), do: :ok\nend", [3, 3, 2, 0, 0, 0]),
+    // b07_empty_module
+    (b"defmodule M do\nend", [2, 2, 1, 0, 0, 0]),
+    // b08_two_modules
+    (
+        concat!(
+            "defmodule A do\n@doc \"one\"\ndef f(), do: 1\nend\ndefmodule B d",
+            "o\n@doc \"two\"\ndef f(), do: 2\nend\n"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // b09_module_name_in_parentheses
+    (
+        b"defmodule(M) do\n@moduledoc \"audit\"\nend",
+        [3, 3, 2, 0, 0, 0],
+    ),
+    // b10_module_in_a_function_body
+    (
+        concat!(
+            "defmodule M do\ndef g() do\ndefmodule N do\n@moduledoc \"n\"\nen",
+            "d\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // b11_moduledoc_with_a_pending_value
+    (b"defmodule M do\n@moduledoc false\nend", [3, 3, 2, 0, 0, 0]),
+    // c01_head_and_clauses
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x)\ndef f(0), do: 0\ndef f",
+            "(x), do: x\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // c02_arity
+    (
+        concat!(
+            "defmodule M do\n@doc \"one\"\ndef f(x), do: x\n@doc \"two\"\ndef",
+            " f(x,y), do: x+y\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // c03_default_argument
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f(x \\\\ 0), do: x\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // c04_clause_that_is_not_adjacent
+    (
+        concat!(
+            "defmodule M do\ndef h(x), do: x\n@doc \"audit\"\ndef i(x), do: x",
+            "\ndef h(y), do: y\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // c05_guarded_and_plain_clause
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x) when x > 0, do: x\ndef ",
+            "f(x), do: x\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // c06_bare_head_and_empty_parentheses
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f\ndef f(), do: :ok\ndef f w",
+            "hen true, do: :no\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // c07_kinds_stay_apart
+    (
+        concat!(
+            "defmodule M do\n@doc \"one\"\ndef f(x), do: x\n@doc \"two\"\ndef",
+            "macro f(x), do: x\ndefp f(x), do: x\ndefmacrop f(x), do: x\nend"
+        )
+        .as_bytes(),
+        [8, 8, 7, 0, 0, 0],
+    ),
+    // c08_written_arguments_are_counted
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(a, # c\n b), do: a\ndef f(",
+            "a, b), do: b\ndef g(a, b: 1), do: a\ndef g(a, b), do: b\ndef f(a",
+            "), do: a\nend"
+        )
+        .as_bytes(),
+        [9, 9, 7, 1, 0, 0],
+    ),
+    // c09_names_of_one_length
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef ab(x), do: x\ndef ac(x), do:",
+            " x\ndef ab(y), do: y\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // c10_do_on_the_next_row
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x)\ndo\nx\nend\ndef f(y) d",
+            "o\ny\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 6, 0, 0, 0],
+    ),
+    // c11_unquoted_argument
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f(unquote(x)), do: x\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // c12_names_that_the_compiler_normalizes
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef \u{b5}(x), do: x\ndef ",
+            "\u{3bc}(x), do: x\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // d01_defp
+    (
+        b"defmodule M do\n@doc \"audit\"\ndefp f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // d02_defmacrop
+    (
+        b"defmodule M do\n@doc \"audit\"\ndefmacrop f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // d03_defp_with_a_pending_value
+    (
+        b"defmodule M do\n@doc false\ndefp f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // e01_semicolon_comment_blank_row_and_spec
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"; # note\n\n@spec f() :: atom()\nd",
+            "ef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 5, 4, 1, 1, 0],
+    ),
+    // e02_other_attributes_and_reads
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@impl true\n@deprecated \"x\"\n@",
+            "foo 1\n@doc\n@doc()\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [9, 9, 8, 0, 0, 0],
+    ),
+    // e03_crlf
+    (
+        b"defmodule M do\r\n@doc \"audit\"\r\ndef f(), do: :ok\r\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // e04_row_with_a_lone_backslash
+    (
+        b"defmodule M do\n@doc \"audit\"\n\\\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // e05_semicolon_on_one_row
+    (
+        b"defmodule M do\n@doc \"audit\"; def f(), do: :ok\nend",
+        [3, 3, 3, 0, 0, 0],
+    ),
+    // e06_comment_that_ends_with_a_backslash
+    (
+        b"defmodule M do\n@doc \"audit\" # c \\\ndef f(), do: :ok\nend",
+        [4, 4, 3, 1, 0, 0],
+    ),
+    // e07_continued_row_then_comment
+    (
+        b"defmodule M do\n@doc \"audit\" \\\n# c\ndef f(), do: :ok\nend",
+        [5, 4, 3, 1, 0, 0],
+    ),
+    // e08_space_after_the_operator
+    (
+        b"defmodule M do\n@ doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // e09_line_end_after_the_operator
+    (
+        b"defmodule M do\n@\ndoc \"audit\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // e10_comment_after_the_operator
+    (
+        b"defmodule M do\n@ # c\ndoc \"audit\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // e11_value_in_parentheses
+    (
+        b"defmodule M do\n@doc(\"audit\")\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // e13_moduledoc_and_reads_between
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@behaviour B\n@type t :: atom()",
+            "\n@opaque o :: atom()\n@before_compile B\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [8, 8, 7, 0, 0, 0],
+    ),
+    // e12_typedoc_between
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@typedoc \"t\"\n@type t :: atom(",
+            ")\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // f01_match_between
+    (
+        b"defmodule M do\n@doc \"audit\"\nx = 1\ndef f(), do: :ok\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f02_alias_between
+    (
+        b"defmodule M do\n@doc \"audit\"\nalias A.B\ndef f(), do: :ok\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f03_nested_module_between
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefmodule N do\ndef g(), do: 1\n",
+            "end\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // f04_end_of_the_body
+    (b"defmodule M do\n@doc \"audit\"\nend", [3, 3, 2, 0, 0, 0]),
+    // f05_unary_statement_between
+    (
+        b"defmodule M do\n@doc \"audit\"\n- 1\ndef f(), do: :ok\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f06_callback_takes_the_attribute
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@callback g() :: atom()\ndef f()",
+            ", do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f07_macrocallback_takes_the_attribute
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@macrocallback g() :: atom()\nde",
+            "f f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f08_two_attributes_released
+    (
+        concat!(
+            "defmodule M do\n@doc \"a\"\n@doc \"b\"\nx = 1\ndef f(), do: :ok",
+            "\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // f09_list_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\n[0]\ndef f(), do: :ok\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // f10_next_run_after_a_release
+    (
+        concat!(
+            "defmodule M do\n@doc \"a\"\nx = 1\n@doc \"b\"\ndef f(), do: :ok",
+            "\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // g01_defguard
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefguard is_ok(x) when x == :ok",
+            "\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g02_defguardp
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefguardp is_ok(x) when x == :ok",
+            "\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g03_defdelegate
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefdelegate g(x), to: N\ndef f()",
+            ", do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g04_operator_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef a + b, do: a\ndef f(), do: :",
+            "ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g05_unquote_head_with_arguments
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef unquote(name)(x), do: x\ndef",
+            " f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g06_unquote_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef unquote(name), do: 1\ndef f(",
+            "), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g07_spliced_arguments
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef g(unquote_splicing(args)), d",
+            "o: 1\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g08_definition_call_in_parentheses
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef(g(x), do: x)\ndef f(), do: :",
+            "ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g09_head_without_parentheses
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef g x, y do\nx\nend\ndef f(), ",
+            "do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // g10_qualified_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef N.g(y), do: y\ndef f(), do: ",
+            ":ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g11_guarded_operator_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef a + b when a > 0, do: a\ndef",
+            " f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g12_private_operator_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefp a + b, do: a\ndef f(), do: ",
+            ":ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g13_macro_with_an_unquote_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefmacro unquote(name)(x), do: x",
+            "\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // g14_private_macro_with_a_qualified_head
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefmacrop N.g(y), do: y\ndef f()",
+            ", do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // h01_empty_string
+    (
+        b"defmodule M do\n@doc \"\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h02_hash_without_brace
+    (
+        b"defmodule M do\n@doc \"a#b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h03_line_end_inside
+    (
+        b"defmodule M do\n@doc \"au\ndit\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // h04_crlf_inside
+    (
+        b"defmodule M do\n@doc \"au\r\ndit\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // h05_two_byte_character
+    (
+        "defmodule M do\n@doc \"\u{e9}t\u{e9}\"\ndef f(), do: :ok\nend".as_bytes(),
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h06_tab_inside
+    (
+        b"defmodule M do\n@doc \"a\tb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h10_heredoc
+    (
+        concat!(
+            "defmodule M do\n@doc \"\"\"\naudit\n\"\"\"\ndef f(), do: :ok\nen",
+            "d"
+        )
+        .as_bytes(),
+        [6, 6, 3, 0, 0, 0],
+    ),
+    // h11_escape
+    (
+        b"defmodule M do\n@doc \"a\\nb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h12_interpolation
+    (
+        b"defmodule M do\n@doc \"a#{x}b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h13_raw_sigil
+    (
+        b"defmodule M do\n@doc ~S(a)\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h14_cooked_sigil
+    (
+        b"defmodule M do\n@doc ~s(a)\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h15_charlist
+    (
+        b"defmodule M do\n@doc 'audit'\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h16_false
+    (
+        b"defmodule M do\n@doc false\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h17_nil
+    (
+        b"defmodule M do\n@doc nil\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h18_keyword_metadata
+    (
+        b"defmodule M do\n@doc since: \"1\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h19_concatenation
+    (
+        b"defmodule M do\n@doc \"a\" <> \"b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h20_text_and_metadata
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\", since: \"1\"\ndef f(), do: :ok\n",
+            "end"
+        )
+        .as_bytes(),
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h21_block_after_a_space
+    (
+        b"defmodule M do\n@doc (\"audit\")\ndef f(), do: :ok\nend",
+        [4, 4, 4, 0, 0, 0],
+    ),
+    // h22_do_block
+    (
+        b"defmodule M do\n@doc \"audit\" do\nend\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // h23_lone_cr_inside
+    (
+        b"defmodule M do\n@doc \"a\rb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h24_vertical_tab_inside
+    (
+        b"defmodule M do\n@doc \"a\x0bb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h25_form_feed_inside
+    (
+        b"defmodule M do\n@doc \"a\x0cb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h26_next_line_character
+    (
+        b"defmodule M do\n@doc \"a\xc2\x85b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h27_line_separator
+    (
+        b"defmodule M do\n@doc \"a\xe2\x80\xa8b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h28_right_to_left_override
+    (
+        b"defmodule M do\n@doc \"a\xe2\x80\xaeb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h29_pop_directional_isolate
+    (
+        b"defmodule M do\n@doc \"a\xe2\x81\xa9b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h30_comment_in_parentheses
+    (
+        b"defmodule M do\n@doc(# c\n\"audit\")\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // h31_atom
+    (
+        b"defmodule M do\n@doc :audit\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h32_number
+    (
+        b"defmodule M do\n@doc 1\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h33_neighbours_of_the_rejected
+    (
+        concat!(
+            "defmodule M do\n@doc \"a\u{84}\u{2027}\u{202f}\u{2065}\u{206a}b",
+            "\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h35_backslash_before_a_line_end_inside
+    (
+        b"defmodule M do\n@doc \"a\\\nb\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // n01_pipe_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\n|> g()\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // n02_concatenation_on_the_next_row
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n<> \"more\"\ndef f(), do: :ok\ne",
+            "nd"
+        )
+        .as_bytes(),
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // n03_when_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\nwhen x\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // n04_do_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\ndo\nend\ndef f(), do: :ok\nend",
+        [6, 6, 3, 0, 0, 0],
+    ),
+    // n05_comment_row_then_pipe
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n# c\n|> g()\ndef f(), do: :ok\ne",
+            "nd"
+        )
+        .as_bytes(),
+        [6, 5, 3, 1, 0, 0],
+    ),
+    // n06_blank_rows_then_pipe
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n\n\n|> g()\ndef f(), do: :ok\nen",
+            "d"
+        )
+        .as_bytes(),
+        [7, 5, 3, 0, 2, 0],
+    ),
+    // n07_not_in_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\nnot in x\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // n08_dot_on_the_next_row
+    (
+        b"defmodule M do\n@doc \"audit\"\n.g()\ndef f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // i01_attribute_before_a_later_clause
+    (
+        concat!(
+            "defmodule M do\n@doc \"old\"\ndef g(0), do: 0\n@doc \"new\"\ndef",
+            " g(x), do: x\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // i02_two_in_one_run
+    (
+        concat!(
+            "defmodule M do\n@doc \"old\"\n@doc \"new\"\ndef f(), do: :ok\nen",
+            "d"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // i03_metadata_then_text
+    (
+        concat!(
+            "defmodule M do\n@doc since: \"1\"\n@doc \"audit\"\ndef f(), do: ",
+            ":ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // i04_false_then_text
+    (
+        concat!(
+            "defmodule M do\n@doc false\n@doc \"audit\"\ndef f(), do: :ok\nen",
+            "d"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // i05_two_moduledocs
+    (
+        concat!(
+            "defmodule M do\n@moduledoc \"a\"\ndef f(), do: :ok\n@moduledoc ",
+            "\"b\"\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // i06_binding_is_the_first_taker
+    (
+        concat!(
+            "defmodule M do\ndef g(0), do: 0\n@doc \"old\"\ndef g(1), do: 1\n",
+            "@doc \"new\"\ndef g(x), do: x\nend"
+        )
+        .as_bytes(),
+        [7, 7, 6, 0, 0, 0],
+    ),
+    // j01_file_level
+    (b"@doc \"audit\"\ndef f(), do: :ok", [2, 2, 2, 0, 0, 0]),
+    // j02_function_body
+    (
+        b"defmodule M do\ndef g() do\n@doc \"audit\"\n:ok\nend\nend",
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // j03_block_in_a_module_body
+    (
+        concat!(
+            "defmodule M do\nif true do\n@doc \"audit\"\ndef f(), do: :ok\nen",
+            "d\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // j04_keyword_form_of_defmodule
+    (
+        b"defmodule M, do: (@doc \"audit\"; def f(), do: :ok)",
+        [1, 1, 3, 0, 0, 0],
+    ),
+    // j05_defprotocol
+    (
+        b"defprotocol P do\n@doc \"audit\"\ndef f(x)\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // j06_defimpl
+    (
+        b"defimpl P, for: M do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // j07_moduledoc_and_typedoc_at_file_level
+    (b"@moduledoc \"m\"\n@typedoc \"t\"\n", [2, 2, 2, 0, 0, 0]),
+    // j08_attribute_as_an_operand
+    (
+        b"defmodule M do\nx = @doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // j09_section_of_a_module_block
+    (
+        concat!(
+            "defmodule M do\ndef f(), do: :ok\nelse\n@doc \"audit\"\ndef g(),",
+            " do: 1\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // k01_quote_in_a_module
+    (
+        concat!(
+            "defmodule M do\nquote do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+            "\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // k02_module_in_a_quote
+    (
+        concat!(
+            "quote do\ndefmodule M do\n@moduledoc \"audit\"\n@doc \"x\"\ndef ",
+            "f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // k03_keyword_form_of_quote
+    (
+        b"quote do: (@doc \"audit\"; def f(), do: :ok)",
+        [1, 1, 3, 0, 0, 0],
+    ),
+    // k04_definition_after_a_quote
+    (
+        concat!(
+            "defmodule M do\nquote do\n@doc \"t\"\ndef g(), do: 1\nend\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // k05_module_after_a_quote
+    (
+        concat!(
+            "quote do\nquote do\n@doc \"a\"\nend\nend\ndefmodule M do\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [9, 9, 6, 0, 0, 0],
+    ),
+    // l01_definition_with_an_error
+    (
+        concat!(
+            "defmodule M do\n  @doc \"audit\"\n  def f(, do: :ok\n  @doc \"ne",
+            "xt\"\n  def g(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // l07_defp_with_an_error
+    (
+        concat!(
+            "defmodule M do\n  @doc \"audit\"\n  defp f(, do: :ok\n  @doc \"n",
+            "ext\"\n  def g(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // l08_defmacro_with_an_error
+    (
+        concat!(
+            "defmodule M do\n  @doc \"audit\"\n  defmacro f(, do: :ok\n  @doc",
+            " \"next\"\n  def g(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // l09_defmacrop_with_an_error
+    (
+        concat!(
+            "defmodule M do\n  @doc \"audit\"\n  defmacrop f(, do: :ok\n  @do",
+            "c \"next\"\n  def g(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // l02_attribute_with_an_error
+    (
+        b"defmodule M do\n@doc \"a\" \"b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // l03_moduledoc_with_an_error_ends_the_run
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@moduledoc \"a\" \"b\"\ndef f(),",
+            " do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // l04_module_without_its_end
+    (
+        concat!(
+            "defmodule M do\n@moduledoc \"m\"\n@doc \"audit\"\ndef f(), do: :",
+            "ok\n"
+        )
+        .as_bytes(),
+        [4, 4, 4, 0, 0, 0],
+    ),
+    // l05_error_node_between
+    (
+        b"defmodule M do\n@doc \"audit\"\n1 def f(), do: :ok\nend",
+        [4, 4, 4, 0, 0, 0],
+    ),
+    // l06_other_attribute_with_an_error
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@spec f( :: atom()\ndef f(), do:",
+            " :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // l11_error_row_between
+    (
+        b"defmodule M do\n@doc \"audit\"\n)\ndef f(), do: :ok\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // l12_nul_byte_in_a_comment
+    (
+        b"defmodule M do\n@doc \"audit\" # c\x00 d\ndef f(), do: :ok\nend",
+        [4, 4, 2, 1, 0, 0],
+    ),
+    // l10_nul_byte_in_a_string
+    (
+        b"defmodule M do\n@doc \"a\x00b\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // m01_definition_after_end_on_one_row
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f() do\n:ok\nend def g(), do",
+            ": :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // m02_attribute_after_end_on_one_row
+    (
+        concat!(
+            "defmodule M do\ndef g() do\n:ok\nend @doc \"audit\"\ndef f(), do",
+            ": :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // m03_definition_after_a_heredoc_on_one_row
+    (
+        b"defmodule M do\n@doc \"\"\"\naudit\n\"\"\" def f(), do: :ok\nend",
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // m04_attribute_after_a_continued_row
+    (
+        concat!(
+            "defmodule M do\ndef g() do\n:ok\nend \\\n@doc \"audit\"\ndef f()",
+            ", do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // m05_definition_after_a_continued_crlf_row
+    (
+        concat!(
+            "defmodule M do\n@doc \"\"\"\naudit\n\"\"\" \\\r\ndef f(), do: :o",
+            "k\nend"
+        )
+        .as_bytes(),
+        [6, 6, 3, 0, 0, 0],
+    ),
+    // m06_definition_after_a_moduledoc_on_one_row
+    (
+        concat!(
+            "defmodule M do\n@moduledoc \"\"\"\naudit\n\"\"\" def f(), do: :o",
+            "k\nend"
+        )
+        .as_bytes(),
+        [5, 5, 3, 0, 0, 0],
+    ),
+    // p01_module_under_an_error_node
+    (
+        concat!(
+            "defmodule A do\n) ) (\ndefmodule M do\n@moduledoc \"m\"\n@doc \"",
+            "audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 5, 0, 0, 0],
+    ),
+    // q01_qualified_attribute_and_definition
+    (
+        concat!(
+            "defmodule M do\nKernel.@(doc \"audit\")\nKernel.def f(), do: :ok",
+            "\nend"
+        )
+        .as_bytes(),
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // q02_qualified_defmodule
+    (
+        b"Kernel.defmodule M do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // q03_attribute_set_by_a_call
+    (
+        concat!(
+            "defmodule M do\nModule.put_attribute(__MODULE__, :doc, {1, \"aud",
+            "it\"})\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // q04_macros_that_document
+    (
+        concat!(
+            "defmodule M do\ndocs \"audit\"\nuse Documented, doc: \"audit\"\n",
+            "def f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // q05_other_attribute_names
+    (
+        concat!(
+            "defmodule M do\n@docs \"audit\"\n@moduledocs \"audit\"\n@typedoc",
+            "s \"audit\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // q06_definitions_in_a_quote_and_under_an_operator
+    (
+        concat!(
+            "quote do\ndef f(), do: :ok\ndefmodule M do\nend\nend\n@\ndef g()",
+            ", do: 1\n"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // o01_gap_between_attribute_and_definition
+    (
+        b"defmodule M do\n@doc \"audit\"\n# x\ndef f(), do: :ok\nend",
+        [5, 4, 3, 1, 0, 0],
+    ),
+    // o02_later_whole_pair
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n# x\ndef f(), do: :ok\n@doc \"la",
+            "ter\"\ndef g(), do: 1\nend"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // o03_gap_between_two_clauses
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(0), do: 0\n# x\ndef f(x), ",
+            "do: x\nend"
+        )
+        .as_bytes(),
+        [6, 5, 4, 1, 0, 0],
+    ),
+    // o04_gap_inside_a_definition
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(0), do: (\n# x\n0)\ndef f(",
+            "x), do: x\nend"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // o08_statement_after_the_gap_releases_the_attribute
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n# x\nx = 1\n@doc \"later\"\ndef ",
+            "g(), do: 1\nend"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // o09_gap_with_no_attribute_waiting
+    (
+        concat!(
+            "defmodule M do\ndef f(0), do: 0\n# x\n@doc \"later\"\ndef g(), d",
+            "o: 1\nend"
+        )
+        .as_bytes(),
+        [6, 5, 4, 1, 0, 0],
+    ),
+    // o05_gap_inside_the_attribute
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // o06_gap_inside_the_module_word
+    (
+        b"defmoXXdule M do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // o10_gap_inside_an_attribute_at_file_level
+    (b"@doc \"audit\"\ndef f(), do: :ok", [2, 2, 2, 0, 0, 0]),
+    // o07_adjacent_ranges
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // h34_byte_that_is_no_utf8
+    (
+        b"defmodule M do\n@doc \"a\xffb\"\ndef f(), do: :ok\nend",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // r01_doc_read_with_a_comment
+    (
+        b"defmodule M do\n@doc( # c\n)\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // r02_moduledoc_read_with_a_comment
+    (
+        b"defmodule M do\n@moduledoc( # c\n)\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // r03_typedoc_read_with_a_comment
+    (
+        b"defmodule M do\n@typedoc( # c\n)\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // r04_read_with_two_comments
+    (
+        b"defmodule M do\n@doc( # a\n# b\n)\ndef f(), do: :ok\nend",
+        [6, 5, 3, 2, 0, 0],
+    ),
+    // r05_read_before_a_real_attribute
+    (
+        concat!(
+            "defmodule M do\n@doc( # c\n)\n@doc \"audit\"\ndef f(), do: :ok\n",
+            "end"
+        )
+        .as_bytes(),
+        [6, 6, 4, 1, 0, 0],
+    ),
+    // r06_read_after_a_real_attribute
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@doc( # c\n)\ndef f(), do: :ok\n",
+            "end"
+        )
+        .as_bytes(),
+        [6, 6, 4, 1, 0, 0],
+    ),
+    // r07_moduledoc_read_after_a_real_one
+    (
+        b"defmodule M do\n@moduledoc \"audit\"\n@moduledoc( # c\n)\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // r08_reads_at_file_level
+    (
+        b"@doc( # c\n)\n@moduledoc( # c\n)\n@typedoc( # c\n)\n",
+        [6, 6, 3, 3, 0, 0],
+    ),
+    // r09_read_in_a_quote
+    (b"quote do\n@doc( # c\n)\nend", [4, 4, 2, 1, 0, 0]),
+    // t01_comment_before_the_do_of_a_module
+    (
+        b"defmodule M # c\ndo\n@doc \"audit\"\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // t02_comment_before_the_do_of_a_definition
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f() # c\ndo\n:ok\nend\nend",
+        [7, 7, 4, 1, 0, 0],
+    ),
+    // t03_comment_after_when
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x) when # c\n is_atom(x), ",
+            "do: x\nend"
+        )
+        .as_bytes(),
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // t04_comment_before_when
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x) # c\n when is_atom(x), ",
+            "do: x\nend"
+        )
+        .as_bytes(),
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // t05_comment_before_the_do_of_a_guarded_definition
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x) when is_atom(x) # c\ndo",
+            "\nx\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 1, 0, 0],
+    ),
+    // t06_comment_after_the_value_in_parentheses
+    (
+        b"defmodule M do\n@doc(\"audit\" # c\n)\ndef f(), do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // t07_comment_between_the_head_and_the_keywords
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f(), # c\n do: :ok\nend",
+        [5, 5, 3, 1, 0, 0],
+    ),
+    // t08_comment_before_the_do_of_a_bare_head
+    (
+        b"defmodule M do\n@doc \"audit\"\ndef f # c\n do\n:ok\nend\nend",
+        [7, 7, 4, 1, 0, 0],
+    ),
+    // t09_comment_at_the_end_of_every_row
+    (
+        concat!(
+            "defmodule M do # c\n@doc \"audit\" # c\ndef f(), do: :ok # c\nen",
+            "d"
+        )
+        .as_bytes(),
+        [4, 4, 3, 3, 0, 0],
+    ),
+    // t10_two_comments_in_a_guarded_macro
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndefmacro m(x) # c\n when is_atom",
+            "(x) # d\n do\nx\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 4, 2, 0, 0],
+    ),
+    // t11_comment_in_the_parentheses_of_a_moduledoc
+    (
+        b"defmodule M do\n@moduledoc( # c\n\"audit\")\nend",
+        [4, 4, 2, 1, 0, 0],
+    ),
+    // t12_comment_in_an_empty_argument_list
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f( # c\n), do: :ok\ndef f(),",
+            " do: :error\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 1, 0, 0],
+    ),
+    // t13_guarded_clause_with_a_comment_joins_its_group
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\ndef f(x) # c\n when x > 0, do: x",
+            "\ndef f(x), do: x\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 1, 0, 0],
+    ),
+    // s01_module_after_a_module_at_file_level
+    (
+        concat!(
+            "defmodule A do\n@moduledoc \"a\"\nend defmodule X do\n@moduledoc",
+            " \"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 6, 0, 0, 0],
+    ),
+    // s02_module_after_a_definition_in_a_body
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend defmodule X do\n@moduledoc ",
+            "\"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 7, 0, 0, 0],
+    ),
+    // s03_module_after_an_expression_in_a_definition
+    (
+        concat!(
+            "defmodule M do\ndef g() do\n:ok defmodule X do\n@moduledoc \"x\"",
+            "\n@doc \"audit\"\ndef f(), do: :ok\nend\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 7, 0, 0, 0],
+    ),
+    // s04_module_in_a_block_of_a_call
+    (
+        concat!(
+            "if true do\nfn -> :ok end defmodule X do\n@moduledoc \"x\"\n@doc",
+            " \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 7, 0, 0, 0],
+    ),
+    // s05_module_in_an_after_block
+    (
+        concat!(
+            "try do\n:ok\nafter\nfn -> :ok end defmodule X do\n@moduledoc \"x",
+            "\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 9, 0, 0, 0],
+    ),
+    // s06_module_in_an_else_block
+    (
+        concat!(
+            "if true do\n:ok\nelse\nfn -> :ok end defmodule X do\n@moduledoc ",
+            "\"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 9, 0, 0, 0],
+    ),
+    // s07_module_in_a_rescue_block
+    (
+        concat!(
+            "try do\n:ok\nrescue\nfn -> :ok end defmodule X do\n@moduledoc \"",
+            "x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 9, 0, 0, 0],
+    ),
+    // s08_module_in_a_catch_block
+    (
+        concat!(
+            "try do\n:ok\ncatch\nfn -> :ok end defmodule X do\n@moduledoc \"x",
+            "\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 9, 0, 0, 0],
+    ),
+    // s09_module_in_the_body_of_a_clause
+    (
+        concat!(
+            "f = fn ->\nfn -> :ok end defmodule X do\n@moduledoc \"x\"\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 7, 0, 0, 0],
+    ),
+    // s10_module_in_a_parenthesized_block
+    (
+        concat!(
+            "(\nfn -> :ok end defmodule X do\n@moduledoc \"x\"\n@doc \"audit",
+            "\"\ndef f(), do: :ok\nend\n)"
+        )
+        .as_bytes(),
+        [7, 7, 7, 0, 0, 0],
+    ),
+    // s13_module_after_an_expression_at_file_level
+    (
+        concat!(
+            "x = 1 defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef f(),",
+            " do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // s19_module_after_a_continued_row
+    (
+        concat!(
+            "x = 1 \\\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef ",
+            "f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // s11_clause_after_a_clause_of_an_anonymous_function
+    (
+        concat!(
+            "fn\n0 -> :ok 1 -> defmodule X do\n@moduledoc \"x\"\n@doc \"audit",
+            "\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // s12_module_below_a_joined_definition
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend def g() do\ndefmodule X do",
+            "\n@moduledoc \"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend\n",
+            "end"
+        )
+        .as_bytes(),
+        [11, 11, 8, 0, 0, 0],
+    ),
+    // s14_module_after_a_string
+    (
+        concat!(
+            "defmodule M do\n\"s\" defmodule X do\n@moduledoc \"x\"\n@doc \"a",
+            "udit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // s15_joined_attribute_in_a_definition
+    (
+        b"defmodule M do\ndef g() do\n:ok @doc \"audit\"\nend\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // s16_quote_below_a_joined_statement
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend if true do\nquote do\n@doc ",
+            "\"audit\"\nend\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 6, 0, 0, 0],
+    ),
+    // s22_joined_quote
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend quote do\n@doc \"audit\"\ne",
+            "nd\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // s17_joined_module_in_a_quote
+    (
+        concat!(
+            "quote do\n:ok defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\n",
+            "def f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 6, 0, 0, 0],
+    ),
+    // s18_joined_protocol
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend defprotocol P do\n@doc \"au",
+            "dit\"\ndef f(x)\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // s20_joined_guard_definition
+    (
+        b"defmodule M do\ndef x() do\n:ok\nend defguard g(x) when x\nend",
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // s21_joined_attribute_at_file_level
+    (b"x = 1 @doc \"audit\"\n", [1, 1, 1, 0, 0, 0]),
+    // u01_module_after_a_line_end
+    (
+        concat!(
+            "defmodule M do\ndef x() do\n:ok\nend\ndefmodule X do\n@moduledoc",
+            " \"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 7, 0, 0, 0],
+    ),
+    // u02_module_after_a_semicolon
+    (
+        concat!(
+            "x = 1; defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef f()",
+            ", do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 5, 0, 0, 0],
+    ),
+    // u03_module_after_a_comment_and_a_line_end
+    (
+        concat!(
+            "x = 1 # c\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef",
+            " f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 5, 1, 0, 0],
+    ),
+    // u04_module_as_the_right_side_of_a_match
+    (
+        concat!(
+            "x = defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef f(), d",
+            "o: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // u05_module_as_an_argument_of_a_call
+    (
+        concat!(
+            "IO.inspect(defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef",
+            " f(), do: :ok\nend)"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // u07_module_after_a_semicolon_in_a_clause
+    (
+        concat!(
+            "f = fn -> :ok; defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"",
+            "\ndef f(), do: :ok\nend end"
+        )
+        .as_bytes(),
+        [5, 5, 6, 0, 0, 0],
+    ),
+    // u06_module_in_a_rescue_section_on_the_row_of_a_statement
+    (
+        concat!(
+            "try do :ok rescue _ -> defmodule X do\n@moduledoc \"x\"\n@doc \"",
+            "audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [6, 6, 7, 0, 0, 0],
+    ),
+    // u08_module_in_an_after_section_on_the_row_of_a_statement
+    (
+        concat!(
+            "try do :ok after\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit",
+            "\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 7, 0, 0, 0],
+    ),
+    // u09_module_in_a_catch_section_on_the_row_of_a_statement
+    (
+        concat!(
+            "try do :ok catch _ -> defmodule X do\n@moduledoc \"x\"\n@doc \"a",
+            "udit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [6, 6, 7, 0, 0, 0],
+    ),
+    // u10_module_in_an_else_section_on_the_row_of_a_statement
+    (
+        concat!(
+            "if true do :ok else\ndefmodule X do\n@moduledoc \"x\"\n@doc \"au",
+            "dit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 7, 0, 0, 0],
+    ),
+    // v01_expression_read_into_a_match
+    (
+        concat!(
+            "1 y = defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef f(),",
+            " do: :ok\nend"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // v02_call_read_into_the_next_call
+    (
+        concat!(
+            "f() if true do\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit\"",
+            "\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // v03_expression_read_into_a_qualified_call
+    (
+        concat!(
+            "1 IO.inspect(defmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\nd",
+            "ef f(), do: :ok\nend)"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // v07_attribute_read_into_the_next_definition
+    (
+        concat!(
+            "@doc \"before\" def g() do\ndefmodule X do\n@moduledoc \"x\"\n@d",
+            "oc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // v06_recovery_among_the_clauses_of_a_function
+    (
+        concat!(
+            "f = fn\n1 1 -> :ok\n2 -> defmodule X do\n@moduledoc \"x\"\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // v04_definition_read_into_the_next_definition
+    (
+        concat!(
+            "defmodule M do\ndef a(), do: :ok def g() do\ndefmodule X do\n@mo",
+            "duledoc \"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\nend\nend"
+        )
+        .as_bytes(),
+        [9, 9, 6, 0, 0, 0],
+    ),
+    // v05_error_in_a_head_and_a_sound_statement_after_it
+    (
+        concat!(
+            "defmodule M do\n@doc \"one\"\ndef a(, do: (\ndefmodule X do\n@mo",
+            "duledoc \"x\"\n@doc \"audit\"\ndef f(), do: :ok\nend\n)\n@doc \"",
+            "two\"\ndef b(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [12, 12, 9, 0, 0, 0],
+    ),
+    // w01_string_without_its_end
+    (
+        concat!(
+            "defmodule M do\nx = \"a\n@doc \"LIT\"\ndef lit, do: :ok\n@doc \"",
+            "REAL\"\ndef real, do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // w02_quoted_atom_without_its_end
+    (
+        concat!(
+            "defmodule M do\nx = :\"a\n@doc \"LIT\"\ndef lit, do: :ok\n@doc ",
+            "\"REAL\"\ndef real, do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // w03_statements_before_the_tear_are_read
+    (
+        concat!(
+            "defmodule M do\n@doc \"one\"\ndef a(), do: :ok\nx = \"s\n@doc \"",
+            "two\"\ndef b(), do: :ok\n@doc \"three\"\ndef c(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [9, 9, 6, 0, 0, 0],
+    ),
+    // w04_doubled_quote
+    (
+        concat!(
+            "defmodule M do\n@doc \"\"audit\"\ndef f(), do: :ok\n@doc \"next",
+            "\"\ndef g(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // w05_module_behind_a_tear_at_file_level
+    (
+        concat!(
+            "x = \"a\ny = \"b\"\ndefmodule X do\n@moduledoc \"x\"\n@doc \"aud",
+            "it\"\ndef f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 7, 4, 0, 0, 0],
+    ),
+    // w06_tear_in_the_body_of_a_definition
+    (
+        concat!(
+            "defmodule M do\ndef h() do\nx = \"a\ny = \"b\"\nend\n@doc \"REAL",
+            "\"\ndef real(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // w07_two_torn_literals
+    (
+        concat!(
+            "defmodule M do\nx = \"s\n@doc \"two\"\ndef b(), do: :ok\n@doc \"",
+            "three\"\ndef c(), do: :ok\ny = \"t\n@doc \"four\"\ndef d(), do: ",
+            ":ok\nend"
+        )
+        .as_bytes(),
+        [10, 10, 5, 0, 0, 0],
+    ),
+    // o11_gap_before_a_module_at_file_level
+    (
+        concat!(
+            ":ok\n# x\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit\"\ndef ",
+            "f(), do: :ok\nend"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // o12_excluded_gap_after_an_escaped_line_feed
+    (
+        concat!(
+            "defmodule M do\n@doc \"audit\"\n@foo ?\\\n# x\ndef f(), do: :ok",
+            "\nend"
+        )
+        .as_bytes(),
+        [6, 5, 4, 1, 0, 0],
+    ),
+    // x01_escaped_line_feed_at_file_level
+    (
+        concat!(
+            "?\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x02_escaped_line_feed_in_a_module_body
+    (
+        concat!(
+            "defmodule O do\n  ?\\\n  defmodule M do\n    @moduledoc \"module",
+            "\"\n    @doc \"function\"\n    def f(), do: :ok\n  end\nend\n"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // x03_escaped_line_feed_in_a_definition_body
+    (
+        concat!(
+            "defmodule O do\n  def g() do\n    ?\\\ndefmodule M do\n  @module",
+            "doc \"module\"\n  @doc \"function\"\n  def f(), do: :ok\nend\n  ",
+            "end\nend\n"
+        )
+        .as_bytes(),
+        [10, 10, 7, 0, 0, 0],
+    ),
+    // x04_escaped_line_feed_in_a_block_of_a_call
+    (
+        concat!(
+            "if true do\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit",
+            "\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // x05_escaped_line_feed_in_an_after_block
+    (
+        concat!(
+            "try do\n:ok\nafter\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 8, 0, 0, 0],
+    ),
+    // x06_escaped_line_feed_in_an_else_block
+    (
+        concat!(
+            "if true do\n:ok\nelse\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@d",
+            "oc \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 8, 0, 0, 0],
+    ),
+    // x07_escaped_line_feed_in_a_rescue_block
+    (
+        concat!(
+            "try do\n:ok\nrescue\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@doc",
+            " \"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 8, 0, 0, 0],
+    ),
+    // x08_escaped_line_feed_in_a_catch_block
+    (
+        concat!(
+            "try do\n:ok\ncatch\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@doc ",
+            "\"audit\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [10, 10, 8, 0, 0, 0],
+    ),
+    // x09_escaped_line_feed_in_the_body_of_a_clause
+    (
+        concat!(
+            "f = fn ->\n?\\\ndefmodule X do\n@moduledoc \"x\"\n@doc \"audit\"",
+            "\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // x10_escaped_line_feed_in_parentheses
+    (
+        concat!(
+            "(?\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n)\n"
+        )
+        .as_bytes(),
+        [7, 7, 6, 0, 0, 0],
+    ),
+    // x11_escaped_line_feed_between_clauses_of_a_function
+    (
+        concat!(
+            "fn\n1 -> ?\\\n2 -> defmodule X do\n@moduledoc \"x\"\n@doc \"audi",
+            "t\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // x12_escaped_line_feed_before_doc
+    (
+        concat!(
+            "defmodule O do\n  ?\\\n  @doc \"function\"\n  def f(), do: :ok\n",
+            "end\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // x13_escaped_line_feed_after_moduledoc_before_doc
+    (
+        concat!(
+            "defmodule M do\n  @moduledoc \"module\"\n  ?\\\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x14_escaped_line_feed_between_doc_and_definition
+    (
+        concat!(
+            "defmodule M do\n  @doc \"function\"\n  ?\\\n  def f(), do: :ok\n",
+            "end\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // x16_assigned_escaped_line_feed_between_doc_and_definition
+    (
+        concat!(
+            "defmodule M do\n  @doc \"function\"\n  x = ?\\\n  def f(), do: :",
+            "ok\nend\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // x15_escaped_line_feed_as_the_value_of_doc
+    (
+        b"defmodule M do\n  @doc ?\\\n  def f(), do: :ok\nend\n",
+        [4, 4, 3, 0, 0, 0],
+    ),
+    // x17_assigned_escaped_line_feed_at_file_level
+    (
+        concat!(
+            "x = ?\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"funct",
+            "ion\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x18_escaped_line_feed_then_a_continued_row
+    (
+        concat!(
+            "?\\\n\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"funct",
+            "ion\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // x19_bare_question_mark_and_line_feed_at_file_level
+    (
+        concat!(
+            "?\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x20_bare_question_mark_and_line_feed_in_a_module_body
+    (
+        concat!(
+            "defmodule O do\n  ?\n  defmodule M do\n    @moduledoc \"module\"",
+            "\n    @doc \"function\"\n    def f(), do: :ok\n  end\nend\n"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // x21_bare_question_mark_after_a_character_token
+    (
+        concat!(
+            "???\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x22_bare_question_mark_and_line_feed_in_a_clause
+    (
+        concat!(
+            "fn\n1 -> ?\n2 -> defmodule X do\n@moduledoc \"x\"\n@doc \"audit",
+            "\"\ndef f(), do: :ok\nend\nend"
+        )
+        .as_bytes(),
+        [8, 8, 5, 0, 0, 0],
+    ),
+    // x23_line_feed_after_a_comma
+    (
+        concat!(
+            "foo,\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // x24_two_line_feeds_after_a_comma
+    (
+        concat!(
+            "foo,\n\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functi",
+            "on\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 6, 5, 0, 1, 0],
+    ),
+    // x25_comment_after_a_comma
+    (
+        concat!(
+            "foo, # c\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"func",
+            "tion\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 1, 0, 0],
+    ),
+    // x26_semicolon_in_a_comment_after_a_comma
+    (
+        concat!(
+            "foo, # c; d\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"f",
+            "unction\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 1, 0, 0],
+    ),
+    // x27_semicolon_character_without_a_separator
+    (
+        concat!(
+            "?;defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"\n",
+            "  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [5, 5, 5, 0, 0, 0],
+    ),
+    // x28_continued_row_after_a_question_mark_identifier
+    (
+        concat!(
+            "foo?\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functi",
+            "on\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // y01_second_line_feed_after_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 6, 5, 0, 1, 0],
+    ),
+    // y02_semicolon_after_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n;defmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y03_comment_after_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n# c\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"func",
+            "tion\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // y04_escaped_backslash_character
+    (
+        concat!(
+            "?\\\\\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y05_plain_character
+    (
+        concat!(
+            "?a\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y06_identifier_ending_in_a_question_mark
+    (
+        concat!(
+            "foo?\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y07_atom_ending_in_a_question_mark
+    (
+        concat!(
+            ":a?\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y08_string_ending_in_question_mark_and_backslash
+    (
+        concat!(
+            "\"a?\\\\\"\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"fu",
+            "nction\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y09_escaped_line_feed_inside_a_call
+    (
+        concat!(
+            "f(?\\\n)\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"func",
+            "tion\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 7, 5, 0, 0, 0],
+    ),
+    // y10_escaped_line_feed_then_an_operator_row
+    (
+        concat!(
+            "x = ?\\\n+ 1\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"",
+            "function\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 7, 6, 0, 0, 0],
+    ),
+    // y11_escaped_space_character
+    (
+        concat!(
+            "?\\ \ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y12_space_character
+    (
+        concat!(
+            "? \ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y13_two_escaped_line_feeds_then_a_blank_row
+    (
+        concat!(
+            "?\\\n?\\\n\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"fu",
+            "nction\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [8, 7, 6, 0, 1, 0],
+    ),
+    // y14_escaped_hash_character
+    (
+        concat!(
+            "?\\#\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y15_hash_character
+    (
+        concat!(
+            "?#\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y16_line_feed_then_a_semicolon
+    (
+        concat!(
+            "1\n;defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y17_leading_semicolon
+    (
+        concat!(
+            ";defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"\n ",
+            " def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // y18_two_semicolons
+    (
+        concat!(
+            "1;;defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [5, 5, 6, 0, 0, 0],
+    ),
+    // y19_second_line_feed_after_a_bare_question_mark
+    (
+        concat!(
+            "?\n\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 6, 5, 0, 1, 0],
+    ),
+    // y20_semicolon_after_a_bare_question_mark
+    (
+        concat!(
+            "?\n;defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // y21_comment_after_a_bare_question_mark
+    (
+        concat!(
+            "?\n# c\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functi",
+            "on\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [7, 6, 5, 1, 0, 0],
+    ),
+    // y22_pipe_operator_behind_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n|> defmodule M do\n  @moduledoc \"module\"\n  @doc \"functi",
+            "on\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // y23_dot_call_behind_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n.foo(defmodule M do\n  @moduledoc \"module\"\n  @doc \"func",
+            "tion\"\n  def f(), do: :ok\nend)\n"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // y24_minus_on_one_row
+    (
+        concat!(
+            "?a - defmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // y25_access_on_one_row
+    (
+        concat!(
+            "?a[defmodule M do\n  @moduledoc \"module\"\n  @doc \"function\"",
+            "\n  def f(), do: :ok\nend]\n"
+        )
+        .as_bytes(),
+        [5, 5, 4, 0, 0, 0],
+    ),
+    // y26_comma_in_a_list
+    (
+        concat!(
+            "[1,\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend]\n"
+        )
+        .as_bytes(),
+        [6, 6, 4, 0, 0, 0],
+    ),
+    // y27_semicolon_after_a_comma
+    (
+        concat!(
+            "foo,\n;defmodule M do\n  @moduledoc \"module\"\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 6, 0, 0, 0],
+    ),
+    // y28_semicolon_after_a_comment_after_a_comma
+    (
+        concat!(
+            "foo, # c\n;defmodule M do\n  @moduledoc \"module\"\n  @doc \"fun",
+            "ction\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 6, 1, 0, 0],
+    ),
+    // y29_clause_with_a_body_before_a_module_clause
+    (
+        concat!(
+            "case x do\n  a -> 1\n  b -> defmodule X do\n    @moduledoc \"m\"",
+            "\n    @doc \"d\"\n    def f(), do: :ok\n  end\nend\n"
+        )
+        .as_bytes(),
+        [8, 8, 6, 0, 0, 0],
+    ),
+    // z01_comment_with_a_rejected_character
+    (
+        b"defmodule M do\n@doc \"audit\" # c\x0c d\ndef f(), do: :ok\nend",
+        [4, 4, 3, 1, 0, 0],
+    ),
+    // z02_escaped_carriage_return_character
+    (
+        concat!(
+            "?\\\r\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // z03_carriage_return_character
+    (
+        concat!(
+            "?\r\ndefmodule M do\n  @moduledoc \"module\"\n  @doc \"function",
+            "\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+    // z04_empty_clause_body
+    (
+        concat!(
+            "case x do\n  a ->\n  b -> defmodule X do\n    @moduledoc \"m\"\n",
+            "    @doc \"d\"\n    def f(), do: :ok\n  end\nend\n"
+        )
+        .as_bytes(),
+        [8, 8, 5, 0, 0, 0],
+    ),
+    // z05_operator_row_behind_an_escaped_line_feed
+    (
+        concat!(
+            "?\\\n- defmodule M do\n  @moduledoc \"module\"\n  @doc \"functio",
+            "n\"\n  def f(), do: :ok\nend\n"
+        )
+        .as_bytes(),
+        [6, 6, 5, 0, 0, 0],
+    ),
+];
+
+// The LOC tuple of raw Elixir bytes and its documentation rows.
+#[cfg(feature = "elixir")]
+fn elixir_loc(source: &[u8]) -> ([u64; 6], Vec<usize>) {
+    let space = analyze(
+        Source::new(LANG::Elixir, source),
+        MetricsOptions::default().with_only(&[Metric::Loc]),
+    )
+    .unwrap();
+    let loc = &space.metrics.loc;
+    (
+        [
+            loc.sloc(),
+            loc.ploc(),
+            loc.lloc(),
+            loc.cloc(),
+            loc.blank(),
+            loc.dloc(),
+        ],
+        (0..source.len())
+            .filter(|row| loc.dloc.lines.contains(*row))
+            .collect(),
+    )
+}
+
+#[cfg(feature = "elixir")]
+#[test]
+fn documentation_elixir_legacy_rows_hold_no_attribute_documentation() {
+    for (source, loc) in ELIXIR_ATTRIBUTE_SOURCES {
+        // expected: an attribute is code for the metric; no row is a documentation row.
+        assert_eq!(
+            elixir_loc(source),
+            (loc, Vec::new()),
+            "{}",
+            String::from_utf8_lossy(source)
+        );
+    }
+}
+#[cfg(feature = "elixir")]
+#[test]
+fn documentation_elixir_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::*;
+    let mut totals = [0; 4];
+    for (source, loc) in ELIXIR_ATTRIBUTE_SOURCES {
+        let name = String::from_utf8_lossy(source);
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Elixir, source.to_vec(), None, None).unwrap();
+        let idle = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let texts = index
+            .documents()
+            .filter(|document| matches!(document.get().content(), Content::Complete { .. }))
+            .count();
+        // The collection moves each counter on this thread, so a zero across `analyze`
+        // is a reading.
+        // expected: the walk enters every node once.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        // expected: one render per complete text; a pending value is not rendered.
+        assert_eq!(collected.renders - idle.renders, texts, "{name}");
+        // expected: the file, and every module and group that became an owner.
+        assert_eq!(
+            collected.owner_projections - idle.owner_projections,
+            index.facts().owners().len(),
+            "{name}"
+        );
+        assert_ne!(collected.polls - idle.polls, 0, "{name}");
+        totals[0] += index.documents().len();
+        totals[1] += texts;
+        totals[2] += index.associations().len();
+        totals[3] += index.facts().owners().len();
+        assert_eq!(elixir_loc(source), (loc, Vec::new()), "{name}");
+        let analyzed = observations();
+        // expected: `analyze` builds no documentation index.
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+        assert_eq!(
+            analyzed.owner_projections - collected.owner_projections,
+            0,
+            "{name}"
+        );
+        assert_eq!(analyzed.polls - collected.polls, 0, "{name}");
+    }
+    // expected: the documents, complete texts, associations and owners of all rows, as
+    // the views of `collector/elixir_tests.rs` state them for a parse of the whole source.
+    assert_eq!(totals, [232, 192, 232, 737]);
+}

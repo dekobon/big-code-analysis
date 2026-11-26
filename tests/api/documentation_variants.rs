@@ -144,6 +144,11 @@ fn projection(index: &DocumentationIndex<'_>) -> serde_json::Value {
                 {
                     match facts.associated_owner(*association, 0).unwrap().get() {
                         Owner::Node(declared) => Some(declared.node()),
+                        Owner::Group(group)
+                            if index.profile() == Profile::Elixir && group.pieces.len() == 1 =>
+                        {
+                            Some(group.pieces[0].node.unwrap().node())
+                        }
                         _ => None,
                     }
                 } else {
@@ -359,7 +364,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             LANG::Ruby => Row(Profile::Yard),
             LANG::Lua => Row(Profile::Ldoc),
             LANG::Perl => FileDocument(Profile::Pod),
-            LANG::Elixir => Rejected(Profile::Elixir),
+            LANG::Elixir => Row(Profile::Elixir),
             LANG::Bash => Rejected(Profile::Shdoc),
             LANG::Tcl => Row(Profile::Ruff),
             LANG::Irules => Rejected(Profile::Irules),
@@ -395,7 +400,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
     assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
     assert!(ran > 0);
     #[cfg(feature = "all-languages")]
-    assert_eq!(counts, (18, 4, 2, 1));
+    assert_eq!(counts, (19, 3, 2, 1));
 }
 
 #[cfg(feature = "rust")]
