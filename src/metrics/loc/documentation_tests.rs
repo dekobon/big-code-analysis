@@ -8085,3 +8085,68 @@ fn documentation_csharp_unit2_declarations_keep_legacy_rows() {
     }
     assert_ne!(total_renders, 0);
 }
+
+#[cfg(feature = "typescript")]
+#[test]
+fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+
+    let sources: &[(&[u8], &[usize], usize)] = &[
+        (b"/**audit*/\nexport default function() {}\n", &[0], 1),
+        (b"/**audit*/\nexport default function* () {}\n", &[0], 1),
+        (b"/**audit*/\nexport default class {}\n", &[0], 1),
+        (b"/** above */\ndeclare /** inside */ function f(): void;\n", &[0], 1),
+        (b"/** d */\nnamespace N {}\n", &[0], 1),
+        (b"/** d */\nexport namespace N {}\n", &[0], 1),
+        (b"/** d */\ndeclare namespace N {}\n", &[0], 1),
+        (b"/**audit*/\nconst x = 1;\n", &[0], 1),
+        (b"/**audit*/\nlet x: number;\n", &[0], 1),
+        (b"/**audit*/\nvar x = 1;\n", &[0], 1),
+        (b"/**audit*/\nexport const x = 1;\n", &[0], 1),
+        (b"/**audit*/\ndeclare const x: number;\n", &[0], 1),
+        (b"/**audit*/\nusing h = open();\n", &[0], 1),
+        (b"/**audit*/\nawait using h = open();\n", &[0], 1),
+        (b"/**audit*/\nconst { x } = o;\n", &[], 0),
+        (b"/**audit*/\nx = 1;\n", &[], 0),
+        (
+            b"/**one*/\nconst a = 1;\n/**two*/\nnamespace N {}\n",
+            &[0, 2],
+            2,
+        ),
+    ];
+    for language in [LANG::Typescript, LANG::Tsx] {
+        for &(source, expected_rows, expected_documents) in sources {
+            let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+            let idle = observations();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
+                .unwrap();
+            let collected = observations();
+            let space = analyze(
+                Source::new(language, source),
+                MetricsOptions::default().with_only(&[Metric::Loc]),
+            )
+            .unwrap();
+            let analyzed = observations();
+            let loc = &space.metrics.loc;
+            assert_eq!(
+                (0..source.len())
+                    .filter(|at| loc.dloc.lines.contains(*at))
+                    .collect::<Vec<_>>(),
+                expected_rows,
+                "{language:?}: {}",
+                source.escape_ascii()
+            );
+            assert_eq!(loc.dloc(), expected_rows.len() as u64);
+            assert_eq!(index.documents().len(), expected_documents);
+            assert_eq!(collected.visits - idle.visits, parser.root_node().preorder().count());
+            assert_eq!(collected.renders - idle.renders, expected_documents);
+            assert_eq!(analyzed.visits, collected.visits);
+            assert_eq!(analyzed.renders, collected.renders);
+        }
+    }
+}
+
