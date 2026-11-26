@@ -219,7 +219,7 @@ fn observation_scope_restores_on_rejection_skip_and_unwind() {
     for bytes in [&[25, 0, 0][..], &[0, 4, 0], &[0, 4, 0, 0]] {
         let (result, events) = observation::capture(|| exercise(bytes));
         assert!(matches!(result, Ok(Outcome::Skipped(_))));
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
     let (result, events) = observation::capture(|| exercise(&[1, 0, 0]));
     let error = CollectionError::AdapterUnavailable {
