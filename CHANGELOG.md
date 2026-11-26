@@ -26,6 +26,11 @@ for historical reference.
 
 ### Added
 
+- The unstable Ruby YARD collector now projects visibility-wrapped definitions to
+  their inner method and attribute calls to ordered property slots, with one
+  document shared by all names of a call. Constants and aliases stay pending;
+  legacy documentation metric rows are unchanged. (#1673, Unit 2)
+
 - C# source documentation now associates a field, constant, or event-field comment
   with one field slot per declared name, keeping the declaration as its enclosing node.
 

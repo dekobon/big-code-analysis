@@ -133,8 +133,8 @@
     {
       "name": "skip-field-slot-charge",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "for name in names {\n            budget.step()?;",
-      "new": "for name in names {\n            let _ = budget;",
+      "old": "for name in names {\n            budget.step()?;\n            let spelling = self.index.canonical.nodes[name.0]",
+      "new": "for name in names {\n            let _ = budget;\n            let spelling = self.index.canonical.nodes[name.0]",
       "expect": [
         "documentation::collector::csharp_tests::csharp_wide_fields_cancel_in_both_the_name_scan_and_slot_loop"
       ]

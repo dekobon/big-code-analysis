@@ -78,9 +78,9 @@
       "pending": ["members with a syntax error, a line-ending comment among their children, or a line end at which Go ends them early", "publication"]
     },
     "Ruby": {
-      "implemented": ["basic method/type", "modifier/body wrapper projections", "native YARD scope", "magic/directive filtering", "begin/end block cleanup"],
+      "implemented": ["basic method/type", "modifier/body wrapper projections", "native YARD scope", "magic/directive filtering", "begin/end block cleanup", "visibility-wrapped method projection", "attribute property slots"],
       "ineligible": ["call-block source scope", "magic/shebang prose", "source blank-line-separated run"],
-      "pending": ["Explicit virtual/## owners", "attribute/alias/visibility slots", "RDoc alternate", "publication"]
+      "pending": ["Explicit virtual/## owners", "alias and constant owners", "RDoc alternate", "publication"]
     },
     "Lua": {
       "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps"],

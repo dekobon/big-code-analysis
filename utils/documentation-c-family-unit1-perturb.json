@@ -119,8 +119,8 @@
     {
       "name": "slot-declaration-node-is-the-only-owner",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "Projection::Ready(slots);",
-      "new": "Projection::Ready(vec![enclosing]);",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(slots);\n        Ok(())\n    }\n\n    fn java_field_slots(",
+      "new": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![enclosing]);\n        Ok(())\n    }\n\n    fn java_field_slots(",
       "expect": [
         "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
         "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
@@ -143,8 +143,8 @@
     {
       "name": "slot-ordinal-shifted",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "ordinal: slots.len(),",
-      "new": "ordinal: slots.len() + 1,",
+      "old": "                    ordinal: slots.len(),\n                    source,",
+      "new": "                    ordinal: slots.len() + 1,\n                    source,",
       "expect": [
         "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
         "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",

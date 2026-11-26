@@ -37,8 +37,8 @@
     {
       "name": "property-slot-is-a-field",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "role: SlotRole::Property,",
-      "new": "role: SlotRole::Field,",
+      "old": "role: SlotRole::Property,\n            ordinal: 0,",
+      "new": "role: SlotRole::Field,\n            ordinal: 0,",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot",
