@@ -23,7 +23,7 @@
   "verbatim_metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_true"
  ],
  "roots": {
-  "documentation": "/home/elijah/Development/Open_Source/big-code-analysis-docs-1657/tests/fixtures/documentation/sources"
+  "documentation": "tests/fixtures/documentation/sources"
  },
  "metrics_options": {
   "verbatim_metrics_mi_charges_docs_false": [
