@@ -26,6 +26,11 @@ for historical reference.
 
 ### Added
 
+- The unstable Ruby YARD collector now projects visibility-wrapped definitions to
+  their inner method and attribute calls to ordered property slots, with one
+  document shared by all names of a call. Constants and aliases stay pending;
+  legacy documentation metric rows are unchanged. (#1673, Unit 2)
+
 - The unstable Java source-documentation collector now marks package documentation
   eligible only with the explicit logical filename `package-info.java`, ineligible
   with a different filename, and unknown without one. Attachment and cleaned text

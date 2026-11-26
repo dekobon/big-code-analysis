@@ -179,12 +179,37 @@ fn tsx_parameter_form_is_pending_in_default_queries() {
 }
 #[cfg(feature = "ruby")]
 #[test]
-fn ruby_attribute_and_visibility_forms_are_pending_in_default_queries() {
-    assert_pending_form(LANG::Ruby, "# audit\nattr_reader :x", "call");
-    assert_pending_form(
-        LANG::Ruby,
-        "class C\n# audit\nprivate def f; end\nend",
-        "call",
+fn ruby_alias_forms_are_pending_in_default_queries() {
+    assert_pending_form(LANG::Ruby, "# audit\nalias_method :x, :y", "call");
+    assert_pending_form(LANG::Ruby, "# audit\nX = 1", "assignment");
+    let source = b"# audit\nalias_method :x, :y";
+    let parser = AnyParser::parse(LANG::Ruby, source.to_vec(), None, None).unwrap();
+    let call = parser
+        .root_node()
+        .preorder()
+        .find(|n| n.kind() == "call")
+        .unwrap();
+    assert!(crate::lang_helpers::ruby::ruby_documented_call(
+        &call, source
+    ));
+    let alias = b"class C\n# audit\nalias b a\nend";
+    let parser = AnyParser::parse(LANG::Ruby, alias.to_vec(), None, None).unwrap();
+    let node = parser
+        .root_node()
+        .preorder()
+        .find(|n| n.kind() == "alias")
+        .unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert!(
+        index
+            .node_projection(node.as_tree_sitter())
+            .unwrap()
+            .pending()
     );
 }
 #[cfg(feature = "lua")]

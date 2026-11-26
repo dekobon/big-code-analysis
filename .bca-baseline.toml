@@ -647,13 +647,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 536.0
+value = 688.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>"
 metric = "wmc"
-value = 88.0
+value = 124.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
@@ -678,6 +678,12 @@ path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::c_slots"
 metric = "nexits"
 value = 10.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::declaration_owners"
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
@@ -726,6 +732,36 @@ path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::index_recovered_name"
 metric = "nexits"
 value = 7.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::ruby_call_owners"
+metric = "abc"
+value = 52.16320542297991
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::ruby_call_owners"
+metric = "cognitive"
+value = 34.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::ruby_call_owners"
+metric = "cyclomatic"
+value = 27.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::ruby_call_owners"
+metric = "halstead.effort"
+value = 134153.58564265448
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
+qualified = "Builder<'_>::ruby_call_owners"
+metric = "nexits"
+value = 14.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/tests.rs"

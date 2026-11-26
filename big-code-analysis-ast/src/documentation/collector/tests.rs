@@ -1131,9 +1131,7 @@ fn named_profiles_distinguish_deferred_incompatible_and_available() {
                 || (language == LANG::Php && profile == Profile::PhpDocumentor);
             let expected = if profile != default && !alternate {
                 Err(CollectionError::UnsupportedProfile { language, profile })
-            } else if alternate
-                || [LANG::Python, LANG::Bash, LANG::Irules].contains(&language)
-            {
+            } else if alternate || [LANG::Python, LANG::Bash, LANG::Irules].contains(&language) {
                 Err(CollectionError::AdapterUnavailable { language, profile })
             } else {
                 Ok(profile)

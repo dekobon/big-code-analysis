@@ -1,0 +1,11 @@
+{
+  "evidence_base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "profile": "Yard",
+  "reference": {
+    "ruby": "3.0.2",
+    "rdoc": "6.3.1",
+    "command": "env -i HOME=<run>/scratch/ruby-sandbox/home TMPDIR=<run>/scratch/ruby-sandbox/tmp PATH=/usr/bin:/bin bash <run>/rdoc-ref/run.sh",
+    "notes": "RDoc is not YARD. Its visibility and attribute results inform language shape, not YARD publication."
+  },
+  "collector_probe": "<run>/probe-target/debug/collector-probe ruby <run>/tree-dumps/attributes.rb --tree --nodes"
+}

@@ -1,0 +1,282 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "ruby_"
+  ],
+  "cases": [
+    {
+      "name": "visibility-profile-off",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if self.index.profile == Profile::Yard && node.kind() == \"call\" {",
+      "new": "if false && self.index.profile == Profile::Yard && node.kind() == \"call\" {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_wrapped_methods_resolve_to_the_inner_method",
+        "documentation::collector::ruby_tests::ruby_attribute_names_have_ordered_property_slots"
+      ]
+    },
+    {
+      "name": "method-as-call-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "Projection::Ready(owners.clone());",
+      "new": "Projection::Ready(vec![OwnerId(0)]);",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_wrapped_methods_resolve_to_the_inner_method"
+      ]
+    },
+    {
+      "name": "attribute-role-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "role: SlotRole::Property,",
+      "new": "role: SlotRole::Field,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_names_have_ordered_property_slots"
+      ]
+    },
+    {
+      "name": "attribute-ordinal-offset",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "ordinal: slots.len(),\n                source,",
+      "new": "ordinal: slots.len() + 1,\n                source,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_names_have_ordered_property_slots"
+      ]
+    },
+    {
+      "name": "attribute-multi-first-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "names.push(argument.byte_range());",
+      "new": "if names.is_empty() { names.push(argument.byte_range()); }",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_names_have_ordered_property_slots"
+      ]
+    },
+    {
+      "name": "visibility-only-first-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "b\"private\"\n                | b\"protected\"",
+      "new": "b\"private\"\n                | b\"_protected\"",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_forms_and_visibility_variants_keep_their_owners"
+      ]
+    },
+    {
+      "name": "attribute-only-first-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "b\"attr\" | b\"attr_reader\" | b\"attr_writer\" | b\"attr_accessor\"",
+      "new": "b\"attr\" | b\"attr_reader\" | b\"_attr_writer\" | b\"attr_accessor\"",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_forms_and_visibility_variants_keep_their_owners"
+      ]
+    },
+    {
+      "name": "attribute-boolean-prohibited",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if spelling == b\"attr\"\n                && names.len() == 1",
+      "new": "if false && spelling == b\"attr\"\n                && names.len() == 1",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_boolean_and_string_names_resolve"
+      ]
+    },
+    {
+      "name": "attribute-interpolation-accepted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if !matches!(child.kind(), \"string_content\" | \"escape_sequence\") {",
+      "new": "if !matches!(child.kind(), \"string_content\" | \"escape_sequence\" | \"interpolation\") {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_dynamic_attribute_and_alias_stay_pending"
+      ]
+    },
+    {
+      "name": "attribute-comment-changes-name-count",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if !argument.is_named() || argument.kind() == \"comment\" {",
+      "new": "if !argument.is_named() {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_comment_is_not_a_name_and_bad_names_stay_pending"
+      ]
+    },
+    {
+      "name": "plain-symbol-treated-as-dynamic",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if name.kind() == \"simple_symbol\" {\n            return Ok(true);",
+      "new": "if name.kind() == \"simple_symbol\" {\n            return Ok(false);",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_names_have_ordered_property_slots"
+      ]
+    },
+    {
+      "name": "visibility-receiver-guard-off",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if visibility && call.child_by_field_name(\"receiver\").is_some() {",
+      "new": "if false && visibility && call.child_by_field_name(\"receiver\").is_some() {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_receiver_does_not_project"
+      ]
+    },
+    {
+      "name": "call-comment-not-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if candidate.kind() == \"comment\" {",
+      "new": "if candidate.kind() == \"comment\" {\n                return Ok(());",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_comment_is_not_a_method"
+      ]
+    },
+    {
+      "name": "attribute-argument-comment-not-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if !argument.is_named() || argument.kind() == \"comment\" {",
+      "new": "if !argument.is_named() && argument.kind() != \"comment\" {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_attribute_comment_is_not_a_name_and_bad_names_stay_pending"
+      ]
+    },
+    {
+      "name": "ruby-method-spelling-no-byte-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "budget.bytes(spelling.len())?;",
+      "new": "budget.bytes(0)?;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-call-child-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &self.index.canonical.children[record.children.clone()] {\n            budget.step()?;",
+      "new": "for &child in &self.index.canonical.children[record.children.clone()] {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-argument-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "[self.index.canonical.nodes[arguments_id.0].children.clone()]\n        {\n            budget.step()?;",
+      "new": "[self.index.canonical.nodes[arguments_id.0].children.clone()]\n        {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes",
+        "documentation::collector::ruby_tests::ruby_attribute_width_collection_observes_cancellation"
+      ]
+    },
+    {
+      "name": "ruby-argument-loop-double-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "[self.index.canonical.nodes[arguments_id.0].children.clone()]\n        {\n            budget.step()?;",
+      "new": "[self.index.canonical.nodes[arguments_id.0].children.clone()]\n        {\n            budget.step()?;\n            budget.step()?;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-owner-copy-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for _ in owners {\n                        budget.step()?;",
+      "new": "for _ in owners {\n                        let _ = budget;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-string-child-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for child in name.children(&mut cursor) {\n            budget.step()?;",
+      "new": "for child in name.children(&mut cursor) {\n            let _ = budget;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_string_child_scan_is_budgeted_on_both_sides"
+      ]
+    },
+    {
+      "name": "ruby-slot-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for name in names {\n            budget.step()?;\n            let source =",
+      "new": "for name in names {\n            let source =",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-slot-loop-double-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for name in names {\n            budget.step()?;\n            let source =",
+      "new": "for name in names {\n            budget.step()?;\n            budget.step()?;\n            let source =",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-slot-range-search-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "let source = self.index.source.pieces_with_budget(name, budget)?;",
+      "new": "let source = self.index.source.pieces(name)?;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_projection_charges_exact_steps_and_bytes"
+      ]
+    },
+    {
+      "name": "ruby-uncovered-declaration-still-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "|| !self\n                .index\n                .source\n                .covers_with_budget(node.byte_range(), budget)?",
+      "new": "|| false && !self\n                .index\n                .source\n                .covers_with_budget(node.byte_range(), budget)?",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_excluded_visibility_gaps_are_barriers",
+        "documentation::collector::ruby_tests::ruby_excluded_attribute_gaps_are_barriers"
+      ]
+    },
+    {
+      "name": "ruby-two-symbol-attr-first-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "names.push(argument.byte_range());",
+      "new": "if names.is_empty() { names.push(argument.byte_range()); }",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_two_symbol_attr_keeps_both_slots_despite_yard_difference"
+      ]
+    },
+    {
+      "name": "ruby-second-method-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                return Ok(());\n            }\n            if spelling == b\"attr\"",
+      "new": "                continue;\n            }\n            if spelling == b\"attr\"",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_and_attribute_deferred_spellings_are_characterized"
+      ]
+    },
+    {
+      "name": "ruby-visibility-error-uncertainty-removed",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "                .map(|_| UnresolvedReason::GrammarBoundary);",
+      "new": "                .map(|_| UnresolvedReason::ExcludedGap);",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_error_forms_do_not_gain_owners",
+        "documentation::collector::ruby_tests::ruby_attribute_error_forms_do_not_gain_owners"
+      ]
+    },
+    {
+      "name": "ruby-alias-projected-as-attribute",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "b\"attr\" | b\"attr_reader\" | b\"attr_writer\" | b\"attr_accessor\"",
+      "new": "b\"attr\" | b\"attr_reader\" | b\"attr_writer\" | b\"attr_accessor\" | b\"alias_method\"",
+      "expect": [
+        "documentation::collector::form_tests::ruby_alias_forms_are_pending_in_default_queries",
+        "documentation::collector::ruby_tests::ruby_dynamic_attribute_and_alias_stay_pending"
+      ]
+    },
+    {
+      "name": "ruby-error-call-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()",
+      "new": "        if node.has_error() && self.index.profile != Profile::Yard\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_visibility_error_forms_do_not_gain_owners",
+        "documentation::collector::ruby_tests::ruby_attribute_error_forms_do_not_gain_owners"
+      ]
+    }
+  ]
+}

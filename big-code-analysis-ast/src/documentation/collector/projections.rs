@@ -130,6 +130,9 @@ impl Builder<'_> {
         {
             return self.js_first_declarator_owner(id, budget);
         }
+        if self.index.profile == Profile::Yard && node.kind() == "call" {
+            return self.ruby_call_owners(id, budget);
+        }
         Ok(())
     }
 
@@ -144,6 +147,152 @@ impl Builder<'_> {
             self.add_owner(id, Owner::Node(declarator));
         }
         Ok(())
+    }
+
+    fn ruby_call_owners<B: WorkBudget<Error = SourceError>>(
+        &mut self,
+        id: NodeId,
+        budget: &B,
+    ) -> Result<(), CollectionError> {
+        let record = &self.index.canonical.nodes[id.0];
+        if !matches!(record.projection, Projection::Pending) {
+            return Ok(());
+        }
+        let call = record.evidence.node();
+        let Some(method) = call.child_by_field_name("method") else {
+            return Ok(());
+        };
+        let Some(arguments) = call.child_by_field_name("arguments") else {
+            return Ok(());
+        };
+        let spelling = &self.index.source.bytes()[method.byte_range()];
+        budget.bytes(spelling.len())?;
+        let visibility = matches!(
+            spelling,
+            b"private"
+                | b"protected"
+                | b"public"
+                | b"module_function"
+                | b"private_class_method"
+                | b"public_class_method"
+        );
+        let attribute = ruby_attribute_names(spelling);
+        if !visibility && !attribute {
+            return Ok(());
+        }
+        if visibility && call.child_by_field_name("receiver").is_some() {
+            return Ok(());
+        }
+        let mut names = Vec::new();
+        let mut boolean = false;
+        let mut first = None;
+        for &child in &self.index.canonical.children[record.children.clone()] {
+            budget.step()?;
+            let candidate = self.index.canonical.nodes[child.0].evidence.node();
+            if candidate.kind() == "comment" {
+                continue;
+            }
+            if candidate == arguments {
+                first = Some(child);
+                break;
+            }
+        }
+        let Some(arguments_id) = first else {
+            return Ok(());
+        };
+        for &child in &self.index.canonical.children
+            [self.index.canonical.nodes[arguments_id.0].children.clone()]
+        {
+            budget.step()?;
+            let argument = self.index.canonical.nodes[child.0].evidence.node();
+            if !argument.is_named() || argument.kind() == "comment" {
+                continue;
+            }
+            if visibility {
+                if matches!(argument.kind(), "method" | "singleton_method")
+                    && let Projection::Ready(owners) =
+                        &self.index.canonical.nodes[child.0].projection
+                {
+                    for _ in owners {
+                        budget.step()?;
+                    }
+                    self.index.canonical.nodes[id.0].projection = Projection::Ready(owners.clone());
+                }
+                return Ok(());
+            }
+            if spelling == b"attr"
+                && names.len() == 1
+                && !boolean
+                && matches!(argument.kind(), "true" | "false")
+            {
+                boolean = true;
+                continue;
+            }
+            if boolean
+                || !matches!(
+                    argument.kind(),
+                    "simple_symbol" | "delimited_symbol" | "string"
+                )
+                || !Self::ruby_plain_attribute_name(argument, budget)?
+            {
+                return Ok(());
+            }
+            names.push(argument.byte_range());
+        }
+        if names.is_empty() {
+            return Ok(());
+        }
+        self.ruby_property_slots(id, names, budget)
+    }
+
+    fn ruby_property_slots<B: WorkBudget<Error = SourceError>>(
+        &mut self,
+        id: NodeId,
+        names: Vec<std::ops::Range<usize>>,
+        budget: &B,
+    ) -> Result<(), CollectionError> {
+        let enclosing = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        let mut slots = Vec::new();
+        for name in names {
+            budget.step()?;
+            let source = self.index.source.pieces_with_budget(name, budget)?;
+            let slot = OwnerId(self.index.facts.owners.len());
+            self.index.facts.owners.push(Owner::Slot(Slot {
+                enclosing,
+                role: SlotRole::Property,
+                ordinal: slots.len(),
+                source,
+            }));
+            self.index.associations_by_owner.push(Vec::new());
+            self.index.assessments_by_owner.push(Vec::new());
+            self.index.qualifications_by_owner.push(Vec::new());
+            self.index.owner_nodes.push(id);
+            slots.push(slot);
+        }
+        self.index.canonical.nodes[id.0].projection = Projection::Ready(slots);
+        Ok(())
+    }
+
+    fn ruby_plain_attribute_name<B: WorkBudget<Error = SourceError>>(
+        name: tree_sitter::Node<'_>,
+        budget: &B,
+    ) -> Result<bool, CollectionError> {
+        if name.kind() == "simple_symbol" {
+            return Ok(true);
+        }
+        let mut content = 0;
+        let mut cursor = name.walk();
+        for child in name.children(&mut cursor) {
+            budget.step()?;
+            if child.is_named() {
+                if !matches!(child.kind(), "string_content" | "escape_sequence") {
+                    return Ok(false);
+                }
+                content += 1;
+            }
+        }
+        Ok(content > 0)
     }
 
     fn declarator_child(
@@ -472,6 +621,68 @@ pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(
         return Ok(None);
     }
     Ok(None)
+}
+
+fn ruby_attribute_names(spelling: &[u8]) -> bool {
+    matches!(
+        spelling,
+        b"attr" | b"attr_reader" | b"attr_writer" | b"attr_accessor"
+    )
+}
+
+#[cfg(test)]
+pub(super) fn ruby_attribute_name<B: WorkBudget<Error = SourceError>>(
+    name: tree_sitter::Node<'_>,
+    budget: &B,
+) -> Result<bool, CollectionError> {
+    Builder::ruby_plain_attribute_name(name, budget)
+}
+
+#[cfg(test)]
+pub(super) fn ruby_slot_cost<B: WorkBudget<Error = SourceError>>(
+    index: DocumentationIndex<'_>,
+    node: tree_sitter::Node<'_>,
+    budget: &B,
+) -> Result<usize, CollectionError> {
+    let id = index.canonical.lookup(node)?;
+    let mut builder = Builder {
+        index,
+        drafts: Vec::new(),
+        pending_attributes: Vec::new(),
+        rust_values: std::collections::HashMap::new(),
+        names: super::super::names::Names::default(),
+        pod_doubt: crate::documentation::collector::pod_doubt::Doubt::default(),
+        pod_hidden: crate::documentation::collector::pod::Hidden::default(),
+        tcl_scan: crate::lang_helpers::tcl_scan::CommandScan::default(),
+    };
+    builder.index.canonical.nodes[id.0].projection = Projection::Pending;
+    builder.ruby_call_owners(id, budget)?;
+    match &builder.index.canonical.nodes[id.0].projection {
+        Projection::Ready(owners) => Ok(owners.len()),
+        _ => Ok(0),
+    }
+}
+
+#[cfg(test)]
+pub(super) fn ruby_call_comment_cost<B: WorkBudget<Error = SourceError>>(
+    mut index: DocumentationIndex<'_>,
+    call: tree_sitter::Node<'_>,
+    comment: tree_sitter::Node<'_>,
+    budget: &B,
+) -> Result<usize, CollectionError> {
+    let call_id = index.canonical.lookup(call)?;
+    let comment_id = index.canonical.lookup(comment)?;
+    let old = index.canonical.nodes[call_id.0].children.clone();
+    let children = index.canonical.children[old].to_vec();
+    let start = index.canonical.children.len();
+    for (at, child) in children.into_iter().enumerate() {
+        if at == 1 {
+            index.canonical.children.push(comment_id);
+        }
+        index.canonical.children.push(child);
+    }
+    index.canonical.nodes[call_id.0].children = start..index.canonical.children.len();
+    ruby_slot_cost(index, call, budget)
 }
 
 // Field names are not requested for this profile (`fields_needed`), so a

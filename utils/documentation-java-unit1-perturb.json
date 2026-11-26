@@ -162,8 +162,8 @@
     {
       "name": "java-slot-loop-unbudgeted",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        for name in names {\n            budget.step()?;",
-      "new": "        for name in names {",
+      "old": "        for name in names {\n            budget.step()?;\n            let spelling =",
+      "new": "        for name in names {\n            let spelling =",
       "expect": [
         "documentation::collector::java_tests::java_field_width_collection_observes_cancellation_in_the_slot_loop"
       ]

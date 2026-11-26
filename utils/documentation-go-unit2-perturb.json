@@ -174,15 +174,15 @@
     {
       "name": "go-slot-loop-unbudgeted",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        for name in names {\n            budget.step()?;",
-      "new": "        for name in names {",
+      "old": "        for name in names {\n            budget.step()?;\n            let spelling =",
+      "new": "        for name in names {\n            let spelling =",
       "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
     },
     {
       "name": "go-slot-loop-charges-per-earlier-slot",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        for name in names {\n            budget.step()?;",
-      "new": "        for name in names {\n            for _ in 0..=fields.len() {\n                budget.step()?;\n            }",
+      "old": "        for name in names {\n            budget.step()?;\n            let spelling =",
+      "new": "        for name in names {\n            for _ in 0..=fields.len() {\n                budget.step()?;\n            }\n            let spelling =",
       "expect": ["documentation::collector::go_tests::go_field_name_width_collection_observes_cancellation"]
     },
     {
@@ -405,8 +405,8 @@
     {
       "name": "go-every-node-is-read-for-line-ends",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
-      "new": "        go_ends_member_early(&self.index.canonical, id, budget)?;\n        let record = &self.index.canonical.nodes[id.0];\n        if !matches!(record.projection, Projection::Pending)",
+      "old": "    fn go_member_owners(\n        &mut self,\n        id: NodeId,\n        budget: &CollectionBudget,\n    ) -> Result<(), CollectionError> {\n        let record =",
+      "new": "    fn go_member_owners(\n        &mut self,\n        id: NodeId,\n        budget: &CollectionBudget,\n    ) -> Result<(), CollectionError> {\n        go_ends_member_early(&self.index.canonical, id, budget)?;\n        let record =",
       "expect": ["documentation::collector::go_tests::go_line_end_scan_costs_linear_work"]
     },
     {
