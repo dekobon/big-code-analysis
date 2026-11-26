@@ -83,8 +83,8 @@
     {
       "name": "java-unnamed-declarator-skipped",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "            _ => return Ok(None),",
-      "new": "            _ => continue,",
+      "old": "            // An unnamed variable (`_`) has no name to own documentation. A\n            // declarator without a child is not reachable from an error-free parse.\n            _ => return Ok(None),",
+      "new": "            // An unnamed variable (`_`) has no name to own documentation. A\n            // declarator without a child is not reachable from an error-free parse.\n            _ => continue,",
       "expect": [
         "documentation::collector::java_tests::java_field_with_an_unnamed_declarator_stays_pending_as_a_whole",
         "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child",
@@ -153,8 +153,8 @@
     {
       "name": "java-declarator-scan-unbudgeted",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;",
-      "new": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        let _ = budget;",
+      "old": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];",
+      "new": "    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        let _ = budget;\n        let declarator = &canonical.nodes[child.0];",
       "expect": [
         "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"
       ]

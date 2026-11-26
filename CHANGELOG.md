@@ -26,6 +26,11 @@ for historical reference.
 
 ### Added
 
+- The unstable AST documentation collector now gives single-name Kotlin `val`,
+  `var` and `const val` properties a `Property` slot enclosed by their property
+  declaration. Destructuring properties and constructor/function parameters
+  remain pending; legacy documentation rows are unchanged. (#1666)
+
 - The unstable Java source-documentation collector now marks package documentation
   eligible only with the explicit logical filename `package-info.java`, ineligible
   with a different filename, and unknown without one. Attachment and cleaned text

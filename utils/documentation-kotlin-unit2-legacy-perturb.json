@@ -1,0 +1,25 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "--offline",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_kotlin_property_slots_leave_legacy_rows_unchanged"
+  ],
+  "cases": [
+    {
+      "name": "kotlin-property-legacy-row-moves",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "                .insert_range(member.start_row(), member.end_row());",
+      "new": "                .insert_range(member.start_row().saturating_sub(1), member.end_row().saturating_sub(1));",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_kotlin_property_slots_leave_legacy_rows_unchanged"
+      ]
+    }
+  ]
+}

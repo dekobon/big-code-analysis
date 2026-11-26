@@ -13,9 +13,9 @@
       "pending": ["module publication and non-package filename policy", "unnamed-declarator and recovered field declarations", "semantic Unicode prelexing"]
     },
     "Kotlin": {
-      "implemented": ["basic KDoc function", "last selection across plain comments", "annotation-bearing function", "selected Local raw/text/maps"],
+      "implemented": ["basic KDoc function", "last selection across plain comments", "annotation-bearing function", "selected Local raw/text/maps", "single-name val/var/const property declaration and Property slot"],
       "ineligible": ["ordinary comments", "line-comment documentation"],
-      "pending": ["Local signature/modifier/accessor/constructor projection", "parameter/property slots", "publication"]
+      "pending": ["Local signature/modifier/accessor/constructor projection", "class/function parameter slots and destructuring properties", "publication"]
     },
     "Groovy": {
       "implemented": ["basic Groovydoc type", "nearest selection", "annotation-bearing type"],
