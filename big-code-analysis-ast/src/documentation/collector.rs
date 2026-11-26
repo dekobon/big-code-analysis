@@ -1026,6 +1026,8 @@ mod lua_tests;
 #[cfg(test)]
 mod named_tests;
 #[cfg(test)]
+mod perl_tests;
+#[cfg(test)]
 mod php_tests;
 #[cfg(test)]
 mod projection_tests;
