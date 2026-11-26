@@ -107,6 +107,15 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             .map(|value| u8::try_from(number(value)).unwrap())
             .collect();
         assert_eq!(&bytes[..3], header);
+        if let Some(expected) = seed["raw_sha256"].as_str() {
+            let actual = Sha256::digest(&bytes)
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    write!(hex, "{byte:02x}").unwrap();
+                    hex
+                });
+            assert_eq!(actual, expected);
+        }
         assert_eq!(
             Sha256::digest(&bytes[3..])
                 .iter()
@@ -201,6 +210,371 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     assert_eq!(actual, names);
+    assert_eq!(registry.len(), 67);
+    assert_eq!(
+        registry
+            .iter()
+            .filter(|seed| seed["header"][0] == 0)
+            .count(),
+        26
+    );
+}
+
+#[allow(clippy::too_many_lines)] // Exact included-tree, raw-fragment, owner and token oracle for the two registered seeds.
+fn rust_included_literal_seed(
+    class: &str,
+    index: &DocumentationIndex<'_>,
+    tree: &tree_sitter::Tree,
+) {
+    let gap = class == "rust-literal-value-gap";
+    let source: &[u8] = if gap {
+        b"#[doc = \"a\0b\"] fn f() {}"
+    } else {
+        b"#[doc = r\"a\r\nb\"] fn f() {}"
+    };
+    assert_eq!(index.source(), source);
+    let mut point = tree_sitter::Point::new(0, 0);
+    let mut expected_ranges = Vec::new();
+    for (at, byte) in source.iter().enumerate() {
+        let start_point = point;
+        if *byte == b'\n' {
+            point.row += 1;
+            point.column = 0;
+        } else {
+            point.column += 1;
+        }
+        if *byte != 0 {
+            expected_ranges.push(tree_sitter::Range {
+                start_byte: at,
+                end_byte: at + 1,
+                start_point,
+                end_point: point,
+            });
+        }
+    }
+    assert_eq!(tree.included_ranges(), expected_ranges);
+    let canonical = nodes(tree);
+    assert!(
+        canonical
+            .iter()
+            .all(|node| !node.has_error() && !node.is_missing())
+    );
+    let function = canonical
+        .iter()
+        .find(|node| node.kind() == "function_item")
+        .unwrap();
+    let attribute = canonical
+        .iter()
+        .find(|node| node.kind() == "attribute_item")
+        .unwrap();
+    let end = if gap { 14 } else { 16 };
+    assert_eq!(attribute.byte_range(), 0..end);
+    assert_eq!(function.byte_range(), end + 1..end + 10);
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let document = index.documents().next().unwrap();
+    assert_eq!(document.get().fragment_count(), 1);
+    assert_eq!(document.get().role(), DocumentRole::Primary);
+    assert_eq!(document.get().composition(), Composition::AttributeSequence);
+    let fragment = index.facts().document_fragment(document, 0).unwrap();
+    assert_eq!(fragment.get().form(), FragmentForm::Attribute);
+    fragment.get().node().unwrap().validate(*attribute).unwrap();
+    assert_eq!(fragment.get().source().has_excluded_gap(), gap);
+    let spans: Vec<_> = (0..end)
+        .filter(|at| !gap || *at != 10)
+        .map(|at| at..at + 1)
+        .collect();
+    assert_eq!(
+        fragment
+            .get()
+            .source()
+            .pieces()
+            .iter()
+            .map(SourcePiece::range)
+            .collect::<Vec<_>>(),
+        spans
+    );
+    for piece in fragment.get().source().pieces() {
+        assert_eq!(piece.bytes(), &source[piece.range()]);
+    }
+    let association = index.associations().next().unwrap();
+    assert_eq!(
+        index.facts().associated_document(association).unwrap(),
+        document
+    );
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().publication, Publication::Unknown);
+    association
+        .get()
+        .binding
+        .unwrap()
+        .validate(*function)
+        .unwrap();
+    association
+        .get()
+        .lexical_scope
+        .validate(tree.root_node())
+        .unwrap();
+    assert_eq!(association.get().owner_count(), 1);
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    let Owner::Node(node) = owner.get() else {
+        panic!("function owner")
+    };
+    node.validate(*function).unwrap();
+    assert_eq!(index.facts().owners().len(), 2);
+    let file = index.facts().owners().next().unwrap();
+    let Owner::File(node) = file.get() else {
+        panic!("file owner")
+    };
+    node.validate(tree.root_node()).unwrap();
+    let mut publications = index
+        .assessments()
+        .filter(|assessment| assessment.get().axis == AssessmentAxis::Publication);
+    let publication = publications.next().unwrap();
+    assert!(publications.next().is_none());
+    publication
+        .get()
+        .node
+        .unwrap()
+        .validate(*attribute)
+        .unwrap();
+    assert_eq!(
+        index
+            .node_associations(*function)
+            .unwrap()
+            .associations()
+            .collect::<Vec<_>>(),
+        [association]
+    );
+    assert_eq!(
+        index
+            .owner_associations(owner)
+            .unwrap()
+            .associations()
+            .collect::<Vec<_>>(),
+        [association]
+    );
+    if gap {
+        let value = canonical
+            .iter()
+            .find(|node| node.kind() == "string_literal")
+            .unwrap();
+        assert_eq!(value.byte_range(), 8..13);
+        assert!(
+            canonical
+                .iter()
+                .any(|node| node.kind() == "identifier" && node.byte_range() == (2..5))
+        );
+        assert!(matches!(
+            document.get().content(),
+            Content::Unavailable(UnavailableReason::ExcludedGap)
+        ));
+        assert!(index.complete_text(document).unwrap().is_none());
+    } else {
+        let complete = text(index);
+        assert_eq!(complete.text(), "a\nb");
+        let portions: Vec<_> = complete.origins(0..3).unwrap().collect();
+        assert_eq!(complete.mappings().len(), 3);
+        assert_eq!(portions.len(), 3);
+        for (at, portion) in portions.iter().enumerate() {
+            assert_eq!(portion.output, at..at + 1);
+        }
+        for (at, span) in [(0, 10..11), (2, 13..14)] {
+            let OriginView::Copied(piece) = &portions[at].origin else {
+                panic!("copied")
+            };
+            assert_eq!(piece.range(), span.clone());
+            assert_eq!(piece.bytes(), &source[span]);
+        }
+        let OriginView::Decoded(pieces) = &portions[1].origin else {
+            panic!("physical CRLF")
+        };
+        assert_eq!(
+            pieces.iter().map(SourcePiece::range).collect::<Vec<_>>(),
+            [11..12, 12..13]
+        );
+        assert_eq!(
+            pieces.iter().map(SourcePiece::bytes).collect::<Vec<_>>(),
+            [b"\r", b"\n"]
+        );
+    }
+}
+
+#[test]
+fn unit1_additions_preserve_every_previous_tagged_and_raw_rust_seed() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (directory, count, expected) in [
+        (
+            "documentation",
+            65,
+            "e0b4b8f37651094400115a6e7a3a7b0fe36d6f772c81c9394897d19995ede301",
+        ),
+        (
+            "parse_rust",
+            12,
+            "9467333cd232ce99f65f924cc4a9e6c66b859d49ecc2f208e03dffe1f0212fba",
+        ),
+    ] {
+        let mut paths: Vec<_> = std::fs::read_dir(root.join("corpus").join(directory))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                !matches!(
+                    path.file_name().unwrap().to_str().unwrap(),
+                    "rust-literal-value-gap" | "rust-literal-raw-crlf-pieces"
+                )
+            })
+            .collect();
+        paths.sort();
+        assert_eq!(paths.len(), count);
+        let mut hash = Sha256::new();
+        for path in paths {
+            hash.update(path.file_name().unwrap().to_str().unwrap().as_bytes());
+            hash.update([0]);
+            hash.update(std::fs::read(path).unwrap());
+            hash.update([0]);
+        }
+        // Frozen from clean writer starting HEAD 0fb38da5, before the two additions.
+        assert_eq!(
+            hash.finalize().iter().fold(String::new(), |mut hex, byte| {
+                write!(hex, "{byte:02x}").unwrap();
+                hex
+            }),
+            expected
+        );
+    }
+}
+
+#[allow(clippy::single_range_in_vec_init)]
+#[allow(clippy::too_many_lines)] // Independent text/origin tables for registered Rust literal and cleanup seeds.
+fn rust_literal_seed(class: &str, index: &DocumentationIndex<'_>) {
+    let (expected, fragments, origins) = match class {
+        "rust-outer-binding" => (
+            "outer\ninner",
+            2,
+            vec![
+                (0..5, false, vec![9..14]),
+                (5..6, false, vec![]),
+                (6..11, false, vec![30..35]),
+            ],
+        ),
+        "rust-second-lines-cr" => (
+            "a\nb",
+            1,
+            vec![
+                (0..1, false, vec![11..12]),
+                (1..2, true, vec![16..18]),
+                (2..3, false, vec![18..19]),
+            ],
+        ),
+        "rust-second-lines-terminal" => ("a", 1, vec![(0..1, false, vec![11..12])]),
+        "rust-second-lines-triple-cr" => (
+            "a\r\nb",
+            1,
+            vec![
+                (0..1, false, vec![11..12]),
+                (1..2, true, vec![12..14]),
+                (2..3, true, vec![18..20]),
+                (3..4, false, vec![20..21]),
+            ],
+        ),
+        "rust-unicode-first-star" => (
+            "\u{2003}* a\n * b\nz",
+            2,
+            vec![
+                (0..6, false, vec![3..9]),
+                (6..7, false, vec![9..10]),
+                (7..11, false, vec![10..14]),
+                (11..12, false, vec![]),
+                (12..13, false, vec![26..27]),
+            ],
+        ),
+        "rust-literal-mixed" => (
+            "first\nsecond",
+            2,
+            vec![
+                (0..5, false, vec![4..9]),
+                (5..6, false, vec![]),
+                (6..12, false, vec![20..26]),
+            ],
+        ),
+        "rust-literal-empty" => ("", 1, vec![]),
+        "rust-literal-raw" => ("a\"#b", 1, vec![(0..4, false, vec![13..17])]),
+        "rust-literal-scalar" => (
+            "😀",
+            1,
+            vec![(0..4, true, (9..18).map(|at| at..at + 1).collect())],
+        ),
+        "rust-literal-continuation" => (
+            "ab",
+            1,
+            vec![(0..1, false, vec![9..10]), (1..2, false, vec![16..17])],
+        ),
+        "rust-literal-margin" => (
+            "    hello\nanother",
+            2,
+            vec![
+                (0..9, false, vec![4..13]),
+                (9..10, false, vec![]),
+                (10..17, false, vec![23..30]),
+            ],
+        ),
+        _ => panic!("registered literal class"),
+    };
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let document = index.documents().next().unwrap();
+    assert_eq!(document.get().fragment_count(), fragments);
+    assert_eq!(text(index).text(), expected);
+    let actual: Vec<_> = text(index)
+        .mappings()
+        .iter()
+        .map(|mapping| {
+            let (decoded, pieces) = match &mapping.origin {
+                Origin::Copied(pieces) => (false, pieces.pieces()),
+                Origin::Decoded(pieces) => (true, pieces.pieces()),
+                Origin::Synthetic => (false, &[][..]),
+                Origin::Expanded(_) => panic!("Rust does not expand indentation"),
+                _ => panic!("unexpected Rust origin"),
+            };
+            (
+                mapping.output.range(),
+                decoded,
+                pieces.iter().map(SourcePiece::range).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(actual, origins);
+    let association = index.associations().next().unwrap();
+    assert_eq!(association.get().resolution, Resolution::Resolved);
+    assert_eq!(association.get().publication, Publication::Unknown);
+    if class == "rust-outer-binding" {
+        assert_rust_inner_binding(index, 17..37);
+    }
+    assert!(!index.assessments().any(|a| matches!(
+        a.get().axis,
+        AssessmentAxis::Occurrence | AssessmentAxis::Composition
+    )));
+}
+
+fn assert_rust_inner_binding(index: &DocumentationIndex<'_>, span: std::ops::Range<usize>) {
+    assert_eq!(index.associations().len(), 1);
+    let association = index.associations().next().unwrap();
+    assert_eq!(
+        association.get().binding.map(|n| n.node().byte_range()),
+        Some(span.clone())
+    );
+    let document = index.documents().next().unwrap();
+    assert_eq!(
+        index.facts().associated_document(association).unwrap(),
+        document
+    );
+    let owner = index.facts().associated_owner(association, 0).unwrap();
+    let Owner::Node(node) = owner.get() else {
+        panic!("function owner")
+    };
+    assert_eq!(node.node().kind(), "function_item");
+    assert_eq!(node.node().byte_range(), span);
 }
 
 #[allow(clippy::too_many_lines)] // Independent expected outcomes for the finite registered edge families.
@@ -211,6 +585,9 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
     }
     let index = index.unwrap();
     match class {
+        "rust-literal-value-gap" | "rust-literal-raw-crlf-pieces" => {
+            rust_included_literal_seed(class, index, tree);
+        }
         "eof" => {
             assert!(!index.source().ends_with(b"\n"));
             assert_eq!(index.documents().len(), 0);
@@ -219,7 +596,7 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
             assert!(index.source().windows(2).any(|bytes| bytes == b"\r\n"));
             assert_eq!(text(index).text(), "kept");
         }
-        "pending-content" => {
+        "pending-content" | "rust-pending-inner-binding" => {
             assert_eq!(index.documents().len(), 1);
             assert!(matches!(
                 index.documents().next().unwrap().get().content(),
@@ -230,6 +607,35 @@ fn edge(class: &str, index: Option<&DocumentationIndex<'_>>, tree: &tree_sitter:
                     .assessments()
                     .any(|a| a.get().axis == AssessmentAxis::Composition)
             );
+            if class == "rust-pending-inner-binding" {
+                assert_rust_inner_binding(index, 15..35);
+                let assessments: Vec<_> = index
+                    .assessments()
+                    .filter(|a| a.get().axis == AssessmentAxis::Composition)
+                    .collect();
+                assert_eq!(assessments.len(), 1);
+                assert_eq!(
+                    assessments[0].get().node.map(|n| n.node().byte_range()),
+                    Some(15..35)
+                );
+                assert_eq!(
+                    index.assessed_document(assessments[0]).unwrap(),
+                    index.documents().next()
+                );
+            }
+        }
+        "rust-literal-mixed"
+        | "rust-literal-empty"
+        | "rust-literal-raw"
+        | "rust-literal-scalar"
+        | "rust-literal-continuation"
+        | "rust-literal-margin"
+        | "rust-outer-binding"
+        | "rust-second-lines-cr"
+        | "rust-second-lines-terminal"
+        | "rust-second-lines-triple-cr"
+        | "rust-unicode-first-star" => {
+            rust_literal_seed(class, index);
         }
         "join" => {
             assert_eq!(text(index).text(), "a\nb");
@@ -550,7 +956,7 @@ fn registry_oracles_reject_actual_wrong_payloads_and_foreign_nodes() {
         result.is_err(),
         "same-shaped wrong text must fail the real positive oracle"
     );
-    let bytes = b"\0\x01\0#[doc = \"audit\"]\nfn f() {}";
+    let bytes = b"\0\x01\0#[doc(hidden)]\nfn f() {}";
     let result = std::panic::catch_unwind(|| {
         exercise_with(bytes, |index, tree| {
             edge("active-scope", index, tree);

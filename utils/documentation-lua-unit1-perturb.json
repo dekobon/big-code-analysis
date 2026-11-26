@@ -220,9 +220,9 @@
     },
     {
       "name": "crlf-in-block-copied-raw",
-      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
-      "old": "                if line.ending.len() == 2 {",
-      "new": "                if line.ending.len() == 3 {",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
       "expect": [
         "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
       ]

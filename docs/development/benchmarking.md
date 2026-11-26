@@ -162,6 +162,18 @@ including empty text. Cancellation, source errors and unsupported preparation re
 Counter controls distinguish a fresh render from retained access and shared text from per-owner
 copies.
 
+The Rust literal ladders use cold collection for decoding and mixed comment/attribute cleanup.
+`rust_validation.rs` checks every raw fragment, ordered output mapping and canonical attachment
+against source-derived formulas before timing. Attribute depth and width vary independently;
+the diagonal grows both without multiplying their source size. The split-escape fixture uses
+adjacent bytewise included ranges and retains every responsible escape byte.
+
+The `split-late-map` operation consumes its final decoded origin and each of its four borrowed
+pieces. The earlier late-map operation retains its original boundary: it consumes the portion
+without iterating token pieces. These are separate registry operations. Counter tests distinguish
+decoder iterations, cleanup projections, responsible-piece copies and append chunks; zero primary
+visits alone does not imply zero lookup, copy or instrumentation cost.
+
 The benchmark library enables `test-support` on its ordinary AST dependency.
 [Cargo feature unification](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification)
 therefore also enables it for other workspace consumers in the same build. Production

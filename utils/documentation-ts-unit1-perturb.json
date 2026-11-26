@@ -432,9 +432,9 @@
     },
     {
       "name": "crlf-not-decoded",
-      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
-      "old": "                if line.ending.len() == 2 {",
-      "new": "                if line.ending.len() == 3 {",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
       "expect": [
         "documentation::collector::ts_tests::typescript_block_text_is_cleaned_and_mapped_to_its_source",
         "documentation::collector::ts_tests::tsx_block_text_is_cleaned_and_mapped_to_its_source"

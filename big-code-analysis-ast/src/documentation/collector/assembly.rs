@@ -67,9 +67,17 @@ impl<'s> Builder<'s> {
         }
         for (node, fragment, target) in std::mem::take(&mut self.pending_attributes) {
             budget.step()?;
+            let pending = matches!(self.rust_values.get(&fragment), Some(rust::Value::Pending));
+            let binding = target
+                .filter(|_| {
+                    self.index.canonical.nodes[node.0].evidence.node().kind() == "attribute_item"
+                })
+                .map(|id| self.index.canonical.nodes[id.0].evidence);
             if let Some(&index) = target.as_ref().and_then(|target| by_target.get(target)) {
-                self.drafts[index].fragments.push(fragment);
-                self.drafts[index].pending = true;
+                let draft = &mut self.drafts[index];
+                draft.fragments.push(fragment);
+                draft.pending |= pending;
+                draft.binding = draft.binding.or(binding);
             } else {
                 let scope = self.index.canonical.nodes[target.unwrap_or(node).0]
                     .parent
@@ -81,15 +89,10 @@ impl<'s> Builder<'s> {
                     fragments: vec![fragment],
                     target,
                     scope,
-                    binding: target
-                        .filter(|_| {
-                            self.index.canonical.nodes[node.0].evidence.node().kind()
-                                == "attribute_item"
-                        })
-                        .map(|id| self.index.canonical.nodes[id.0].evidence),
+                    binding,
                     role: target.map_or(DocumentRole::Primary, |id| self.rust_role(id)),
                     unresolved: None,
-                    pending: true,
+                    pending: pending || target.is_none(),
                     gap: false,
                 });
             }
@@ -169,7 +172,17 @@ impl<'s> Builder<'s> {
             draft.unresolved = None;
         }
         if pending {
-            self.pending_document(&draft, document, &owners, attribute, budget)?;
+            let unassessed_content = matches!(
+                self.index.facts.documents[document.0].content,
+                Content::PendingAdapter
+            );
+            self.pending_document(
+                &draft,
+                document,
+                &owners,
+                attribute && unassessed_content,
+                budget,
+            )?;
             self.pending_conditional_selection(draft.target, document);
         }
         if (!owners.is_empty() && (!pending || draft.target.is_some()))
@@ -198,17 +211,17 @@ impl<'s> Builder<'s> {
         draft: &Draft<'s>,
         document: DocumentId,
         owners: &[OwnerId],
-        attribute: bool,
+        pending_attribute_composition: bool,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
         let assessment = self.index.assessments.len();
         self.index.assessments.push(Assessment {
-            axis: if attribute {
+            axis: if pending_attribute_composition {
                 AssessmentAxis::Composition
             } else {
                 AssessmentAxis::Owner
             },
-            reason: if attribute {
+            reason: if pending_attribute_composition {
                 "Rust doc/cfg_attr carrier awaits adapter composition"
             } else if self.index.profile == Profile::Doxygen && draft.target.is_none() {
                 "Exact named matching awaits supported signature grammar"
@@ -309,46 +322,42 @@ impl<'s> Builder<'s> {
         budget: &CollectionBudget,
     ) -> Result<(Content<'s>, bool), CollectionError> {
         let mut keys = Vec::new();
+        let mut attribute = false;
         for id in &draft.fragments {
             budget.step()?;
-            keys.push((
-                self.index.facts.fragments[id.0].source.pieces()[0]
-                    .range()
-                    .start,
-                id.0,
-            ));
+            let fragment = &self.index.facts.fragments[id.0];
+            attribute |= fragment.form == FragmentForm::Attribute;
+            keys.push((fragment.source.pieces()[0].range().start, id.0));
         }
         draft.fragments.clear();
         for (_, id) in crate::documentation::ordering::ordered(keys, budget)? {
             budget.step()?;
             draft.fragments.push(FragmentId(id));
         }
-        let mut fragments = Vec::new();
-        let mut attribute = false;
-        for id in &draft.fragments {
-            budget.step()?;
-            let fragment = &self.index.facts.fragments[id.0];
-            attribute |= fragment.form == FragmentForm::Attribute;
-            fragments.push(fragment);
-        }
-        let content = if attribute {
-            Content::PendingAdapter
+        let result = if attribute {
+            self.rust_content(draft, budget)
         } else if draft.gap {
-            Content::Unavailable(UnavailableReason::ExcludedGap)
+            Ok(Content::Unavailable(UnavailableReason::ExcludedGap))
         } else {
-            match crate::documentation::text::comments::render(
+            let mut fragments = Vec::with_capacity(draft.fragments.len());
+            for id in &draft.fragments {
+                budget.step()?;
+                fragments.push(&self.index.facts.fragments[id.0]);
+            }
+            crate::documentation::text::comments::render(
                 self.index.profile,
                 &self.index.source,
                 &fragments,
                 budget,
-            ) {
-                Ok(content) => content,
-                Err(crate::documentation::text::TextError::Source(error)) => {
-                    return Err(error.into());
-                }
-                Err(crate::documentation::text::TextError::Unavailable(reason)) => {
-                    Content::Unavailable(reason)
-                }
+            )
+        };
+        let content = match result {
+            Ok(content) => content,
+            Err(crate::documentation::text::TextError::Source(error)) => {
+                return Err(error.into());
+            }
+            Err(crate::documentation::text::TextError::Unavailable(reason)) => {
+                Content::Unavailable(reason)
             }
         };
         Ok((content, attribute))

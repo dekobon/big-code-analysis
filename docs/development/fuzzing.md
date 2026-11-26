@@ -58,6 +58,17 @@ Both run targets take `FUZZ_RUNS` (default 100 000) and `FUZZ_TIMEOUT`
 when nightly or `cargo-fuzz` is absent, so a stable-only checkout is not
 blocked.
 
+For a controlled run, `FUZZ_CORPUS` selects the read-only corpus root, with one subdirectory per
+target. `FUZZ_WORK` selects the writable root. Both `fuzz-run` and `fuzz-replay` pass the writable
+directory first. `FUZZ_ARGS` adds shell-quoted libFuzzer arguments after `--`; quote an argument
+containing spaces within that value. Recipe-owned `-runs` and `-timeout` arguments come last.
+Record the expanded argument list, including duplicate flags, when verifying a campaign's limits.
+
+The recipes can skip with exit 0 when tools are absent. Qualification controllers must also require
+the actual target binary and final `stat::number_of_executed_units` output. A bounded randomized
+run must execute its requested unit count; a replay must execute its complete seed inventory.
+Missing completion evidence is an incomplete stage.
+
 **Bound runs with `-runs`, never `-max_total_time`.** A wall-clock bound
 makes a failure non-reproducible across machines of different speeds:
 the same command finds a crash on one host and not on another, and

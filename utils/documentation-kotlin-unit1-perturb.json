@@ -412,9 +412,9 @@
     },
     {
       "name": "crlf-inside-block-is-copied",
-      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
-      "old": "                if line.ending.len() == 2 {",
-      "new": "                if line.ending.len() == 3 {",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
       ]

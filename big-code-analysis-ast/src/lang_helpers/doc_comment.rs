@@ -542,7 +542,12 @@ pub(crate) fn stretch_end_with_budget<'a, R: SourceRules, B: WorkBudget>(
     let mut target = None;
     for n in after {
         budget.step()?;
-        continuous = view.covers_with_budget(boundary..n.end_byte(), budget)?;
+        let end = if matches!(view, CandidateView::Source(_)) && R::separately_assessed_trivia(&n) {
+            n.start_byte()
+        } else {
+            n.end_byte()
+        };
+        continuous = view.covers_with_budget(boundary..end, budget)?;
         boundary = n.end_byte();
         if !continuous
             || (!skips(&n, ancestors)?
@@ -691,7 +696,14 @@ pub(crate) fn collect_stretch_with_budget<'a, R: SourceRules, B: WorkBudget>(
     // above it instead of the one the tool attaches.
     for sibling in ancestors.siblings_before_with_budget(comment, budget)? {
         budget.step()?;
-        if !view.covers_with_budget(sibling.start_byte()..boundary, budget)? {
+        let start = if matches!(view, CandidateView::Source(_))
+            && R::separately_assessed_trivia(&sibling)
+        {
+            sibling.end_byte()
+        } else {
+            sibling.start_byte()
+        };
+        if !view.covers_with_budget(start..boundary, budget)? {
             prefix_gap = true;
             break;
         }

@@ -916,10 +916,10 @@ mod tests {
     #[test]
     fn source_smoke_exercises_every_registered_cell() {
         let report = run(super::super::REGISTRY, 1, Mode::Smoke).unwrap();
-        assert_eq!(report.results.len(), 46);
+        assert_eq!(report.results.len(), 57);
         assert_eq!(
             report.results.iter().map(|r| r.cells.len()).sum::<usize>(),
-            138
+            171
         );
         assert!(!report.to_string().contains(" ok"));
     }

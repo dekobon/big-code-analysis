@@ -6,6 +6,9 @@ mod fixtures;
 mod operation;
 pub mod runner;
 #[cfg(test)]
+mod rust_tests;
+mod rust_validation;
+#[cfg(test)]
 mod tests;
 mod validation;
 #[cfg(all(test, unix))]

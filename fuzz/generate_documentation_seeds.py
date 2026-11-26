@@ -88,7 +88,7 @@ def main():
     for name, fixture, assertion in [
         ("rust-eof", "rust-eof.rs", "eof"),
         ("rust-crlf", "rust-crlf.rs", "crlf"),
-        ("rust-attribute", "rust-attribute.rs", "pending-content"),
+        ("rust-attribute", "rust-attribute.rs", "rust-literal-mixed"),
     ]:
         add(
             name,
@@ -101,6 +101,20 @@ def main():
         )
 
     cases = [
+        ("rust-literal-value-gap", [0, 7, 0], b'#[doc = "a\x00b"] fn f() {}', "rust-literal-value-gap", "rust_tests.rs::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes", False),
+        ("rust-literal-raw-crlf-pieces", [0, 7, 0], b'#[doc = r"a\r\nb"] fn f() {}', "rust-literal-raw-crlf-pieces", "text/rust/literal.rs physical CRLF normalization across included pieces", False),
+        ("rust-outer-binding", [0, 3, 0], b'#[doc = "outer"]\nfn f() { //! inner\n}', "rust-outer-binding", "rust_remediation_tests.rs::outer_attribute_merges_binding_into_inner_comment_document", False),
+        ("rust-pending-inner-binding", [0, 3, 0], b'#[doc(hidden)]\nfn f() { //! inner\n}', "rust-pending-inner-binding", "rust_remediation_tests.rs::outer_metadata_keeps_binding_on_pending_composition", False),
+        ("rust-second-lines-cr", [0, 3, 0], b'#[doc = "\\na\\r\\r\\nb"] fn f() {}', "rust-second-lines-cr", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-second-lines-terminal", [0, 3, 0], b'#[doc = "\\na\\r\\r\\n\\n"] fn f() {}', "rust-second-lines-terminal", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-second-lines-triple-cr", [0, 3, 0], b'#[doc = "\\na\\r\\r\\r\\nb"] fn f() {}', "rust-second-lines-triple-cr", "rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty", False),
+        ("rust-unicode-first-star", [0, 3, 0], '/**\u2003* a\n * b*/\n#[doc = "z"]\nfn f() {}'.encode(), "rust-unicode-first-star", "rust_remediation_tests.rs::unicode_first_line_star_keeps_ascii_decoration_and_exact_origins", False),
+        ("rust-literal-empty", [0, 3, 0], b'#[doc = ""] fn f() {}', "rust-literal-empty", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-literal-raw", [0, 3, 0], b'#[doc = r###"a"#b"###] fn f() {}', "rust-literal-raw", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-literal-scalar", [0, 7, 0], b'#[doc = "\\u{1F600}"] fn f() {}', "rust-literal-scalar", "rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup", False),
+        ("rust-literal-continuation", [0, 3, 0], b'#[doc = "a\\\r\n \t\nb"] fn f() {}', "rust-literal-continuation", "rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup", False),
+        ("rust-literal-margin", [0, 3, 0], b'///     hello\n#[doc = "another"]\nfn f() {}', "rust-literal-margin", "rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces", False),
+        ("rust-pending-metadata", [0, 3, 0], b'#[doc(hidden)] fn f() {}', "pending-content", "tests.rs::rust_pending_attributes_never_report_complete_partial_text", False),
         (
             "rust-join",
             [0, 3, 0],
@@ -303,7 +317,10 @@ def main():
         ),
     ]
     for name, header, payload, assertion, provenance, has_error in cases:
-        add(name, header, payload, assertion, provenance, has_error=has_error)
+        extra = {}
+        if name in {"rust-literal-value-gap", "rust-literal-raw-crlf-pieces"}:
+            extra["raw_sha256"] = hashlib.sha256(bytes(header) + payload).hexdigest()
+        add(name, header, payload, assertion, provenance, has_error=has_error, **extra)
 
     corpus = ROOT / "corpus/documentation"
     corpus.mkdir(parents=True, exist_ok=True)

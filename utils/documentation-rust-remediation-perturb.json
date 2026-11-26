@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
+  "cases": [
+    {
+      "name": "drop-outer-binding-existing-draft-merge",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                draft.binding = draft.binding.or(binding);",
+      "new": "                let _ = binding;",
+      "expect": ["documentation::collector::rust_tests::remediation::outer_attribute_merges_binding_into_inner_comment_document", "documentation::collector::rust_tests::remediation::outer_metadata_keeps_binding_on_pending_composition"]
+    },
+    {
+      "name": "neutralize-changed-second-line-interpretation",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            let rejoined = block.lines.len().saturating_sub(1);",
+      "new": "            let rejoined = block.lines.len().saturating_sub(1) * 0;",
+      "expect": ["documentation::collector::rust_tests::remediation::changed_beautification_reinterprets_one_cr_before_terminal_empty", "documentation::collector::rust_tests::remediation::second_line_interpretation_preserves_comment_newline_origins", "documentation::text::comments::remediation_tests::second_line_inspection_is_charged_before_trimming"]
+    },
+    {
+      "name": "restore-ascii-only-first-line-eligibility",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "&& !rust_first_line_star(&bytes[line.content.clone()], budget)?",
+      "new": "&& bytes[line.content.clone()].get(margin(&bytes[line.content.clone()], budget)?) != Some(&b'*')",
+      "expect": ["documentation::collector::rust_tests::remediation::unicode_first_line_star_keeps_ascii_decoration_and_exact_origins"]
+    }
+  ]
+}

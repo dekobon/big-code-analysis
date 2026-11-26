@@ -62,8 +62,8 @@
     {
       "name": "kotlin-owner-pending-hides-text",
       "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
-      "old": "let content = if attribute {",
-      "new": "let content = if attribute || draft.pending {",
+      "old": "let result = if attribute {",
+      "new": "let result = if draft.pending { Ok(Content::PendingAdapter) } else if attribute {",
       "expect": ["documentation::collector::assessment_tests::kotlin_local_pending_owner_keeps_complete_text_and_known_leading_association"]
     },
     {
@@ -89,9 +89,9 @@
     },
     {
       "name": "pending-composition-becomes-empty-complete",
-      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
-      "old": "let content = if attribute {\n            Content::PendingAdapter",
-      "new": "let content = if attribute {\n            Content::Complete { text: String::new(), mappings: Vec::new() }",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "Ok(Content::PendingAdapter)",
+      "new": "Ok(Content::Complete { text: String::new(), mappings: Vec::new() })",
       "expect": ["documentation::collector::tests::rust_pending_attributes_never_report_complete_partial_text"]
     },
     {
