@@ -1,0 +1,19 @@
+{
+  "scope": "PHP BcaPhpSource single-name property and constant declaration slots; Unit 2 of #1668",
+  "base": "931c3f902e02ce4cd83b29351e3a0a96e2c92ec8",
+  "grammar": {"runtime": "0.26.13", "php": "tree-sitter-php 0.25.1"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/php_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": ["utils/documentation-php-unit2-perturb.json", "utils/documentation-php-unit2-legacy-perturb.json"],
+  "reference": {
+    "source": "PHP block-comment delimiter semantics and the pinned tree-sitter-php grammar",
+    "status": "Source and parser reading only; no PHP executable was installed or run",
+    "qualification": "Only Profile::BcaPhpSource projects these slots. The PhpDocumentor adapter and PHP runtime parity remain unavailable."
+  },
+  "fixtures": "Byte-exact PHP sources and expected declaration/name spans in big-code-analysis-ast/src/documentation/collector/php_tests.rs; literal-boundary observations recorded in the #1668 Unit 2 specification",
+  "pending": ["multi-name property and constant slots", "promoted parameter slots", "define() and imported callee bindings", "PhpDocumentor adapter", "publication and PHP runtime parity"],
+  "limitations": [
+    "R20 block_comment.php closes its PHP /* */ at the first */ inside the apparent DocBlock: the subsequent public int $x = 1; is real code and tree-sitter-php 0.25.1 reports a property_declaration plus ERROR for the later stray */. It is not a literal hiding that property.",
+    "The PHP __halt_compiler(); boundary is a shared pinned-grammar limitation: do not infer PHP runtime behavior or source-documentation attachment after the directive from a tree-sitter parse."
+  ]
+}

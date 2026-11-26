@@ -26,6 +26,12 @@ for historical reference.
 
 ### Added
 
+- The unstable PHP source documentation collector gives a single-name property
+  declaration a property slot and a single-name constant declaration a binding
+  slot, each enclosed by its declaration. Multi-name declarations, promoted
+  parameters and `define()` calls remain pending. Legacy LOC rows do not move.
+  (#1668)
+
 - The unstable AST documentation collector now gives single-name Kotlin `val`,
   `var` and `const val` properties a `Property` slot enclosed by their property
   declaration. Destructuring properties and constructor/function parameters

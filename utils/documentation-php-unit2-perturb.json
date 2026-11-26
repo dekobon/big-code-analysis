@@ -1,0 +1,161 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::php_tests::php_unit2"
+  ],
+  "cases": [
+    {
+      "name": "php-dispatch-removed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "Profile::BcaPhpSource\n            && matches!(node.kind(), \"property_declaration\" | \"const_declaration\")",
+      "new": "Profile::PhpDocumentor\n            && matches!(node.kind(), \"property_declaration\" | \"const_declaration\")",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-property-role-reversed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "role: if property {\n                SlotRole::Property\n            } else {\n                SlotRole::Binding\n            },",
+      "new": "role: if property {\n                SlotRole::Binding\n            } else {\n                SlotRole::Property\n            },",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-ordinal-one",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let slot = OwnerId(self.index.facts.owners.len());\n        self.index.facts.owners.push(Owner::Slot(Slot {\n            enclosing,\n            role: if property {\n                SlotRole::Property\n            } else {\n                SlotRole::Binding\n            },\n            ordinal: 0,\n            source,",
+      "new": "        let slot = OwnerId(self.index.facts.owners.len());\n        self.index.facts.owners.push(Owner::Slot(Slot {\n            enclosing,\n            role: if property {\n                SlotRole::Property\n            } else {\n                SlotRole::Binding\n            },\n            ordinal: 1,\n            source,",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-property-name-excludes-dollar",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.index.canonical.nodes[name.0]\n                .evidence\n                .node()\n                .byte_range(),",
+      "new": "(self.index.canonical.nodes[name.0].evidence.node().start_byte() + 1)..self.index.canonical.nodes[name.0].evidence.node().end_byte(),",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-const-uses-property-role",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "role: if property {\n                SlotRole::Property\n            } else {\n                SlotRole::Binding\n            },",
+      "new": "role: SlotRole::Property,",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-outer-comments-stop-scan",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if kind == \"comment\" {\n            continue;\n        }\n        if kind == element_kind",
+      "new": "if kind == \"comment\" {\n            return Ok(None);\n        }\n        if kind == element_kind",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_name_scan_charges_and_ignores_comments"
+      ]
+    },
+    {
+      "name": "php-inner-comments-stop-scan",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if kind == \"comment\" {\n            continue;\n        }\n        if kind == \"=\"",
+      "new": "if kind == \"comment\" {\n            return Ok(None);\n        }\n        if kind == \"=\"",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_name_scan_charges_and_ignores_comments"
+      ]
+    },
+    {
+      "name": "php-declaration-budget-step-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let kind = canonical.nodes[child.0].evidence.node().kind();",
+      "new": "for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.checkpoint()?;\n        let kind = canonical.nodes[child.0].evidence.node().kind();",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_child_budget_has_both_bounds"
+      ]
+    },
+    {
+      "name": "php-element-budget-step-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[element.0].children.clone()] {\n        budget.step()?;\n        let kind = canonical.nodes[child.0].evidence.node().kind();",
+      "new": "for &child in &canonical.children[canonical.nodes[element.0].children.clone()] {\n        budget.checkpoint()?;\n        let kind = canonical.nodes[child.0].evidence.node().kind();",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_child_budget_has_both_bounds"
+      ]
+    },
+    {
+      "name": "php-allow-multiple-property-names",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if kind == element_kind && element.replace(child).is_some() {",
+      "new": "if kind == element_kind { element = Some(child); }\n        if false {",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
+      ]
+    },
+    {
+      "name": "php-error-property-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "if (node.has_error() && node.kind() != \"property_declaration\")\n            || node.is_missing()\n            || !self",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_errors_keep_both_declaration_kinds_pending"
+      ]
+    },
+    {
+      "name": "php-initializer-name-taken-as-second-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if kind == \"=\" {\n            break;\n        }",
+      "new": "        if kind == \"=\" {\n            continue;\n        }",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-single-name-ignores-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(name) = php_single_name(&self.index.canonical, id, property, budget)? else {\n            return Ok(());\n        };",
+      "new": "        let Some(name) = crate::documentation::budget::infallible(php_single_name(\n            &self.index.canonical, id, property, &crate::documentation::budget::NoBudget,\n        )) else {\n            return Ok(());\n        };",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_collection_charges_the_name_scan_and_source_pieces"
+      ]
+    },
+    {
+      "name": "php-slot-pieces-ignore-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                .byte_range(),\n            budget,\n        )?;\n        let enclosing =",
+      "new": "                .byte_range(),\n            &crate::documentation::budget::NoBudget,\n        )?;\n        let enclosing =",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_split_name_ranges_charge_source_pieces"
+      ]
+    },
+    {
+      "name": "php-gap-coverage-bypassed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self\n                .index\n                .source\n                .covers_with_budget(node.byte_range(), budget)?",
+      "new": "        if node.has_error()\n            || node.is_missing()\n            || (self.index.profile != Profile::BcaPhpSource\n                && !self.index.source.covers_with_budget(node.byte_range(), budget)?)",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_name_queries_and_excluded_gap"
+      ]
+    },
+    {
+      "name": "php-error-constant-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "if (node.has_error() && node.kind() != \"const_declaration\")\n            || node.is_missing()\n            || !self",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_errors_keep_both_declaration_kinds_pending"
+      ]
+    }
+  ]
+}

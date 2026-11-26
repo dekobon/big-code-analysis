@@ -36,6 +36,7 @@ struct Doc {
 enum Holder {
     Node(&'static str, Range<usize>),
     File(Range<usize>),
+    Slot(SlotRole, usize, Range<usize>, Range<usize>),
 }
 
 #[cfg(feature = "php")]
@@ -233,7 +234,23 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
                     assert!(attachment.binding.is_none());
                     Holder::File(file.node().byte_range())
                 }
-                other => panic!("a node or file owner, found {other:?}"),
+                Owner::Slot(slot) => {
+                    let enclosing = facts.slot_enclosing(owner).unwrap();
+                    let Owner::Node(declaration) = enclosing.get() else {
+                        panic!("node enclosure")
+                    };
+                    assert_eq!(
+                        attachment.binding.map(NodeEvidence::node),
+                        Some(declaration.node())
+                    );
+                    Holder::Slot(
+                        slot.role,
+                        slot.ordinal,
+                        span(&slot.source),
+                        declaration.node().byte_range(),
+                    )
+                }
+                other => panic!("a node, slot or file owner, found {other:?}"),
             };
             Link {
                 document: ordered.iter().position(|known| *known == document).unwrap(),
@@ -730,34 +747,10 @@ fn php_inline_html_before_the_opening_tag_is_preamble() {
     );
 }
 
-/// These documents without owners pin today's pending outcome; a later unit changes it.
+/// A promoted parameter stays pending; property and constant declarations now get slots.
 #[cfg(feature = "php")]
 #[test]
-fn php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner() {
-    let members: [(&[u8], &str, Range<usize>); 2] = [
-        (
-            b"<?php\nclass C {\n    /** d */\n    public $p;\n}\n",
-            "property_declaration",
-            33..43,
-        ),
-        (
-            b"<?php\nclass C {\n    /** d */\n    const K = 1;\n}\n",
-            "const_declaration",
-            33..45,
-        ),
-    ];
-    for (source, kind, range) in members {
-        assert_eq!(
-            view(source),
-            View {
-                documents: vec![comment(20..28, "d", [(0..1, Copied(24..25))])],
-                assessments: owner_pending(kind, range),
-                ..View::default()
-            },
-            "{}",
-            source.escape_ascii()
-        );
-    }
+fn php_promoted_parameter_keeps_a_document_without_an_owner() {
     assert_eq!(
         view(b"<?php class C { function __construct(/** audit */ public int $x) {} }\n"),
         View {
@@ -1016,4 +1009,714 @@ fn php_grammar_shapes_the_unit_relies_on() {
     let function = node_at(&parser, "function_definition", 38..53);
     assert_eq!(&source[comment.end_byte()..function.start_byte()], b"\r\n");
     assert_eq!(&source[function.end_byte()..root.end_byte()], b"\r\n");
+}
+
+#[cfg(feature = "php")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn php_unit2_single_property_and_constant_slots() {
+    let rows: &[(&[u8], SlotRole, &str, &str)] = &[
+        (
+            b"<?php\nclass C {\n/** d */\npublic int $x = 1;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\nconst K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\nconst B = A;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "B",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic $x = $y;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\ninterface I {\n/** d */\nconst K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nenum E {\ncase A;\n/** d */\nconst K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\ntrait T {\n/** d */\nconst K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nfunction z() {}\n/** d */\nconst K = 1;\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nfunction z() {}\n/** d */\nconst K = E_ALL;\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic static ?int $x;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic readonly int $x;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic int $x { get => 1; }\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\n#[A]\npublic int $x = 1;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic /* middle */ int $x /* right */ = 1;\n}\n",
+            SlotRole::Property,
+            "property_declaration",
+            "$x",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\npublic const int K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\nfinal public const K = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+        (
+            b"<?php\nclass C {\n/** d */\nconst /* middle */ K /* right */ = 1;\n}\n",
+            SlotRole::Binding,
+            "const_declaration",
+            "K",
+        ),
+    ];
+    for &(source, role, kind, spelling) in rows {
+        let parser = clean(source);
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .map(|node| node.as_tree_sitter())
+            .find(|node| node.kind() == kind)
+            .unwrap();
+        let start = source
+            .windows(spelling.len())
+            .position(|part| part == spelling.as_bytes())
+            .unwrap();
+        let found = agreed(
+            &indexes(&parser, DocumentationOptions::default()),
+            parser.ts_tree().root_node(),
+        );
+        let comment_start = source
+            .windows(8)
+            .position(|part| part == b"/** d */")
+            .unwrap();
+        assert_eq!(
+            found,
+            owned(
+                comment(
+                    comment_start..comment_start + 8,
+                    "d",
+                    [(0..1, Copied(comment_start + 4..comment_start + 5))],
+                ),
+                Holder::Slot(
+                    role,
+                    0,
+                    start..start + spelling.len(),
+                    declaration.byte_range()
+                ),
+            ),
+            "{}",
+            source.escape_ascii(),
+        );
+    }
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_multiple_names_and_neighbors_stay_as_before() {
+    // The two-name shapes pin today's pending result; the contract does not decide their owners.
+    let source =
+        b"<?php\nclass C {\n/** d */\npublic $a, $b = 2;\n/** e */\nconst A = 1, B = 2;\n}\n";
+    assert_eq!(
+        view(source),
+        View {
+            documents: vec![
+                comment(16..24, "d", [(0..1, Copied(20..21))]),
+                comment(44..52, "e", [(0..1, Copied(48..49))]),
+            ],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("property_declaration", 25..43)),
+                    Some(0)
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 25..43)),
+                    None
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("const_declaration", 53..72)),
+                    Some(1)
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("const_declaration", 53..72)),
+                    None
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+    // A one-name control proves that an empty association list is not vacuous.
+    assert_eq!(
+        view(b"<?php\nclass C {\n/** d */\npublic $a;\n}\n"),
+        owned(
+            comment(16..24, "d", [(0..1, Copied(20..21))]),
+            Holder::Slot(SlotRole::Property, 0, 32..34, 25..35)
+        )
+    );
+    assert_eq!(
+        view(b"<?php\nfunction z() {}\n/** d */\ndefine(\"X\", 1);\n"),
+        View {
+            documents: vec![comment(22..30, "d", [(0..1, Copied(26..27))])],
+            assessments: owner_pending("expression_statement", 31..46),
+            ..View::default()
+        }
+    );
+    assert_eq!(
+        view(b"<?php\nclass C { #[A]\n/** d */\npublic int $x;\n}\n"),
+        View {
+            documents: vec![comment(21..29, "d", [(0..1, Copied(25..26))])],
+            assessments: unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0))]),
+            ..View::default()
+        }
+    );
+    assert_eq!(
+        view(b"<?php\nenum E {\n/** d */\ncase A;\n}\n"),
+        node_owner(
+            comment(15..23, "d", [(0..1, Copied(19..20))]),
+            "enum_case",
+            24..31
+        )
+    );
+    assert_eq!(
+        view(b"<?php\nclass C {\n/** a */\npublic $a;\n/** b */\nconst B = 1;\n}\n"),
+        View {
+            documents: vec![
+                comment(16..24, "a", [(0..1, Copied(20..21))]),
+                comment(36..44, "b", [(0..1, Copied(40..41))]),
+            ],
+            associations: vec![
+                Link {
+                    document: 0,
+                    owner: Holder::Slot(SlotRole::Property, 0, 32..34, 25..35)
+                },
+                Link {
+                    document: 1,
+                    owner: Holder::Slot(SlotRole::Binding, 0, 51..52, 45..57)
+                },
+            ],
+            ..View::default()
+        }
+    );
+    // A DocBlock after the modifier belongs to the declaration, but stays local.
+    assert_eq!(
+        view(b"<?php\nclass C {\npublic\n/** d */\nint $x;\n}\n"),
+        View {
+            documents: vec![comment(23..31, "d", [(0..1, Copied(27..28))])],
+            assessments: unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0))]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_errors_keep_both_declaration_kinds_pending() {
+    for source in [
+        b"<?php\nclass C {\n/** d */\npublic $x = ;\n}\n".as_slice(),
+        b"<?php\nclass C {\n/** d */\nconst K = ;\n}\n".as_slice(),
+    ] {
+        let parser = AnyParser::parse(LANG::Php, source.to_vec(), None, None).unwrap();
+        assert!(parser.ts_tree().root_node().has_error());
+        let result = agreed(
+            &indexes(&parser, DocumentationOptions::default()),
+            parser.ts_tree().root_node(),
+        );
+        let (kind, decl, class) = if source.windows(6).any(|w| w == b"public") {
+            ("property_declaration", 25..38, 6..40)
+        } else {
+            ("const_declaration", 25..36, 6..38)
+        };
+        assert_eq!(
+            result,
+            View {
+                documents: vec![comment(16..24, "d", [(0..1, Copied(20..21))])],
+                assessments: unordered([
+                    pending(
+                        AssessmentAxis::Owner,
+                        AWAITS_OWNER,
+                        Some((kind, decl.clone())),
+                        Some(0)
+                    ),
+                    pending(
+                        AssessmentAxis::Owner,
+                        NEEDS_PROJECTION,
+                        Some(("class_declaration", class)),
+                        None
+                    ),
+                    pending(
+                        AssessmentAxis::Owner,
+                        NEEDS_PROJECTION,
+                        Some((kind, decl)),
+                        None
+                    ),
+                ]),
+                ..View::default()
+            }
+        );
+    }
+    let source = b"<?php\nclass C {\n/** d */\npublic $x;\nconst K = ;\n}\n";
+    let parser = AnyParser::parse(LANG::Php, source.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    assert_eq!(
+        agreed(
+            &indexes(&parser, DocumentationOptions::default()),
+            parser.ts_tree().root_node()
+        ),
+        View {
+            documents: vec![comment(16..24, "d", [(0..1, Copied(20..21))])],
+            associations: vec![Link {
+                document: 0,
+                owner: Holder::Slot(SlotRole::Property, 0, 32..34, 25..35)
+            }],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("class_declaration", 6..49)),
+                    None
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("const_declaration", 36..47)),
+                    None
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "php")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn php_unit2_single_name_queries_and_excluded_gap() {
+    let source = b"<?php\nclass C {\n/** d */\npublic  $x = 1;\n}\n";
+    let parser = clean(source);
+    let declaration = node_at(&parser, "property_declaration", 25..40);
+    let index = &indexes(&parser, DocumentationOptions::default())[0];
+    let projected = index.node_projection(declaration).unwrap();
+    assert!(!projected.pending());
+    let names: Vec<_> = index.node_owners(declaration).unwrap().collect();
+    assert_eq!(names.len(), 1);
+    let Owner::Slot(slot) = names[0].get() else {
+        panic!("slot")
+    };
+    assert_eq!(
+        (slot.role, slot.ordinal, span(&slot.source)),
+        (SlotRole::Property, 0, 33..35)
+    );
+    assert_eq!(
+        agreed(
+            &indexes(&parser, DocumentationOptions::default()),
+            parser.ts_tree().root_node()
+        ),
+        owned(
+            comment(16..24, "d", [(0..1, Copied(20..21))]),
+            Holder::Slot(SlotRole::Property, 0, 33..35, 25..40),
+        )
+    );
+    assert_eq!(
+        index
+            .node_associations(declaration)
+            .unwrap()
+            .associations()
+            .len(),
+        1
+    );
+
+    let undocumented = clean(b"<?php\nclass C {\npublic int $x;\n}\n");
+    let property = node_at(&undocumented, "property_declaration", 16..30);
+    let index = &indexes(&undocumented, DocumentationOptions::default())[0];
+    assert_eq!(index.documents().len(), 0);
+    assert_eq!(index.associations().len(), 0);
+    assert!(!index.node_projection(property).unwrap().pending());
+    let owners: Vec<_> = index.node_owners(property).unwrap().collect();
+    let [slot] = owners.as_slice() else {
+        panic!("one projected slot, found {}", owners.len());
+    };
+    let Owner::Slot(slot_value) = slot.get() else {
+        panic!("property projects to a slot");
+    };
+    assert_eq!(
+        (
+            slot_value.role,
+            slot_value.ordinal,
+            span(&slot_value.source)
+        ),
+        (SlotRole::Property, 0, 27..29)
+    );
+    let enclosing = index.facts().slot_enclosing(*slot).unwrap();
+    let Owner::Node(node) = enclosing.get() else {
+        panic!("slot is enclosed by a declaration");
+    };
+    assert_eq!(site(node.node()), ("property_declaration", 16..30));
+    assert_eq!(
+        index
+            .node_associations(property)
+            .unwrap()
+            .associations()
+            .len(),
+        0
+    );
+
+    // Excluding only whitespace keeps the parse clean and withholds the owner.
+    let mut raw = tree_sitter::Parser::new();
+    raw.set_language(&LANG::Php.tree_sitter_language().unwrap())
+        .unwrap();
+    raw.set_included_ranges(&[
+        tree_sitter::Range {
+            start_byte: 0,
+            end_byte: 32,
+            start_point: tree_sitter::Point::new(0, 0),
+            end_point: tree_sitter::Point::new(3, 7),
+        },
+        tree_sitter::Range {
+            start_byte: 33,
+            end_byte: source.len(),
+            start_point: tree_sitter::Point::new(3, 8),
+            end_point: tree_sitter::Point::new(5, 0),
+        },
+    ])
+    .unwrap();
+    let tree = raw.parse(source, None).unwrap();
+    let result = published(
+        &collect(
+            LANG::Php,
+            &tree,
+            source,
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap(),
+        tree.root_node(),
+    );
+    assert!(!tree.root_node().has_error());
+    assert_eq!(
+        result,
+        View {
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("class_declaration", 6..42)),
+                    None
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("declaration_list", 14..42)),
+                    None
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 25..40)),
+                    None
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_name_scan_charges_and_ignores_comments() {
+    use super::projections::php_single_name;
+    use crate::documentation::budget::NoBudget;
+    let source = b"<?php\nclass C {\n/** d */\nconst /* middle */ K /* right */ = 1;\n}\n";
+    let parser = clean(source);
+    let declaration = node_at(&parser, "const_declaration", 25..62);
+    let index = &indexes(&parser, DocumentationOptions::default())[0];
+    let id = index.canonical.lookup(declaration).unwrap();
+    let name = php_single_name(&index.canonical, id, false, &NoBudget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        site(index.canonical.nodes[name.0].evidence.node()),
+        ("name", 44..45)
+    );
+}
+
+#[cfg(feature = "php")]
+#[derive(Default)]
+struct PhpCounting(std::cell::Cell<usize>, Option<usize>);
+
+#[cfg(feature = "php")]
+impl crate::documentation::budget::WorkBudget for PhpCounting {
+    type Error = crate::documentation::SourceError;
+    #[cfg(feature = "php")]
+    fn checkpoint(&self) -> Result<(), crate::documentation::SourceError> {
+        Ok(())
+    }
+    #[cfg(feature = "php")]
+    fn bytes(&self, _: usize) -> Result<(), crate::documentation::SourceError> {
+        Ok(())
+    }
+    fn step(&self) -> Result<(), crate::documentation::SourceError> {
+        self.0.set(self.0.get() + 1);
+        if self.1 == Some(self.0.get()) {
+            Err(crate::documentation::SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_child_budget_has_both_bounds() {
+    use super::projections::php_single_name;
+    for (source, kind, property, expected) in [
+        (
+            b"<?php class C { public $x; }".as_slice(),
+            "property_declaration",
+            true,
+            "$x",
+        ),
+        (
+            b"<?php class C { const K = 1; }".as_slice(),
+            "const_declaration",
+            false,
+            "K",
+        ),
+        (
+            b"<?php class C { const K = FOO; }".as_slice(),
+            "const_declaration",
+            false,
+            "K",
+        ),
+        (
+            b"<?php class C { const /* middle */ K /* right */ = 1; }".as_slice(),
+            "const_declaration",
+            false,
+            "K",
+        ),
+    ] {
+        let parser = clean(source);
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .map(|n| n.as_tree_sitter())
+            .find(|n| n.kind() == kind)
+            .unwrap();
+        let index = &indexes(&parser, DocumentationOptions::default())[0];
+        let id = index.canonical.lookup(declaration).unwrap();
+        let outer = index.canonical.nodes[id.0].children.clone();
+        let count_outer = outer.len();
+        let element_kind = if property {
+            "property_element"
+        } else {
+            "const_element"
+        };
+        let element = index.canonical.children[outer]
+            .iter()
+            .find(|child| index.canonical.nodes[child.0].evidence.node().kind() == element_kind)
+            .unwrap();
+        let count_inner = index.canonical.children
+            [index.canonical.nodes[element.0].children.clone()]
+        .iter()
+        .take_while(|child| index.canonical.nodes[child.0].evidence.node().kind() != "=")
+        .count()
+            + usize::from(
+                index.canonical.children[index.canonical.nodes[element.0].children.clone()]
+                    .iter()
+                    .any(|child| index.canonical.nodes[child.0].evidence.node().kind() == "="),
+            );
+        let budget = PhpCounting::default();
+        let name = php_single_name(&index.canonical, id, property, &budget)
+            .unwrap()
+            .unwrap();
+        let measured = budget.0.get();
+        // Both bounds: each structural child (comments included) is read once.
+        assert!(measured >= count_outer + count_inner);
+        assert!(measured <= count_outer + count_inner);
+        let spelling = index.canonical.nodes[name.0].evidence.node().byte_range();
+        assert_eq!(&source[spelling], expected.as_bytes());
+        for at in 1..=measured {
+            let stopped = PhpCounting(std::cell::Cell::new(0), Some(at));
+            assert!(matches!(
+                php_single_name(&index.canonical, id, property, &stopped),
+                Err(crate::documentation::SourceError::Cancelled)
+            ));
+        }
+    }
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_collection_charges_the_name_scan_and_source_pieces() {
+    let width = 4100;
+    let source = format!(
+        "<?php\nclass C {{\n/** d */\npublic {}$x;\n}}\n",
+        "/*c*/ ".repeat(width)
+    );
+    let parser = clean(source.as_bytes());
+    let declaration = parser
+        .root_node()
+        .preorder()
+        .map(|node| node.as_tree_sitter())
+        .find(|node| node.kind() == "property_declaration")
+        .unwrap();
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let baseline = observations();
+    let index = parser.documentation(&context, &options).unwrap();
+    let after = observations();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let polls = after.polls - baseline.polls;
+    let expected_searches = after.intersection_searches - baseline.intersection_searches;
+    let mut scan = 0;
+    for at in 1..=polls {
+        let before = observations();
+        let result = crate::documentation::budget::cancel_after(at, || {
+            parser.documentation(&context, &options)
+        });
+        let observed = observations();
+        assert!(matches!(result, Err(CollectionError::Cancelled)), "{at}");
+        // Name scan: all declaration children entered, but no declaration owner yet.
+        if observed.visits - before.visits + 1 == after.visits - baseline.visits
+            && observed.owner_projections - before.owner_projections == 2
+        {
+            scan += 1;
+        }
+    }
+    assert!((3..=6).contains(&scan), "{scan} polls in scan");
+    // The target's source span is looked up twice: fragment and slot.
+    assert_eq!(expected_searches, 2);
+    // With a cancelled flag, the last poll in collection must still reject the index.
+    let cancelled = crate::cancel::ParseCancel::new();
+    cancelled.cancel();
+    assert!(matches!(
+        cancelled.run(|| parser.documentation(&context, &options)),
+        Err(CollectionError::Cancelled)
+    ));
+    let projected = index.node_projection(declaration).unwrap();
+    assert!(!projected.pending());
+}
+
+#[cfg(feature = "php")]
+#[test]
+fn php_unit2_split_name_ranges_charge_source_pieces() {
+    // Adjacent included ranges split the name without excluding a byte. Its 2,101
+    // pieces require three budget checkpoints in the slot intersection alone.
+    let source = format!(
+        "<?php\nclass C {{\n/** d */\npublic ${};\n}}\n",
+        "a".repeat(2100),
+    );
+    let start = source.find("$a").unwrap();
+    let point = |at: usize| {
+        let prior = &source[..at];
+        tree_sitter::Point::new(
+            prior.bytes().filter(|byte| *byte == b'\n').count(),
+            prior.rsplit('\n').next().unwrap().len(),
+        )
+    };
+    let mut included: Vec<Range<usize>> = Vec::new();
+    included.push(0..start);
+    included.extend((start..start + 2101).map(|at| at..at + 1));
+    included.push(start + 2101..source.len());
+    let ranges: Vec<_> = included
+        .iter()
+        .map(|range| tree_sitter::Range {
+            start_byte: range.start,
+            end_byte: range.end,
+            start_point: point(range.start),
+            end_point: point(range.end),
+        })
+        .collect();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Php.tree_sitter_language().unwrap())
+        .unwrap();
+    parser.set_included_ranges(&ranges).unwrap();
+    let tree = parser.parse(source.as_bytes(), None).unwrap();
+    assert!(!tree.root_node().has_error());
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let before = observations();
+    let index = collect(LANG::Php, &tree, source.as_bytes(), &context, &options).unwrap();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    let polls = observations().polls - before.polls;
+    // Both bounds: removing the budget at the slot-piece call yields 15, not 17.
+    assert!(polls >= 17, "{polls}");
+    assert!(polls <= 17, "{polls}");
+    for checkpoint in 1..=polls {
+        let result = crate::documentation::budget::cancel_after(checkpoint, || {
+            collect(LANG::Php, &tree, source.as_bytes(), &context, &options)
+        });
+        assert!(
+            matches!(result, Err(CollectionError::Cancelled)),
+            "{checkpoint}"
+        );
+    }
+    assert_eq!(
+        crate::documentation::budget::cancel_after(polls + 1, || {
+            collect(LANG::Php, &tree, source.as_bytes(), &context, &options)
+        })
+        .unwrap()
+        .associations()
+        .len(),
+        1,
+    );
 }

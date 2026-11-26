@@ -28,9 +28,9 @@
       "pending": ["field/event slot projection", "conditional member projections", "publication"]
     },
     "Php": {
-      "implemented": ["basic function/class", "one/two/three-block precedence", "enum declaration-before-file", "file preamble", "last selection"],
+      "implemented": ["basic function/class", "one/two/three-block precedence", "enum declaration-before-file", "file preamble", "last selection", "single-name property and constant slots"],
       "ineligible": ["non-PHPDoc markers", "superseded blocks", "unsupported qualified call spellings"],
-      "pending": ["signature/promoted/property/constant slots", "define constant slots and imported callees", "PhpDocumentor alternate", "publication"]
+      "pending": ["signature/promoted and multi-name property/constant slots", "define constant slots and imported callees", "PhpDocumentor alternate", "publication"]
     },
     "Javascript": {
       "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection", "first identifier-bound variable declarator"],

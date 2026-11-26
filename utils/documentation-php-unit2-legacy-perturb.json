@@ -1,0 +1,25 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--features",
+    "php",
+    "--lib",
+    "documentation_php_unit2_legacy_guard"
+  ],
+  "cases": [
+    {
+      "name": "php-guard-legacy-property-row",
+      "file": "src/metrics/loc/documentation_tests.rs",
+      "old": "(b\"<?php\\nclass C {\\n    /** d */\\n    public $p;\\n}\\n\", [5, 4, 1, 1, 0, 1], &[2]),",
+      "new": "(b\"<?php\\nclass C {\\n    /** d */\\n    public $p;\\n}\\n\", [5, 4, 1, 1, 0, 0], &[2]),",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_php_unit2_legacy_guard_before_and_after_projection"
+      ]
+    }
+  ]
+}

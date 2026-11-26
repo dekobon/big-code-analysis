@@ -7973,6 +7973,10 @@ fn documentation_elixir_source_and_legacy_views_are_independent() {
 #[cfg(feature = "php")]
 #[test]
 fn documentation_php_unit2_legacy_guard_before_and_after_projection() {
+    use big_code_analysis_ast::documentation::included_range_visits;
+    use big_code_analysis_ast::documentation::streaming::markers::{
+        evidence_built, stretches_collected,
+    };
     use big_code_analysis_ast::documentation::{
         DocumentationContext, DocumentationOptions, observations,
     };
@@ -7983,20 +7987,35 @@ fn documentation_php_unit2_legacy_guard_before_and_after_projection() {
         (b"<?php\nclass C {\n    /** ab */\n    public $a, $b = 2;\n    /** kl */\n    const A = 1, B = 2;\n}\n", [7, 5, 2, 2, 0, 2], &[2, 4]),
         (b"<?php class C { function __construct(/** audit */ public int $x) {} }\n", [1, 1, 0, 1, 0, 1], &[0]),
     ];
+    let counters = || {
+        [
+            observations().renders,
+            observations().visits,
+            evidence_built::observed(),
+            stretches_collected::observed(),
+            included_range_visits::observed(),
+            observations().intersection_searches,
+        ]
+    };
     let mut moved = 0;
-    for &(source, expected, rows) in cases {
+    for (case, &(source, expected, rows)) in cases.iter().enumerate() {
         let parser =
             crate::langs::AnyParser::parse(LANG::Php, source.to_vec(), None, None).unwrap();
-        let before = observations();
+        let before = counters();
         let index = parser
             .documentation(
                 &DocumentationContext::default(),
                 &DocumentationOptions::default(),
             )
             .unwrap();
-        let after = observations();
-        assert_eq!(after.renders - before.renders, index.documents().len());
-        moved += after.renders - before.renders;
+        let after = counters();
+        assert_eq!(after[0] - before[0], index.documents().len());
+        assert!(after[1] > before[1]);
+        assert!(after[2] > before[2]);
+        assert!(after[3] > before[3]);
+        assert!(after[4] > before[4]);
+        assert!(after[5] > before[5]);
+        moved += after[0] - before[0];
         let space = analyze(
             Source::new(LANG::Php, source),
             MetricsOptions::default().with_only(&[Metric::Loc]),
@@ -8020,9 +8039,15 @@ fn documentation_php_unit2_legacy_guard_before_and_after_projection() {
                 .collect::<Vec<_>>(),
             rows
         );
-        let end = observations();
-        assert_eq!(end.renders - after.renders, 0);
-        assert_eq!(end.visits - after.visits, 0);
+        let end = counters();
+        // The legacy collector scans the bound member runs for the first three cases;
+        // the promoted signature has no bound run. The other five source counters stay zero.
+        assert_eq!(end[0] - after[0], 0);
+        assert_eq!(end[1] - after[1], 0);
+        assert_eq!(end[2] - after[2], 0);
+        assert_eq!(end[3] - after[3], [1, 1, 2, 0][case]);
+        assert_eq!(end[4] - after[4], 0);
+        assert_eq!(end[5] - after[5], 0);
     }
     assert_eq!(moved, 5);
 }

@@ -48,8 +48,8 @@
     {
       "name": "property-slot-has-ordinal-one",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "ordinal: 0,",
-      "new": "ordinal: 1,",
+      "old": "role: SlotRole::Property,\n            ordinal: 0,",
+      "new": "role: SlotRole::Property,\n            ordinal: 1,",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_two_properties_have_distinct_property_slots"
       ]
@@ -66,8 +66,8 @@
     {
       "name": "property-projection-kept-pending",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);",
-      "new": "self.index.canonical.nodes[id.0].projection = Projection::Pending;",
+      "old": "self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);\n        Ok(())\n    }\n\n    fn js_first_declarator_owner",
+      "new": "self.index.canonical.nodes[id.0].projection = Projection::Pending;\n        Ok(())\n    }\n\n    fn js_first_declarator_owner",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_two_properties_have_distinct_property_slots",
         "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot",

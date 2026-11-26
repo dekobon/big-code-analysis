@@ -90,7 +90,8 @@
       "old": "            PropertyDeclaration,\n",
       "new": "",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
       ]
     },
     {
@@ -99,7 +100,8 @@
       "old": "            ConstDeclaration,\n",
       "new": "",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
       ]
     },
     {
@@ -190,7 +192,7 @@
         "documentation::collector::php_tests::php_docblock_text_over_several_lines",
         "documentation::collector::php_tests::php_docblock_with_crlf_line_endings",
         "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble",
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
       ]
     },
     {
@@ -238,7 +240,7 @@
       "old": "            Profile::BcaPhpSource if draft.scope.0 == 0 => {",
       "new": "            Profile::BcaPhpSource if draft.scope.0 != usize::MAX => {",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     },
     {
@@ -247,7 +249,7 @@
       "old": "                | Php::FormalParameters\n",
       "new": "",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     },
     {
@@ -257,7 +259,7 @@
       "new": "    const SOURCE_LOCAL_DOCS: bool = false;",
       "expect": [
         "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     },
     {
@@ -311,7 +313,8 @@
       "old": "                | \"expression_statement\"\n                | \"property_declaration\"\n",
       "new": "                | \"expression_statement\"\n",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
       ]
     },
     {
@@ -320,7 +323,8 @@
       "old": "                | \"property_declaration\"\n                | \"const_declaration\"\n",
       "new": "                | \"property_declaration\"\n",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
       ]
     },
     {
@@ -329,7 +333,7 @@
       "old": "            \"property_promotion_parameter\" | \"simple_parameter\" | \"variadic_parameter\"",
       "new": "            \"simple_parameter\" | \"variadic_parameter\"",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     },
     {
@@ -338,7 +342,7 @@
       "old": "                        \"formal_parameters\"\n                            | \"property_promotion_parameter\"\n",
       "new": "                        \"property_promotion_parameter\"\n",
       "expect": [
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     },
     {
@@ -394,7 +398,7 @@
         "documentation::collector::php_tests::php_docblock_text_over_several_lines",
         "documentation::collector::php_tests::php_docblock_with_crlf_line_endings",
         "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble",
-        "documentation::collector::php_tests::php_property_constant_and_promoted_parameter_keep_a_document_without_an_owner"
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
       ]
     }
   ]
