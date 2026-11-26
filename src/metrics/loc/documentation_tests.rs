@@ -4667,3 +4667,45 @@ fn documentation_perl_source_and_legacy_views_are_independent() {
     // that the grammar may hide: 148 assessments.
     assert_eq!((documents, texts, pending), (93, 87, 148));
 }
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+#[test]
+fn documentation_js_variable_projection_does_not_change_legacy_rows() {
+    use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+    const BOTH: &[LANG] = &[LANG::Javascript, LANG::Mozjs];
+    let rows: &[(&[u8], [u64; 6], &[usize])] = &[
+        (b"/**audit*/\nconst f = () => 1;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (b"/**audit*/\nconst a = 1, b = 2;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (b"/**audit*/\nexport const e = 3;\n", [2, 1, 1, 1, 0, 1], &[0]),
+        (b"/**audit*/\nusing u = f();\n", [2, 1, 1, 1, 0, 1], &[0]),
+    ];
+    for &language in BOTH {
+        if !language.is_enabled() {
+            continue;
+        }
+        for &(source, expected, dloc_rows) in rows {
+            let parser = crate::langs::AnyParser::parse(language, source.to_vec(), None, None)
+                .unwrap();
+            let index = parser
+                .documentation(&DocumentationContext::default(), &DocumentationOptions::default())
+                .unwrap();
+            assert_eq!(index.documents().len(), 1);
+            let space = analyze(
+                Source::new(language, source),
+                MetricsOptions::default().with_only(&[Metric::Loc]),
+            )
+            .unwrap();
+            let loc = &space.metrics.loc;
+            assert_eq!(
+                [loc.sloc(), loc.ploc(), loc.lloc(), loc.cloc(), loc.blank(), loc.dloc()],
+                expected
+            );
+            assert_eq!(
+                (0..source.len())
+                    .filter(|at| loc.dloc.lines.contains(*at))
+                    .collect::<Vec<_>>(),
+                dloc_rows
+            );
+        }
+    }
+}
