@@ -259,7 +259,6 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
                 .map(|document| ordered.iter().position(|known| *known == document).unwrap()),
         }
     }));
-    // The PHP source adapter is partial for all these cases.
     assert_eq!(index.capability(), Capability::Partial);
     // Qualifications belong to named-reference commands (the Doxygen path), absent here.
     assert_eq!(index.qualifications().len(), 0);
