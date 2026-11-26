@@ -148,6 +148,69 @@
       "expect": [
         "documentation_variants::every_language_variant_meets_its_documentation_policy_through_the_root_ast"
       ]
+    },
+    {
+      "name": "qualification-manifest-anchor-goes-stale",
+      "file": "utils/documentation-variants-unit1-perturb.json",
+      "old": "\"old\": \"        [jsm],\",",
+      "new": "\"old\": \"        [jsm-stale],\",",
+      "expect": [
+        "documentation_variants::every_perturbation_manifest_anchor_matches_uniquely"
+      ]
+    },
+    {
+      "name": "qualification-form-promise-text-changes",
+      "file": "tests/fixtures/documentation/forms.json",
+      "old": "\"text\":\"<summary>type</summary>\"",
+      "new": "\"text\":\"incorrect\"",
+      "expect": [
+        "documentation_variants::promised_form_fixtures_match_their_expected_outcomes"
+      ]
+    },
+    {
+      "name": "qualification-corpus-metric-baseline-replaced-with-zero",
+      "file": "tests/api/documentation_variants.rs",
+      "old": "        let before = metrics();",
+      "new": "        let before = (0, 0);",
+      "expect": [
+        "documentation_variants::representative_corpus_files_collect_valid_documentation_and_preserve_metrics"
+      ]
+    },
+    {
+      "name": "qualification-unresolved-expansion-promise-changed",
+      "file": "tests/fixtures/documentation/forms.json",
+      "old": "\"association\":\"unresolved macro expansion\"",
+      "new": "\"association\":\"resolved\"",
+      "expect": [
+        "documentation_variants::promised_form_fixtures_match_their_expected_outcomes"
+      ]
+    },
+    {
+      "name": "qualification-corpus-scope-out-of-bounds",
+      "file": "tests/api/documentation_variants.rs",
+      "old": "            let scope = association.get().lexical_scope.node().byte_range();",
+      "new": "            let scope = len..len + 1;",
+      "expect": [
+        "documentation_variants::representative_corpus_files_collect_valid_documentation_and_preserve_metrics"
+      ]
+    },
+    {
+      "name": "qualification-corpus-binding-out-of-bounds",
+      "file": "tests/api/documentation_variants.rs",
+      "old": "                let span = binding.node().byte_range();",
+      "new": "                let span = len..len + 1;",
+      "expect": [
+        "documentation_variants::representative_corpus_files_collect_valid_documentation_and_preserve_metrics"
+      ]
+    },
+    {
+      "name": "qualification-unresolved-expansion-resolution-changes",
+      "file": "tests/api/documentation_variants.rs",
+      "old": "Resolution::Unresolved(UnresolvedReason::Expansion)",
+      "new": "Resolution::Unattached",
+      "expect": [
+        "documentation_variants::promised_form_fixtures_match_their_expected_outcomes"
+      ]
     }
   ]
 }
