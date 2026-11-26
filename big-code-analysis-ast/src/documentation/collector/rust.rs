@@ -102,7 +102,8 @@ impl<'s> Builder<'s> {
             if path.kind() != "identifier" {
                 return Ok(Carrier::Other);
             }
-            match &self.index.source.bytes()[path.byte_range()] {
+            let name = &self.index.source.bytes()[path.byte_range()];
+            match name.strip_prefix(b"r#").unwrap_or(name) {
                 b"cfg_attr" => return Ok(Carrier::Doc(Value::Pending)),
                 b"doc" => {}
                 _ => return Ok(Carrier::Other),

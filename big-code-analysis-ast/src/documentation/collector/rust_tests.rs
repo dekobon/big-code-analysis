@@ -1188,3 +1188,96 @@ fn rust_literal_text_phase_cancellation_restores_next_collection() {
         assert_eq!(collect().unwrap().documents().len(), 1);
     }
 }
+
+#[test]
+#[cfg(feature = "rust")]
+fn rust_raw_identifier_attribute_names_are_documentation_carriers() {
+    // rustc reads `r#doc` and `r#cfg_attr` as `doc` and `cfg_attr`.
+    type Expected = (
+        &'static str,
+        &'static str,
+        Vec<ExpectedMapping>,
+        Vec<Range<usize>>,
+        Option<Range<usize>>,
+    );
+    let cases: [Expected; 3] = [
+        (
+            "#[r#doc = \"raw name\"]\nfn f() {}",
+            "raw name",
+            vec![(0..8, "copied", vec![11..19])],
+            vec![0..21],
+            Some(22..31),
+        ),
+        (
+            "#[doc = \"first\"]\n#[r#doc = \"second\"]\nfn f() {}",
+            "first\nsecond",
+            vec![
+                (0..5, "copied", vec![9..14]),
+                (5..6, "synthetic", vec![]),
+                (6..12, "copied", vec![28..34]),
+            ],
+            vec![0..16, 17..36],
+            Some(37..46),
+        ),
+        (
+            "#![r#doc = \"inner\"]",
+            "inner",
+            vec![(0..5, "copied", vec![12..17])],
+            vec![0..19],
+            None,
+        ),
+    ];
+    for (source, expected, mappings, fragments, function) in cases {
+        indexes(source.as_bytes(), |index| {
+            let complete = text(index);
+            assert_eq!(complete.text(), expected, "{source}");
+            assert_eq!(maps(complete), mappings, "{source}");
+            let document = index.documents().next().unwrap();
+            assert_eq!(document.get().fragment_count(), fragments.len());
+            for (position, span) in fragments.iter().enumerate() {
+                let fragment = index.facts().document_fragment(document, position).unwrap();
+                assert_eq!(fragment.get().form(), FragmentForm::Attribute);
+                assert_eq!(fragment.get().source().pieces()[0].range(), *span);
+            }
+            assert_eq!(index.associations().len(), 1);
+            let association = index.associations().next().unwrap();
+            assert_eq!(association.get().resolution, Resolution::Resolved);
+            assert_eq!(association.get().owner_count(), 1);
+            let owner = index.facts().associated_owner(association, 0).unwrap();
+            match (owner.get(), &function) {
+                (Owner::Node(node), Some(range)) => {
+                    assert_eq!(node.node().kind(), "function_item");
+                    assert_eq!(node.node().byte_range(), *range);
+                }
+                (Owner::File(_), None) => {}
+                (other, _) => panic!("{source}: {other:?}"),
+            }
+            assert!(!index.assessments().any(|a| matches!(
+                a.get().axis,
+                AssessmentAxis::Occurrence | AssessmentAxis::Composition
+            )));
+        });
+    }
+    for source in [
+        "#[doc = \"first\"]\n#[r#cfg_attr(all(), doc = \"second\")]\nfn f() {}",
+        "#[doc = \"first\"]\n#[r#doc(hidden)]\nfn f() {}",
+    ] {
+        indexes(source.as_bytes(), |index| {
+            assert_eq!(index.documents().len(), 1, "{source}");
+            assert!(
+                matches!(
+                    index.documents().next().unwrap().get().content(),
+                    Content::PendingAdapter
+                ),
+                "{source}"
+            );
+        });
+    }
+    // Controls: a name that only starts with the raw prefix or with `doc` is no carrier.
+    for source in ["#[r#docs = \"x\"]\nfn f() {}", "#[rdoc = \"x\"]\nfn f() {}"] {
+        indexes(source.as_bytes(), |index| {
+            assert_eq!(index.documents().len(), 0, "{source}");
+            assert_eq!(index.assessments().len(), 0, "{source}");
+        });
+    }
+}

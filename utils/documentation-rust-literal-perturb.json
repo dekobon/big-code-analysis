@@ -93,6 +93,15 @@
       "old": "render(&self.index.source, &inputs, budget)",
       "new": "{ let _ = render(&self.index.source, &inputs, budget)?; render(&self.index.source, &inputs, budget) }",
       "expect": ["documentation::collector::rust_tests::rust_literal_materializes_once_and_prices_decoding_projection_and_retained_reads"]
+    },
+    {
+      "name": "raw-identifier-attribute-name-is-no-carrier",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "match name.strip_prefix(b\"r#\").unwrap_or(name) {",
+      "new": "match name {",
+      "expect": [
+        "documentation::collector::rust_tests::rust_raw_identifier_attribute_names_are_documentation_carriers"
+      ]
     }
   ]
 }
