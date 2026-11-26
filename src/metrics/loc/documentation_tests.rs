@@ -8089,84 +8089,45 @@ fn documentation_csharp_unit2_declarations_keep_legacy_rows() {
 #[cfg(feature = "lua")]
 #[test]
 fn documentation_lua_unit2_sources_keep_their_legacy_rows() {
-    use big_code_analysis_ast::documentation::{
-        DocumentationContext, DocumentationOptions, observations,
-    };
-    struct Row<'a> {
-        source: &'a [u8],
-        loc: [u64; 6],
-        dloc_rows: &'a [usize],
-    }
     let rows = [
-        Row {
+        LuaLegacyRow {
+            name: "tagged_following_function",
             source: b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n",
             loc: [4, 2, 1, 2, 0, 2],
             dloc_rows: &[1, 2],
+            comment_runs: 1,
         },
-        Row {
+        LuaLegacyRow {
+            name: "single_local",
             source: b"module(\"m\")\n--- audit\nlocal a = 1\n",
             loc: [3, 2, 1, 1, 0, 1],
             dloc_rows: &[1],
+            comment_runs: 1,
         },
-        Row {
+        LuaLegacyRow {
+            name: "dotted_assignment",
             source: b"module(\"m\")\n--- audit\nM.a = 1\n",
             loc: [3, 2, 1, 1, 0, 1],
             dloc_rows: &[1],
+            comment_runs: 1,
         },
-        Row {
+        LuaLegacyRow {
+            name: "returned_table",
             source: b"module(\"m\")\n--- audit\nreturn {}\n",
             loc: [3, 2, 1, 1, 0, 1],
             dloc_rows: &[1],
+            comment_runs: 1,
         },
-        Row {
+        LuaLegacyRow {
+            name: "named_field",
             source: b"module(\"m\")\nlocal t = {\n--- detail\nalpha = 1,\n}\n",
             loc: [5, 4, 1, 1, 0, 1],
             dloc_rows: &[2],
+            comment_runs: 1,
         },
     ];
     for row in rows {
-        let parser =
-            crate::langs::AnyParser::parse(LANG::Lua, row.source.to_vec(), None, None).unwrap();
-        assert!(!parser.ts_tree().root_node().has_error());
-        let before = observations();
-        let index = parser
-            .documentation(
-                &DocumentationContext::default(),
-                &DocumentationOptions::default(),
-            )
-            .unwrap();
-        let collected = observations();
-        assert_eq!(
-            collected.visits - before.visits,
-            parser.root_node().preorder().count()
-        );
-        assert_eq!(collected.renders - before.renders, index.documents().len());
-        assert_ne!(collected.renders - before.renders, 0);
-        let space = analyze(
-            Source::new(LANG::Lua, row.source),
-            MetricsOptions::default().with_only(&[Metric::Loc]),
-        )
-        .unwrap();
-        let after = observations();
-        assert_eq!(after.visits - collected.visits, 0);
-        assert_eq!(after.renders - collected.renders, 0);
-        let loc = &space.metrics.loc;
-        assert_eq!(
-            [
-                loc.sloc(),
-                loc.ploc(),
-                loc.lloc(),
-                loc.cloc(),
-                loc.blank(),
-                loc.dloc()
-            ],
-            row.loc
-        );
-        assert_eq!(
-            (0..row.source.len())
-                .filter(|at| loc.dloc.lines.contains(*at))
-                .collect::<Vec<_>>(),
-            row.dloc_rows
-        );
+        // expected: each selected run renders one document, so the helper returns one.
+        assert_eq!(check_lua_legacy_row(&row), 1);
     }
 }

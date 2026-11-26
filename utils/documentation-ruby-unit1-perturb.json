@@ -264,8 +264,8 @@
     {
       "name": "explicit-opener-keeps-target",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "            positional::RunSelection::Opener(\n                positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,\n            ) => {",
-      "new": "            positional::RunSelection::Opener(positional::OpenerReason::Tagged) => {",
+      "old": "        positional::RunSelection::Opener(\n            positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,\n        ) => {",
+      "new": "        positional::RunSelection::Opener(positional::OpenerReason::Tagged) => {",
       "expect": [
         "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome"
       ]

@@ -1,0 +1,8 @@
+{
+  "unit": "Lua LDoc source ownership, unit 2",
+  "evidence_base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "grammar": "tree-sitter-lua =0.5.0",
+  "reference": "No Lua interpreter or LDoc executable is installed. Statements about LDoc are contract/role-table readings, not tool measurements.",
+  "fixture_index": "tree-dumps/INDEX.md beside the specification, not installed in the implementation",
+  "fixture_provenance": "Each source was written before probing. tree-dumps/*.tree.txt and *.collected.txt are observations of the pinned grammar and the prototype collector. Byte spans are derived by scratch/derive_ranges.py from fixture sources."
+}

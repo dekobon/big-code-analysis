@@ -152,6 +152,18 @@ impl Builder<'_> {
         {
             return self.kotlin_property_slot(id, budget);
         }
+        if self.index.profile == Profile::Ldoc
+            && matches!(
+                node.kind(),
+                "field" | "assignment_statement" | "variable_declaration" | "return_statement"
+            )
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.lua_declaration_owners(id, budget);
+        }
         Ok(())
     }
 
@@ -194,6 +206,30 @@ impl Builder<'_> {
             js_first_declarator_with_budget(&self.index.canonical, id, budget)
         })? {
             self.add_owner(id, Owner::Node(declarator));
+        }
+        Ok(())
+    }
+
+    fn lua_declaration_owners(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        match self.index.canonical.nodes[id.0].evidence.node().kind() {
+            "field" => {
+                if let Some(name) = lua_field_name(&self.index.canonical, id, budget)? {
+                    self.field_slots(id, vec![name], budget)?;
+                }
+            }
+            "assignment_statement" | "variable_declaration" => {
+                if lua_single_name(&self.index.canonical, id, budget)?.is_some() {
+                    self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+                }
+            }
+            "return_statement" => {
+                self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -699,4 +735,74 @@ pub(super) fn go_ends_member_early<B: WorkBudget>(
 // which are the named tokens of the grammar, or a closing bracket.
 fn go_line_end(token: tree_sitter::Node<'_>) -> Option<usize> {
     (token.is_named() || matches!(token.kind(), ")" | "]" | "}")).then(|| token.end_position().row)
+}
+
+pub(super) fn lua_field_name<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    field: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    for &child in &canonical.children[canonical.nodes[field.0].children.clone()] {
+        budget.step()?;
+        let kind = canonical.nodes[child.0].evidence.node().kind();
+        if kind != "comment" {
+            return Ok((kind == "identifier").then_some(child));
+        }
+    }
+    Ok(None)
+}
+
+pub(super) fn lua_declared_list<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    let kind = canonical.nodes[declaration.0].evidence.node().kind();
+    let children = canonical.nodes[declaration.0].children.clone();
+    for &child in &canonical.children[children] {
+        budget.step()?;
+        let child_kind = canonical.nodes[child.0].evidence.node().kind();
+        if child_kind == "comment" || !canonical.nodes[child.0].evidence.node().is_named() {
+            continue;
+        }
+        return match (kind, child_kind) {
+            ("variable_declaration", "assignment_statement") => {
+                lua_declared_list(canonical, child, budget)
+            }
+            ("variable_declaration" | "assignment_statement", "variable_list") => Ok(Some(child)),
+            _ => Ok(None),
+        };
+    }
+    Ok(None)
+}
+
+pub(super) fn lua_list_single_name<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    list: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    let mut name = None;
+    for &child in &canonical.children[canonical.nodes[list.0].children.clone()] {
+        budget.step()?;
+        let node = canonical.nodes[child.0].evidence.node();
+        if node.kind() == "comment" || !node.is_named() {
+            continue;
+        }
+        if !matches!(node.kind(), "identifier" | "dot_index_expression") || name.is_some() {
+            return Ok(None);
+        }
+        name = Some(child);
+    }
+    Ok(name)
+}
+
+pub(super) fn lua_single_name<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    let Some(list) = lua_declared_list(canonical, declaration, budget)? else {
+        return Ok(None);
+    };
+    lua_list_single_name(canonical, list, budget)
 }

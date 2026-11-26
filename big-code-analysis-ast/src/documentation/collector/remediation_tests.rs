@@ -115,7 +115,7 @@ fn rust_same_target_composition_and_roles_are_independent_of_placement() {
     }
 }
 
-#[cfg(any(feature = "ruby", feature = "lua"))]
+#[cfg(feature = "ruby")]
 fn pending_first(language: LANG, source: &str) {
     let parser = AnyParser::parse(language, source.as_bytes().to_vec(), None, None).unwrap();
     let index = parser
@@ -141,11 +141,38 @@ fn ruby_pending_first_statement_never_redirects_to_later_method() {
 }
 #[cfg(feature = "lua")]
 #[test]
-fn lua_pending_first_statement_never_redirects_to_later_function() {
-    pending_first(
+fn lua_first_statement_owner_never_redirects_to_later_function() {
+    let parser = AnyParser::parse(
         LANG::Lua,
-        "module(\"m\")\ndo\n---audit\nvalue = 1\nfunction later() end\nend",
-    );
+        b"module(\"m\")\ndo\n---audit\nvalue = 1\nfunction later() end\nend".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    for index in [
+        parser.documentation(&context, &options).unwrap(),
+        collect(
+            LANG::Lua,
+            parser.ts_tree(),
+            parser.code(),
+            &context,
+            &options,
+        )
+        .unwrap(),
+    ] {
+        assert_eq!(index.documents().len(), 1);
+        let [association] = index.associations().collect::<Vec<_>>()[..] else {
+            panic!("one association")
+        };
+        let owner = index.facts().associated_owner(association, 0).unwrap();
+        let Owner::Node(node) = owner.get() else {
+            panic!("node owner")
+        };
+        assert_eq!(node.node().kind(), "assignment_statement");
+        assert_eq!(node.node().byte_range(), 24..33);
+    }
 }
 
 #[cfg(feature = "kotlin")]

@@ -1,0 +1,51 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_lua_unit2_sources_keep_their_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "legacy-source-row-moves",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "stats.dloc.lines.insert_range(first, last);",
+      "new": "stats.dloc.lines.insert_range(first.saturating_sub(1), last.saturating_sub(1));",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_lua_unit2_sources_keep_their_legacy_rows"
+      ]
+    },
+    {
+      "name": "legacy-source-row-dropped",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "stats.dloc.lines.insert_range(first, last);",
+      "new": "let _ = (first, last);",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_lua_unit2_sources_keep_their_legacy_rows"
+      ]
+    },
+    {
+      "name": "legacy-counted-visits-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "visits::record();",
+      "new": "// visits::record();",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_lua_unit2_sources_keep_their_legacy_rows"
+      ]
+    },
+    {
+      "name": "legacy-render-count-disabled",
+      "file": "big-code-analysis-ast/src/documentation/text.rs",
+      "old": "renders::record();",
+      "new": "// renders::record();",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_lua_unit2_sources_keep_their_legacy_rows"
+      ]
+    }
+  ]
+}

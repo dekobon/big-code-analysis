@@ -652,8 +652,15 @@ impl<'s> Builder<'s> {
             pending: false,
             gap: run.prefix_gap || run.suffix_gap,
         };
+        let mut structural_tag = false;
         for member in run.members {
             budget.step()?;
+            structural_tag |= ldoc_standalone_member(
+                self.index.profile,
+                self.index.source.bytes(),
+                &member,
+                budget,
+            )?;
             let fragment = self.fragment(member.source, member.node, FragmentForm::Comment);
             if member.selected {
                 draft.fragments.push(fragment);
@@ -668,25 +675,15 @@ impl<'s> Builder<'s> {
                 });
             }
         }
-        if draft.fragments.is_empty() {
-            return Ok(());
+        if !draft.fragments.is_empty() {
+            set_positional_target(
+                &mut draft,
+                self.index.profile,
+                run.selection,
+                structural_tag,
+            );
+            self.drafts.push(draft);
         }
-        match run.selection {
-            positional::RunSelection::Opener(positional::OpenerReason::FirstFile) => {
-                draft.target = Some(NodeId(0));
-                draft.role = DocumentRole::FilePackage;
-                draft.binding = None;
-            }
-            positional::RunSelection::Opener(
-                positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,
-            ) => {
-                draft.target = None;
-                draft.pending = true;
-                draft.binding = None;
-            }
-            _ => {}
-        }
-        self.drafts.push(draft);
         Ok(())
     }
 
@@ -947,6 +944,47 @@ impl<'s> Builder<'s> {
         }
         self.order_qualifications(&ranks, budget)?;
         Ok(())
+    }
+}
+
+fn ldoc_standalone_member(
+    profile: Profile,
+    source: &[u8],
+    member: &positional::RunMember<'_>,
+    budget: &CollectionBudget,
+) -> Result<bool, CollectionError> {
+    if profile != Profile::Ldoc || !member.selected {
+        return Ok(false);
+    }
+    crate::checker::lua::standalone_tag_with_budget(
+        &source[member.node.node().byte_range()],
+        budget,
+    )
+    .map_err(Into::into)
+}
+
+fn set_positional_target(
+    draft: &mut Draft<'_>,
+    profile: Profile,
+    selection: positional::RunSelection,
+    structural_tag: bool,
+) {
+    match selection {
+        positional::RunSelection::Opener(positional::OpenerReason::FirstFile) => {
+            draft.target = Some(NodeId(0));
+            draft.role = DocumentRole::FilePackage;
+            draft.binding = None;
+        }
+        positional::RunSelection::Opener(positional::OpenerReason::Tagged)
+            if profile == Profile::Ldoc && draft.target.is_some() && !structural_tag => {}
+        positional::RunSelection::Opener(
+            positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,
+        ) => {
+            draft.target = None;
+            draft.pending = true;
+            draft.binding = None;
+        }
+        _ => {}
     }
 }
 

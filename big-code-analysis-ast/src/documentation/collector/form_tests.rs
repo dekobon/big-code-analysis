@@ -8,7 +8,6 @@ use crate::{AnyParser, LANG};
     feature = "php",
     feature = "typescript",
     feature = "ruby",
-    feature = "lua"
 ))]
 fn assert_pending_form(language: LANG, source: &str, owner_kind: &str) {
     let parser = AnyParser::parse(language, source.as_bytes().to_vec(), None, None).unwrap();
@@ -179,12 +178,39 @@ fn ruby_attribute_and_visibility_forms_are_pending_in_default_queries() {
 }
 #[cfg(feature = "lua")]
 #[test]
-fn lua_assignment_form_is_pending_in_default_queries() {
-    assert_pending_form(
-        LANG::Lua,
-        "module(\"m\")\n---audit\nvalue = 1",
-        "assignment_statement",
-    );
+fn lua_assignment_with_missing_value_is_pending_in_default_queries() {
+    let source = b"module(\"m\")\n---audit\nvalue =";
+    let parser = AnyParser::parse(LANG::Lua, source.to_vec(), None, None).unwrap();
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    for index in [
+        parser.documentation(&context, &options).unwrap(),
+        collect(
+            LANG::Lua,
+            parser.ts_tree(),
+            parser.code(),
+            &context,
+            &options,
+        )
+        .unwrap(),
+    ] {
+        let assignment = parser.ts_tree().root_node().named_child(2).unwrap();
+        assert_eq!(assignment.kind(), "assignment_statement");
+        assert!(assignment.has_error());
+        assert!(index.node_projection(assignment).unwrap().pending());
+        assert_eq!(index.documents().len(), 1);
+        assert!(
+            index
+                .assessments()
+                .any(|assessment| index.assessed_document(assessment).unwrap()
+                    == index.documents().next())
+        );
+        assert_eq!(index.associations().len(), 1);
+        assert_eq!(
+            index.associations().next().unwrap().get().resolution,
+            Resolution::Unresolved(UnresolvedReason::GrammarBoundary)
+        );
+    }
 }
 
 #[cfg(feature = "c")]

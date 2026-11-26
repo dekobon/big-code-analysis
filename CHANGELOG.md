@@ -39,6 +39,9 @@ for historical reference.
   with a different filename, and unknown without one. Attachment and cleaned text
   remain available in every case. Legacy documentation metrics are unchanged.
   (#1666, Unit 2)
+- Lua LDoc source documentation now attaches tagged annotation runs to following items,
+  projects single-name assignments and locals and returned table/function declarations,
+  and gives named table fields a field slot. Standalone tags remain pending. (#1674, Unit 2)
 
 - The unstable Rust AST documentation collector now decodes direct cooked/raw
   `doc` strings and composes them with comments using Rust 1.99.0 cleanup and

@@ -1,0 +1,219 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::"
+  ],
+  "cases": [
+    {
+      "name": "tagged-run-loses-following-item",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "profile == Profile::Ldoc && draft.target.is_some() && !structural_tag",
+      "new": "false && draft.target.is_some() && !structural_tag",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_tagged_run_keeps_following_item"
+      ]
+    },
+    {
+      "name": "standalone-tags-ignored",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "if name == structural {\n            return Ok(true);",
+      "new": "if false && name == structural {\n            return Ok(true);",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_tagged_run_keeps_following_item"
+      ]
+    },
+    {
+      "name": "standalone-line-step-uncharged",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "for line in scan::lines(body, budget) {\n        budget.step()?;\n        found |= standalone_line_tag",
+      "new": "for line in scan::lines(body, budget) {\n        found |= standalone_line_tag",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_tag_classifier_charges_lines_comparisons_and_cancels"
+      ]
+    },
+    {
+      "name": "standalone-compare-bytes-uncharged",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "budget.bytes(name.len().max(structural.len()))?;",
+      "new": "let _ = budget;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_tag_classifier_charges_lines_comparisons_and_cancels"
+      ]
+    },
+    {
+      "name": "ldoc-field-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"field\" => {\n                if let Some(name)",
+      "new": "\"not_a_field\" => {\n                if let Some(name)",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_has_one_named_slot_and_other_forms_remain_pending",
+        "documentation::collector::lua_tests::lua_unit2_two_documents_keep_distinct_field_slots",
+        "documentation::collector::lua_tests::lua_unit2_field_slot_loop_observes_collection_budget_cancellation"
+      ]
+    },
+    {
+      "name": "ldoc-field-slot-source-is-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.field_slots(id, vec![name], budget)?;",
+      "new": "self.field_slots(id, vec![id], budget)?;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_has_one_named_slot_and_other_forms_remain_pending"
+      ]
+    },
+    {
+      "name": "ldoc-field-name-scan-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[field.0].children.clone()] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[canonical.nodes[field.0].children.clone()] {\n        let _ = budget;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_name_scan_charges_and_skips_comment"
+      ]
+    },
+    {
+      "name": "ldoc-local-owner-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"assignment_statement\" | \"variable_declaration\" => {",
+      "new": "\"assignment_statement\" => {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_local_and_return_owners_and_unrecognized_controls"
+      ]
+    },
+    {
+      "name": "ldoc-assignment-owner-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"assignment_statement\" | \"variable_declaration\" => {",
+      "new": "\"variable_declaration\" => {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_local_and_return_owners_and_unrecognized_controls",
+        "documentation::collector::lua_tests::lua_unit2_nonroot_wrapper_binds_the_block_and_owns_the_first_statement",
+        "documentation::collector::lua_tests::lua_unit2_excluded_name_and_comment_gap_do_not_attach",
+        "documentation::collector::remediation_tests::lua_first_statement_owner_never_redirects_to_later_function"
+      ]
+    },
+    {
+      "name": "ldoc-return-owner-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"return_statement\" => {\n                self.add_owner",
+      "new": "\"return_unprojected\" => {\n                self.add_owner",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_local_and_return_owners_and_unrecognized_controls"
+      ]
+    },
+    {
+      "name": "ldoc-declared-list-scan-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[children] {\n        budget.step()?;\n        let child_kind",
+      "new": "for &child in &canonical.children[children] {\n        let _ = budget;\n        let child_kind",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_name_scan_charges_and_can_cancel_at_each_child"
+      ]
+    },
+    {
+      "name": "ldoc-target-list-scan-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[list.0].children.clone()] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[canonical.nodes[list.0].children.clone()] {\n        let _ = budget;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_name_scan_charges_and_can_cancel_at_each_child"
+      ]
+    },
+    {
+      "name": "ldoc-local-comment-does-not-skip",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if child_kind == \"comment\" || !canonical.nodes[child.0].evidence.node().is_named() {",
+      "new": "if child_kind == \"comment\" { return Ok(None); }\n        if !canonical.nodes[child.0].evidence.node().is_named() {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_name_scan_charges_and_can_cancel_at_each_child",
+        "documentation::collector::lua_tests::lua_unit2_local_and_return_owners_and_unrecognized_controls"
+      ]
+    },
+    {
+      "name": "ldoc-field-error-guard-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if node.has_error()\n            || node.is_missing()",
+      "new": "if (node.has_error() && self.index.profile != Profile::Ldoc)\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_recovery_keeps_broken_forms_pending_and_clean_neighbor_resolved"
+      ]
+    },
+    {
+      "name": "ldoc-unbound-retention-disabled",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "if decision.selection == RunSelection::Unattached && !request.retain_unbound {",
+      "new": "if decision.selection == RunSelection::Unattached {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_two_unbound_candidates_need_explicit_retention"
+      ]
+    },
+    {
+      "name": "lua-pending-recovery-drops-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
+      "new": "        if draft.target.is_some_and(|target| matches!(self.index.canonical.nodes[target.0].projection, Projection::Pending)) { return Ok(()); }\n        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
+      "expect": [
+        "documentation::collector::form_tests::lua_assignment_with_missing_value_is_pending_in_default_queries"
+      ]
+    },
+    {
+      "name": "ldoc-standalone-member-handoff-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "crate::checker::lua::standalone_tag_with_budget(\n        &source[member.node.node().byte_range()],\n        budget,\n    )\n    .map_err(Into::into)",
+      "new": "Ok(crate::documentation::budget::infallible(\n        crate::checker::lua::standalone_tag_with_budget(\n            &source[member.node.node().byte_range()],\n            &crate::documentation::budget::NoBudget,\n        ),\n    ))",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_slot_loop_observes_collection_budget_cancellation"
+      ]
+    },
+    {
+      "name": "ldoc-field-name-handoff-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "lua_field_name(&self.index.canonical, id, budget)?",
+      "new": "crate::documentation::budget::infallible(lua_field_name(&self.index.canonical, id, &crate::documentation::budget::NoBudget))",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_slot_loop_observes_collection_budget_cancellation"
+      ]
+    },
+    {
+      "name": "ldoc-field-slots-handoff-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.field_slots(id, vec![name], budget)?;",
+      "new": "self.field_slots(id, vec![name], &CollectionBudget::default())?;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_slot_loop_observes_collection_budget_cancellation"
+      ]
+    },
+    {
+      "name": "ldoc-single-name-handoff-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "lua_single_name(&self.index.canonical, id, budget)?.is_some()",
+      "new": "crate::documentation::budget::infallible(lua_single_name(&self.index.canonical, id, &crate::documentation::budget::NoBudget)).is_some()",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_field_slot_loop_observes_collection_budget_cancellation"
+      ]
+    },
+    {
+      "name": "ldoc-uncovered-node-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": ".covers_with_budget(node.byte_range(), budget)?\n        {",
+      "new": ".covers_with_budget(node.byte_range(), budget)?\n                && self.index.profile != Profile::Ldoc\n        {",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_excluded_name_and_comment_gap_do_not_attach"
+      ]
+    },
+    {
+      "name": "ldoc-long-tag-opener-not-stripped",
+      "file": "big-code-analysis-ast/src/checker/lua.rs",
+      "old": "    let body = crate::lang_helpers::doc_text::lua_long_comment_body(raw, budget)?.unwrap_or(raw);",
+      "new": "    let body = raw;",
+      "expect": [
+        "documentation::collector::lua_tests::lua_unit2_tagged_run_keeps_following_item"
+      ]
+    }
+  ]
+}

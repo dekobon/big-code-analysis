@@ -4,9 +4,13 @@
 //! part of the compared view.
 
 #[cfg(feature = "lua")]
+use crate::documentation::budget::WorkBudget;
+#[cfg(feature = "lua")]
 use crate::documentation::*;
 #[cfg(feature = "lua")]
 use crate::{AnyParser, LANG};
+#[cfg(feature = "lua")]
+use std::cell::Cell;
 #[cfg(feature = "lua")]
 use std::ops::Range;
 
@@ -37,6 +41,7 @@ struct Doc {
 enum Holder {
     Node(&'static str, Range<usize>),
     File(Range<usize>),
+    Slot(Range<usize>, Range<usize>),
 }
 
 #[cfg(feature = "lua")]
@@ -110,16 +115,6 @@ fn owned(document: Doc, holder: Holder) -> View {
 #[cfg(feature = "lua")]
 fn function(document: Doc, range: Range<usize>) -> View {
     owned(document, Holder::Node("function_declaration", range))
-}
-
-#[cfg(feature = "lua")]
-fn pending(reason: &'static str, range: Range<usize>, document: Option<usize>) -> Pending {
-    Pending {
-        axis: AssessmentAxis::Owner,
-        reason,
-        node: Some(("assignment_statement", range)),
-        document,
-    }
 }
 
 #[cfg(feature = "lua")]
@@ -204,8 +199,11 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
             let holder = match owner.get() {
                 Owner::Node(declared) => {
                     assert_eq!(
-                        attachment.binding.map(NodeEvidence::node),
-                        Some(declared.node())
+                        attachment
+                            .binding
+                            .map(NodeEvidence::node)
+                            .map(|node| node.byte_range()),
+                        Some(declared.node().byte_range())
                     );
                     let (kind, range) = site(declared.node());
                     Holder::Node(kind, range)
@@ -215,7 +213,21 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
                     assert!(attachment.binding.is_none());
                     Holder::File(file.node().byte_range())
                 }
-                other => panic!("a node or file owner, found {other:?}"),
+                Owner::Slot(slot) => {
+                    assert_eq!(slot.role, SlotRole::Field);
+                    assert_eq!(slot.ordinal, 0);
+                    let enclosing = index.facts().slot_enclosing(owner).unwrap();
+                    let Owner::Node(parent) = enclosing.get() else {
+                        panic!("field slot must be enclosed by its field")
+                    };
+                    assert_eq!(parent.node().kind(), "field");
+                    assert_eq!(
+                        attachment.binding.map(NodeEvidence::node),
+                        Some(parent.node())
+                    );
+                    Holder::Slot(span(&slot.source), parent.node().byte_range())
+                }
+                other => panic!("a node, file or field slot, found {other:?}"),
             };
             (attachment.resolution, holder)
         })
@@ -353,10 +365,10 @@ fn lua_marked_block_above_a_function_documents_the_function() {
     }
 }
 
-/// The four assignment forms pin today's pending outcome; a later unit changes it on purpose.
+/// Each one-name assignment has its own node owner.
 #[cfg(feature = "lua")]
 #[test]
-fn lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet() {
+fn lua_marked_block_above_an_assignment_has_its_owner() {
     let sources: [(&[u8], Range<usize>); 4] = [
         (b"module(\"m\")\n---audit\nf = function() end\n", 21..39),
         (b"module(\"m\")\n---audit\nM.f = function() end\n", 21..41),
@@ -366,22 +378,10 @@ fn lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet() {
     for (source, owner) in sources {
         assert_eq!(
             view(source),
-            View {
-                documents: vec![comment(12..20, "audit", [(0..5, Copied(15..20))])],
-                assessments: unordered([
-                    pending(
-                        "Selected local or wrapper form awaits owner projection",
-                        owner.clone(),
-                        Some(0)
-                    ),
-                    pending(
-                        "Recognized declaration requires a semantic projection",
-                        owner,
-                        None
-                    ),
-                ]),
-                ..View::default()
-            },
+            owned(
+                comment(12..20, "audit", [(0..5, Copied(15..20))]),
+                Holder::Node("assignment_statement", owner),
+            ),
             "{}",
             source.escape_ascii()
         );
@@ -972,4 +972,679 @@ fn lua_grammar_shapes_the_unit_relies_on() {
     assert_eq!(site(comma), (",", 64..65));
     assert!(!comma.is_named());
     assert_eq!(comma.prev_sibling().map(site), Some(("field", 55..64)));
+}
+
+#[cfg(feature = "lua")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn lua_unit2_tagged_run_keeps_following_item() {
+    for (source, body, comment, owner) in [
+        (
+            b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n".as_slice(),
+            "@param x thing",
+            22..39,
+            40..57,
+        ),
+        (
+            b"module(\"m\")\n--- audit\n-- @return y thing\nfunction g() end\n",
+            "@return y thing",
+            22..40,
+            41..57,
+        ),
+    ] {
+        let end = 25 + body.len();
+        assert_eq!(
+            view(source),
+            function(
+                run(
+                    [12..21, comment],
+                    &format!("audit\n{body}"),
+                    [
+                        (0..5, Copied(16..21)),
+                        (5..6, Synthetic),
+                        (6..6 + body.len(), Copied(25..end)),
+                    ]
+                ),
+                owner
+            )
+        );
+    }
+    for (source, marker) in [
+        (
+            b"module(\"m\")\n--- audit\n-- @function ghost\nfunction f() end\n".as_slice(),
+            "@function ghost",
+        ),
+        (
+            b"module(\"m\")\n--- audit\n-- @field ghost\nfunction f() end\n",
+            "@field ghost",
+        ),
+    ] {
+        let found = view(source);
+        assert_eq!(found.associations, []);
+        assert_eq!(found.documents.len(), 1);
+        assert!(found.documents[0].text.contains(marker));
+        assert_eq!(found.assessments.len(), 1);
+    }
+    for tag in [
+        "lfunction",
+        "factory",
+        "annotation",
+        "example",
+        "topic",
+        "file",
+        "name",
+        "table",
+        "type",
+        "section",
+        "module",
+        "script",
+        "classmod",
+        "submodule",
+    ] {
+        let source = format!("module(\"m\")\n--- audit\n-- @{tag} ghost\nfunction f() end\n");
+        let found = view(source.as_bytes());
+        assert_eq!(found.documents.len(), 1);
+        assert_eq!(found.associations, []);
+    }
+    let plain = b"module(\"m\")\n--- audit\nfunction f() end\n";
+    assert_eq!(
+        view(plain).associations,
+        [(
+            Resolution::Resolved,
+            Holder::Node("function_declaration", 22..38)
+        )]
+    );
+    let first_file = b"--- audit\n-- @function ghost\nfunction f() end\n";
+    assert_eq!(
+        view(first_file).associations,
+        [(Resolution::Resolved, Holder::File(0..46))]
+    );
+    let changed = b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n--- second\n-- @return y thing\nfunction g() end\n";
+    let found = view(changed);
+    assert_eq!(found.documents.len(), 2);
+    assert_eq!(
+        found.associations,
+        [
+            (
+                Resolution::Resolved,
+                Holder::Node("function_declaration", 40..57)
+            ),
+            (
+                Resolution::Resolved,
+                Holder::Node("function_declaration", 88..104)
+            ),
+        ]
+    );
+    let other = b"module(\"m\")\n--- audit\n-- @param x ghost\nx = 1\n";
+    assert_eq!(
+        view(other).associations,
+        [(
+            Resolution::Resolved,
+            Holder::Node("assignment_statement", 40..45)
+        )]
+    );
+    let long_virtual =
+        b"module(\"m\")\n--[[-- @function ghost\n@param x thing\n]]\nfunction f(x) end\n";
+    let found = view(long_virtual);
+    assert_eq!(found.documents.len(), 1);
+    assert_eq!(found.associations, []);
+    assert_eq!(found.assessments.len(), 1);
+    let long_annotated = b"module(\"m\")\n--[[-- audit\n@param x thing\n]]\nfunction f(x) end\n";
+    let found = view(long_annotated);
+    assert_eq!(found.documents.len(), 1);
+    assert_eq!(
+        found.associations,
+        [(
+            Resolution::Resolved,
+            Holder::Node("function_declaration", 43..60)
+        )]
+    );
+    let virtual_only = b"module(\"m\")\n---audit\n-- @function ghost\n";
+    assert_eq!(view(virtual_only).associations, []);
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_field_has_one_named_slot_and_other_forms_remain_pending() {
+    let source = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = 1,\n}\n";
+    let actual = view(source);
+    assert_eq!(
+        actual.associations,
+        [(Resolution::Resolved, Holder::Slot(35..40, 35..44))]
+    );
+    assert_eq!(
+        actual.documents,
+        [comment(24..34, "detail", [(0..6, Copied(28..34))])]
+    );
+    assert_eq!(actual.assessments.len(), 1);
+    let inside = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = -- inline\n1,\n}\n";
+    assert_eq!(
+        view(inside).associations,
+        [(Resolution::Resolved, Holder::Slot(35..40, 35..54))]
+    );
+    let parser = clean(source);
+    let index = &indexes(&parser, DocumentationOptions::default())[0];
+    let field = node_at(&parser, "field", 35..44);
+    let projection = index.node_projection(field).unwrap();
+    assert!(!projection.pending());
+    assert_eq!(projection.owners().len(), 1);
+    let query = index.node_associations(field).unwrap();
+    assert!(!query.projection_pending());
+    assert_eq!(query.associations().len(), 1);
+    let trailing = b"module(\"m\")\nlocal t = {\nalpha = 1, --- detail\n}\n";
+    assert_eq!(view(trailing).documents, []);
+    assert_eq!(
+        retained(trailing),
+        View {
+            evidence: vec![(CandidateDisposition::Unattached, 35..45)],
+            assessments: unordered([Pending {
+                axis: AssessmentAxis::Selection,
+                reason: "Native LDoc parameter/table comment awaits adapter context",
+                node: Some(("comment", 35..45)),
+                document: None,
+            }]),
+            ..View::default()
+        }
+    );
+    let computed = b"module(\"m\")\nlocal t = {\n--- detail\n[k] = 1,\n}\n";
+    assert_eq!(view(computed).documents, []);
+    assert_eq!(view(computed).associations, []);
+    assert_eq!(
+        retained(computed),
+        View {
+            evidence: vec![(CandidateDisposition::Unattached, 24..34)],
+            assessments: unordered([Pending {
+                axis: AssessmentAxis::Selection,
+                reason: "Native LDoc parameter/table comment awaits adapter context",
+                node: Some(("comment", 24..34)),
+                document: None,
+            }]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_local_and_return_owners_and_unrecognized_controls() {
+    for (source, owner) in [
+        (
+            b"module(\"m\")\n--- audit\nlocal a = 1\n".as_slice(),
+            Holder::Node("variable_declaration", 22..33),
+        ),
+        (
+            b"module(\"m\")\n--- audit\nreturn {}\n",
+            Holder::Node("return_statement", 22..31),
+        ),
+        (
+            b"module(\"m\")\n--- audit\nM.x = 1\n",
+            Holder::Node("assignment_statement", 22..29),
+        ),
+        (
+            b"module(\"m\")\n--- audit\nlocal -- note\na = 1\n",
+            Holder::Node("variable_declaration", 22..41),
+        ),
+        (
+            b"module(\"m\")\n--- audit\na -- note\n= 1\n",
+            Holder::Node("assignment_statement", 22..35),
+        ),
+    ] {
+        assert_eq!(view(source).associations, [(Resolution::Resolved, owner)]);
+    }
+    for source in [
+        b"module(\"m\")\n--- audit\nlocal a\n".as_slice(),
+        b"module(\"m\")\n--- audit\nreturn M\n",
+        b"module(\"m\")\n--- audit\nlocal a, b = 1, 2\n",
+        b"module(\"m\")\n--- audit\na, b = 1, 2\n",
+        b"module(\"m\")\n--- audit\nlocal x <const> = 1\n",
+        b"module(\"m\")\n--- audit\nM[1] = 1\n",
+    ] {
+        assert_eq!(view(source), View::default());
+        assert_eq!(
+            retained(source),
+            View {
+                evidence: vec![(CandidateDisposition::Unattached, 12..21)],
+                ..View::default()
+            }
+        );
+    }
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_two_documents_keep_distinct_field_slots() {
+    let source = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = 1,\n--- beta\nbeta = 2,\n}\n";
+    let found = view(source);
+    assert_eq!(
+        found.documents,
+        [
+            comment(24..34, "detail", [(0..6, Copied(28..34))]),
+            comment(46..54, "beta", [(0..4, Copied(50..54))]),
+        ]
+    );
+    assert_eq!(
+        found.associations,
+        [
+            (Resolution::Resolved, Holder::Slot(35..40, 35..44)),
+            (Resolution::Resolved, Holder::Slot(55..59, 55..63)),
+        ]
+    );
+    assert_eq!(found.assessments.len(), 2);
+    let parser = clean(source);
+    let indexes = indexes(&parser, DocumentationOptions::default());
+    let first = indexes[0].associations().next().unwrap();
+    let second = indexes[0].associations().nth(1).unwrap();
+    assert_ne!(
+        indexes[0].facts().associated_owner(first, 0).unwrap(),
+        indexes[0].facts().associated_owner(second, 0).unwrap()
+    );
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_nonroot_wrapper_binds_the_block_and_owns_the_first_statement() {
+    let source = b"module(\"m\")\ndo\n--- audit\nx = 1\nend\n";
+    let parser = clean(source);
+    let indexes = indexes(&parser, DocumentationOptions::default());
+    let found = agreed(&indexes, parser.ts_tree().root_node());
+    assert_eq!(
+        found.documents,
+        [comment(15..24, "audit", [(0..5, Copied(19..24))])]
+    );
+    assert_eq!(
+        found.associations,
+        [(
+            Resolution::Resolved,
+            Holder::Node("assignment_statement", 25..30)
+        ),]
+    );
+    let association = indexes[0].associations().next().unwrap();
+    assert_eq!(
+        association.get().binding.map(NodeEvidence::node).map(site),
+        Some(("block", 25..30))
+    );
+    assert_eq!(
+        site(association.get().lexical_scope.node()),
+        ("do_statement", 12..34)
+    );
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_recovery_keeps_broken_forms_pending_and_clean_neighbor_resolved() {
+    let broken = [
+        (
+            b"module(\"m\")\n--- audit\nx =\n".as_slice(),
+            "assignment_statement",
+        ),
+        (
+            b"module(\"m\")\n--- audit\nlocal a = {k = }\n",
+            "variable_declaration",
+        ),
+        (
+            b"module(\"m\")\n--- audit\nreturn {k = }\n",
+            "return_statement",
+        ),
+    ];
+    for (source, kind) in broken {
+        let parser = AnyParser::parse(LANG::Lua, source.to_vec(), None, None).unwrap();
+        assert!(parser.ts_tree().root_node().has_error());
+        let both = indexes(&parser, DocumentationOptions::default());
+        let node = parser.ts_tree().root_node().named_child(2).unwrap();
+        assert_eq!(node.kind(), kind);
+        assert!(node.has_error());
+        for index in &both {
+            assert!(index.node_projection(node).unwrap().pending());
+            assert_eq!(index.documents().len(), 1);
+            let association = index.associations().next().unwrap();
+            assert_eq!(
+                association.get().resolution,
+                Resolution::Unresolved(UnresolvedReason::GrammarBoundary)
+            );
+            assert_eq!(association.get().owner_count(), 0);
+        }
+    }
+    let broken_field = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = (1\n}\n";
+    let parser = AnyParser::parse(LANG::Lua, broken_field.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    let both = indexes(&parser, DocumentationOptions::default());
+    let field_node = parser
+        .root_node()
+        .preorder()
+        .find(|node| node.kind() == "field")
+        .unwrap();
+    assert!(field_node.as_tree_sitter().has_error());
+    for index in &both {
+        assert!(
+            index
+                .node_projection(field_node.as_tree_sitter())
+                .unwrap()
+                .pending()
+        );
+        assert_eq!(index.documents().len(), 1);
+        let association = index.associations().next().unwrap();
+        assert_eq!(
+            association.get().resolution,
+            Resolution::Unresolved(UnresolvedReason::GrammarBoundary)
+        );
+        assert_eq!(association.get().owner_count(), 0);
+    }
+    let field = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = 1,\n%%\n}\n";
+    let parser = AnyParser::parse(LANG::Lua, field.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    let both = indexes(&parser, DocumentationOptions::default());
+    let clean_field = node_at(&parser, "field", 35..44);
+    assert!(!clean_field.has_error());
+    for index in &both {
+        let projection = index.node_projection(clean_field).unwrap();
+        assert!(!projection.pending());
+        assert_eq!(projection.owners().len(), 1);
+        assert_eq!(index.associations().len(), 1);
+        let association = index.associations().next().unwrap();
+        assert_eq!(association.get().resolution, Resolution::Resolved);
+        assert_eq!(association.get().owner_count(), 1);
+        assert!(
+            matches!(index.facts().associated_owner(association, 0).unwrap().get(),
+            Owner::Slot(slot) if slot.role == SlotRole::Field && span(&slot.source) == (35..40))
+        );
+    }
+}
+
+#[cfg(feature = "lua")]
+#[derive(Default)]
+struct LuaCounting {
+    steps: Cell<usize>,
+    bytes: Cell<usize>,
+    fail_at: Option<usize>,
+    fail_bytes_at: Option<usize>,
+}
+
+#[cfg(feature = "lua")]
+impl WorkBudget for LuaCounting {
+    type Error = SourceError;
+    #[cfg(feature = "lua")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+    fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        self.bytes.set(self.bytes.get() + count);
+        if self
+            .fail_bytes_at
+            .is_some_and(|limit| self.bytes.get() >= limit)
+        {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_name_scan_charges_and_can_cancel_at_each_child() {
+    let source = b"module(\"m\")\n--- audit\nlocal a = 1\n";
+    let parser = clean(source);
+    let index = &indexes(&parser, DocumentationOptions::default())[0];
+    let decl = node_at(&parser, "variable_declaration", 22..33);
+    let id = index.canonical.lookup(decl).unwrap();
+    let budget = LuaCounting::default();
+    let list = super::projections::lua_declared_list(&index.canonical, id, &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        site(index.canonical.nodes[list.0].evidence.node()),
+        ("variable_list", 28..29)
+    );
+    // expected: `local`, the assignment and its `variable_list` child.
+    assert_eq!(budget.steps.get(), 3);
+    let name = super::projections::lua_list_single_name(&index.canonical, list, &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        site(index.canonical.nodes[name.0].evidence.node()),
+        ("identifier", 28..29)
+    );
+    // expected: the list's identifier adds one read to the preceding three.
+    assert_eq!(budget.steps.get(), 4);
+    for at in 1..=4 {
+        let budget = LuaCounting {
+            fail_at: Some(at),
+            ..LuaCounting::default()
+        };
+        assert!(matches!(
+            super::projections::lua_single_name(&index.canonical, id, &budget),
+            Err(SourceError::Cancelled)
+        ));
+        assert_eq!(budget.steps.get(), at);
+    }
+    let budget = LuaCounting {
+        fail_at: Some(5),
+        ..LuaCounting::default()
+    };
+    assert!(
+        super::projections::lua_single_name(&index.canonical, id, &budget)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(budget.steps.get(), 4);
+    let source = b"module(\"m\")\n--- audit\nlocal -- note\na = 1\n";
+    let parser = clean(source);
+    let index = &indexes(&parser, DocumentationOptions::default())[0];
+    let decl = node_at(&parser, "variable_declaration", 22..41);
+    let id = index.canonical.lookup(decl).unwrap();
+    let budget = LuaCounting::default();
+    let name = super::projections::lua_single_name(&index.canonical, id, &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        site(index.canonical.nodes[name.0].evidence.node()),
+        ("identifier", 36..37)
+    );
+    // expected: local, comment, assignment, variable list and name are five children read.
+    assert_eq!(budget.steps.get(), 5);
+}
+
+#[cfg(feature = "lua")]
+#[test]
+#[allow(clippy::naive_bytecount, clippy::single_range_in_vec_init)]
+fn lua_unit2_excluded_name_and_comment_gap_do_not_attach() {
+    let source = b"module(\"m\")\n--- audit\nx = 1\n";
+    let restricted = |parts: &[Range<usize>]| {
+        let point = |byte: usize| {
+            let prefix = &source[..byte];
+            tree_sitter::Point::new(
+                prefix.iter().filter(|&&b| b == b'\n').count(),
+                prefix.iter().rev().take_while(|&&b| b != b'\n').count(),
+            )
+        };
+        let ranges = parts
+            .iter()
+            .map(|range| tree_sitter::Range {
+                start_byte: range.start,
+                end_byte: range.end,
+                start_point: point(range.start),
+                end_point: point(range.end),
+            })
+            .collect::<Vec<_>>();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&LANG::Lua.tree_sitter_language().unwrap())
+            .unwrap();
+        parser.set_included_ranges(&ranges).unwrap();
+        parser.parse(source, None).unwrap()
+    };
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions {
+        retain_unbound: true,
+        ..DocumentationOptions::default()
+    };
+    let excluded_name = restricted(&[0..23, 24..source.len()]);
+    assert!(!excluded_name.root_node().has_error());
+    let index = collect(LANG::Lua, &excluded_name, source, &context, &options).unwrap();
+    let assignment = excluded_name.root_node().named_child(2).unwrap();
+    assert_eq!(site(assignment), ("assignment_statement", 22..27));
+    assert!(index.node_projection(assignment).unwrap().pending());
+    assert_eq!(index.associations().len(), 0);
+    let gap = restricted(&[0..21, 22..source.len()]);
+    let index = collect(LANG::Lua, &gap, source, &context, &options).unwrap();
+    assert_eq!(index.associations().len(), 0);
+    let control = restricted(&[0..source.len()]);
+    let index = collect(LANG::Lua, &control, source, &context, &options).unwrap();
+    assert_eq!(index.associations().len(), 1);
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_two_unbound_candidates_need_explicit_retention() {
+    let source = b"module(\"m\")\n-- plain\nx = 1\n\n-- other\ny = 2\n--- audit\nz = 3\n";
+    assert_eq!(view(source).evidence, []);
+    let kept = retained(source);
+    assert_eq!(
+        kept.evidence,
+        [
+            (CandidateDisposition::Unattached, 12..20),
+            (CandidateDisposition::Unattached, 28..36),
+        ]
+    );
+    assert_eq!(
+        kept.associations,
+        [(
+            Resolution::Resolved,
+            Holder::Node("assignment_statement", 53..58)
+        ),]
+    );
+}
+
+// test-lang-gates: hand-written(lua) — this source-only classifier belongs to the Lua adapter.
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_tag_classifier_charges_lines_comparisons_and_cancels() {
+    let untagged = b"--- audit\n-- @function ghost";
+    let budget = LuaCounting::default();
+    assert!(crate::checker::lua::standalone_tag_with_budget(untagged, &budget).unwrap());
+    // expected: one loop step per of the two physical lines.
+    assert_eq!(budget.steps.get(), 2);
+    let charged = budget.bytes.get();
+    // expected: line separators, body trimming, tag scan and all fixed-name comparisons.
+    assert!(charged > untagged.len());
+    assert!(charged < untagged.len() + 16 * 16);
+    // expected: 28 scanner bytes, 13 body bytes, 9 tag-name bytes and
+    // 65 candidate-comparison bytes give exactly 115 charged bytes.
+    assert_eq!(charged, 28 + 13 + 9 + 65);
+    // expected: the fixed tag-name comparisons account for some charged bytes.
+    assert!(charged - untagged.len() >= b"function".len());
+    for at in 1..=2 {
+        let b = LuaCounting {
+            fail_at: Some(at),
+            ..LuaCounting::default()
+        };
+        assert!(matches!(
+            crate::checker::lua::standalone_tag_with_budget(untagged, &b),
+            Err(SourceError::Cancelled)
+        ));
+        assert_eq!(b.steps.get(), at);
+    }
+    let without_comparisons = charged - b"function".len();
+    assert!(without_comparisons < charged);
+    let b = LuaCounting {
+        fail_bytes_at: Some(charged),
+        ..LuaCounting::default()
+    };
+    assert!(matches!(
+        crate::checker::lua::standalone_tag_with_budget(untagged, &b),
+        Err(SourceError::Cancelled)
+    ));
+    assert_eq!(b.bytes.get(), charged);
+    let b = LuaCounting {
+        fail_bytes_at: Some(charged + 1),
+        ..LuaCounting::default()
+    };
+    assert!(crate::checker::lua::standalone_tag_with_budget(untagged, &b).unwrap());
+    assert_eq!(b.bytes.get(), charged);
+    let control = LuaCounting::default();
+    assert!(!crate::checker::lua::standalone_tag_with_budget(b"---audits", &control).unwrap());
+    assert_eq!(control.steps.get(), 1);
+    assert_eq!(control.bytes.get(), 15);
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_field_slot_loop_observes_collection_budget_cancellation() {
+    use std::fmt::Write;
+    let options = DocumentationOptions::default();
+    let context = DocumentationContext::default();
+    let mut fields = String::from("module(\"m\")\nlocal t = {\n");
+    for at in 0..1_024 {
+        write!(fields, "--- doc {at}\nkey{at} = 1,\n").unwrap();
+    }
+    fields.push_str("}\n");
+    let locals = format!("module(\"m\")\n{}", "--- doc\nlocal a = 1\n".repeat(260));
+    let mut tagged = String::from("module(\"m\")\n--[[-- audit\n");
+    for _ in 0..1_024 {
+        tagged.push_str("-- @param x\n");
+    }
+    tagged.push_str("]]\nfunction f() end\n");
+    for (source, documents, associations, lower, upper) in [
+        (fields.as_bytes(), 1_024, 1_024, 4_303, 4_303),
+        (locals.as_bytes(), 260, 260, 1_113, 1_113),
+        (tagged.as_bytes(), 1, 1, 4_118, 4_118),
+    ] {
+        let parser = clean(source);
+        let start = observations().polls;
+        let index = parser.documentation(&context, &options).unwrap();
+        let checks = observations().polls - start;
+        assert_eq!(index.documents().len(), documents);
+        assert_eq!(index.associations().len(), associations);
+        // expected: the three source shapes have the measured total checkpoints
+        // recorded here; both sides fail if a handoff drops a checkpoint.
+        assert!((lower..=upper).contains(&checks), "polls={checks}");
+        for checkpoint in [1, checks] {
+            let result = crate::documentation::budget::cancel_after(checkpoint, || {
+                parser.documentation(&context, &options)
+            });
+            assert!(matches!(result, Err(CollectionError::Cancelled)));
+        }
+        let final_index = crate::documentation::budget::cancel_after(checks + 1, || {
+            parser.documentation(&context, &options)
+        })
+        .unwrap();
+        assert_eq!(final_index.associations().len(), associations);
+    }
+}
+
+#[cfg(feature = "lua")]
+#[test]
+fn lua_unit2_field_name_scan_charges_and_skips_comment() {
+    let source = b"module(\"m\")\nlocal t = {\n--- detail\nalpha = -- inline\n1,\n}\n";
+    let parser = clean(source);
+    let indexes = indexes(&parser, DocumentationOptions::default());
+    let field = node_at(&parser, "field", 35..54);
+    let id = indexes[0].canonical.lookup(field).unwrap();
+    let budget = LuaCounting::default();
+    let name = super::projections::lua_field_name(&indexes[0].canonical, id, &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        site(indexes[0].canonical.nodes[name.0].evidence.node()),
+        ("identifier", 35..40)
+    );
+    // expected: the first field child is the name, so no comment after it is read.
+    assert_eq!(budget.steps.get(), 1);
+    let cancelled = LuaCounting {
+        fail_at: Some(1),
+        ..LuaCounting::default()
+    };
+    assert!(matches!(
+        super::projections::lua_field_name(&indexes[0].canonical, id, &cancelled),
+        Err(SourceError::Cancelled)
+    ));
+    assert_eq!(cancelled.steps.get(), 1);
 }

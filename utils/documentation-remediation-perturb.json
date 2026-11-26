@@ -1,21 +1,149 @@
 {
   "cwd": ".",
   "runner": "cargo",
-  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
   "cases": [
-    {"name":"rust-decoration-line-checkpoint-omitted","file":"big-code-analysis-ast/src/documentation/text/comments.rs","old":"crate::documentation::budget::WorkPhase::Decoration,\n            || budget.step(),","new":"crate::documentation::budget::WorkPhase::Decoration,\n            || Ok::<(), B::Error>(()),","expect":["documentation::text::comments::remediation_tests::star_column_pass_cancels_on_line_budget_before_byte_budget"]},
-    {"name":"text-emission-repeats-global-intersection-search","file":"big-code-analysis-ast/src/documentation/text/comments.rs","old":"return source.copy(builder, range, budget);","new":"return builder.source(context, range, budget);","expect":["documentation::collector::remediation_tests::multiline_text_reuses_retained_fragment_intersections"]},
-    {"name":"csharp-conditional-selection-disappears","file":"big-code-analysis-ast/src/documentation/recognition.rs","old":"crate::LANG::Csharp if super::collector::conditional_kind(node.kind()) => Ok(true),","new":"crate::LANG::Csharp if super::collector::conditional_kind(node.kind()) => Ok(false),","expect":["documentation::collector::remediation_tests::csharp_conditional_docs_remain_pending_only_in_affected_scope"]},
-    {"name":"rust-same-target-drafts-remain-split","file":"big-code-analysis-ast/src/documentation/collector.rs","old":"        self.coalesce_rust(budget)?;","new":"        let _ = budget;","expect":["documentation::collector::remediation_tests::rust_same_target_composition_and_roles_are_independent_of_placement"]},
-    {"name":"pending-first-wrapper-seeks-later-ready","file":"big-code-analysis-ast/src/documentation/collector/projections.rs","old":"Projection::Pending => {\n                    self.index.canonical.nodes[id.0].projection = Projection::Pending;\n                    return Ok(());","new":"Projection::Pending => {\n                    continue;","expect":["documentation::collector::remediation_tests::ruby_pending_first_statement_never_redirects_to_later_method","documentation::collector::remediation_tests::lua_pending_first_statement_never_redirects_to_later_function"]},
-    {"name":"lexical-key-token-boundaries-erased","file":"big-code-analysis-ast/src/documentation/names.rs","old":"            hash.write_u8(0);\n            key.push(0);","new":"            let _ = position;","expect":["documentation::collector::remediation_tests::exact_signatures_preserve_tokens_scope_and_complex_competitors"]},
-    {"name":"complex-headers-hashed-in-full","file":"big-code-analysis-ast/src/documentation/collector/projections.rs","old":"record.field != Some(\"body\") && record.signature_complex","new":"false && record.field != Some(\"body\") && record.signature_complex","expect":["documentation::collector::remediation_tests::nested_default_lambda_signature_work_is_linear_in_primary_facts"]},
-    {"name":"conditional-name-qualification-lost","file":"big-code-analysis-ast/src/documentation/collector.rs","old":"record.qualification.insert(UnresolvedReason::Conditional);","new":"let _ = record;","expect":["documentation::collector::remediation_tests::c_named_candidates_retain_conditional_provenance","documentation::collector::remediation_tests::cpp_named_candidates_retain_conditional_provenance","documentation::collector::remediation_tests::mozcpp_named_candidates_retain_conditional_provenance","documentation::collector::remediation_tests::objc_named_candidates_retain_conditional_provenance"]},
-    {"name":"pending-owner-context-not-followed","file":"big-code-analysis-ast/src/documentation/collector/assembly.rs","old":".unwrap_or(self.index.canonical.nodes[draft.scope.0].owner_context)","new":".unwrap_or(draft.scope)","expect":["documentation::collector::remediation_tests::kotlin_signature_context_exposes_document_linked_owner_assessment"]},
-    {"name":"helper-canonical-walk-skipped","file":"big-code-analysis-ast/src/documentation/collector.rs","old":"    builder.walk::<T>(&budget)?;","new":"    if profile != Profile::Helper { builder.walk::<T>(&budget)?; }","expect":["documentation::collector::remediation_tests::helpers_validate_all_canonical_nodes_before_unsupported_owner"]},
-    {"name":"logical-boundary-empty-members-retained","file":"big-code-analysis-ast/src/documentation/text/comments.rs","old":"while first_block < last_block && empty_block(&blocks[first_block], budget)?","new":"while false && first_block < last_block && empty_block(&blocks[first_block], budget)?","expect":["documentation::collector::remediation_tests::go_trims_logical_boundary_members_only","documentation::collector::remediation_tests::ruby_trims_logical_boundary_members_only","documentation::collector::remediation_tests::java_trims_logical_boundary_members_only"]},
-    {"name":"inline-code-scans-whole-remaining-line","file":"big-code-analysis-ast/src/lang_helpers/doxygen.rs","old":"    let mut start = 0;\n    while start < span.len() {","new":"    let mut start = 0;\n    let _ = scan::position(span, |b| b == b'\\n', budget)?;\n    while start < span.len() {","expect":["documentation::collector::remediation_tests::c_inline_code_scan_is_linear","documentation::collector::remediation_tests::cpp_inline_code_scan_is_linear","documentation::collector::remediation_tests::mozcpp_inline_code_scan_is_linear","documentation::collector::remediation_tests::objc_inline_code_scan_is_linear"]},
-    {"name":"gatherer-disposition-cache-bypassed","file":"big-code-analysis-ast/src/documentation/collector.rs","old":"gatherer.as_ref().and_then(|id| structural_drafts.get(id))","new":"gatherer.as_ref().and_then(|id| structural_drafts.get(id)).filter(|_| false)","expect":["documentation::collector::remediation_tests::gathered_disposition_does_not_rescan_structural_member_per_fragment"]},
-    {"name":"file-opener-retains-unrelated-binding","file":"big-code-analysis-ast/src/documentation/collector.rs","old":"draft.role = DocumentRole::FilePackage;\n                draft.binding = None;","new":"draft.role = DocumentRole::FilePackage;\n                draft.binding = run.target;","expect":["documentation::collector::remediation_tests::lua_file_opener_has_no_following_binding"]}
+    {
+      "name": "rust-decoration-line-checkpoint-omitted",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "crate::documentation::budget::WorkPhase::Decoration,\n            || budget.step(),",
+      "new": "crate::documentation::budget::WorkPhase::Decoration,\n            || Ok::<(), B::Error>(()),",
+      "expect": [
+        "documentation::text::comments::remediation_tests::star_column_pass_cancels_on_line_budget_before_byte_budget"
+      ]
+    },
+    {
+      "name": "text-emission-repeats-global-intersection-search",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "return source.copy(builder, range, budget);",
+      "new": "return builder.source(context, range, budget);",
+      "expect": [
+        "documentation::collector::remediation_tests::multiline_text_reuses_retained_fragment_intersections"
+      ]
+    },
+    {
+      "name": "csharp-conditional-selection-disappears",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "crate::LANG::Csharp if super::collector::conditional_kind(node.kind()) => Ok(true),",
+      "new": "crate::LANG::Csharp if super::collector::conditional_kind(node.kind()) => Ok(false),",
+      "expect": [
+        "documentation::collector::remediation_tests::csharp_conditional_docs_remain_pending_only_in_affected_scope"
+      ]
+    },
+    {
+      "name": "rust-same-target-drafts-remain-split",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        self.coalesce_rust(budget)?;",
+      "new": "        let _ = budget;",
+      "expect": [
+        "documentation::collector::remediation_tests::rust_same_target_composition_and_roles_are_independent_of_placement"
+      ]
+    },
+    {
+      "name": "pending-first-wrapper-seeks-later-ready",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "Projection::Pending => {\n                    self.index.canonical.nodes[id.0].projection = Projection::Pending;\n                    return Ok(());",
+      "new": "Projection::Pending => {\n                    continue;",
+      "expect": [
+        "documentation::collector::remediation_tests::ruby_pending_first_statement_never_redirects_to_later_method"
+      ]
+    },
+    {
+      "name": "lexical-key-token-boundaries-erased",
+      "file": "big-code-analysis-ast/src/documentation/names.rs",
+      "old": "            hash.write_u8(0);\n            key.push(0);",
+      "new": "            let _ = position;",
+      "expect": [
+        "documentation::collector::remediation_tests::exact_signatures_preserve_tokens_scope_and_complex_competitors"
+      ]
+    },
+    {
+      "name": "complex-headers-hashed-in-full",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "record.field != Some(\"body\") && record.signature_complex",
+      "new": "false && record.field != Some(\"body\") && record.signature_complex",
+      "expect": [
+        "documentation::collector::remediation_tests::nested_default_lambda_signature_work_is_linear_in_primary_facts"
+      ]
+    },
+    {
+      "name": "conditional-name-qualification-lost",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "record.qualification.insert(UnresolvedReason::Conditional);",
+      "new": "let _ = record;",
+      "expect": [
+        "documentation::collector::remediation_tests::c_named_candidates_retain_conditional_provenance",
+        "documentation::collector::remediation_tests::cpp_named_candidates_retain_conditional_provenance",
+        "documentation::collector::remediation_tests::mozcpp_named_candidates_retain_conditional_provenance",
+        "documentation::collector::remediation_tests::objc_named_candidates_retain_conditional_provenance"
+      ]
+    },
+    {
+      "name": "pending-owner-context-not-followed",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": ".unwrap_or(self.index.canonical.nodes[draft.scope.0].owner_context)",
+      "new": ".unwrap_or(draft.scope)",
+      "expect": [
+        "documentation::collector::remediation_tests::kotlin_signature_context_exposes_document_linked_owner_assessment"
+      ]
+    },
+    {
+      "name": "helper-canonical-walk-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    builder.walk::<T>(&budget)?;",
+      "new": "    if profile != Profile::Helper { builder.walk::<T>(&budget)?; }",
+      "expect": [
+        "documentation::collector::remediation_tests::helpers_validate_all_canonical_nodes_before_unsupported_owner"
+      ]
+    },
+    {
+      "name": "logical-boundary-empty-members-retained",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "while first_block < last_block && empty_block(&blocks[first_block], budget)?",
+      "new": "while false && first_block < last_block && empty_block(&blocks[first_block], budget)?",
+      "expect": [
+        "documentation::collector::remediation_tests::go_trims_logical_boundary_members_only",
+        "documentation::collector::remediation_tests::ruby_trims_logical_boundary_members_only",
+        "documentation::collector::remediation_tests::java_trims_logical_boundary_members_only"
+      ]
+    },
+    {
+      "name": "inline-code-scans-whole-remaining-line",
+      "file": "big-code-analysis-ast/src/lang_helpers/doxygen.rs",
+      "old": "    let mut start = 0;\n    while start < span.len() {",
+      "new": "    let mut start = 0;\n    let _ = scan::position(span, |b| b == b'\\n', budget)?;\n    while start < span.len() {",
+      "expect": [
+        "documentation::collector::remediation_tests::c_inline_code_scan_is_linear",
+        "documentation::collector::remediation_tests::cpp_inline_code_scan_is_linear",
+        "documentation::collector::remediation_tests::mozcpp_inline_code_scan_is_linear",
+        "documentation::collector::remediation_tests::objc_inline_code_scan_is_linear"
+      ]
+    },
+    {
+      "name": "gatherer-disposition-cache-bypassed",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "gatherer.as_ref().and_then(|id| structural_drafts.get(id))",
+      "new": "gatherer.as_ref().and_then(|id| structural_drafts.get(id)).filter(|_| false)",
+      "expect": [
+        "documentation::collector::remediation_tests::gathered_disposition_does_not_rescan_structural_member_per_fragment"
+      ]
+    },
+    {
+      "name": "file-opener-retains-unrelated-binding",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "draft.role = DocumentRole::FilePackage;\n            draft.binding = None;",
+      "new": "draft.role = DocumentRole::FilePackage;\n            draft.binding = Some(draft.binding.unwrap());",
+      "expect": [
+        "documentation::collector::remediation_tests::lua_file_opener_has_no_following_binding"
+      ]
+    }
   ]
 }
