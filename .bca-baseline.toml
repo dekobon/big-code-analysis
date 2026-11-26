@@ -647,13 +647,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 536.0
+value = 601.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>"
 metric = "wmc"
-value = 88.0
+value = 93.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"

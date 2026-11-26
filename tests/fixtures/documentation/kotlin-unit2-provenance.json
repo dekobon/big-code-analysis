@@ -1,0 +1,16 @@
+{
+  "scope": "Kotlin KDoc single-name property declaration owners, Property slots; Unit 2 of #1666",
+  "base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "grammar": {"runtime": "0.26.13", "kotlin": "tree-sitter-kotlin-ng 1.1.0"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/kotlin_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": ["utils/documentation-kotlin-unit2-perturb.json", "utils/documentation-kotlin-unit2-legacy-perturb.json"],
+  "reference": {
+    "source": "Kotlin v2.0.21 FindDocComment.kt, KotlinWhitespaceAndCommentsBinders.kt, KotlinParsing.java, AbstractKotlinParsing.java and KtDeclarationImpl.java",
+    "status": "Source reading only; no Kotlin compiler, Dokka, or PSI executable was installed or run",
+    "qualification": "Tree-sitter source extraction under Profile::Kdoc only. Constructor and function parameter bindings are still unknown in the #1646 ledger. Do not claim Kotlin tool parity or publication eligibility."
+  },
+  "fixtures": "18 byte-exact Kotlin sources in big-code-analysis-ast/src/documentation/collector/kotlin_tests.rs, verified against evidence base 3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "pending": ["class_parameter and parameter slots", "primary_constructor projection", "destructuring property owners", "getter-local KDoc ownership", "Kotlin tool parity and publication", "Kotlin real-code differential checks"],
+  "limitations": ["tree-sitter-kotlin-ng 1.1.0 treats /** d */ followed by val p = 1, then /** e */ fun g() {} on the next line as one error-free property_declaration 9..38 with an infix_expression 17..38; the only published document is d, resolved to the Property slot at 13..14. This characterizes the pinned grammar, not Kotlin compiler or Dokka behavior."]
+}

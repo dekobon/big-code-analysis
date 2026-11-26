@@ -5,6 +5,78 @@ use serde_json::{Value, json};
 
 use crate::{LANG, Metric, MetricsOptions, Source, analyze};
 
+#[cfg(feature = "kotlin")]
+#[test]
+fn documentation_kotlin_property_slots_leave_legacy_rows_unchanged() {
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    for (source, loc_expected, rows_expected) in [
+        (
+            b"class C {\n    /** d */\n    val p = 1\n}\n".as_slice(),
+            [4, 3, 1, 1, 0, 1],
+            &[1][..],
+        ),
+        (
+            b"/** d */\nval x = 1\n".as_slice(),
+            [2, 1, 1, 1, 0, 1],
+            &[0][..],
+        ),
+    ] {
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Kotlin, source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error());
+        let before = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let after_collection = observations();
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(
+            index
+                .complete_text(index.documents().next().unwrap())
+                .unwrap()
+                .unwrap()
+                .text(),
+            "d"
+        );
+        assert_eq!(
+            after_collection.visits - before.visits,
+            parser.root_node().preorder().count()
+        );
+        assert_eq!(after_collection.renders - before.renders, 1);
+        let space = analyze(
+            Source::new(LANG::Kotlin, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            loc_expected
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            rows_expected
+        );
+        let after_analysis = observations();
+        assert_eq!(after_analysis.visits, after_collection.visits);
+        assert_eq!(after_analysis.renders, after_collection.renders);
+    }
+}
+
 #[cfg(feature = "java")]
 #[test]
 fn documentation_java_package_and_forms_keep_legacy_rows() {

@@ -1,0 +1,196 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "--offline",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::kotlin_tests"
+  ],
+  "cases": [
+    {
+      "name": "property-profile-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.index.profile == Profile::Kdoc",
+      "new": "self.index.profile == Profile::Javadoc",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_two_properties_have_distinct_property_slots",
+        "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot",
+        "documentation::collector::kotlin_tests::kotlin_property_initializer_continued_over_commented_next_line_keeps_grammar_extent",
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "property-kind-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "node.kind() == \"property_declaration\"",
+      "new": "node.kind() == \"function_declaration\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "property-slot-is-a-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "role: SlotRole::Property,",
+      "new": "role: SlotRole::Field,",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot",
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "property-slot-has-ordinal-one",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "ordinal: 0,",
+      "new": "ordinal: 1,",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_two_properties_have_distinct_property_slots"
+      ]
+    },
+    {
+      "name": "property-name-uses-envelope",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "let range = self.index.canonical.nodes[name.0]\n            .evidence\n            .node()\n            .byte_range();",
+      "new": "let range = self.index.canonical.nodes[id.0]\n            .evidence\n            .node()\n            .byte_range();",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "property-projection-kept-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);",
+      "new": "self.index.canonical.nodes[id.0].projection = Projection::Pending;",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_two_properties_have_distinct_property_slots",
+        "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot",
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "property-scan-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"multi_variable_declaration\"",
+      "new": "        match canonical.nodes[child.0].evidence.node().kind() {\n            \"multi_variable_declaration\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_scans_charge_each_structural_child"
+      ]
+    },
+    {
+      "name": "name-scan-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"line_comment\"",
+      "new": "        match canonical.nodes[child.0].evidence.node().kind() {\n            \"line_comment\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_scans_charge_each_structural_child"
+      ]
+    },
+    {
+      "name": "property-scan-double-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"multi_variable_declaration\"",
+      "new": "        budget.step()?;\n        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"multi_variable_declaration\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_scans_charge_each_structural_child"
+      ]
+    },
+    {
+      "name": "name-scan-double-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"line_comment\"",
+      "new": "        budget.step()?;\n        budget.step()?;\n        match canonical.nodes[child.0].evidence.node().kind() {\n            \"line_comment\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_scans_charge_each_structural_child"
+      ]
+    },
+    {
+      "name": "accessor-local-doc-binds-property",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "    const SOURCE_LOCAL_DOCS: bool = true;",
+      "new": "    const SOURCE_LOCAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_accessor_kdoc_does_not_document_the_property",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-error-property-projects",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && self.index.profile != Profile::Kdoc)\n            || node.is_missing()\n            || !self",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_broken_property_keeps_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "property-name-call-ignores-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "kotlin_property_name(&self.index.canonical, id, budget)?",
+      "new": "crate::documentation::budget::infallible(kotlin_property_name(&self.index.canonical, id, &crate::documentation::budget::NoBudget))",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_collection_forwards_the_budget_through_name_and_source"
+      ]
+    },
+    {
+      "name": "property-pieces-call-ignores-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.index.source.pieces_with_budget(range, budget)?",
+      "new": "self.index.source.pieces_with_budget(range, &crate::documentation::budget::NoBudget)?",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_collection_forwards_the_budget_through_name_and_source"
+      ]
+    },
+    {
+      "name": "property-name-two-pieces-rejected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let source = self.index.source.pieces_with_budget(range, budget)?;",
+      "new": "        let source = self.index.source.pieces_with_budget(range, budget)?;\n        if source.pieces().len() != 1 { return Ok(()); }",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_with_excluded_name_or_gap_has_no_slot"
+      ]
+    },
+    {
+      "name": "destructuring-guard-removed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"multi_variable_declaration\" => return Ok(None),\n            \"variable_declaration\" if declaration.replace(child).is_some() => return Ok(None),",
+      "new": "\"multi_variable_declaration\" => declaration = canonical.children[canonical.nodes[child.0].children.clone()].iter().copied().find(|&id| canonical.nodes[id.0].evidence.node().kind() == \"variable_declaration\"),\n            \"variable_declaration\" if declaration.replace(child).is_some() => return Ok(None),",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "property-name-comment-ends-scan",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"line_comment\" | \"block_comment\" => {}",
+      "new": "\"line_comment\" | \"block_comment\" => return Ok(None),",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_const_and_trivia_inside_property_keep_the_name_slot"
+      ]
+    },
+    {
+      "name": "second-property-declaration-overwrites-first",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"variable_declaration\" if declaration.replace(child).is_some() => return Ok(None),",
+      "new": "\"variable_declaration\" => declaration = Some(child),",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "annotated-name-reads-past-annotation",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            _ => return Ok(None),\n        }\n    }\n    Ok(None)\n}\n\n// Field names are not requested",
+      "new": "            _ => {}\n        }\n    }\n    Ok(None)\n}\n\n// Field names are not requested",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    }
+  ]
+}

@@ -21,7 +21,7 @@
         "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
         "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -55,7 +55,7 @@
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
         "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -92,7 +92,7 @@
       "old": "            PropertyDeclaration,\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -101,7 +101,7 @@
       "old": "            Parameter,\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -110,7 +110,7 @@
       "old": "            ClassParameter,\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -119,7 +119,7 @@
       "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
       "new": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\"\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
       ]
     },
     {
@@ -128,7 +128,7 @@
       "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
       "new": "            \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -138,7 +138,7 @@
       "new": "            \"class_parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -147,7 +147,7 @@
       "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
       "new": "            \"class_parameter\" | \"parameter\" | \"property_declaration\"\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -157,7 +157,7 @@
       "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\"\n",
       "new": "            \"class_parameter\" | \"parameter\"\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -167,7 +167,7 @@
       "old": "                        \"class_parameters\"\n                            | \"class_parameter\"\n",
       "new": "                        \"class_parameter\"\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -176,7 +176,7 @@
       "old": "                            | \"function_value_parameters\"\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -212,7 +212,7 @@
       "old": "                            | Kotlin::Setter\n                            | Kotlin::Modifiers\n",
       "new": "                            | Kotlin::Setter\n",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+        "documentation::collector::remediation_tests::kotlin_signature_context_exposes_document_linked_owner_assessment"
       ]
     },
     {
@@ -245,7 +245,7 @@
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
         "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -319,7 +319,7 @@
       "old": "                Projection::Pending | Projection::Unsupported => pending = true,",
       "new": "                Projection::Pending | Projection::Unsupported => {}",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -329,7 +329,7 @@
       "new": "                Projection::Pending\n            ) && id == usize::MAX {\n                let assessment = self.index.assessments.len();",
       "expect": [
         "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -339,7 +339,7 @@
       "old": "matches!(kind, \"primary_constructor\" | \"getter\" | \"setter\")",
       "new": "matches!(kind, \"getter\" | \"setter\")",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     },
@@ -358,7 +358,7 @@
       "old": "            | \"function_value_parameters\"\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -367,7 +367,7 @@
       "old": "            | \"class_parameters\"\n",
       "new": "",
       "expect": [
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -431,7 +431,7 @@
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
         "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -446,7 +446,7 @@
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
         "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments"
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
       ]
     },
     {
@@ -461,7 +461,7 @@
         "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
         "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
         "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
-        "documentation::collector::kotlin_tests::kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
         "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
       ]
     }

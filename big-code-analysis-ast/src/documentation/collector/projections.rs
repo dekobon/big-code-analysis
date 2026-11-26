@@ -96,6 +96,7 @@ impl Builder<'_> {
         id: NodeId,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
+        // bca: suppress(halstead, nexits) -- per-profile declaration owner dispatch.
         let node = self.index.canonical.nodes[id.0].evidence.node();
         if self.index.profile == Profile::Doxygen
             && matches!(node.kind(), "declaration" | "field_declaration")
@@ -130,6 +131,45 @@ impl Builder<'_> {
         {
             return self.js_first_declarator_owner(id, budget);
         }
+        if self.index.profile == Profile::Kdoc
+            && node.kind() == "property_declaration"
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.kotlin_property_slot(id, budget);
+        }
+        Ok(())
+    }
+
+    fn kotlin_property_slot(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let Some(name) = kotlin_property_name(&self.index.canonical, id, budget)? else {
+            return Ok(());
+        };
+        let range = self.index.canonical.nodes[name.0]
+            .evidence
+            .node()
+            .byte_range();
+        let source = self.index.source.pieces_with_budget(range, budget)?;
+        let enclosing = OwnerId(self.index.facts.owners.len());
+        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));
+        let slot = OwnerId(self.index.facts.owners.len());
+        self.index.facts.owners.push(Owner::Slot(Slot {
+            enclosing,
+            role: SlotRole::Property,
+            ordinal: 0,
+            source,
+        }));
+        self.index.associations_by_owner.push(Vec::new());
+        self.index.assessments_by_owner.push(Vec::new());
+        self.index.qualifications_by_owner.push(Vec::new());
+        self.index.owner_nodes.push(id);
+        self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);
         Ok(())
     }
 
@@ -470,6 +510,37 @@ pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(
             return Ok((node.kind() == "identifier").then_some(declarator.evidence));
         }
         return Ok(None);
+    }
+    Ok(None)
+}
+
+// A destructuring property has no single declaration name. Comment nodes are trivia,
+// including when the grammar places one before the identifier in its declaration.
+pub(super) fn kotlin_property_name<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    property: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    // bca: suppress(nexits) -- two-stage child scan with budget propagation.
+    let mut declaration = None;
+    for &child in &canonical.children[canonical.nodes[property.0].children.clone()] {
+        budget.step()?;
+        match canonical.nodes[child.0].evidence.node().kind() {
+            "multi_variable_declaration" => return Ok(None),
+            "variable_declaration" if declaration.replace(child).is_some() => return Ok(None),
+            _ => {}
+        }
+    }
+    let Some(declaration) = declaration else {
+        return Ok(None);
+    };
+    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {
+        budget.step()?;
+        match canonical.nodes[child.0].evidence.node().kind() {
+            "line_comment" | "block_comment" => {}
+            "identifier" | "simple_identifier" => return Ok(Some(child)),
+            _ => return Ok(None),
+        }
     }
     Ok(None)
 }

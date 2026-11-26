@@ -3,9 +3,15 @@
 //! pins the tree shapes the unit relies on. Node queries are checked beside the view.
 
 #[cfg(feature = "kotlin")]
+use crate::documentation::budget::WorkBudget;
+#[cfg(feature = "kotlin")]
+use crate::documentation::collector::projections::kotlin_property_name;
+#[cfg(feature = "kotlin")]
 use crate::documentation::*;
 #[cfg(feature = "kotlin")]
 use crate::{AnyParser, LANG};
+#[cfg(feature = "kotlin")]
+use std::cell::Cell;
 #[cfg(feature = "kotlin")]
 use std::ops::Range;
 
@@ -36,7 +42,14 @@ struct Doc {
 struct Link {
     document: usize,
     resolution: Resolution,
-    owner: (&'static str, Range<usize>),
+    owner: Holder,
+}
+
+#[cfg(feature = "kotlin")]
+#[derive(Debug, PartialEq, Eq)]
+enum Holder {
+    Node(&'static str, Range<usize>),
+    Property(Range<usize>, Range<usize>, usize),
 }
 
 #[cfg(feature = "kotlin")]
@@ -97,7 +110,20 @@ fn owned(document: Doc, kind: &'static str, range: Range<usize>) -> View {
         associations: vec![Link {
             document: 0,
             resolution: Resolution::Resolved,
-            owner: (kind, range),
+            owner: Holder::Node(kind, range),
+        }],
+        ..View::default()
+    }
+}
+
+#[cfg(feature = "kotlin")]
+fn property(document: Doc, declaration: Range<usize>, name: Range<usize>) -> View {
+    View {
+        documents: vec![document],
+        associations: vec![Link {
+            document: 0,
+            resolution: Resolution::Resolved,
+            owner: Holder::Property(declaration, name, 0),
         }],
         ..View::default()
     }
@@ -122,14 +148,7 @@ fn pending(
 fn unordered(entries: impl IntoIterator<Item = Pending>) -> Vec<Pending> {
     let mut sorted: Vec<_> = entries.into_iter().collect();
     // Assessment order is unspecified; both the observed and expected lists use this key.
-    sorted.sort_by_cached_key(|entry| {
-        (
-            entry.reason,
-            entry.node.as_ref().map(|(_, range)| range.start),
-            entry.node.as_ref().map(|(_, range)| range.end),
-            entry.document,
-        )
-    });
+    sorted.sort_by_cached_key(|entry| format!("{entry:?}"));
     sorted
 }
 
@@ -204,17 +223,34 @@ fn published(index: &DocumentationIndex<'_>) -> View {
             let comment = first.get().node().unwrap().node();
             assert_eq!(Some(attachment.lexical_scope.node()), comment.parent());
             let owner = facts.associated_owner(association, 0).unwrap();
-            let Owner::Node(declared) = owner.get() else {
-                panic!("a node owner, found {:?}", owner.get())
+            let (holder, binding) = match owner.get() {
+                Owner::Node(declared) => (
+                    Holder::Node(declared.node().kind(), declared.node().byte_range()),
+                    declared.node(),
+                ),
+                Owner::Slot(slot) => {
+                    assert_eq!(slot.role, SlotRole::Property);
+                    let enclosing = facts.slot_enclosing(owner).unwrap();
+                    let Owner::Node(declared) = enclosing.get() else {
+                        panic!("a property declaration node, found {:?}", enclosing.get());
+                    };
+                    assert_eq!(declared.node().kind(), "property_declaration");
+                    (
+                        Holder::Property(
+                            declared.node().byte_range(),
+                            span(&slot.source),
+                            slot.ordinal,
+                        ),
+                        declared.node(),
+                    )
+                }
+                other => panic!("a node or property owner, found {other:?}"),
             };
-            assert_eq!(
-                attachment.binding.map(NodeEvidence::node),
-                Some(declared.node())
-            );
+            assert_eq!(attachment.binding.map(NodeEvidence::node), Some(binding));
             Link {
                 document: position(document),
                 resolution: attachment.resolution,
-                owner: site(declared.node()),
+                owner: holder,
             }
         })
         .collect();
@@ -470,12 +506,12 @@ fn kotlin_kdoc_before_a_member_documents_the_member_not_the_class() {
                 Link {
                     document: 0,
                     resolution: Resolution::Resolved,
-                    owner: ("enum_entry", 32..33),
+                    owner: Holder::Node("enum_entry", 32..33),
                 },
                 Link {
                     document: 1,
                     resolution: Resolution::Resolved,
-                    owner: ("enum_entry", 52..53),
+                    owner: Holder::Node("enum_entry", 52..53),
                 },
             ],
             ..View::default()
@@ -754,31 +790,18 @@ fn check_query(
     }
 }
 
-/// These documents and assessments pin today's pending forms, not their later owner projection.
+/// Property slots resolve; parameter assessments pin today's pending forms, not their later design.
 #[cfg(feature = "kotlin")]
 #[test]
 #[allow(clippy::too_many_lines)]
-fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
+fn kotlin_property_slots_and_pending_parameters_are_distinct() {
     assert_eq!(
         view(b"class C {\n    /** d */\n    val p = 1\n}\n"),
-        View {
-            documents: vec![comment(14..22, "d", [(0..1, Copied(18..19))])],
-            assessments: unordered([
-                pending(
-                    AssessmentAxis::Owner,
-                    AWAITS_OWNER,
-                    Some(("property_declaration", 27..36)),
-                    Some(0),
-                ),
-                pending(
-                    AssessmentAxis::Owner,
-                    NEEDS_PROJECTION,
-                    Some(("property_declaration", 27..36)),
-                    None,
-                ),
-            ]),
-            ..View::default()
-        }
+        property(
+            comment(14..22, "d", [(0..1, Copied(18..19))]),
+            27..36,
+            31..32
+        )
     );
     let class_parameter = b"class C(/**audit*/ val x: Int)\n";
     let class_expected = View {
@@ -841,34 +864,18 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
     let both = indexes(&parser, DocumentationOptions::default());
     assert_eq!(
         agreed(&both),
-        View {
-            documents: vec![comment(0..8, "d", [(0..1, Copied(4..5))])],
-            assessments: unordered([
-                pending(
-                    AssessmentAxis::Owner,
-                    AWAITS_OWNER,
-                    Some(("property_declaration", 9..18)),
-                    Some(0)
-                ),
-                pending(
-                    AssessmentAxis::Owner,
-                    NEEDS_PROJECTION,
-                    Some(("property_declaration", 9..18)),
-                    None
-                ),
-            ]),
-            ..View::default()
-        }
+        property(comment(0..8, "d", [(0..1, Copied(4..5))]), 9..18, 13..14)
     );
-    check_query(
-        &both,
-        node_at(&parser, "property_declaration", 9..18),
-        true,
-        &[
-            (AssessmentAxis::Owner, AWAITS_OWNER),
-            (AssessmentAxis::Owner, NEEDS_PROJECTION),
-        ],
-    );
+    for index in &both {
+        let node = node_at(&parser, "property_declaration", 9..18);
+        let projection = index.node_projection(node).unwrap();
+        assert!(!projection.pending());
+        assert_eq!(projection.owners().count(), 1);
+        let query = index.node_associations(node).unwrap();
+        assert_eq!(query.associations().count(), 1);
+        assert!(!query.projection_pending());
+        assert_eq!(query.assessments().count(), 0);
+    }
 
     let parser = clean(class_parameter);
     let both = indexes(&parser, DocumentationOptions::default());
@@ -919,6 +926,585 @@ fn kotlin_property_and_parameter_kdoc_is_a_document_with_pending_assessments() {
             (AssessmentAxis::Selection, SIGNATURE),
         ],
     );
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_two_properties_have_distinct_property_slots() {
+    let source = b"/** a */\nval a = 1\n/** b */\nvar b: Int = 2\n";
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
+        View {
+            documents: vec![
+                comment(0..8, "a", [(0..1, Copied(4..5))]),
+                comment(19..27, "b", [(0..1, Copied(23..24))]),
+            ],
+            associations: vec![
+                Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owner: Holder::Property(9..18, 13..14, 0),
+                },
+                Link {
+                    document: 1,
+                    resolution: Resolution::Resolved,
+                    owner: Holder::Property(28..42, 32..33, 0),
+                },
+            ],
+            ..View::default()
+        }
+    );
+    for index in &both {
+        for (at, range) in [9..18, 28..42].into_iter().enumerate() {
+            let query = index
+                .node_associations(node_at(&parser, "property_declaration", range))
+                .unwrap();
+            assert_eq!(query.associations().count(), 1);
+            assert!(!query.projection_pending());
+            assert_eq!(
+                index
+                    .facts()
+                    .associated_document(query.associations().next().unwrap()),
+                Ok(index.documents().nth(at).unwrap())
+            );
+        }
+    }
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_const_and_trivia_inside_property_keep_the_name_slot() {
+    for (source, enclosing, name) in [
+        (b"/** d */\nconst val K = 1\n".as_slice(), 9..24, 19..20),
+        (
+            b"/** d */\nval /* c */ p /* d */ : Int = 1\n".as_slice(),
+            9..40,
+            21..22,
+        ),
+        (
+            b"/** d */\nval String.len: Int get() = 1\n".as_slice(),
+            9..38,
+            20..23,
+        ),
+    ] {
+        assert_eq!(
+            view(source),
+            property(comment(0..8, "d", [(0..1, Copied(4..5))]), enclosing, name)
+        );
+    }
+    assert_eq!(
+        view(b"fun f() {\n    /** d */\n    val x = 1\n}\n"),
+        property(
+            comment(14..22, "d", [(0..1, Copied(18..19))]),
+            27..36,
+            31..32
+        )
+    );
+    let parser = clean(b"/** d */\nval /* c */ p /* d */ : Int = 1\n");
+    let mut index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    let property_id = index
+        .canonical
+        .lookup(node_at(&parser, "property_declaration", 9..40))
+        .unwrap();
+    let declaration = index.canonical.children
+        [index.canonical.nodes[property_id.0].children.clone()]
+    .iter()
+    .copied()
+    .find(|id| index.canonical.nodes[id.0].evidence.node().kind() == "variable_declaration")
+    .unwrap();
+    let children = index.canonical.nodes[declaration.0].children.clone();
+    assert_eq!(
+        index.canonical.nodes[index.canonical.children[children.start + 1].0]
+            .evidence
+            .node()
+            .kind(),
+        "block_comment"
+    );
+    index
+        .canonical
+        .children
+        .swap(children.start, children.start + 1);
+    let budget = Counting::default();
+    let name = kotlin_property_name(&index.canonical, property_id, &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        index.canonical.nodes[name.0].evidence.node().byte_range(),
+        21..22
+    );
+    assert!(budget.steps.get() >= 2);
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing() {
+    let source = b"/** d */\nval (a, b) = pair\n";
+    assert_eq!(
+        view(source),
+        View {
+            documents: vec![comment(0..8, "d", [(0..1, Copied(4..5))])],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("property_declaration", 9..26)),
+                    Some(0),
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 9..26)),
+                    None,
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+    let parser = clean(source);
+    for index in &indexes(&parser, DocumentationOptions::default()) {
+        let query = index
+            .node_associations(node_at(&parser, "property_declaration", 9..26))
+            .unwrap();
+        assert!(query.projection_pending());
+        assert_eq!(query.associations().count(), 0);
+    }
+    let plain = b"/* plain */\nval p = 1\n";
+    let parser = clean(plain);
+    let plain_indexes = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(agreed(&plain_indexes), View::default());
+    for index in &plain_indexes {
+        let node = node_at(&parser, "property_declaration", 12..21);
+        let projection = index.node_projection(node).unwrap();
+        assert!(!projection.pending());
+        let [owner] = projection.owners().collect::<Vec<_>>()[..] else {
+            panic!("one undocumented property slot");
+        };
+        let Owner::Slot(slot) = owner.get() else {
+            panic!("property slot expected");
+        };
+        assert_eq!(slot.role, SlotRole::Property);
+        assert_eq!(slot.ordinal, 0);
+        assert_eq!(span(&slot.source), 16..17);
+        let enclosing = index.facts().slot_enclosing(owner).unwrap();
+        let Owner::Node(declaration) = enclosing.get() else {
+            panic!("property declaration expected");
+        };
+        assert_eq!(site(declaration.node()), ("property_declaration", 12..21));
+        let query = index.node_associations(node).unwrap();
+        assert!(!query.projection_pending());
+        assert_eq!(query.associations().count(), 0);
+        assert_eq!(query.assessments().count(), 0);
+    }
+    let annotated = b"/** d */\nval @Ann p = 1\n";
+    let parser = clean(annotated);
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
+        View {
+            documents: vec![comment(0..8, "d", [(0..1, Copied(4..5))])],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("property_declaration", 9..23)),
+                    Some(0)
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 9..23)),
+                    None
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+    for index in &both {
+        let query = index
+            .node_associations(node_at(&parser, "property_declaration", 9..23))
+            .unwrap();
+        assert!(query.projection_pending());
+        assert_eq!(query.associations().count(), 0);
+    }
+    let parser = clean(b"/** d */\nval p = 1\n");
+    let mut index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    let property = index
+        .canonical
+        .lookup(node_at(&parser, "property_declaration", 9..18))
+        .unwrap();
+    let children = index.canonical.nodes[property.0].children.clone();
+    let declaration = index.canonical.children[children.start + 1];
+    assert_eq!(
+        index.canonical.nodes[declaration.0].evidence.node().kind(),
+        "variable_declaration"
+    );
+    index.canonical.children[children.start + 2] = declaration;
+    assert!(
+        kotlin_property_name(&index.canonical, property, &Counting::default())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn kotlin_property_with_excluded_name_or_gap_has_no_slot() {
+    let source = b"/** d */\nval p  = 1\n";
+    for (first, last) in [(0..13, 14..20), (0..14, 15..20)] {
+        let point = |offset: usize| {
+            let mut rows = source[..offset].split(|byte| *byte == b'\n');
+            let last = rows.next_back().unwrap();
+            tree_sitter::Point::new(rows.count(), last.len())
+        };
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&LANG::Kotlin.tree_sitter_language().unwrap())
+            .unwrap();
+        let included = [first, last].map(|range| tree_sitter::Range {
+            start_byte: range.start,
+            end_byte: range.end,
+            start_point: point(range.start),
+            end_point: point(range.end),
+        });
+        parser.set_included_ranges(&included).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        if included[0].end_byte == 14 {
+            let property = tree.root_node().named_child(1).unwrap();
+            assert_eq!(property.kind(), "property_declaration");
+            assert!(!property.has_error());
+            assert_eq!(property.byte_range(), 9..19);
+        }
+        let index = collect(
+            LANG::Kotlin,
+            &tree,
+            source,
+            &DocumentationContext::default(),
+            &DocumentationOptions {
+                retain_unbound: true,
+                ..DocumentationOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(index.associations().len(), 0);
+        assert_eq!(index.documents().len(), 0);
+        assert_eq!(
+            index.facts().owners().len(),
+            1,
+            "the file is the only owner when the property is excluded"
+        );
+    }
+    let source = b"/** d */\nval pq = 1\n";
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Kotlin.tree_sitter_language().unwrap())
+        .unwrap();
+    parser
+        .set_included_ranges(&[
+            tree_sitter::Range {
+                start_byte: 0,
+                end_byte: 14,
+                start_point: tree_sitter::Point::new(0, 0),
+                end_point: tree_sitter::Point::new(1, 5),
+            },
+            tree_sitter::Range {
+                start_byte: 14,
+                end_byte: 20,
+                start_point: tree_sitter::Point::new(1, 5),
+                end_point: tree_sitter::Point::new(2, 0),
+            },
+        ])
+        .unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    assert!(!tree.root_node().has_error());
+    let index = collect(
+        LANG::Kotlin,
+        &tree,
+        source,
+        &DocumentationContext::default(),
+        &DocumentationOptions::default(),
+    )
+    .unwrap();
+    let property = tree.root_node().named_child(1).unwrap();
+    assert_eq!(site(property), ("property_declaration", 9..19));
+    assert_eq!(index.documents().len(), 1);
+    let query = index.node_associations(property).unwrap();
+    assert_eq!(query.associations().count(), 1);
+    assert!(!query.projection_pending());
+    let owner = index
+        .node_projection(property)
+        .unwrap()
+        .owners()
+        .next()
+        .unwrap();
+    let Owner::Slot(slot) = owner.get() else {
+        panic!("one property slot")
+    };
+    assert_eq!(slot.role, SlotRole::Property);
+    assert_eq!(slot.ordinal, 0);
+    assert!(!slot.source.has_excluded_gap());
+    assert_eq!(
+        slot.source
+            .pieces()
+            .iter()
+            .map(SourcePiece::range)
+            .collect::<Vec<_>>(),
+        [13..14, 14..15]
+    );
+    assert_eq!(&source[13..15], b"pq");
+    let enclosing = index.facts().slot_enclosing(owner).unwrap();
+    let Owner::Node(declared) = enclosing.get() else {
+        panic!("property node")
+    };
+    assert_eq!(site(declared.node()), ("property_declaration", 9..19));
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_property_initializer_continued_over_commented_next_line_keeps_grammar_extent() {
+    let source = b"/** d */\nval p = 1\n/** e */ fun g() {}\n";
+    let parser = grammar_parse(source, false);
+    let property_node = node_at(&parser, "property_declaration", 9..38);
+    // tree-sitter-kotlin-ng 1.1.0 reads the comment and following function as
+    // an infix initializer, not a second declaration; this is grammar behavior,
+    // not a claim about the Kotlin compiler or Dokka.
+    assert!(!property_node.has_error());
+    assert!(
+        parts(property_node)
+            .iter()
+            .any(|(_, kind, range)| *kind == "infix_expression" && *range == (17..38))
+    );
+    assert_eq!(
+        view(source),
+        property(comment(0..8, "d", [(0..1, Copied(4..5))]), 9..38, 13..14)
+    );
+}
+
+#[cfg(feature = "kotlin")]
+#[derive(Default)]
+struct Counting {
+    steps: Cell<usize>,
+}
+
+#[cfg(feature = "kotlin")]
+impl WorkBudget for Counting {
+    type Error = SourceError;
+
+    #[cfg(feature = "kotlin")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        Ok(())
+    }
+
+    fn bytes(&self, _: usize) -> Result<(), SourceError> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_property_scans_charge_each_structural_child() {
+    for (source, property_range, name_range) in [
+        (b"/** d */\nval p = 1\n".as_slice(), 9..18, 13..14),
+        (
+            b"/** d */\nval /* c */ p /* d */ : Int = 1\n".as_slice(),
+            9..40,
+            21..22,
+        ),
+    ] {
+        let parser = clean(source);
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let node = node_at(&parser, "property_declaration", property_range);
+        let id = index.canonical.lookup(node).unwrap();
+        let declaration = index.canonical.children[index.canonical.nodes[id.0].children.clone()]
+            .iter()
+            .copied()
+            .find(|child| {
+                index.canonical.nodes[child.0].evidence.node().kind() == "variable_declaration"
+            })
+            .unwrap();
+        let expected_steps = index.canonical.nodes[id.0].children.len()
+            + index.canonical.children[index.canonical.nodes[declaration.0].children.clone()]
+                .iter()
+                .position(|child| {
+                    index.canonical.nodes[child.0].evidence.node().kind() == "identifier"
+                })
+                .unwrap()
+            + 1;
+        let budget = Counting::default();
+        let name = kotlin_property_name(&index.canonical, id, &budget)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            index.canonical.nodes[name.0].evidence.node().byte_range(),
+            name_range
+        );
+        assert_eq!(budget.steps.get(), expected_steps);
+    }
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_property_collection_forwards_the_budget_through_name_and_source() {
+    use crate::documentation::budget::cancel_after;
+    let mut source = b"/** d */\nval ".to_vec();
+    for _ in 0..1400 {
+        source.extend_from_slice(b"/* c */ ");
+    }
+    let name_start = source.len();
+    source.push(b'`');
+    source.extend(std::iter::repeat_n(b'p', 1400));
+    source.push(b'`');
+    let name_end = source.len();
+    source.extend_from_slice(b" = 1\n");
+    let mut raw = tree_sitter::Parser::new();
+    raw.set_language(&LANG::Kotlin.tree_sitter_language().unwrap())
+        .unwrap();
+    let point = |offset: usize| {
+        let mut rows = source[..offset].split(|byte| *byte == b'\n');
+        let last = rows.next_back().unwrap();
+        tree_sitter::Point::new(rows.count(), last.len())
+    };
+    let boundaries = std::iter::once(0..name_start)
+        .chain((name_start..name_end).map(|at| at..at + 1))
+        .chain(std::iter::once(name_end..source.len()));
+    let ranges: Vec<_> = boundaries
+        .map(|range| tree_sitter::Range {
+            start_byte: range.start,
+            end_byte: range.end,
+            start_point: point(range.start),
+            end_point: point(range.end),
+        })
+        .collect();
+    raw.set_included_ranges(&ranges).unwrap();
+    let tree = raw.parse(&source, None).unwrap();
+    assert!(!tree.root_node().has_error());
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let before = observations();
+    let index = collect(LANG::Kotlin, &tree, &source, &context, &options).unwrap();
+    let after = observations();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    assert_eq!(index.facts().owners().len(), 3);
+    assert!(after.polls - before.polls >= 5);
+    let mut scanning = 0;
+    let mut intersecting = 0;
+    for checkpoint in 1..=after.polls - before.polls {
+        let before = observations();
+        let result = cancel_after(checkpoint, || {
+            collect(LANG::Kotlin, &tree, &source, &context, &options)
+        });
+        let after = observations();
+        assert!(
+            matches!(result, Err(CollectionError::Cancelled)),
+            "{checkpoint}"
+        );
+        if after.visits - before.visits == tree.root_node().descendant_count()
+            && after.owner_projections - before.owner_projections == 1
+        {
+            if after.intersection_searches - before.intersection_searches == 11 {
+                scanning += 1;
+            } else if after.intersection_searches - before.intersection_searches == 22 {
+                intersecting += 1;
+            }
+        }
+    }
+    assert!(
+        (1..=12).contains(&scanning),
+        "property name scan: {scanning}"
+    );
+    assert!(
+        (1..=12).contains(&intersecting),
+        "slot source intersections: {intersecting}"
+    );
+    let next = cancel_after(after.polls - before.polls + 1, || {
+        collect(LANG::Kotlin, &tree, &source, &context, &options)
+    })
+    .unwrap();
+    assert_eq!(next.associations().len(), 1);
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_broken_property_keeps_document_without_an_owner() {
+    let source = b"/** d */\nval p: = 1\n";
+    let parser = AnyParser::parse(LANG::Kotlin, source.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
+        View {
+            documents: vec![comment(0..8, "d", [(0..1, Copied(4..5))])],
+            assessments: unordered([
+                pending(
+                    AssessmentAxis::Owner,
+                    AWAITS_OWNER,
+                    Some(("property_declaration", 9..19)),
+                    Some(0),
+                ),
+                pending(
+                    AssessmentAxis::Owner,
+                    NEEDS_PROJECTION,
+                    Some(("property_declaration", 9..19)),
+                    None,
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+    for index in &both {
+        let query = index
+            .node_associations(node_at(&parser, "property_declaration", 9..19))
+            .unwrap();
+        assert!(query.projection_pending());
+        assert_eq!(query.associations().count(), 0);
+    }
+}
+
+#[cfg(feature = "kotlin")]
+#[test]
+fn kotlin_property_accessor_kdoc_does_not_document_the_property() {
+    let source = b"class C {\n    val q: Int\n        /** g */\n        get() = 1\n}\n";
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
+        View {
+            documents: vec![comment(33..41, "g", [(0..1, Copied(37..38))])],
+            assessments: unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(0),)]),
+            ..View::default()
+        }
+    );
+    for index in &both {
+        let query = index
+            .node_associations(node_at(&parser, "property_declaration", 14..59))
+            .unwrap();
+        assert!(!query.projection_pending());
+        assert_eq!(query.associations().count(), 0);
+    }
 }
 
 /// These documents and assessments pin today's pending forms, not their later owner projection.
@@ -974,7 +1560,7 @@ fn kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments() {
             associations: vec![Link {
                 document: 0,
                 resolution: Resolution::Resolved,
-                owner: ("function_declaration", 11..32),
+                owner: Holder::Node("function_declaration", 11..32),
             }],
             assessments: unordered([pending(AssessmentAxis::Owner, AWAITS_OWNER, None, Some(1))]),
             ..View::default()
