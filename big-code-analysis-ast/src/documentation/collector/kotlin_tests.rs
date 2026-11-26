@@ -122,14 +122,7 @@ fn pending(
 fn unordered(entries: impl IntoIterator<Item = Pending>) -> Vec<Pending> {
     let mut sorted: Vec<_> = entries.into_iter().collect();
     // Assessment order is unspecified; both the observed and expected lists use this key.
-    sorted.sort_by_cached_key(|entry| {
-        (
-            entry.reason,
-            entry.node.as_ref().map(|(_, range)| range.start),
-            entry.node.as_ref().map(|(_, range)| range.end),
-            entry.document,
-        )
-    });
+    sorted.sort_by_cached_key(|entry| format!("{entry:?}"));
     sorted
 }
 
