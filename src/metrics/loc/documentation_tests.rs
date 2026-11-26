@@ -5371,3 +5371,56 @@ fn documentation_tcl_legacy_rows_hold_no_ruff_documentation() {
         );
     }
 }
+
+#[cfg(feature = "tcl")]
+#[test]
+fn documentation_tcl_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    let (mut documents, mut complete, mut associations) = (0, 0, 0);
+    for (source, tuple, comments) in TCL_RUFF_SOURCES {
+        let name = source.escape_ascii();
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Tcl, source.to_vec(), None, None).unwrap();
+        let idle = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let before = observations();
+        let texts = index
+            .documents()
+            .filter(|document| index.complete_text(*document).unwrap().is_some())
+            .count();
+        // The collection moves both counters on this thread, so a zero across `analyze`
+        // is a reading.
+        // expected: one visit for each node of the tree, and one render for each text.
+        assert_eq!(
+            before.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        assert_eq!(before.renders - idle.renders, texts, "{name}");
+        documents += index.documents().len();
+        complete += texts;
+        associations += index.associations().len();
+        // expected: the tuple and the comment rows the metric gave before the collector
+        // read Tcl, and no documentation row.
+        assert_eq!(
+            tcl_loc(source),
+            (tuple, comments.to_vec(), Vec::new()),
+            "{name}"
+        );
+        let after = observations();
+        // expected: 0 for each. `analyze` does not run the collector.
+        assert_eq!(after.visits - before.visits, 0, "{name}");
+        assert_eq!(after.renders - before.renders, 0, "{name}");
+    }
+    // expected: the sums over the 327 sources of what the tests of the AST crate state
+    // for each of them: documents, complete texts and associations. The render counter
+    // moved 214 times in all, so its zero across `analyze` is a reading too.
+    assert_eq!((documents, complete, associations), (235, 214, 224));
+}

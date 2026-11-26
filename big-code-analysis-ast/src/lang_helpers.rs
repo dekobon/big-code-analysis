@@ -45,6 +45,9 @@ pub mod tcl;
 // outside it. The one exception is re-exported below rather than by
 // widening the module, which would publish the slot tables too.
 pub(crate) mod tcl_family;
+// Crate-private: one scan of a script's bytes by Tcl's rules for commands
+// and words, read by the documentation collector only.
+pub(crate) mod tcl_scan;
 
 /// Re-exported because both dialects' metrics need it and the module
 /// holding it is crate-private: iRules' nexits and ABC walkers resolve a

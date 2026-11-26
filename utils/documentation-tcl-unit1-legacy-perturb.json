@@ -1,0 +1,45 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_tcl"
+  ],
+  "cases": [
+    {
+      "name": "tcl-comment-rows-are-not-counted",
+      "file": "src/metrics/loc/tcl.rs",
+      "old": "            Tcl::Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }\n",
+      "new": "            Tcl::Comment => {}\n",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_tcl_legacy_rows_hold_no_ruff_documentation",
+        "metrics::loc::documentation_tests::documentation_tcl_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "tcl-line-end-token-is-a-code-row",
+      "file": "src/metrics/loc/tcl.rs",
+      "old": "            Tcl::SourceFile | Tcl::LF => {}\n",
+      "new": "            Tcl::SourceFile => {}\n",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_tcl_legacy_rows_hold_no_ruff_documentation",
+        "metrics::loc::documentation_tests::documentation_tcl_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "tcl-comment-row-is-billed-one-row-lower",
+      "file": "src/metrics/loc/tcl.rs",
+      "old": "            Tcl::Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }\n",
+      "new": "            Tcl::Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n                let (only, mixed) = (\n                    &mut stats.cloc.only_comment_line_starts,\n                    &mut stats.cloc.code_comment_line_starts,\n                );\n                for rows in [only, mixed] {\n                    if rows.contains(node.start_row()) {\n                        rows.remove(node.start_row());\n                        rows.insert(node.start_row() + 1);\n                    }\n                }\n            }\n",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_tcl_legacy_rows_hold_no_ruff_documentation",
+        "metrics::loc::documentation_tests::documentation_tcl_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}

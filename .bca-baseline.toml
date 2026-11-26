@@ -359,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 978.0
+value = 984.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 137.0
+value = 138.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -515,37 +515,37 @@ value = 143073.56545441947
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "abc"
-value = 54.286278192559855
+value = 56.37375275782161
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "cognitive"
-value = 21.0
+value = 24.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "halstead.effort"
-value = 224208.069491629
+value = 233918.51803101794
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "nexits"
-value = 10.0
+value = 11.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "abc"
-value = 60.249481325568276
+value = 61.22907805936653
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "halstead.effort"
-value = 102783.07983778053
+value = 104007.60121133178
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -1079,7 +1079,7 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 650.0
+value = 707.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"

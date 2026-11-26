@@ -83,6 +83,19 @@ for historical reference.
   that retain selection, source pieces and attachment uncertainty. The separate
   legacy event stream preserves existing metric behavior. (#1658)
 
+- The unstable AST documentation collector now reads static Ruff! documentation
+  of Tcl. The first comment block of a top-level `proc` body and its later
+  `#ruff` blocks are one body document of that procedure, and `#ruffopt` rows
+  are directive evidence. Whether a `proc` is a command that Tcl would run is
+  read from the file's bytes by Tcl's rules for commands and words, not from
+  the grammar's tokens. A procedure with a computed name, a nested procedure
+  and a `proc` that is no such command keep their document without a resolved
+  owner. A row that continues with a backslash has no complete text, and
+  neither have the rows of a procedure whose braced words Tcl's brace count
+  ends elsewhere than the grammar does. TclOO methods, namespace preambles,
+  procedures in a bracket's script and other spellings of the `proc` command
+  are not read yet. Legacy documentation rows are unchanged. (#1678)
+
 - Added unstable `big-code-analysis-ast::documentation` fact, source and owner
   primitives, plus retained `Complete` / `Cancelled` / `Adopted` parse provenance
   on `Parser` and `AnyParser`. The root library's documentation facade follows

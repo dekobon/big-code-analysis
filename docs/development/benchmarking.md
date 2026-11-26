@@ -297,8 +297,8 @@ Investigation is limited to the collector's implemented `fields_needed` parent k
 - [YARD](https://yardoc.org/): `if_modifier` and `unless_modifier`.
 
 No hidden-only growing source path has been established by this registry. A later adapter must
-add a positive probe for any new reachable path; deferred Tcl support cannot serve as a
-successful empty control.
+add a positive probe for any new reachable path. The Tcl Ruff reader requests no field name,
+so it adds no such path; a rejected profile cannot serve as a successful empty control.
 
 ## Legacy complexity-class probes {#complexity-gate}
 

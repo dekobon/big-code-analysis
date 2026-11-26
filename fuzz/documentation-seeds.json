@@ -301,7 +301,7 @@
       0
     ],
     "sha256": "23f08cc44ad0048ed348e70600fd6f625c7bdb95c3d2bf3502af0c3d66f91dfb",
-    "class": "deferred",
+    "class": "positive",
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "tcl",
     "fixture": "primary.tcl",
