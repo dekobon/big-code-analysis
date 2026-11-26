@@ -1,0 +1,65 @@
+{
+  "scope": "Perl POD blocks before the data section as documents of the file under the POD profile: fragment, local text and maps, comment-only blocks as directive evidence, and pending assessments for blocks that are not read, among them blocks where perl may read literal text, and for files whose POD the grammar may hide behind a syntax error; Unit 1 of #1675",
+  "base": "db146d083e3880bb96816be294acdc19625b6221",
+  "grammar": {
+    "runtime": "0.26.13",
+    "perl": "tree-sitter-perl 1.1.2"
+  },
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/perl_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": [
+    "utils/documentation-perl-unit1-perturb.json",
+    "utils/documentation-perl-unit1-legacy-perturb.json"
+  ],
+  "reference": {
+    "tools": "perl 5.34.0 (perl -c, perl -MO=Deparse with B::Deparse 1.56) and Pod::Simple 3.42 (Pod::Simple::SimpleTree with a code handler and a cut handler)",
+    "configuration": "Each tool ran under env -i with HOME and TMPDIR in a scratch directory, PATH=/usr/bin:/bin and LC_ALL=C, on files holding exactly the bytes of one oracle source. perl compiled the inputs and did not run them. perl was not given 8 sources: those with backticks, qx or a here-document in backticks, and the one with a use statement. No other input holds a BEGIN block, a use statement or a system call.",
+    "evidence": "Executed on 2026-11-25 for 261 sources with 218 POD blocks of the pinned grammar. For each block: the lines Pod::Simple reads as one block; whether perl accepts the file; and, from two variants of the file, whether perl compiles, reads as literal text or skips a statement put inside the block and a statement put on a line of its own directly after the block. perl reads a block as POD if it skips the first and compiles the second. Of the 97 blocks this unit reads, 92 are read as the same POD block by both tools, in 4 perl rejects the whole file while Pod::Simple reads the same block, and 1 was not given to perl. Of the 121 blocks this unit withholds, 91 are read differently by at least one tool, 7 lie in a file that perl rejects, 4 were not given to perl, and 19 are read as the same POD block by both tools: 3 that the reader's own rules withhold and 16 of known over-withholding.",
+    "qualification": "Source reading only. No formatter ran (perldoc, pod2text, pod2html); text is POD source, and publication is not claimed."
+  },
+  "legacy_measurement": {
+    "binary": "the root crate of db146d083e3880bb96816be294acdc19625b6221, debug profile, perl feature only, through analyze() on the raw bytes",
+    "qualification": "The LOC tuple [sloc, ploc, lloc, cloc, blank, dloc] of each source of the legacy oracle was measured before any production edit. The documentation rows follow from the legacy rule (every row of a pod_statement node, or of a data-section block, that holds more than comment regions) and equal the measured dloc count for every source."
+  },
+  "known_differences": [
+    "perl reads POD only where a statement may start. In a file that perl rejects, Pod::Simple and the pinned grammar still read a block, and so does this unit.",
+    "A block whose first line is no Pod::Simple command (=1, =_x, =head-x, =pod. or an indented command), or starts with =cut (a stray =cut, =cutting), is POD for perl or for the grammar and code for Pod::Simple. This unit gives no document and one pending assessment.",
+    "perl does not end a block at =cut followed by a letter (=cutting); Pod::Simple and the grammar do. This unit gives no document and one pending assessment.",
+    "The grammar ends a block at a NUL byte; perl and Pod::Simple read on. This unit gives no document and one pending assessment.",
+    "Pod::Simple reads every carriage return as a line end; perl reads only a line feed. A block that holds a carriage return without a following line feed gives no document and one pending assessment, also where both tools end the block at the same line.",
+    "perl and Pod::Simple skip a UTF-8 byte order mark at the start of the input, so a block that follows it starts a line for them. This unit does not accept the mark as a line start.",
+    "Pod::Simple reads a comment command line inside a paragraph as ordinary text, and =begin :comment as a region of the comment target. This unit lets the text of a block with any =for comment or =begin comment line wait, and reads =begin :comment as documentation, as the legacy rule does.",
+    "Text is the block's POD source. Pod::Simple joins the lines of a paragraph and drops formatting codes; this unit keeps every byte but the =cut line, empty boundary lines and the CR of a CRLF.",
+    "Pod::Simple reads POD-like lines in a here-document, a string, a word list, a pattern or a format as a block; perl reads a literal. Where the grammar reads the literal too, it gives no block, and this unit publishes nothing.",
+    "Where a format, a here-document or a quote-like literal starts and ends is a claim of the pinned grammar, and perl reads the lines of each as literal text. The grammar knows no format, reads no code inside a literal, reads the opener of a here-document behind a file handle in a variable or in braces as a shift, also with blanks before a quoted tag, leaves a recovery node at an opener with an empty tag, starts the body of a here-document late behind a blank or a carriage return, ends it at a tag line with a blank or a tab behind the tag, ends q and qw at an escaped delimiter, ends q, tr and y late behind an escaped opening bracket, reads CORE::q as a name, a division behind a call without arguments as the start of a pattern, and the old package separator as the start of a string. In each case it gives a POD block for lines that perl does not read as POD. This unit reads the bytes by perl's rule and gives no document and one pending assessment for a block after a recovery node of the tree; in the body of a format, after a format whose last line the grammar read into a longer token, and after a format with a value line that is no list of named variables; after an opener that the grammar did not read; beside a here-document whose body the grammar starts late or ends at such a tag line; and after a quote-like literal that perl starts or ends elsewhere than the grammar.",
+    "The pinned grammar gives a data leaf for __END__ or __DATA__ before =>, where perl compiles a hash key and reads on. This unit reports a data section there and reads no block behind it.",
+    "The legacy view counts the rows of every pod_statement node as documentation rows. It does so also for the 91 blocks in 91 sources of the legacy oracle that this unit withholds because perl may read literal text there and that hold more than comment regions. The two views differ there, and this unit does not change the legacy view.",
+    "Known over-withholding: perl reads POD and this unit gives no document and one pending assessment for a block after any construct that the grammar does not parse, such as a name with the old package separator or a here-document with an empty tag; after a double-quoted literal that holds << and a word; after a here-document inside a literal has ended; after a here-document whose body the grammar starts late; after a shift that is written with white space before the operator and a digit directly behind it, with a bareword directly behind it, or with blanks and a quoted string behind it; after a format with a value line that is no list of named variables and opens nothing; after the word format as a method name or a glob name before = and a line end; after a quote-like literal that the grammar ends elsewhere than perl, although the rest of its row closes it; after an operator word before => or in a subscript, which the grammar reads as a literal; and after a pattern behind a word that this unit does not know as a keyword.",
+    "Known under-withholding, accepted by the maintainer: in the seven forms that follow, perl 5.34.0 accepts the file and reads the lines of a block as text of a literal, Pod::Simple reads them as a POD block, and this unit publishes the block as a document. Each form was written in design review to break a rule of this unit; none was found in perl's own library. The oracle perl_literal_forms_that_perl_reads_as_text_are_known_differences pins today's outcome for 14 sources.",
+    "Form 1: a comment stands between a term and a slash (time # =, then / 2 on the next line). perl reads a division; this unit reads the comment as code and takes the slash for the start of a pattern, so it reads the quotes after it wrongly.",
+    "Form 2: << and a digit directly behind a closing brace or behind a vertical tab (print {$fh}<<1;) opens a here-document for perl. This unit reads a shift.",
+    "Form 3: an escaped quote opens a here-document tag inside an evaluated literal (\"@{[ <<\\\"EOT\\\" ]}\"). This unit reads no opener there.",
+    "Form 4: a quote-like operator in the picture text of a format (format F =, q, a dot line). The grammar reads the operator over the dot line, and this unit follows the grammar.",
+    "Form 5: a blank between a sigil and a name that spells a keyword ($ split). perl reads a variable; this unit reads the keyword and takes the slash after it for the start of a pattern.",
+    "Form 6: a lexical subroutine named like a keyword or like a quote-like operator (my sub split, my sub q). perl calls the subroutine; this unit reads the keyword or the operator.",
+    "Form 7: a quote character in a prototype (sub q (\"$)). perl reads the prototype as it stands; this unit reads the quote as the start of a string."
+  ],
+  "named_limitations": [
+    {
+      "name": "code that runs while perl compiles",
+      "detail": "A source filter, a BEGIN block or a use statement can change what perl reads in the lines after it. This unit reads the bytes of the file and does not model such code: a block after it is a document.",
+      "oracle": "perl_source_filter_is_a_named_limitation",
+      "reference": "perl was not given the source."
+    }
+  ],
+  "pending": [
+    "POD in the data section after __END__ or __DATA__",
+    "Text of a block that mixes prose with comment regions",
+    "Blocks that perl, Pod::Simple and the grammar read differently, and blocks beside excluded bytes",
+    "Blocks that this unit withholds because perl may read literal text there, among them the known over-withholding",
+    "POD that the grammar hides behind a recovery node: the file gets one assessment, and no document",
+    "Unique-heading inference, sub and package owners, # comment inference",
+    "Benchmark workloads and positive fuzz seeds for POD",
+    "Publication"
+  ]
+}

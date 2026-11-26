@@ -8,6 +8,10 @@ use super::*;
 use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
 
 mod assembly;
+mod pod;
+mod pod_doubt;
+mod pod_format;
+mod pod_literal;
 mod projections;
 pub(super) mod qualifications;
 mod rust;
@@ -80,6 +84,8 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         pending_attributes: Vec::new(),
         rust_values: std::collections::HashMap::new(),
         names: super::names::Names::default(),
+        pod_doubt: pod_doubt::Doubt::default(),
+        pod_hidden: pod::Hidden::default(),
     };
     let root_id = builder
         .index
@@ -121,6 +127,8 @@ struct Builder<'s> {
     pending_attributes: Vec<(NodeId, FragmentId, Option<NodeId>)>,
     rust_values: std::collections::HashMap<FragmentId, rust::Value>,
     names: super::names::Names,
+    pod_doubt: pod_doubt::Doubt,
+    pod_hidden: pod::Hidden,
 }
 
 trait OwnerCandidates: Checker {
@@ -435,6 +443,9 @@ impl<'s> Builder<'s> {
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
         budget.step()?;
+        if self.index.profile == Profile::Pod {
+            return self.pod_node(id, node, budget);
+        }
         if !T::is_comment(node) {
             return Ok(());
         }
@@ -829,6 +840,7 @@ impl<'s> Builder<'s> {
     }
 
     fn finish(&mut self, budget: &CollectionBudget) -> Result<(), CollectionError> {
+        self.pod_end(budget)?;
         self.coalesce_rust(budget)?;
         self.combine_pending(budget)?;
         for draft in std::mem::take(&mut self.drafts) {

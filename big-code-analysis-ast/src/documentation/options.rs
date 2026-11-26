@@ -126,7 +126,7 @@ impl Profile {
         if alternate
             || matches!(
                 profile,
-                Self::Python | Self::Pod | Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules
+                Self::Python | Self::Elixir | Self::Shdoc | Self::Ruff | Self::Irules
             )
         {
             return Err(CollectionError::AdapterUnavailable { language, profile });

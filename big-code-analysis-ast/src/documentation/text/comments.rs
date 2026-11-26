@@ -4,6 +4,7 @@ use super::source_cursor::SourceCursor;
 use super::{TextBuilder, TextError};
 use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Fragment, Origin, Profile, SourceContext, UnavailableReason};
+use crate::lang_helpers::doc_text::pod_comment_command;
 use std::ops::Range;
 
 pub(super) struct Line {
@@ -284,6 +285,9 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
     fragments: &[&Fragment<'s>],
     budget: &B,
 ) -> Result<Content<'s>, TextError> {
+    if profile == Profile::Pod {
+        return render_pod(context, fragments, budget);
+    }
     render_local(profile, context, fragments, budget, false)
 }
 
@@ -294,6 +298,74 @@ pub(in crate::documentation) fn render_source_cleaned<'s, B: WorkBudget>(
     budget: &B,
 ) -> Result<Content<'s>, TextError> {
     render_local(profile, context, fragments, budget, true)
+}
+
+/// A POD block is its lines as they are spelled, without the `=cut` line
+/// that ends it. A block that also holds a `comment` region has no text
+/// yet: nothing says how the prose around the region joins.
+fn render_pod<'s, B: WorkBudget>(
+    context: &SourceContext<'s>,
+    fragments: &[&Fragment<'s>],
+    budget: &B,
+) -> Result<Content<'s>, TextError> {
+    let mut blocks = Vec::new();
+    for fragment in fragments {
+        let lines = pod_lines(context.bytes(), fragment, budget)?;
+        if comment_region_opens(context.bytes(), &lines, budget)? {
+            return Ok(Content::PendingAdapter);
+        }
+        blocks.push(Block {
+            lines,
+            rust_decoration: false,
+            markdown: false,
+        });
+    }
+    emit_blocks(Profile::Pod, context, fragments, &blocks, budget)
+}
+
+fn pod_lines<B: WorkBudget>(
+    bytes: &[u8],
+    fragment: &Fragment<'_>,
+    budget: &B,
+) -> Result<Vec<Line>, TextError> {
+    budget
+        .step()
+        .map_err(|error| TextError::Source(error.into()))?;
+    let pieces = fragment.source.pieces();
+    let (Some(first), Some(last), false) = (
+        pieces.first(),
+        pieces.last(),
+        fragment.source.has_excluded_gap(),
+    ) else {
+        return Err(TextError::Unavailable(UnavailableReason::ExcludedGap));
+    };
+    let mut lines = lines(bytes, first.range().start..last.range().end, false, budget)?;
+    if lines.len() > 1
+        && lines
+            .last()
+            .is_some_and(|line| bytes[line.content.clone()].starts_with(b"=cut"))
+    {
+        lines.pop();
+    }
+    Ok(lines)
+}
+
+fn comment_region_opens<B: WorkBudget>(
+    bytes: &[u8],
+    lines: &[Line],
+    budget: &B,
+) -> Result<bool, TextError> {
+    let source = |error: B::Error| TextError::Source(error.into());
+    for line in lines {
+        budget.step().map_err(source)?;
+        let line = &bytes[line.content.clone()];
+        if pod_comment_command(line, b"=for", budget).map_err(source)?
+            || pod_comment_command(line, b"=begin", budget).map_err(source)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn render_local<'s, B: WorkBudget>(

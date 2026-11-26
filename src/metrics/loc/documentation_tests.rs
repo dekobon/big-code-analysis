@@ -4609,3 +4609,61 @@ fn documentation_perl_pod_legacy_rows() {
         assert_eq!(perl_loc(source), (loc, rows.to_vec()), "{name}");
     }
 }
+
+#[cfg(feature = "perl")]
+#[test]
+fn documentation_perl_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::{
+        Content, DocumentationContext, DocumentationOptions, observations,
+    };
+    let counters = || {
+        let seen = observations();
+        [
+            seen.visits,
+            seen.renders,
+            seen.owner_projections,
+            seen.polls,
+        ]
+    };
+    let (mut documents, mut texts, mut pending) = (0, 0, 0);
+    for &(name, source, loc, rows) in &PERL_POD_SOURCES {
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Perl, source.to_vec(), None, None).unwrap();
+        let idle = counters();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = counters();
+        let complete = index
+            .documents()
+            .filter(|document| matches!(document.get().content(), Content::Complete { .. }))
+            .count();
+        let [visits, renders, owners, polls] = std::array::from_fn(|at| collected[at] - idle[at]);
+        // expected: the walk enters every node once.
+        assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
+        // expected: one render for each document that has a complete text.
+        assert_eq!(renders, complete, "{name}");
+        // expected: the file is the only owner.
+        assert_eq!(owners, 1, "{name}");
+        // The checkpoint total has no closed form over these sources. Every collection
+        // makes the seven explicit checkpoints of one without a document.
+        assert!(polls >= 7, "{name}: {polls}");
+        documents += index.documents().len();
+        texts += complete;
+        pending += index.assessments().len();
+
+        assert_eq!(perl_loc(source), (loc, rows.to_vec()), "{name}");
+        // expected: the metric walk enters no collector node, renders no text, projects
+        // no owner and polls no budget.
+        assert_eq!(counters(), collected, "{name}");
+    }
+    // expected: over the 261 sources, 93 blocks are documents, 87 of them with a
+    // complete text (five have pending text, one is no UTF-8). The reader's own
+    // tests withhold 29 blocks and the rules for literal text 92; five documents have
+    // pending text, 12 data sections are reported, and 10 files are marked for POD
+    // that the grammar may hide: 148 assessments.
+    assert_eq!((documents, texts, pending), (93, 87, 148));
+}

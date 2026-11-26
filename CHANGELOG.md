@@ -98,6 +98,19 @@ for historical reference.
   root library does not re-export, and it may change in any release. Existing
   metric behavior is unchanged. (#1680)
 
+- The unstable AST documentation collector now reads Perl POD. A POD block
+  before the data section is one document of the file, with its POD markup as
+  text and without its `=cut` line. A block of `comment` regions only is no
+  document. A block that mixes prose with a `comment` region, a block that
+  perl and POD processors read differently, a block where perl may read
+  literal text (after a syntax error, in a `format` or after one whose end is
+  not known, or beside a here-document or a quote-like literal that perl
+  reads differently from the grammar), and the data section after `__END__`
+  or `__DATA__` are reported as pending. So is a file with a syntax error
+  whose later lines look like POD that the grammar did not read. No `sub` or
+  `package` owns documentation yet. Legacy documentation rows are unchanged.
+  (#1675)
+
 ### Changed
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space

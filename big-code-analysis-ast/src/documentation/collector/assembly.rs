@@ -135,6 +135,7 @@ impl<'s> Builder<'s> {
             role: draft.role,
             content,
         });
+        self.pod_pending_text(document);
         let mut owners = Vec::new();
         let mut pending = draft.pending;
         let mut named_resolution = None;

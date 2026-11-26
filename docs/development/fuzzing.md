@@ -323,7 +323,9 @@ Registration tests compare the table with the `LANG` roster and execute every
 registered seed through the real target. Positive seeds obtain exact fragment
 and owner ranges, parsed declaration kinds, and text from
 `tests/fixtures/documentation/inventory.json`. They separately require copied origins
-whose bytes equal the extracted text. Deferred adapters require
+whose bytes equal the extracted text. The Perl seed is a file document:
+it takes its fragment range and text from the same inventory row, and
+requires one resolved association whose owner is the file. Deferred adapters require
 `AdapterUnavailable`; helper grammars require `NoDeclarationModel`.
 Recognized deferred profiles differ from `UnsupportedProfile`.
 These outcomes do not count as positive source extraction. Future adapters

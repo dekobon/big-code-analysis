@@ -427,6 +427,13 @@ fn ruby_magic_setting<B: WorkBudget>(body: &[u8], budget: &B) -> Result<bool, B:
 /// that goes on to document something (`=head1 NAME` …) is documentation.
 #[must_use]
 pub(crate) fn pod_comment_region(s: &[u8]) -> bool {
+    infallible(pod_comment_region_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn pod_comment_region_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     enum Region {
         Outside,
         Paragraph,
@@ -434,40 +441,73 @@ pub(crate) fn pod_comment_region(s: &[u8]) -> bool {
     }
     let mut region = Region::Outside;
     let mut regions = 0_usize;
-    for line in s.split(|&byte| byte == b'\n') {
-        let blank = line.trim_ascii().is_empty();
-        match region {
-            Region::Paragraph if blank => region = Region::Outside,
-            Region::Begin if pod_command(line, b"=end").is_some_and(is_comment_format) => {
+    for line in scan::lines(s, budget) {
+        let line = line?;
+        match (&region, PodLine::read(line, budget)?) {
+            (Region::Paragraph, PodLine::Blank) | (Region::Begin, PodLine::EndComment) => {
                 region = Region::Outside;
             }
-            Region::Paragraph | Region::Begin => {}
-            Region::Outside if blank => {}
-            Region::Outside => {
-                if pod_command(line, b"=for").is_some_and(is_comment_format) {
-                    region = Region::Paragraph;
-                } else if pod_command(line, b"=begin").is_some_and(is_comment_format) {
-                    region = Region::Begin;
-                } else {
-                    // `=cut` closes the block; any other line documents, or
-                    // opens a block that never was a comment region.
-                    return regions > 0 && line.starts_with(b"=cut");
-                }
+            (Region::Paragraph | Region::Begin, _) | (Region::Outside, PodLine::Blank) => {}
+            (Region::Outside, PodLine::ForComment) => {
+                region = Region::Paragraph;
                 regions += 1;
+            }
+            (Region::Outside, PodLine::BeginComment) => {
+                region = Region::Begin;
+                regions += 1;
+            }
+            // `=cut` closes the block; any other line documents, or
+            // opens a block that never was a comment region.
+            (Region::Outside, PodLine::EndComment | PodLine::Other) => {
+                return Ok(regions > 0 && line.starts_with(b"=cut"));
             }
         }
     }
-    regions > 0
+    Ok(regions > 0)
 }
 
-/// The text after a POD command line's `=<command>` and the whitespace
-/// separating it from its argument, or `None` when `line` is not that
-/// command.
-fn pod_command<'s>(line: &'s [u8], command: &[u8]) -> Option<&'s [u8]> {
-    let rest = line.strip_prefix(command)?;
-    rest.first()
-        .is_some_and(u8::is_ascii_whitespace)
-        .then(|| rest.trim_ascii_start())
+/// What one line of a POD block is to its `comment` regions.
+enum PodLine {
+    Blank,
+    ForComment,
+    BeginComment,
+    EndComment,
+    Other,
+}
+
+impl PodLine {
+    fn read<B: WorkBudget>(line: &[u8], budget: &B) -> Result<Self, B::Error> {
+        Ok(
+            if scan::position(line, |byte| !byte.is_ascii_whitespace(), budget)?.is_none() {
+                Self::Blank
+            } else if pod_comment_command(line, b"=for", budget)? {
+                Self::ForComment
+            } else if pod_comment_command(line, b"=begin", budget)? {
+                Self::BeginComment
+            } else if pod_comment_command(line, b"=end", budget)? {
+                Self::EndComment
+            } else {
+                Self::Other
+            },
+        )
+    }
+}
+
+/// Whether `line` is the POD command `command` (`=begin`, `=end` or
+/// `=for`) with the format name `comment`: the command, whitespace, then
+/// the name.
+pub(crate) fn pod_comment_command<B: WorkBudget>(
+    line: &[u8],
+    command: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(rest) = line.strip_prefix(command) else {
+        return Ok(false);
+    };
+    if !rest.first().is_some_and(u8::is_ascii_whitespace) {
+        return Ok(false);
+    }
+    Ok(is_comment_format(scan::trim_start(rest, budget)?))
 }
 
 /// Whether a POD command's format name is `comment`.

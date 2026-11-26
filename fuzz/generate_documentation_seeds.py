@@ -38,7 +38,9 @@ LANGUAGES = [
     "ccomment",
     "preproc",
 ]
-DEFERRED = {"python", "perl", "elixir", "bash", "tcl", "irules"}
+DEFERRED = {"python", "elixir", "bash", "tcl", "irules"}
+# The default profile gives these one document that belongs to the file.
+FILE_DOCUMENT = {"perl"}
 
 
 def main():
@@ -72,6 +74,8 @@ def main():
         assertion = (
             "deferred"
             if language in DEFERRED
+            else "file-document"
+            if language in FILE_DOCUMENT
             else ("helper" if language in {"ccomment", "preproc"} else "positive")
         )
         add(

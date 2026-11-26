@@ -259,7 +259,7 @@
       0
     ],
     "sha256": "4cfdd5e4df5efa65fac36a8828016fc2b8043f72c87f55a4a02c7440204af49b",
-    "class": "deferred",
+    "class": "file-document",
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "perl",
     "fixture": "primary.pl",

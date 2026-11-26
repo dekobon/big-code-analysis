@@ -1,0 +1,2149 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "perl-pod-profile-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Pod {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }",
+      "expect": ["documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available", "documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_empty_source_has_the_file_owner_and_nothing_else"]
+    },
+    {
+      "name": "perl-reader-runs-for-every-profile",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if self.index.profile == Profile::Pod {\n            return self.pod_node(id, node, budget);",
+      "new": "        if self.index.profile != Profile::Helper {\n            return self.pod_node(id, node, budget);",
+      "expect": ["documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation"]
+    },
+    {
+      "name": "perl-generic-recognition-also-runs",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            return self.pod_node(id, node, budget);",
+      "new": "            self.pod_node(id, node, budget)?;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_excluded_bytes_is_withheld"]
+    },
+    {
+      "name": "perl-hash-comment-is-read-as-a-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            \"pod_statement\" => {",
+      "new": "            \"pod_statement\" | \"comments\" => {",
+      "expect": ["documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing"]
+    },
+    {
+      "name": "perl-data-section-is-not-reported",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                let leaf = Some(self.index.canonical.nodes[id.0].evidence);\n                self.pod_pending(leaf, AssessmentAxis::Occurrence, DATA_SECTION, None);\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_data_section_is_reported_and_not_read", "documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text", "documentation::collector::perl_tests::perl_literal_text_the_grammar_reads_holds_no_pod_block", "documentation::collector::perl_tests::perl_end_marker_as_a_hash_key_is_pinned"]
+    },
+    {
+      "name": "perl-data-section-is-a-selection-finding",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "self.pod_pending(leaf, AssessmentAxis::Occurrence, DATA_SECTION, None);",
+      "new": "self.pod_pending(leaf, AssessmentAxis::Selection, DATA_SECTION, None);",
+      "expect": ["documentation::collector::perl_tests::perl_data_section_is_reported_and_not_read", "documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text"]
+    },
+    {
+      "name": "perl-bytes-beside-the-block-are-not-covered",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    let read = start.saturating_sub(1)..code.len().min(end.saturating_add(1));",
+      "new": "    let read = start..end;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_excluded_bytes_is_withheld", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-block-with-excluded-bytes-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !source.covers_with_budget(read, budget)? {\n        return Ok(PodBlock::Withheld(EXCLUDED));\n    }\n",
+      "new": "    source.covers_with_budget(read, budget)?;\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_excluded_bytes_is_withheld"]
+    },
+    {
+      "name": "perl-block-need-not-start-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if start > 0 && code[start - 1] != b'\\n' {",
+      "new": "    if false && start > 0 && code[start - 1] != b'\\n' {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld", "documentation::collector::perl_tests::perl_withheld_block_leaves_the_next_block_published", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-carriage-return-starts-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "code[start - 1] != b'\\n'",
+      "new": "!matches!(code[start - 1], b'\\n' | b'\\r')",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld"]
+    },
+    {
+      "name": "perl-command-word-is-not-checked",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !opens_pod_with_budget(block, budget)? || block.starts_with(b\"=cut\") {",
+      "new": "    if block.starts_with(b\"=cut\") {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-cutting-opens-a-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !opens_pod_with_budget(block, budget)? || block.starts_with(b\"=cut\") {",
+      "new": "    if !opens_pod_with_budget(block, budget)? {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-word-may-start-with-a-digit",
+      "file": "big-code-analysis-ast/src/lang_helpers/perl.rs",
+      "old": "    Ok(command.first().is_some_and(u8::is_ascii_alphabetic)\n",
+      "new": "    Ok(command.first().is_some_and(u8::is_ascii_alphanumeric)\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld", "documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before"]
+    },
+    {
+      "name": "perl-vertical-tab-does-not-end-the-command",
+      "file": "big-code-analysis-ast/src/lang_helpers/perl.rs",
+      "old": "            .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'\\x0b'))",
+      "new": "            .is_none_or(u8::is_ascii_whitespace))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before"]
+    },
+    {
+      "name": "perl-block-may-end-inside-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    } else if code.get(end).is_some_and(|&next| next != b'\\n') {",
+      "new": "    } else if false && code.get(end).is_some_and(|&next| next != b'\\n') {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_disputed_end_is_withheld", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-cut-before-a-letter-ends-a-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        && closer.get(4).is_some_and(u8::is_ascii_alphabetic);",
+      "new": "        && closer.get(4).is_some_and(u8::is_ascii_digit);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_disputed_end_is_withheld", "documentation::collector::perl_tests::perl_pod_text_keeps_its_lines_and_drops_the_cut_line", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-lone-carriage-return-is-content",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            b'\\r' => lone_return |= code.get(spelling.start + at + 1) != Some(&b'\\n'),",
+      "new": "            b'\\r' => {}",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_lone_carriage_return_is_withheld", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-every-carriage-return-is-lone",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            b'\\r' => lone_return |= code.get(spelling.start + at + 1) != Some(&b'\\n'),",
+      "new": "            b'\\r' => lone_return = true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_fragment_ends_before_the_line_end_of_its_last_line", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-withheld-block-is-not-reported",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            PodBlock::Withheld(reason) => {\n                self.pod_pending(Some(block), AssessmentAxis::Selection, reason, None);\n            }",
+      "new": "            PodBlock::Withheld(_) => {}",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld", "documentation::collector::perl_tests::perl_pod_block_with_a_disputed_end_is_withheld", "documentation::collector::perl_tests::perl_pod_block_with_a_lone_carriage_return_is_withheld", "documentation::collector::perl_tests::perl_withheld_block_leaves_the_next_block_published", "documentation::collector::perl_tests::perl_pod_beside_excluded_bytes_is_withheld"]
+    },
+    {
+      "name": "perl-pending-work-is-not-filed-with-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        self.index.assessments_by_owner[0].push(self.index.assessments.len());\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_with_a_foreign_opener_is_withheld", "documentation::collector::perl_tests::perl_data_section_is_reported_and_not_read", "documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text"]
+    },
+    {
+      "name": "perl-comment-only-block-is-a-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? {",
+      "new": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? && false {",
+      "expect": ["documentation::collector::perl_tests::perl_comment_only_pod_is_no_document", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-comment-only-block-is-kept-with-the-unbound-option",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            PodBlock::CommentOnly(end) if self.index.options.retain_directives => {",
+      "new": "            PodBlock::CommentOnly(end)\n                if self.index.options.retain_directives || self.index.options.retain_unbound =>\n            {",
+      "expect": ["documentation::collector::perl_tests::perl_comment_only_pod_is_no_document"]
+    },
+    {
+      "name": "perl-comment-only-block-is-kept-as-unattached",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    disposition: CandidateDisposition::Directive,",
+      "new": "                    disposition: CandidateDisposition::Unattached,",
+      "expect": ["documentation::collector::perl_tests::perl_comment_only_pod_is_no_document"]
+    },
+    {
+      "name": "perl-candidates-are-kept-in-reverse-order",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                self.index.evidence.push(CandidateEvidence {\n                    fragment,\n                    disposition: CandidateDisposition::Directive,\n                });",
+      "new": "                self.index.evidence.insert(\n                    0,\n                    CandidateEvidence {\n                        fragment,\n                        disposition: CandidateDisposition::Directive,\n                    },\n                );",
+      "expect": ["documentation::collector::perl_tests::perl_comment_only_pod_is_no_document"]
+    },
+    {
+      "name": "perl-fragment-is-the-whole-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    let spelling = start..spelling_end(code, start, end);",
+      "new": "    let spelling = start..end;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_fragment_ends_before_the_line_end_of_its_last_line", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-fragment-keeps-the-carriage-return",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if code.get(start + length) == Some(&b'\\n') && block[..length].last() == Some(&b'\\r') {\n        length -= 1;\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_fragment_ends_before_the_line_end_of_its_last_line"]
+    },
+    {
+      "name": "perl-fragment-keeps-the-final-line-feed",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if block.last() == Some(&b'\\n') {\n        length -= 1;\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_fragment_ends_before_the_line_end_of_its_last_line"]
+    },
+    {
+      "name": "perl-document-role-is-primary",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    role: DocumentRole::FilePackage,",
+      "new": "                    role: DocumentRole::Primary,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_with_invalid_utf8_has_no_text", "documentation::collector::perl_tests::perl_source_filter_is_a_named_limitation", "documentation::collector::perl_tests::perl_literal_forms_that_perl_reads_as_text_are_known_differences"]
+    },
+    {
+      "name": "perl-document-scope-is-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    scope: self.index.canonical.nodes[id.0].parent.unwrap_or(NodeId(0)),",
+      "new": "                    scope: NodeId(0),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_in_a_body_is_scoped_to_the_body"]
+    },
+    {
+      "name": "perl-document-is-bound-to-its-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    binding: None,",
+      "new": "                    binding: Some(block),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file"]
+    },
+    {
+      "name": "perl-document-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                    target: Some(NodeId(0)),",
+      "new": "                    target: None,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_blocks_are_documents_in_source_order"]
+    },
+    {
+      "name": "perl-documents-are-published-in-reverse-order",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            self.index.documents_ordered.push(key.3);",
+      "new": "            self.index.documents_ordered.insert(0, key.3);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_blocks_are_documents_in_source_order"]
+    },
+    {
+      "name": "perl-file-is-no-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    if profile != Profile::Helper {\n        builder.add_owner(root_id, Owner::File(builder.index.source.node(root)?));",
+      "new": "    if profile != Profile::Helper && profile != Profile::Pod {\n        builder.add_owner(root_id, Owner::File(builder.index.source.node(root)?));",
+      "expect": ["documentation::collector::perl_tests::perl_empty_source_has_the_file_owner_and_nothing_else"]
+    },
+    {
+      "name": "perl-fragment-keeps-its-first-piece-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "        let source = self.index.source.pieces_with_budget(spelling, budget)?;\n        let source = SourcePieces::single(source.pieces()[0].clone());",
+      "expect": ["documentation::collector::perl_tests::perl_pod_across_adjacent_ranges_keeps_one_piece_per_range", "documentation::collector::perl_tests::perl_fragment_pieces_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-text-keeps-the-cut-line",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if lines.len() > 1\n        && lines\n            .last()\n            .is_some_and(|line| bytes[line.content.clone()].starts_with(b\"=cut\"))\n    {\n        lines.pop();\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_text_keeps_its_lines_and_drops_the_cut_line", "documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-uses-the-generic-renderer",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if profile == Profile::Pod {\n        return render_pod(context, fragments, budget);\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_text_keeps_its_lines_and_drops_the_cut_line"]
+    },
+    {
+      "name": "perl-text-keeps-empty-lines-before-the-cut-line",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while end > first && block.lines[end - 1].content.is_empty() {",
+      "new": "            while false && end > first && block.lines[end - 1].content.is_empty() {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_text_keeps_its_lines_and_drops_the_cut_line"]
+    },
+    {
+      "name": "perl-crlf-is-copied-as-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_fragment_ends_before_the_line_end_of_its_last_line"]
+    },
+    {
+      "name": "perl-block-with-a-comment-region-has-text",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if comment_region_opens(context.bytes(), &lines, budget)? {\n            return Ok(Content::PendingAdapter);\n        }\n",
+      "new": "        comment_region_opens(context.bytes(), &lines, budget)?;\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text", "documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-begin-comment-is-no-region-opener",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if pod_comment_command(line, b\"=for\", budget).map_err(source)?\n            || pod_comment_command(line, b\"=begin\", budget).map_err(source)?\n        {",
+      "new": "        if pod_comment_command(line, b\"=for\", budget).map_err(source)? {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text", "documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-for-comment-is-no-region-opener",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if pod_comment_command(line, b\"=for\", budget).map_err(source)?\n            || pod_comment_command(line, b\"=begin\", budget).map_err(source)?\n        {",
+      "new": "        if pod_comment_command(line, b\"=begin\", budget).map_err(source)? {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text"]
+    },
+    {
+      "name": "perl-pending-text-is-not-reported",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            self.pod_pending(block, AssessmentAxis::Composition, MIXED, Some(document));\n",
+      "new": "            let _ = block;\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text"]
+    },
+    {
+      "name": "perl-pending-text-names-the-first-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "self.pod_pending(block, AssessmentAxis::Composition, MIXED, Some(document));",
+      "new": "self.pod_pending(block, AssessmentAxis::Composition, MIXED, Some(DocumentId(0)));",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_a_comment_region_has_pending_text"]
+    },
+    {
+      "name": "perl-pending-text-is-reported-for-every-profile",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        if self.index.profile == Profile::Pod && matches!(composed.content, Content::PendingAdapter)\n        {",
+      "new": "        if matches!(composed.content, Content::PendingAdapter) {",
+      "expect": ["documentation::collector::cost_tests::pending_scope_relations_are_shared_instead_of_copied_per_owner"]
+    },
+    {
+      "name": "perl-invalid-utf8-is-a-grammar-boundary",
+      "file": "big-code-analysis-ast/src/documentation/text.rs",
+      "old": "                Err(_) => return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding)),",
+      "new": "                Err(_) => return Err(TextError::Unavailable(UnavailableReason::GrammarBoundary)),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_with_invalid_utf8_has_no_text"]
+    },
+    {
+      "name": "perl-text-reads-a-fragment-with-a-gap",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    let (Some(first), Some(last), false) = (",
+      "new": "    let (Some(first), Some(last), _) = (",
+      "expect": ["documentation::collector::perl_tests::pod_text_of_a_fragment_with_a_gap_is_unavailable"]
+    },
+    {
+      "name": "perl-field-names-are-requested",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))",
+      "new": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))\n        || profile == Profile::Pod",
+      "expect": ["documentation::collector::perl_tests::perl_many_blocks_cost_linear_work"]
+    },
+    {
+      "name": "perl-comment-region-test-runs-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? {",
+      "new": "    } else if pod_comment_region_with_budget(&code[start..end], budget)?\n        | pod_comment_region_with_budget(&code[start..end], budget)?\n    {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads", "documentation::collector::perl_tests::perl_block_classification_is_charged_to_the_collection", "documentation::collector::perl_tests::perl_many_blocks_cost_linear_work"]
+    },
+    {
+      "name": "perl-line-pass-charges-two-bytes-per-byte",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        budget.bytes(1)?;\n        match byte {",
+      "new": "        budget.bytes(2)?;\n        match byte {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads", "documentation::collector::perl_tests::perl_block_classification_is_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-block-reading-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        let read = match pod_block(&self.index.source, block.node(), budget)? {",
+      "new": "        let read = match crate::documentation::budget::infallible(pod_block(\n            &self.index.source,\n            block.node(),\n            &crate::documentation::budget::NoBudget,\n        )) {",
+      "expect": ["documentation::collector::perl_tests::perl_block_classification_is_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-fragment-pieces-ignore-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "        let source = self\n            .index\n            .source\n            .pieces_with_budget(spelling, &crate::documentation::budget::NoBudget)?;\n        let _ = budget;",
+      "expect": ["documentation::collector::perl_tests::perl_fragment_pieces_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-text-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        return render_pod(context, fragments, budget);",
+      "new": "        return render_pod(context, fragments, &crate::documentation::budget::NoBudget);",
+      "expect": ["documentation::collector::perl_tests::perl_block_text_is_charged_to_the_collection", "documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !source.covers_with_budget(read, budget)? {",
+      "new": "    if !crate::documentation::budget::infallible(\n        source.covers_with_budget(read, &crate::documentation::budget::NoBudget),\n    ) {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-command-word-scan-is-not-charged-in-the-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !opens_pod_with_budget(block, budget)? || block.starts_with(b\"=cut\") {",
+      "new": "    if !crate::documentation::budget::infallible(opens_pod_with_budget(\n        block,\n        &crate::documentation::budget::NoBudget,\n    )) || block.starts_with(b\"=cut\")\n    {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-line-pass-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        budget.bytes(1)?;\n        match byte {",
+      "new": "        match byte {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads", "documentation::collector::perl_tests::perl_block_classification_is_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-comment-region-test-is-not-charged-in-the-block",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? {",
+      "new": "    } else if crate::documentation::budget::infallible(pod_comment_region_with_budget(\n        &code[start..end],\n        &crate::documentation::budget::NoBudget,\n    )) {",
+      "expect": ["documentation::collector::perl_tests::pod_block_charges_what_it_reads", "documentation::collector::perl_tests::perl_block_classification_is_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-comment-region-lines-are-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    for line in scan::lines(s, budget) {\n        let line = line?;",
+      "new": "    for line in scan::lines(s, &NoBudget) {\n        let line = infallible(line);",
+      "expect": ["documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-blank-test-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            if scan::position(line, |byte| !byte.is_ascii_whitespace(), budget)?.is_none() {",
+      "new": "            if line.trim_ascii().is_empty() {",
+      "expect": ["documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-comment-command-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(is_comment_format(scan::trim_start(rest, budget)?))",
+      "new": "    let _ = budget;\n    Ok(is_comment_format(rest.trim_ascii_start()))",
+      "expect": ["documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before", "documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-command-word-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/perl.rs",
+      "old": "        scan::position(rest, |byte| !byte.is_ascii_alphanumeric(), budget)?.unwrap_or(rest.len());",
+      "new": "        infallible(scan::position(rest, |byte| !byte.is_ascii_alphanumeric(), &NoBudget))\n            .unwrap_or(rest.len());\n    let _ = budget;",
+      "expect": ["documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before", "documentation::collector::perl_tests::pod_block_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-text-fragment-step-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    budget\n        .step()\n        .map_err(|error| TextError::Source(error.into()))?;\n    let pieces = fragment.source.pieces();",
+      "new": "    let pieces = fragment.source.pieces();",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-line-split-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    let mut lines = lines(bytes, first.range().start..last.range().end, false, budget)?;",
+      "new": "    let mut lines = lines(\n        bytes,\n        first.range().start..last.range().end,\n        false,\n        &crate::documentation::budget::NoBudget,\n    )?;",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-line-step-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        budget.step().map_err(source)?;\n        let line = &bytes[line.content.clone()];",
+      "new": "        let line = &bytes[line.content.clone()];",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-comment-commands-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if pod_comment_command(line, b\"=for\", budget).map_err(source)?\n            || pod_comment_command(line, b\"=begin\", budget).map_err(source)?\n        {",
+      "new": "        let free = &crate::documentation::budget::NoBudget;\n        if crate::documentation::budget::infallible(pod_comment_command(line, b\"=for\", free))\n            || crate::documentation::budget::infallible(pod_comment_command(line, b\"=begin\", free))\n        {",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-emission-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    emit_blocks(Profile::Pod, context, fragments, &blocks, budget)",
+      "new": "    emit_blocks(\n        Profile::Pod,\n        context,\n        fragments,\n        &blocks,\n        &crate::documentation::budget::NoBudget,\n    )",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies", "documentation::collector::perl_tests::perl_block_text_is_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-text-lines-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let lines = pod_lines(context.bytes(), fragment, budget)?;",
+      "new": "        let lines = pod_lines(\n            context.bytes(),\n            fragment,\n            &crate::documentation::budget::NoBudget,\n        )?;",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-text-region-test-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if comment_region_opens(context.bytes(), &lines, budget)? {",
+      "new": "        if comment_region_opens(\n            context.bytes(),\n            &lines,\n            &crate::documentation::budget::NoBudget,\n        )? {",
+      "expect": ["documentation::collector::perl_tests::pod_text_charges_its_lines_and_copies"]
+    },
+    {
+      "name": "perl-whitespace-line-does-not-end-a-comment-paragraph",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            if scan::position(line, |byte| !byte.is_ascii_whitespace(), budget)?.is_none() {",
+      "new": "            if scan::position(line, |_| true, budget)?.is_none() {",
+      "expect": ["documentation::collector::perl_tests::pod_classifiers_charge_what_they_read_and_answer_as_before"]
+    },
+    {
+      "name": "perl-sub-is-registered-as-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if qualifies || super::forms::slot_candidate(self.index.profile, node.kind()) {",
+      "new": "        if qualifies\n            || super::forms::slot_candidate(self.index.profile, node.kind())\n            || (self.index.profile == Profile::Pod && node.kind() == \"function_definition\")\n        {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_block_documents_the_file", "documentation::collector::perl_tests::perl_pod_block_in_a_body_is_scoped_to_the_body"]
+    },
+    {
+      "name": "perl-sources-are-parsed-with-another-grammar",
+      "file": "big-code-analysis-ast/src/langs.rs",
+      "old": "        tree_sitter_perl,\n",
+      "new": "        tree_sitter_python,\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_parse_shapes_the_reader_relies_on", "documentation::collector::perl_tests::perl_literal_parse_shapes_the_doubt_rules_rely_on", "documentation::collector::perl_tests::perl_pod_block_documents_the_file"]
+    },
+    {
+      "name": "perl-recovery-node-does-not-withhold",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if node.is_error() || node.is_missing() {\n            self.settled = Some(RECOVERY);\n",
+      "new": "        } else if false {\n            self.settled = Some(RECOVERY);\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_recovery_node_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-missing-node-does-not-withhold",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "node.is_error() || node.is_missing()",
+      "new": "node.is_error()",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_recovery_node_is_withheld"]
+    },
+    {
+      "name": "perl-error-node-does-not-withhold",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "node.is_error() || node.is_missing()",
+      "new": "node.is_missing()",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_recovery_node_is_withheld"]
+    },
+    {
+      "name": "perl-recovery-withholds-earlier-blocks",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "node.is_error() || node.is_missing()",
+      "new": "node.has_error()",
+      "expect": ["documentation::collector::perl_tests::perl_pod_before_the_first_recovery_node_is_read"]
+    },
+    {
+      "name": "perl-settled-doubt-is-forgotten",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        if self.settled.is_some() {\n            // Every later block is withheld: nothing more is read.\n",
+      "new": "        if false {\n            // Every later block is withheld: nothing more is read.\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_recovery_node_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_literals_cost_linear_work"]
+    },
+    {
+      "name": "perl-block-in-a-format-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if start < self.format.end {\n            Some(FORMAT)\n",
+      "new": "        } else if false {\n            Some(FORMAT)\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-any-six-letter-word-opens-a-format",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        if (!read || code[word.clone()] == *b\"format\")",
+      "new": "        if (!read || word.len() == 6)",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-format-opener-needs-no-equals-sign",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    Ok((after.get(equals) == Some(&b'=')).then_some(equals + 1))",
+      "new": "    Ok(Some(equals + 1))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-opener-takes-text-behind-the-equals-sign",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    if !matches!(rest.get(at), Some(b'\\n' | b'#')) {\n        return Ok(None);\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-name-takes-no-package-separator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "matches!(byte, b'_' | b':' | b'\\'')",
+      "new": "byte == b'_'",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-name-takes-no-digit",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let named = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b'\\'');",
+      "new": "    let named = |byte: u8| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b':' | b'\\'');",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-name-takes-no-underscore",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "matches!(byte, b'_' | b':' | b'\\'')",
+      "new": "matches!(byte, b':' | b'\\'')",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-vertical-tab-is-no-white-space-in-an-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let blank = |byte: u8| byte.is_ascii_whitespace() || byte == b'\\x0b';",
+      "new": "    let blank = |byte: u8| byte.is_ascii_whitespace();",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-opener-takes-no-comment",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        if text.get(at) != Some(&b'#') {\n            return Ok(at);\n        }",
+      "new": "        if true {\n            return Ok(at);\n        }",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-last-line-needs-no-dot",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        dot: if body.first() == Some(&b'.') {",
+      "new": "        dot: if !body.is_empty() {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-format-last-line-takes-text-behind-the-dot",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            _ => Dot::No,",
+      "new": "            _ => self.dot,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-last-line-takes-no-carriage-return",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            (Dot::Bare | Dot::Blank, _, b' ' | b'\\t' | b'\\r') => Dot::Blank,",
+      "new": "            (Dot::Bare | Dot::Blank, _, b' ' | b'\\t') => Dot::Blank,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-last-line-takes-no-blank",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            (Dot::Bare | Dot::Blank, _, b' ' | b'\\t' | b'\\r') => Dot::Blank,",
+      "new": "            (Dot::Bare | Dot::Blank, _, b'\\t' | b'\\r') => Dot::Blank,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-without-a-last-line-covers-nothing",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "            self.format = word.start..last.map_or(code.len(), |line| body + line.end);",
+      "new": "            self.format = word.start..last.map_or(body, |line| body + line.end);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld", "documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-misread-format-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if self.last_line.take().is_some() {\n            self.settled = Some(FORMAT);\n",
+      "new": "        } else if self.last_line.take().is_some() && false {\n            self.settled = Some(FORMAT);\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld"]
+    },
+    {
+      "name": "perl-picture-text-is-read-as-code",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if start < self.format.end {\n            // Picture text:",
+      "new": "        } else if false {\n            // Picture text:",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-field-line-takes-no-value-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        self.fields |= matches!(byte, b'@' | b'^');",
+      "new": "        self.fields |= false;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-caret-is-no-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        self.fields |= matches!(byte, b'@' | b'^');",
+      "new": "        self.fields |= byte == b'@';",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-at-sign-is-no-field",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        self.fields |= matches!(byte, b'@' | b'^');",
+      "new": "        self.fields |= byte == b'^';",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-comment-line-with-a-field-takes-a-value-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        } else if self.fields && !comment {",
+      "new": "        } else if self.fields {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-any-value-line-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "                (false, false) => Line::Unknown,",
+      "new": "                (false, false) => Line::Picture,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-format-with-unknown-end-ends-at-its-value-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            Line::Unknown => return Ok(None),",
+      "new": "            Line::Unknown => return Ok(Some(start..start + length)),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-dot-and-blank-ends-a-format-where-values-are-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "                self.dot == Dot::Bare && fed,",
+      "new": "                self.dot != Dot::No && fed,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_format_whose_end_is_not_known_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-dot-and-carriage-return-is-a-value-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            (Dot::Bare, 1, b'\\r') => Dot::Bare,\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-dot-without-a-line-feed-ends-a-format-where-values-are-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "                self.dot == Dot::Bare && fed,",
+      "new": "                self.dot == Dot::Bare,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-dot-does-not-end-a-format-where-values-are-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "                (true, _) => Line::Last,",
+      "new": "                (true, _) => Line::Unknown,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-any-word",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "            name(byte)\n                && (name(before) || before == b':' || (sigil(before) && !byte.is_ascii_digit()))",
+      "new": "            name(byte)",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-a-digit-behind-a-sigil",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "|| (sigil(before) && !byte.is_ascii_digit()))",
+      "new": "|| sigil(before))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-a-word-behind-a-colon-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "(name(before) || before == b':' || (sigil",
+      "new": "(name(before) || (sigil",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-a-lone-sigil",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "                self.list && !sigil(self.before),",
+      "new": "                self.list,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-a-sigil-before-a-sigil",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => true,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-colon",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b':' => true,\n        b'$' | b'@'",
+      "new": "        b':' => false,\n        b'$' | b'@'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-carriage-return",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' => !sigil(before),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-semicolon",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b',' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-comma",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-tab",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\r' => !sigil(before),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-value-line-takes-no-blank",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        b'$' | b'@' | b'%' | b',' | b';' | b' ' | b'\\t' | b'\\r' => !sigil(before),",
+      "new": "        b'$' | b'@' | b'%' | b',' | b';' | b'\\t' | b'\\r' => !sigil(before),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_outside_a_format_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-doubt-outranks-the-reader",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            PodBlock::Withheld(reason) => PodBlock::Withheld(reason),\n            read => self",
+      "new": "            read => self",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld"]
+    },
+    {
+      "name": "perl-comment-only-block-in-doubt-is-not-reported",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            PodBlock::Withheld(reason) => PodBlock::Withheld(reason),\n",
+      "new": "            PodBlock::Withheld(reason) => PodBlock::Withheld(reason),\n            PodBlock::CommentOnly(end) => PodBlock::CommentOnly(end),\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_in_a_format_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-a-literal-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            (true, true) => Reading::Opener,",
+      "new": "            (true, true) => Reading::Same,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_literals_cost_linear_work"]
+    },
+    {
+      "name": "perl-opener-in-a-string-or-backticks-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"string_double_quoted\" | \"backtick_quoted\" => alone(true, false, Start::Anywhere),",
+      "new": "            \"string_double_quoted\" | \"backtick_quoted\" => alone(false, false, Start::Anywhere),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-qx-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"command_qx_quoted\" => quote(b\"qx\", 1, true, false),",
+      "new": "            \"command_qx_quoted\" => quote(b\"qx\", 1, false, false),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-qq-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"string_qq_quoted\" => quote(b\"qq\", 1, true, false),",
+      "new": "            \"string_qq_quoted\" => quote(b\"qq\", 1, false, false),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-a-pattern-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"pattern_matcher\" => alone(true, true, Start::Term),",
+      "new": "            \"pattern_matcher\" => alone(false, true, Start::Term),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-m-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"pattern_matcher_m\" => quote(b\"m\", 1, true, true),",
+      "new": "            \"pattern_matcher_m\" => quote(b\"m\", 1, false, true),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-qr-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"regex_pattern_qr\" => quote(b\"qr\", 1, true, true),",
+      "new": "            \"regex_pattern_qr\" => quote(b\"qr\", 1, false, true),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-opener-in-a-substitution-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"substitution_pattern_s\" => quote(b\"s\", 2, true, true),",
+      "new": "            \"substitution_pattern_s\" => quote(b\"s\", 2, false, true),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-tag-behind-a-tilde-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            (Shift::Whole, b'~') => Shift::Tilde,\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-quoted-tag-behind-blanks-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            (Shift::Whole | Shift::Tilde | Shift::Blank, b' ' | b'\\t') => Shift::Blank,\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-tag-behind-a-backslash-is-not-looked-for",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            (Shift::Whole | Shift::Tilde, b'\\\\') => Shift::Escape,\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-behind-blanks-is-a-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Shift::Blank => quote,",
+      "new": "            Shift::Blank => quote || word,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::perl_many_literals_cost_linear_work"]
+    },
+    {
+      "name": "perl-quote-behind-a-backslash-is-a-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Shift::Escape => word,",
+      "new": "            Shift::Escape => quote || word,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::perl_literal_forms_that_perl_reads_as_text_are_known_differences"]
+    },
+    {
+      "name": "perl-one-angle-bracket-is-a-shift",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            (_, b'<') => Shift::Half,",
+      "new": "            (_, b'<') => Shift::Whole,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-parts-share-their-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        self.shift = Shift::None;\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-hidden-byte-is-no-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                self.text(hidden);\n",
+      "new": "                let _ = hidden;\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::perl_literal_forms_that_perl_reads_as_text_are_known_differences"]
+    },
+    {
+      "name": "perl-double-quote-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-single-quote-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\"' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-backtick-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\"' | b'\\'' | b'~' | b'\\\\' | b'_'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-tilde-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\"' | b'\\'' | b'`' | b'\\\\' | b'_'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-backslash-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'_'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-underscore-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\' | b'_'] => true,",
+      "new": "        [.., b'\"' | b'\\'' | b'`' | b'~' | b'\\\\'] => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-letter-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., tag] if tag.is_ascii_alphabetic() => true,",
+      "new": "        [.., tag] if tag.is_ascii_alphabetic() => false,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-digit-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [before, _, _, tag] => before.is_ascii_whitespace() && tag.is_ascii_digit(),",
+      "new": "        [before, _, _, tag] => before.is_ascii_whitespace() && !tag.is_ascii_digit(),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld", "documentation::collector::perl_tests::perl_known_over_withholding_is_pinned"]
+    },
+    {
+      "name": "perl-digit-behind-any-shift-is-an-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [before, _, _, tag] => before.is_ascii_whitespace() && tag.is_ascii_digit(),",
+      "new": "        [_, _, _, tag] => tag.is_ascii_digit(),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-blank-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b' ' | b'\\t'] => quoted_tag(source, shift + 1, budget)?,",
+      "new": "        [.., b' ' | b'\\t'] => false,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-tab-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b' ' | b'\\t'] => quoted_tag(source, shift + 1, budget)?,",
+      "new": "        [.., b' '] => quoted_tag(source, shift + 1, budget)?,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-space-behind-a-shift-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        [.., b' ' | b'\\t'] => quoted_tag(source, shift + 1, budget)?,",
+      "new": "        [.., b'\\t'] => quoted_tag(source, shift + 1, budget)?,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-blanks-behind-a-shift-end-at-a-tab",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    let tag = scan::position(rest, |byte| !matches!(byte, b' ' | b'\\t'), budget)?;",
+      "new": "    let tag = scan::position(rest, |byte| byte != b' ', budget)?;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-blanks-behind-a-shift-end-at-a-space",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    let tag = scan::position(rest, |byte| !matches!(byte, b' ' | b'\\t'), budget)?;",
+      "new": "    let tag = scan::position(rest, |byte| byte != b'\\t', budget)?;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-any-byte-behind-the-blanks-of-a-shift-is-a-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'\\'' | b'`')))",
+      "new": "    Ok(tag.is_some())",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-double-quote-behind-the-blanks-of-a-shift-is-no-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'\\'' | b'`')))",
+      "new": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\\'' | b'`')))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-single-quote-behind-the-blanks-of-a-shift-is-no-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'\\'' | b'`')))",
+      "new": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'`')))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-backtick-behind-the-blanks-of-a-shift-is-no-tag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'\\'' | b'`')))",
+      "new": "    Ok(tag.is_some_and(|at| matches!(rest[at], b'\"' | b'\\'')))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_an_unread_here_document_opener_is_withheld"]
+    },
+    {
+      "name": "perl-read-opener-is-taken-for-unread",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "            \"<<\" if self.read_opener != Some(start) => {",
+      "new": "            \"<<\" => {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-block-between-opener-and-body-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "            (self.open_bodies > 0).then_some(HEREDOC)",
+      "new": "            None",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_a_misread_here_document_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-open-bodies-are-not-counted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                self.open_bodies += 1;\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_a_misread_here_document_is_withheld"]
+    },
+    {
+      "name": "perl-late-body-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                let late = node.start_position().row != self.body_row;",
+      "new": "                let late = false;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_a_misread_here_document_is_withheld"]
+    },
+    {
+      "name": "perl-body-is-expected-on-the-first-row",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                self.body_row = node.end_position().row;\n                false\n",
+      "new": "                false\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document"]
+    },
+    {
+      "name": "perl-second-body-is-expected-on-the-opener-row",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                self.body_row = node.end_position().row;\n                late\n",
+      "new": "                late\n",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document"]
+    },
+    {
+      "name": "perl-end-tag-with-a-blank-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                    || !matches!(code[after], [b'\\n', ..] | [b'\\r', b'\\n'])",
+      "new": "                    || false",
+      "expect": ["documentation::collector::perl_tests::perl_pod_beside_a_misread_here_document_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-end-tag-with-crlf-is-doubted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "[b'\\n', ..] | [b'\\r', b'\\n'])",
+      "new": "[b'\\n', ..])",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document"]
+    },
+    {
+      "name": "perl-literal-that-perl-ends-elsewhere-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(match (starts && ends, self.evaluated && opener) {",
+      "new": "        Ok(match (starts, self.evaluated && opener) {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-anything-may-follow-a-literal",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            if !(taken && flag.is_ascii_alphabetic()) {\n                return Ok(false);\n            }",
+      "new": "            if false {\n                return Ok(false);\n            }",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-digit-is-a-flag",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            if !(taken && flag.is_ascii_alphabetic()) {",
+      "new": "            if !(taken && flag.is_ascii_alphanumeric()) {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-backslash-hides-nothing",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            if byte == b'\\\\'\n                && let Some(hidden) = self.next()?",
+      "new": "            if false\n                && let Some(hidden) = self.next()?",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-brackets-do-not-nest",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            } else if byte == open {\n                depth += 1;\n            }",
+      "new": "            }",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-parentheses-close-themselves",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b'(' => b')',\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-square-brackets-close-themselves",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b'[' => b']',\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-braces-close-themselves",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b'{' => b'}',\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-angle-brackets-close-themselves",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b'<' => b'>',\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-white-space-before-a-delimiter-is-the-delimiter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                Some(white) if white.is_ascii_whitespace() || white == b'\\x0b' => {",
+      "new": "                Some(white) if false => {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-vertical-tab-is-a-delimiter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                Some(white) if white.is_ascii_whitespace() || white == b'\\x0b' => {",
+      "new": "                Some(white) if white.is_ascii_whitespace() => {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-comment-before-a-delimiter-is-the-delimiter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                Some(b'#') if !direct => {",
+      "new": "                Some(b'#') if false => {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-hash-behind-the-operator-starts-a-comment",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        let mut direct = true;",
+      "new": "        let mut direct = false;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-second-part-starts-without-a-delimiter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        let second = if closing(open) == open {\n            Some(open)\n        } else {\n            self.delimiter()?\n        };",
+      "new": "        let second = Some(open);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-two-parts-are-read-as-one",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                    && (quote.parts == 1 || self.second(open)?)",
+      "new": "                    && (quote.parts <= 2 || self.second(open)?)",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-y-is-no-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        if first == b't' && read == Some(b'y') {",
+      "new": "        if false {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-misspelled-operator-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|open| !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-an-arrow-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "                self.part(open, named && open == b'=')?",
+      "new": "                self.part(open, false)?",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-arrow-is-looked-for-behind-every-delimiter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            if first && byte == b'>' {",
+      "new": "            if byte == b'>' {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-a-closing-bracket-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|_| spelled))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-a-closing-brace-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|open| spelled && !matches!(open, b')' | b']' | b'>')))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-a-closing-parenthesis-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b']' | b'>')))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-a-closing-square-bracket-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b'>')))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-word-before-a-closing-angle-bracket-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']' | b'>')))",
+      "new": "        Ok(open.filter(|open| spelled && !matches!(open, b'}' | b')' | b']')))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-single-quoted-string-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"string_single_quoted\" => alone(false, false, Start::NotInName),\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld"]
+    },
+    {
+      "name": "perl-q-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"string_q_quoted\" => quote(b\"q\", 1, false, false),\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld"]
+    },
+    {
+      "name": "perl-a-word-list-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"word_list_qw\" => quote(b\"qw\", 1, false, false),\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld"]
+    },
+    {
+      "name": "perl-a-transliteration-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"transliteration_tr_or_y\" => quote(b\"tr\", 2, false, true),\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld"]
+    },
+    {
+      "name": "perl-a-pattern-takes-no-flags",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"pattern_matcher\" => alone(true, true, Start::Term),",
+      "new": "            \"pattern_matcher\" => alone(true, false, Start::Term),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-m-takes-no-flags",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"pattern_matcher_m\" => quote(b\"m\", 1, true, true),",
+      "new": "            \"pattern_matcher_m\" => quote(b\"m\", 1, true, false),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-qr-takes-no-flags",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"regex_pattern_qr\" => quote(b\"qr\", 1, true, true),",
+      "new": "            \"regex_pattern_qr\" => quote(b\"qr\", 1, true, false),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-substitution-takes-no-flags",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"substitution_pattern_s\" => quote(b\"s\", 2, true, true),",
+      "new": "            \"substitution_pattern_s\" => quote(b\"s\", 2, true, false),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-transliteration-takes-no-flags",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"transliteration_tr_or_y\" => quote(b\"tr\", 2, false, true),",
+      "new": "            \"transliteration_tr_or_y\" => quote(b\"tr\", 2, false, false),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-substitution-has-one-part",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"substitution_pattern_s\" => quote(b\"s\", 2, true, true),",
+      "new": "            \"substitution_pattern_s\" => quote(b\"s\", 1, true, true),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-transliteration-has-one-part",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            \"transliteration_tr_or_y\" => quote(b\"tr\", 2, false, true),",
+      "new": "            \"transliteration_tr_or_y\" => quote(b\"tr\", 1, false, true),",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-literal-that-perl-does-not-start-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Ok(match (starts && ends, self.evaluated && opener) {",
+      "new": "        Ok(match (ends, self.evaluated && opener) {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::perl_known_over_withholding_is_pinned"]
+    },
+    {
+      "name": "perl-quote-behind-a-name-starts-a-string",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Start::NotInName => !before.last().is_some_and(|&byte| name(byte)),",
+      "new": "            Start::NotInName => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld"]
+    },
+    {
+      "name": "perl-byte-before-a-quote-is-not-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Self::NotInName => 1,",
+      "new": "            Self::NotInName => 0,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-slash-starts-a-pattern-anywhere",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Start::Term => expects_term(before, whole),",
+      "new": "            Start::Term => true,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::perl_known_over_withholding_is_pinned"]
+    },
+    {
+      "name": "perl-four-bytes-before-a-slash-are-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            Self::Term => 32,",
+      "new": "            Self::Term => 4,",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_the_grammar_reads_is_a_document", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-keyword-behind-a-name-lead-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => keyword,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-at-the-cut-of-the-window-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        None => keyword && whole,",
+      "new": "        None => keyword,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-mark-behind-a-sigil-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'@' | b'%'),",
+      "new": "        [.., _, mark] => term(mark),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-mark-behind-a-dollar-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'@' | b'%'),",
+      "new": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'@' | b'%'),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-mark-behind-an-at-sign-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'@' | b'%'),",
+      "new": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'%'),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-mark-behind-a-percent-sign-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'@' | b'%'),",
+      "new": "        [.., sigil, mark] => term(mark) && !matches!(sigil, b'$' | b'@'),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-mark-at-the-cut-of-the-window-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [mark] => term(mark) && whole,",
+      "new": "        [mark] => term(mark),",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-white-space-alone-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [] => whole,",
+      "new": "        [] => true,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-start-of-the-input-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        [] => whole,",
+      "new": "        [] => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-line-feed-before-a-slash-is-no-white-space",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "    let white = |byte: &u8| byte.is_ascii_whitespace() || *byte == b'\\x0b';",
+      "new": "    let white = |byte: &u8| *byte == b' ';",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-an-opening-parenthesis-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-comma-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-an-equals-sign-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-tilde-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-an-exclamation-mark-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-an-ampersand-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'|' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-bar-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'?' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-question-mark-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b':' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-colon-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b';' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-a-semicolon-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b'{'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-an-opening-brace-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';' | b'{'",
+      "new": "            b'(' | b',' | b'=' | b'~' | b'!' | b'&' | b'|' | b'?' | b':' | b';'",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-split-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"split\"\n",
+      "new": "b\"split_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-grep-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"grep\"\n",
+      "new": "b\"grep_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-map-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"map\"\n",
+      "new": "b\"map_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-if-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"if\"\n",
+      "new": "b\"if_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-unless-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"unless\"\n",
+      "new": "b\"unless_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-while-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"while\"\n",
+      "new": "b\"while_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-until-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"until\"\n",
+      "new": "b\"until_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-and-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"and\"\n",
+      "new": "b\"and_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-or-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"or\"\n",
+      "new": "b\"or_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-not-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"not\"\n",
+      "new": "b\"not_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-xor-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"xor\"\n",
+      "new": "b\"xor_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-return-takes-no-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "b\"return\"\n",
+      "new": "b\"return_\"\n",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-a-dollar-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-an-at-sign-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-a-percent-sign-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-an-ampersand-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-a-star-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'&' | b'>' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-an-arrow-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b':' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-a-colon-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b'\\'') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-keyword-behind-a-tick-takes-a-term",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':' | b'\\'') => false,",
+      "new": "        Some(b'$' | b'@' | b'%' | b'&' | b'*' | b'>' | b':') => false,",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-operator-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "new": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (false && operator(&code[word])))",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_literal_perl_reads_differently_is_withheld", "documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-any-name-behind-core-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "new": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || code[read].starts_with(b\"CORE::\"))",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-operator-behind-any-package-is-an-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "new": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || operator(&code[word]))",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-operator-at-the-start-of-the-input-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if word.len() <= 2 && word.start >= 6 {",
+      "new": "        } else if word.len() <= 2 && word.start >= 7 {",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-operator-of-two-bytes-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if word.len() <= 2 && word.start >= 6 {",
+      "new": "        } else if word.len() <= 1 && word.start >= 6 {",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-q-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-qq-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-qw-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-qx-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-m-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-qr-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"s\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-s-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"tr\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-tr-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"y\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-y-behind-core-is-a-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\" | b\"y\"",
+      "new": "        b\"q\" | b\"qq\" | b\"qw\" | b\"qx\" | b\"m\" | b\"qr\" | b\"s\" | b\"tr\"",
+      "expect": ["documentation::collector::perl_tests::perl_operator_behind_core_is_read_as_a_literal"]
+    },
+    {
+      "name": "perl-format-beside-excluded-bytes-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(if source.covers_with_budget(keyword..code.len(), budget)? {",
+      "new": "    Ok(if source.covers_with_budget(keyword..code.len(), budget)? || true {",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-identifier-with-excluded-bytes-is-no-keyword",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        if (!read || code[word.clone()] == *b\"format\")",
+      "new": "        if (read && code[word.clone()] == *b\"format\")",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-shift-beside-excluded-bytes-is-no-opener",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    if !source.covers_with_budget(read.clone(), budget)? {\n        return Ok(true);\n    }\n    Ok(match code[read] {",
+      "new": "    if !source.covers_with_budget(read.clone(), budget)? {\n        return Ok(false);\n    }\n    Ok(match code[read] {",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-blanks-of-a-shift-before-excluded-bytes-open-nothing",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    if !source.covers_with_budget(from..code.len(), budget)? {\n        return Ok(true);\n    }",
+      "new": "    if !source.covers_with_budget(from..code.len(), budget)? {\n        return Ok(false);\n    }",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-literal-with-excluded-bytes-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        if !source.covers_with_budget(before.start..spelling.end, budget)? {\n            return Ok(Reading::Different);\n        }",
+      "new": "        if !source.covers_with_budget(before.start..spelling.end, budget)? {\n            return Ok(Reading::Same);\n        }",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-bytes-before-a-literal-are-read-through-a-gap",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        if !source.covers_with_budget(before.start..spelling.end, budget)? {",
+      "new": "        if !source.covers_with_budget(spelling.clone(), budget)? {",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-end-tag-beside-excluded-bytes-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                !source.covers_with_budget(after.clone(), budget)?\n                    || !matches!(code[after], [b'\\n', ..] | [b'\\r', b'\\n'])",
+      "new": "                source.covers_with_budget(after.clone(), budget)?\n                    && !matches!(code[after], [b'\\n', ..] | [b'\\r', b'\\n'])",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-name-beside-excluded-bytes-is-no-operator",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "new": "    Ok(source.covers_with_budget(read.clone(), budget)?\n        && (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_beside_excluded_bytes_takes_the_worst_case"]
+    },
+    {
+      "name": "perl-doubt-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        self.pod_doubt.enter(&self.index.source, raw, budget)?;",
+      "new": "        crate::documentation::budget::infallible(\n            self.pod_doubt\n                .enter(&self.index.source, raw, &crate::documentation::budget::NoBudget),\n        );",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-keyword-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        let read = source.covers_with_budget(word.clone(), budget)?;",
+      "new": "        let read = crate::documentation::budget::infallible(source.covers_with_budget(word.clone(), &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-format-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(if source.covers_with_budget(keyword..code.len(), budget)? {",
+      "new": "    Ok(if crate::documentation::budget::infallible(source.covers_with_budget(keyword..code.len(), &crate::documentation::budget::NoBudget)) {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-name-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    Ok(!source.covers_with_budget(read.clone(), budget)?\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "new": "    Ok(!crate::documentation::budget::infallible(source.covers_with_budget(read.clone(), &crate::documentation::budget::NoBudget))\n        || (code[read].starts_with(b\"CORE::\") && operator(&code[word])))",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-literal-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        if !source.covers_with_budget(before.start..spelling.end, budget)? {",
+      "new": "        if !crate::documentation::budget::infallible(source.covers_with_budget(before.start..spelling.end, &crate::documentation::budget::NoBudget)) {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-bytes-before-a-literal-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        for _ in before.clone() {\n            scan::one(budget)?;\n        }",
+      "new": "        for _ in before.clone() {\n            crate::documentation::budget::infallible(scan::one(&crate::documentation::budget::NoBudget));\n        }",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-literal-reading-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        let (ends, opener) = perl_reads(&code[spelling], self, budget)?;",
+      "new": "        let (ends, opener) = crate::documentation::budget::infallible(perl_reads(&code[spelling], self, &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-literal-bytes-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        scan::one(self.budget)?;\n        self.rest = rest;",
+      "new": "        crate::documentation::budget::infallible(scan::one(&crate::documentation::budget::NoBudget));\n        self.rest = rest;",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-shift-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    if !source.covers_with_budget(read.clone(), budget)? {\n        return Ok(true);\n    }\n    Ok(match code[read] {",
+      "new": "    if !crate::documentation::budget::infallible(source.covers_with_budget(read.clone(), &crate::documentation::budget::NoBudget)) {\n        return Ok(true);\n    }\n    Ok(match code[read] {",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-tag-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    if !source.covers_with_budget(from..code.len(), budget)? {\n        return Ok(true);\n    }",
+      "new": "    if !crate::documentation::budget::infallible(source.covers_with_budget(from..code.len(), &crate::documentation::budget::NoBudget)) {\n        return Ok(true);\n    }",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-tag-blank-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "    let tag = scan::position(rest, |byte| !matches!(byte, b' ' | b'\\t'), budget)?;",
+      "new": "    let tag = crate::documentation::budget::infallible(scan::position(rest, |byte| !matches!(byte, b' ' | b'\\t'), &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-end-tag-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "                !source.covers_with_budget(after.clone(), budget)?\n                    || !matches!(code[after], [b'\\n', ..] | [b'\\r', b'\\n'])",
+      "new": "                !crate::documentation::budget::infallible(source.covers_with_budget(after.clone(), &crate::documentation::budget::NoBudget))\n                    || !matches!(code[after], [b'\\n', ..] | [b'\\r', b'\\n'])",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-white-space-before-a-format-name-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let name = space(after, budget)?;",
+      "new": "    let name = crate::documentation::budget::infallible(space(after, &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-format-name-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let word = name + scan::position(rest, |byte| !named(byte), budget)?.unwrap_or(rest.len());",
+      "new": "    let word = name\n        + crate::documentation::budget::infallible(scan::position(rest, |byte| !named(byte), &crate::documentation::budget::NoBudget))\n            .unwrap_or(rest.len());",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-white-space-behind-a-format-name-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let equals = word + space(&after[word..], budget)?;",
+      "new": "    let equals = word + crate::documentation::budget::infallible(space(&after[word..], &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans"]
+    },
+    {
+      "name": "perl-white-space-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        at += scan::position(&text[at..], |byte| !blank(byte), budget)?.unwrap_or(text.len() - at);",
+      "new": "        at += crate::documentation::budget::infallible(scan::position(&text[at..], |byte| !blank(byte), &crate::documentation::budget::NoBudget))\n            .unwrap_or(text.len() - at);",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-opener-comment-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        at += scan::position(&text[at..], |byte| byte == b'\\n', budget)?.unwrap_or(text.len() - at);",
+      "new": "        at += crate::documentation::budget::infallible(scan::position(&text[at..], |byte| byte == b'\\n', &crate::documentation::budget::NoBudget))\n            .unwrap_or(text.len() - at);",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-blanks-behind-the-equals-sign-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let at = scan::position(rest, |byte| !blank(byte), budget)?.unwrap_or(rest.len());",
+      "new": "    let at = crate::documentation::budget::infallible(scan::position(rest, |byte| !blank(byte), &crate::documentation::budget::NoBudget)).unwrap_or(rest.len());",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-opener-line-end-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    let end = scan::position(&rest[at..], |byte| byte == b'\\n', budget)?;",
+      "new": "    let end = crate::documentation::budget::infallible(scan::position(&rest[at..], |byte| byte == b'\\n', &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read"]
+    },
+    {
+      "name": "perl-format-body-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "            let last = format_end(&code[body..], budget)?;",
+      "new": "            let last = crate::documentation::budget::infallible(format_end(&code[body..], &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-format-lines-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "        let (length, line) = format_line(&body[start..], values, budget)?;",
+      "new": "        let (length, line) = crate::documentation::budget::infallible(format_line(&body[start..], values, &crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-format-line-bytes-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_format.rs",
+      "old": "    for (at, &byte) in body.iter().enumerate() {\n        scan::one(budget)?;",
+      "new": "    for (at, &byte) in body.iter().enumerate() {\n        crate::documentation::budget::infallible(scan::one(&crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-stateful-scan-charges-nothing",
+      "file": "big-code-analysis-ast/src/documentation/byte_scan.rs",
+      "old": "    budget.bytes(1)?;\n    bytes_read::record();\n    Ok(())\n}\n\npub(crate) fn position",
+      "new": "    let _ = budget;\n    bytes_read::record();\n    Ok(())\n}\n\npub(crate) fn position",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_scans_charge_what_they_read", "documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection", "documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-stateful-scan-is-not-observed",
+      "file": "big-code-analysis-ast/src/documentation/byte_scan.rs",
+      "old": "    budget.bytes(1)?;\n    bytes_read::record();\n    Ok(())\n}\n\npub(crate) fn position",
+      "new": "    budget.bytes(1)?;\n    Ok(())\n}\n\npub(crate) fn position",
+      "expect": ["documentation::collector::perl_tests::perl_many_formats_cost_linear_work", "documentation::collector::perl_tests::perl_many_literals_cost_linear_work", "documentation::collector::perl_tests::perl_hidden_pod_search_costs_linear_work"]
+    },
+    {
+      "name": "perl-literal-is-read-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_literal.rs",
+      "old": "        let (ends, opener) = perl_reads(&code[spelling], self, budget)?;",
+      "new": "        perl_reads(&code[spelling.clone()], self, budget)?;\n        let (ends, opener) = perl_reads(&code[spelling], self, budget)?;",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_literals_cost_linear_work"]
+    },
+    {
+      "name": "perl-format-body-is-read-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "            let last = format_end(&code[body..], budget)?;",
+      "new": "            format_end(&code[body..], budget)?;\n            let last = format_end(&code[body..], budget)?;",
+      "expect": ["documentation::collector::perl_tests::pod_doubt_walk_charges_its_searches_and_scans", "documentation::collector::perl_tests::perl_many_formats_cost_linear_work"]
+    },
+    {
+      "name": "perl-hidden-pod-search-reads-a-stretch-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        if command_line(&self.index.source, from..span.start, budget)? {",
+      "new": "        if command_line(&self.index.source, from..span.start, budget)?\n            | command_line(&self.index.source, from..span.start, budget)?\n        {",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_costs_linear_work"]
+    },
+    {
+      "name": "perl-hidden-pod-is-not-reported",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            self.pod_pending(node, AssessmentAxis::Occurrence, HIDDEN, None);",
+      "new": "            let _ = node;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing", "documentation::collector::perl_tests::perl_pod_block_with_a_disputed_end_is_withheld", "documentation::collector::perl_tests::perl_literal_text_the_grammar_reads_holds_no_pod_block"]
+    },
+    {
+      "name": "perl-hidden-pod-is-a-selection-finding",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            self.pod_pending(node, AssessmentAxis::Occurrence, HIDDEN, None);",
+      "new": "            self.pod_pending(node, AssessmentAxis::Selection, HIDDEN, None);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing"]
+    },
+    {
+      "name": "perl-hidden-pod-is-reported-on-no-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "            let node = recovery.map(|id| self.index.canonical.nodes[id.0].evidence);",
+      "new": "            let node = recovery.and_then(|_| None);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported"]
+    },
+    {
+      "name": "perl-hidden-pod-is-reported-on-the-last-recovery-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                if self.pod_hidden.recovery.is_none() && (raw.is_error() || raw.is_missing()) {",
+      "new": "                if raw.is_error() || raw.is_missing() {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported"]
+    },
+    {
+      "name": "perl-missing-node-starts-no-search",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                if self.pod_hidden.recovery.is_none() && (raw.is_error() || raw.is_missing()) {",
+      "new": "                if self.pod_hidden.recovery.is_none() && raw.is_error() {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported"]
+    },
+    {
+      "name": "perl-error-node-starts-no-search",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                if self.pod_hidden.recovery.is_none() && (raw.is_error() || raw.is_missing()) {",
+      "new": "                if self.pod_hidden.recovery.is_none() && raw.is_missing() {",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing"]
+    },
+    {
+      "name": "perl-search-reads-the-blocks",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        self.pod_hidden.unread = Some(from.max(span.end));",
+      "new": "        self.pod_hidden.unread = Some(from);",
+      "expect": ["documentation::collector::perl_tests::perl_pod_after_a_recovery_node_is_withheld", "documentation::collector::perl_tests::perl_hidden_pod_search_costs_linear_work"]
+    },
+    {
+      "name": "perl-search-reads-the-data-section",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "                self.pod_unread(raw.start_byte()..self.index.source.bytes().len(), budget)?;\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported"]
+    },
+    {
+      "name": "perl-search-does-not-reach-the-end",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        self.pod_end(budget)?;\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing", "documentation::collector::perl_tests::perl_hidden_pod_search_costs_linear_work"]
+    },
+    {
+      "name": "perl-last-search-is-no-classification",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        in_phase(budget, WorkPhase::Classification, || {\n            self.pod_unread(end..end, budget)\n        })",
+      "new": "        self.pod_unread(end..end, budget)",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-command-line-needs-no-letter",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        found = command && byte.is_ascii_alphabetic();",
+      "new": "        found = command;",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-command-line-needs-no-line-start",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        command = first && byte == b'=';",
+      "new": "        command = byte == b'=';",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-first-byte-of-a-span-starts-a-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    let mut first = span.start == 0 || code[span.start - 1] == b'\\n';",
+      "new": "    let mut first = true;",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-first-byte-of-a-span-starts-no-line",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    let mut first = span.start == 0 || code[span.start - 1] == b'\\n';",
+      "new": "    let mut first = false;",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads", "documentation::collector::perl_tests::perl_text_outside_a_pod_node_publishes_nothing"]
+    },
+    {
+      "name": "perl-search-through-excluded-bytes",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !source.covers_with_budget(span.start.saturating_sub(1)..span.end, budget)? {\n        return Ok(true);\n    }",
+      "new": "    if !source.covers_with_budget(span.start.saturating_sub(1)..span.end, budget)? {\n        return Ok(false);\n    }",
+      "expect": ["documentation::collector::perl_tests::perl_pod_hidden_behind_recovery_is_reported", "documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-byte-before-a-span-may-be-excluded",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !source.covers_with_budget(span.start.saturating_sub(1)..span.end, budget)? {",
+      "new": "    if !source.covers_with_budget(span.clone(), budget)? {",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-empty-span-is-searched",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if span.start >= span.end {\n        return Ok(false);\n    }\n",
+      "new": "",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-hidden-pod-search-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "        if command_line(&self.index.source, from..span.start, budget)? {",
+      "new": "        if crate::documentation::budget::infallible(command_line(&self.index.source, from..span.start, &crate::documentation::budget::NoBudget)) {",
+      "expect": ["documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    },
+    {
+      "name": "perl-hidden-pod-coverage-search-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    if !source.covers_with_budget(span.start.saturating_sub(1)..span.end, budget)? {",
+      "new": "    if !crate::documentation::budget::infallible(source.covers_with_budget(span.start.saturating_sub(1)..span.end, &crate::documentation::budget::NoBudget)) {",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads"]
+    },
+    {
+      "name": "perl-hidden-pod-bytes-are-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    for &byte in &code[span] {\n        scan::one(budget)?;",
+      "new": "    for &byte in &code[span] {\n        crate::documentation::budget::infallible(scan::one(&crate::documentation::budget::NoBudget));",
+      "expect": ["documentation::collector::perl_tests::perl_hidden_pod_search_charges_what_it_reads", "documentation::collector::perl_tests::perl_doubt_scans_are_charged_to_the_collection"]
+    }
+  ]
+}
