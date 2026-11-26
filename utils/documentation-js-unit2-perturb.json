@@ -1,0 +1,172 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::"
+  ],
+  "cases": [
+    {
+      "name": "owner-projection-uses-no-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "js_first_declarator_with_budget(&self.index.canonical, id, budget)",
+      "new": "Ok::<_, CollectionError>(crate::documentation::budget::infallible(js_first_declarator_with_budget(&self.index.canonical, id, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::js_tests::javascript_wide_variable_binding_cancels_during_owner_projection",
+        "documentation::collector::js_tests::mozjs_wide_variable_binding_cancels_during_owner_projection"
+      ]
+    },
+    {
+      "name": "typescript-projection-isolation",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.index.profile == Profile::Jsdoc",
+      "new": "matches!(self.index.profile, Profile::Jsdoc | Profile::BcaTypescriptSource)",
+      "expect": [
+        "documentation::collector::js_tests::typescript_variable_binding_remains_pending"
+      ]
+    },
+    {
+      "name": "skip-lexical",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"lexical_declaration\" | \"variable_declaration\" | \"using_declaration\"",
+      "new": "\"variable_declaration\" | \"using_declaration\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator",
+        "documentation::collector::form_tests::javascript_binding_form_is_resolved_in_default_queries",
+        "documentation::collector::form_tests::mozjs_binding_form_is_resolved_in_default_queries"
+      ]
+    },
+    {
+      "name": "skip-variable",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"lexical_declaration\" | \"variable_declaration\" | \"using_declaration\"",
+      "new": "\"lexical_declaration\" | \"using_declaration\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
+      ]
+    },
+    {
+      "name": "skip-using",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"lexical_declaration\" | \"variable_declaration\" | \"using_declaration\"",
+      "new": "\"lexical_declaration\" | \"variable_declaration\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::javascript_using_linebreak_is_a_known_grammar_limitation",
+        "documentation::collector::js_tests::mozjs_using_linebreak_is_a_known_grammar_limitation"
+      ]
+    },
+    {
+      "name": "skip-projection-call",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "return self.js_first_declarator_owner(id, budget);",
+      "new": "return Ok(());",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator",
+        "documentation::collector::form_tests::javascript_binding_form_is_resolved_in_default_queries",
+        "documentation::collector::form_tests::mozjs_binding_form_is_resolved_in_default_queries"
+      ]
+    },
+    {
+      "name": "first-name-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "matches!(node.kind(), \"comment\" | \"html_comment\")",
+      "new": "node.kind() == \"identifier\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
+      ]
+    },
+    {
+      "name": "no-identifier-gate",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "(node.kind() == \"identifier\").then_some(declarator.evidence)",
+      "new": "(node.kind() != \"identifier\").then_some(declarator.evidence)",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
+      ]
+    },
+    {
+      "name": "destructuring-first-declarator-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": ".is_some_and(|name| name.kind_id() == $lang::Identifier as u16))",
+      "new": ".is_some_and(|_| true))",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_pattern_and_broken_initializer_never_get_an_owner",
+        "documentation::collector::js_tests::mozjs_variable_pattern_and_broken_initializer_never_get_an_owner"
+      ]
+    },
+    {
+      "name": "wrong-owner-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "self.add_owner(id, Owner::Node(declarator));",
+      "new": "self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator"
+      ]
+    },
+    {
+      "name": "no-slot-using",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                | \"using_declaration\"\n                | \"expression_statement\"",
+      "new": "                | \"expression_statement\"",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::mozjs_variable_binding_owns_first_declarator",
+        "documentation::collector::js_tests::javascript_using_linebreak_is_a_known_grammar_limitation",
+        "documentation::collector::js_tests::mozjs_using_linebreak_is_a_known_grammar_limitation"
+      ]
+    },
+    {
+      "name": "outer-child-scan-does-not-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[id.0].children.clone()] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[canonical.nodes[id.0].children.clone()] {\n        // Deliberate uncharged outer scan.",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_child_scans_charge_each_child",
+        "documentation::collector::js_tests::mozjs_variable_child_scans_charge_each_child"
+      ]
+    },
+    {
+      "name": "inner-child-scan-does-not-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &name in &canonical.children[declarator.children.clone()] {\n            budget.step()?;",
+      "new": "for &name in &canonical.children[declarator.children.clone()] {\n            // Deliberate uncharged inner scan.",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_child_scans_charge_each_child",
+        "documentation::collector::js_tests::mozjs_variable_child_scans_charge_each_child"
+      ]
+    },
+    {
+      "name": "using-target-gate-uses-no-budget",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": "| $lang::UsingDeclaration => first_declarator_with_budget(node, budget),",
+      "new": "| $lang::UsingDeclaration => Ok($crate::documentation::budget::infallible(first_declarator_with_budget(node, &$crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::js_tests::javascript_using_target_gate_charges_every_child",
+        "documentation::collector::js_tests::mozjs_using_target_gate_charges_every_child"
+      ]
+    },
+    {
+      "name": "broken-declaration-bypasses-error-guard",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if node.has_error()\n            || node.is_missing()",
+      "new": "if (node.has_error() && self.index.profile != Profile::Jsdoc)\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::js_tests::javascript_variable_pattern_and_broken_initializer_never_get_an_owner",
+        "documentation::collector::js_tests::mozjs_variable_pattern_and_broken_initializer_never_get_an_owner"
+      ]
+    }
+  ]
+}

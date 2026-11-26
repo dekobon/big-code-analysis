@@ -132,6 +132,10 @@ for historical reference.
 
 ### Changed
 
+- JavaScript and Mozjs JSDoc variable declarations now associate their documentation
+  with the first identifier-bound declarator, including exported and `using` forms.
+  Legacy LOC rows remain unchanged. (#1669)
+
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)
   instead of `0.0`. Throughout `2.x` the serialized value stays `0.0`;

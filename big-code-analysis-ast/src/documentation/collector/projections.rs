@@ -31,33 +31,13 @@ impl Builder<'_> {
         if self.index.profile == Profile::Doxygen && node.kind() == "function_definition" {
             self.index_function_definition(id, budget)?;
         }
-        if self.index.profile == Profile::Doxygen
-            && matches!(node.kind(), "declaration" | "field_declaration")
-            && matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return self.c_slots(id, budget);
+        if !is_wrapper(self.index.profile, node.kind()) {
+            return self.declaration_owners(id, budget);
         }
-        if self.index.profile == Profile::Javadoc
-            && matches!(node.kind(), "field_declaration" | "constant_declaration")
-            && matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return self.java_field_slots(id, budget);
-        }
-        if self.index.profile == Profile::GoDoc {
-            return self.go_member_owners(id, budget);
-        }
-        if !is_wrapper(self.index.profile, node.kind())
-            || !matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
+        if !matches!(
+            self.index.canonical.nodes[id.0].projection,
+            Projection::Pending
+        ) {
             return Ok(());
         }
         let range = self.index.canonical.nodes[id.0].children.clone();
@@ -105,6 +85,63 @@ impl Builder<'_> {
         }
         if !owners.is_empty() {
             self.index.canonical.nodes[id.0].projection = Projection::Ready(owners);
+        }
+        Ok(())
+    }
+
+    // The owners of a node that is no wrapper: one arm per profile that gives a
+    // declaration owners of its own. A profile without such a rule changes nothing.
+    fn declaration_owners(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let node = self.index.canonical.nodes[id.0].evidence.node();
+        if self.index.profile == Profile::Doxygen
+            && matches!(node.kind(), "declaration" | "field_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.c_slots(id, budget);
+        }
+        if self.index.profile == Profile::Javadoc
+            && matches!(node.kind(), "field_declaration" | "constant_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.java_field_slots(id, budget);
+        }
+        if self.index.profile == Profile::GoDoc {
+            return self.go_member_owners(id, budget);
+        }
+        if self.index.profile == Profile::Jsdoc
+            && matches!(
+                node.kind(),
+                "lexical_declaration" | "variable_declaration" | "using_declaration"
+            )
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.js_first_declarator_owner(id, budget);
+        }
+        Ok(())
+    }
+
+    fn js_first_declarator_owner(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        if let Some(declarator) = budget::in_phase(budget, budget::WorkPhase::Projection, || {
+            js_first_declarator_with_budget(&self.index.canonical, id, budget)
+        })? {
+            self.add_owner(id, Owner::Node(declarator));
         }
         Ok(())
     }
@@ -411,6 +448,30 @@ impl Builder<'_> {
         self.pending_name(id);
         Ok(())
     }
+}
+
+pub(super) fn js_first_declarator_with_budget<'s, B: WorkBudget>(
+    canonical: &CanonicalNodes<'s>,
+    id: NodeId,
+    budget: &B,
+) -> Result<Option<NodeEvidence<'s>>, B::Error> {
+    for &child in &canonical.children[canonical.nodes[id.0].children.clone()] {
+        budget.step()?;
+        let declarator = &canonical.nodes[child.0];
+        if declarator.evidence.node().kind() != "variable_declarator" {
+            continue;
+        }
+        for &name in &canonical.children[declarator.children.clone()] {
+            budget.step()?;
+            let node = canonical.nodes[name.0].evidence.node();
+            if matches!(node.kind(), "comment" | "html_comment") {
+                continue;
+            }
+            return Ok((node.kind() == "identifier").then_some(declarator.evidence));
+        }
+        return Ok(None);
+    }
+    Ok(None)
 }
 
 // Field names are not requested for this profile (`fields_needed`), so a

@@ -43,6 +43,7 @@ pub(crate) enum WorkPhase {
     #[default]
     Collection,
     Classification,
+    Projection,
     Ranges,
     Batch,
     Text,

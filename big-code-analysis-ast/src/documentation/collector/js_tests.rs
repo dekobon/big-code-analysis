@@ -198,7 +198,18 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
             match owner.get() {
                 Owner::Node(declared) => {
                     let node = declared.node();
-                    let binding = if node
+                    let binding = if node.kind() == "variable_declarator" {
+                        let declaration = node.parent();
+                        if declaration.is_some_and(|parent| {
+                            parent
+                                .parent()
+                                .is_some_and(|outer| outer.kind() == "export_statement")
+                        }) {
+                            declaration.and_then(|parent| parent.parent())
+                        } else {
+                            declaration
+                        }
+                    } else if node
                         .parent()
                         .is_some_and(|parent| parent.kind() == "export_statement")
                     {
@@ -350,6 +361,497 @@ fn pending_query(indexes: &[DocumentationIndex<'_>; 2], node: tree_sitter::Node<
         assert_eq!(query.associations().len(), 0);
         assert!(query.projection_pending());
     }
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+#[allow(clippy::too_many_lines)]
+fn variable_binding_owns_first_declarator(language: LANG) {
+    // bca: suppress(abc, halstead) -- one shared table checks both grammars and entry points.
+    // expected: each declaration contributes only its first declarator, even with a second name.
+    let rows: &[(&[u8], &str, &str)] = &[
+        (
+            b"/**audit*/\nconst f = () => 1;\n",
+            "lexical_declaration",
+            "f",
+        ),
+        (
+            b"/**audit*/\nconst a = 1, b = 2;\n",
+            "lexical_declaration",
+            "a",
+        ),
+        (b"/**audit*/\nlet u;\n", "lexical_declaration", "u"),
+        (
+            b"/**audit*/\nvar v = function () {};\n",
+            "variable_declaration",
+            "v",
+        ),
+        (b"/**audit*/\nusing u = f();\n", "using_declaration", "u"),
+        (
+            b"/**audit*/\nexport const e = 3;\n",
+            "lexical_declaration",
+            "e",
+        ),
+        (
+            b"/**audit*/\nconst /* c */ a = 1;\n",
+            "lexical_declaration",
+            "a",
+        ),
+        (
+            b"/**audit*/\nconst a /* c */ = 1;\n",
+            "lexical_declaration",
+            "a",
+        ),
+        (
+            b"/**audit*/\nconst <!-- html\na = 1;\n",
+            "lexical_declaration",
+            "a",
+        ),
+    ];
+    for &(source, declaration_kind, name) in rows {
+        let parser = clean(language, source);
+        let indexes = indexes(language, &parser, DocumentationOptions::default());
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .map(|node| node.as_tree_sitter())
+            .find(|node| node.kind() == declaration_kind)
+            .unwrap();
+        let first = declaration
+            .named_children(&mut declaration.walk())
+            .find(|child| child.kind() == "variable_declarator")
+            .unwrap();
+        assert_eq!(
+            &source[first.child_by_field_name("name").unwrap().byte_range()],
+            name.as_bytes()
+        );
+        let expected = node_owner(
+            comment(0..10, "audit", [(0..5, Copied(3..8))]),
+            "variable_declarator",
+            first.byte_range(),
+        );
+        assert_eq!(agreed(&indexes, parser.ts_tree().root_node()), expected);
+        for index in &indexes {
+            assert_eq!(index.documents().len(), 1);
+            assert_eq!(index.associations().len(), 1);
+            let association = index.associations().next().unwrap();
+            let owner = index.facts().associated_owner(association, 0).unwrap();
+            assert!(matches!(owner.get(), Owner::Node(node) if node.node() == first));
+            let query = index.node_projection(declaration).unwrap();
+            assert!(!query.pending());
+            assert_eq!(query.owners().len(), 1);
+            assert_eq!(index.assessments().len(), 0);
+        }
+    }
+    let source = b"function outer() {\n/**audit*/\nconst a = 1;\n}\n";
+    let parser = clean(language, source);
+    let nested_pair = indexes(language, &parser, DocumentationOptions::default());
+    let nested = node_at(&parser, "variable_declarator", 36..41);
+    assert_eq!(
+        agreed(&nested_pair, parser.ts_tree().root_node()),
+        node_owner(
+            comment(19..29, "audit", [(0..5, Copied(22..27))]),
+            "variable_declarator",
+            nested.byte_range(),
+        )
+    );
+    let source = b"/**first*/\nconst a = 1;\n/**second*/\nlet b = 2;\n";
+    let parser = clean(language, source);
+    let pair = indexes(language, &parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&pair, parser.ts_tree().root_node()),
+        View {
+            documents: vec![
+                comment(0..10, "first", [(0..5, Copied(3..8))]),
+                comment(24..35, "second", [(0..6, Copied(27..33))]),
+            ],
+            associations: vec![
+                Holder::Node("variable_declarator", 17..22),
+                Holder::Node("variable_declarator", 40..45),
+            ],
+            ..View::default()
+        }
+    );
+    let source = b"const x = 1;\n";
+    let parser = clean(language, source);
+    let both = indexes(language, &parser, DocumentationOptions::default());
+    assert_eq!(agreed(&both, parser.ts_tree().root_node()), View::default());
+    let declaration = node_at(&parser, "lexical_declaration", 0..12);
+    for index in &both {
+        let query = index.node_associations(declaration).unwrap();
+        assert!(!query.projection_pending());
+        assert_eq!(query.associations().len(), 0);
+        assert_eq!(
+            index.node_projection(declaration).unwrap().owners().len(),
+            1
+        );
+    }
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_variable_binding_owns_first_declarator() {
+    variable_binding_owns_first_declarator(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_variable_binding_owns_first_declarator() {
+    variable_binding_owns_first_declarator(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn variable_pattern_and_broken_initializer_never_get_an_owner(language: LANG) {
+    for source in [
+        &b"/**audit*/\nconst { a } = o;\n"[..],
+        &b"/**audit*/\nconst [a] = o;\n"[..],
+    ] {
+        assert_eq!(view(language, source), View::default());
+        assert_eq!(
+            retained(language, source),
+            View {
+                evidence: vec![(CandidateDisposition::Unattached, 0..10)],
+                ..View::default()
+            }
+        );
+    }
+    for (source, kind, range) in [
+        (
+            &b"/**audit*/\nconst a = ;\n"[..],
+            "lexical_declaration",
+            11..22,
+        ),
+        (
+            &b"/**audit*/\nvar a = ;\n"[..],
+            "variable_declaration",
+            11..20,
+        ),
+        (
+            &b"/**audit*/\nusing a = ;\n"[..],
+            "using_declaration",
+            11..22,
+        ),
+    ] {
+        let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+        let both = indexes(language, &parser, DocumentationOptions::default());
+        assert_eq!(
+            agreed(&both, parser.ts_tree().root_node()),
+            View {
+                documents: vec![comment(0..10, "audit", [(0..5, Copied(3..8))])],
+                assessments: unordered([
+                    pending(AWAITS_OWNER, kind, range.clone(), Some(0)),
+                    pending(NEEDS_PROJECTION, kind, range.clone(), None),
+                ]),
+                ..View::default()
+            },
+        );
+        pending_query(&both, node_at(&parser, kind, range));
+        for index in &both {
+            assert_eq!(index.facts().owners().len(), 1, "{}", source.escape_ascii());
+        }
+    }
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_variable_pattern_and_broken_initializer_never_get_an_owner() {
+    variable_pattern_and_broken_initializer_never_get_an_owner(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_variable_pattern_and_broken_initializer_never_get_an_owner() {
+    variable_pattern_and_broken_initializer_never_get_an_owner(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn using_linebreak_is_a_known_grammar_limitation(language: LANG) {
+    // Node.js parses the line break as an expression `using` then assignment, not a binding.
+    let source = b"/** d */\nusing\nx = f();\n";
+    assert_eq!(
+        view(language, source),
+        node_owner(
+            comment(0..8, "d", [(0..1, Copied(4..5))]),
+            "variable_declarator",
+            15..22,
+        )
+    );
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_using_linebreak_is_a_known_grammar_limitation() {
+    using_linebreak_is_a_known_grammar_limitation(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_using_linebreak_is_a_known_grammar_limitation() {
+    using_linebreak_is_a_known_grammar_limitation(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn let_linebreak_is_not_a_lexical_declaration(language: LANG) {
+    let source = b"/**audit*/\nlet\na = 1;\n";
+    let parser = clean(language, source);
+    let expressions: Vec<_> = parser
+        .root_node()
+        .preorder()
+        .filter(|node| node.kind() == "expression_statement")
+        .collect();
+    assert_eq!(expressions.len(), 2);
+    assert_eq!(expressions[0].as_tree_sitter().byte_range(), 11..14);
+    assert_eq!(expressions[1].as_tree_sitter().byte_range(), 15..21);
+    assert!(
+        !parser
+            .root_node()
+            .preorder()
+            .any(|node| node.kind() == "lexical_declaration")
+    );
+    assert_eq!(
+        view(language, source),
+        View {
+            assessments: vec![pending(
+                NEEDS_PROJECTION,
+                "expression_statement",
+                15..21,
+                None
+            )],
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_let_linebreak_is_not_a_lexical_declaration() {
+    let_linebreak_is_not_a_lexical_declaration(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_let_linebreak_is_not_a_lexical_declaration() {
+    let_linebreak_is_not_a_lexical_declaration(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn wide_variable_binding_cancels_during_owner_projection(language: LANG) {
+    let mut source = b"/**audit*/\nconst ".to_vec();
+    for _ in 0..2_048 {
+        source.extend_from_slice(b"/*c*/ ");
+    }
+    source.extend_from_slice(b"a = 1;\n");
+    let parser = clean(language, &source);
+    let declaration = parser
+        .root_node()
+        .preorder()
+        .find(|node| node.kind() == "lexical_declaration")
+        .unwrap();
+    assert!(declaration.child_count() > 1_024);
+    let result = crate::documentation::budget::cancel_in_phase(
+        crate::documentation::budget::WorkPhase::Projection,
+        || {
+            parser.documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+        },
+    );
+    assert!(matches!(result, Err(CollectionError::Cancelled)));
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 1);
+    assert_eq!(
+        index
+            .node_projection(declaration.as_tree_sitter())
+            .unwrap()
+            .owners()
+            .len(),
+        1
+    );
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_wide_variable_binding_cancels_during_owner_projection() {
+    wide_variable_binding_cancels_during_owner_projection(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_wide_variable_binding_cancels_during_owner_projection() {
+    wide_variable_binding_cancels_during_owner_projection(LANG::Mozjs);
+}
+
+#[cfg(all(feature = "typescript", any(feature = "javascript", feature = "mozjs")))]
+#[test]
+fn typescript_variable_binding_remains_pending() {
+    let parser = AnyParser::parse(
+        LANG::Typescript,
+        b"/**audit*/\nconst f = 1;".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    let declaration = parser
+        .root_node()
+        .preorder()
+        .find(|node| node.kind() == "lexical_declaration")
+        .unwrap();
+    assert!(
+        index
+            .node_projection(declaration.as_tree_sitter())
+            .unwrap()
+            .pending()
+    );
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+#[derive(Default)]
+struct BindingSteps {
+    steps: std::cell::Cell<usize>,
+    fail_at: Option<usize>,
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+impl crate::documentation::budget::WorkBudget for BindingSteps {
+    type Error = SourceError;
+
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn bytes(&self, _: usize) -> Result<(), SourceError> {
+        Ok(())
+    }
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn variable_child_scans_charge_each_child(language: LANG) {
+    use super::projections::js_first_declarator_with_budget;
+    // expected: `const`, four comments, declarator = 6 declaration children;
+    // the identifier is the first and only declarator child read. Total 7 steps.
+    let outer = b"/**audit*/\nconst /* c *//* c *//* c *//* c */a = 1;\n";
+    // expected: `const`, declarator = 2 declaration children; its first
+    // child is the identifier; a following comment does not extend the scan.
+    let inner = b"/**audit*/\nconst a /* c */ = 1;\n";
+    for (source, bound) in [(outer.as_slice(), 7), (inner.as_slice(), 3)] {
+        let parser = clean(language, source);
+        let index = indexes(language, &parser, DocumentationOptions::default());
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "lexical_declaration")
+            .unwrap();
+        let id = index[0]
+            .canonical
+            .lookup(declaration.as_tree_sitter())
+            .unwrap();
+        let budget = BindingSteps::default();
+        assert!(
+            js_first_declarator_with_budget(&index[0].canonical, id, &budget)
+                .unwrap()
+                .is_some()
+        );
+        assert!(budget.steps.get() >= bound);
+        assert!(budget.steps.get() <= bound);
+        for at in 1..=bound {
+            let budget = BindingSteps {
+                fail_at: Some(at),
+                ..BindingSteps::default()
+            };
+            assert!(matches!(
+                js_first_declarator_with_budget(&index[0].canonical, id, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), at);
+        }
+    }
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_variable_child_scans_charge_each_child() {
+    variable_child_scans_charge_each_child(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_variable_child_scans_charge_each_child() {
+    variable_child_scans_charge_each_child(LANG::Mozjs);
+}
+
+#[cfg(any(feature = "javascript", feature = "mozjs"))]
+fn using_target_gate_charges_every_child(language: LANG) {
+    // expected: the `using` keyword, four comments, and the first declarator;
+    // budgeted child search charges exactly six steps, including the match.
+    let source = b"using /* c *//* c *//* c *//* c */u = f();\n";
+    let parser = clean(language, source);
+    let declaration = parser
+        .root_node()
+        .preorder()
+        .find(|node| node.kind() == "using_declaration")
+        .unwrap();
+    let node = crate::Node::from_tree_sitter(declaration.as_tree_sitter());
+    let code = parser.code();
+    let check = |budget: &BindingSteps| match language {
+        LANG::Javascript => crate::roles::javascript::doc_target_with_budget(
+            &node,
+            code,
+            crate::Ancestors::known(&[]),
+            budget,
+        ),
+        LANG::Mozjs => crate::roles::mozjs::doc_target_with_budget(
+            &node,
+            code,
+            crate::Ancestors::known(&[]),
+            budget,
+        ),
+        _ => unreachable!(),
+    };
+    let budget = BindingSteps::default();
+    assert!(check(&budget).unwrap());
+    assert!(budget.steps.get() >= 6);
+    assert!(budget.steps.get() <= 6);
+    for at in 1..=6 {
+        let budget = BindingSteps {
+            fail_at: Some(at),
+            ..BindingSteps::default()
+        };
+        assert!(matches!(check(&budget), Err(SourceError::Cancelled)));
+        assert_eq!(budget.steps.get(), at);
+    }
+}
+
+#[cfg(feature = "javascript")]
+#[test]
+fn javascript_using_target_gate_charges_every_child() {
+    using_target_gate_charges_every_child(LANG::Javascript);
+}
+
+#[cfg(feature = "mozjs")]
+#[test]
+fn mozjs_using_target_gate_charges_every_child() {
+    using_target_gate_charges_every_child(LANG::Mozjs);
 }
 
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
@@ -867,28 +1369,12 @@ fn mozjs_crlf_line_endings_keep_byte_ranges_and_decode_to_lf() {
     crlf_line_endings_keep_byte_ranges_and_decode_to_lf(LANG::Mozjs);
 }
 
-// The ownerless documents and pending assessments are today's outcome, not the later design.
+// Assignments and anonymous exports remain pending; variable bindings are resolved here.
 #[cfg(any(feature = "javascript", feature = "mozjs"))]
 fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
     // bca: suppress(halstead) -- the body of one test, run for both variants.
-    let ordinary: [(&[u8], &str, Range<usize>); 4] = [
-        (
-            b"/**audit*/\nconst f = () => 1;\n",
-            "lexical_declaration",
-            11..29,
-        ),
-        (
-            b"/**audit*/\nconst a = 1, b = 2;\n",
-            "lexical_declaration",
-            11..30,
-        ),
-        (b"/**audit*/\nlet u;\n", "lexical_declaration", 11..17),
-        (
-            b"/**audit*/\nvar v = function () {};\n",
-            "variable_declaration",
-            11..34,
-        ),
-    ];
+    let ordinary: [(&[u8], &str, Range<usize>); 1] =
+        [(b"/**audit*/\nx = 1;\n", "expression_statement", 11..17)];
     for (source, kind, range) in ordinary {
         let parser = clean(language, source);
         let both = indexes(language, &parser, DocumentationOptions::default());
@@ -905,27 +1391,6 @@ fn declarations_awaiting_an_owner_keep_their_pending_outcome(language: LANG) {
             "{}",
             source.escape_ascii()
         );
-        pending_query(&both, node_at(&parser, kind, range));
-    }
-    let source = b"/**audit*/\nexport const e = 3;\n";
-    let parser = clean(language, source);
-    let both = indexes(language, &parser, DocumentationOptions::default());
-    assert_eq!(
-        agreed(&both, parser.ts_tree().root_node()),
-        View {
-            documents: vec![comment(0..10, "audit", [(0..5, Copied(3..8))])],
-            assessments: unordered([
-                pending(AWAITS_OWNER, "export_statement", 11..30, Some(0)),
-                pending(NEEDS_PROJECTION, "export_statement", 11..30, None),
-                pending(NEEDS_PROJECTION, "lexical_declaration", 18..30, None),
-            ]),
-            ..View::default()
-        }
-    );
-    for (kind, range) in [
-        ("export_statement", 11..30),
-        ("lexical_declaration", 18..30),
-    ] {
         pending_query(&both, node_at(&parser, kind, range));
     }
     let anonymous: [(&[u8], Range<usize>); 2] = [

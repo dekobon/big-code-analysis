@@ -975,6 +975,7 @@ fn needs_slot(profile: Profile, kind: &str) -> bool {
             kind,
             "lexical_declaration"
                 | "variable_declaration"
+                | "using_declaration"
                 | "expression_statement"
                 | "required_parameter"
                 | "optional_parameter"

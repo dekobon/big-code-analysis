@@ -255,8 +255,8 @@
     {
       "name": "java-comment-child-keeps-the-declaration-pending",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
-      "new": "        if declarator.evidence.node().kind() == \"block_comment\" {\n            return Ok(None);\n        }\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "old": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "new": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() == \"block_comment\" {\n            return Ok(None);\n        }\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
       "expect": [
         "documentation::collector::java_tests::java_second_comment_inside_a_field_declaration_is_not_documentation",
         "documentation::collector::java_tests::java_comment_inside_a_field_declaration_does_not_document_it",
