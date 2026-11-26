@@ -18,6 +18,9 @@ crate::observation::counter!(
 
 pub(crate) trait SourceRules {
     type Checker: Checker;
+    fn separately_assessed_trivia(_node: &Node<'_>) -> bool {
+        false
+    }
     fn start_row<B: WorkBudget>(node: &Node<'_>, budget: &B) -> Result<usize, B::Error>;
     fn marker<B: WorkBudget>(node: &Node<'_>, code: &[u8], budget: &B) -> Result<bool, B::Error>;
 
@@ -54,6 +57,10 @@ pub(crate) struct NativeRules<T>(PhantomData<T>);
 
 impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
     type Checker = T;
+    fn separately_assessed_trivia(node: &Node<'_>) -> bool {
+        // Attribute interiors have their own occurrence/content assessment; only intervening gaps break binding.
+        T::lang() == crate::LANG::Rust && node.kind() == "attribute_item"
+    }
     fn start_row<B: WorkBudget>(node: &Node<'_>, budget: &B) -> Result<usize, B::Error> {
         if T::lang() == crate::LANG::Ruby {
             crate::checker::ruby::start_row_with_budget(node, budget)

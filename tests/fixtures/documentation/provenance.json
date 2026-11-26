@@ -30,6 +30,7 @@
     "scope": "Selected characterization fixtures only. Full repository corpus capture deferred to parent. CLI/default/recovery oracle protocol retained and self-tested separately."
   },
   "independent_expectations": {
+    "rust_same_row_correction": "Unit1 V2 council, 2026-11-20: source-derived Rust 1.99.0 beautify_doc_string/unindent_doc_fragments contract gives 'a \\nb ' from retained ' a '/' b ' interiors; no right trimming. Production assertion: collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces. Legacy row oracle is unchanged.",
     "revision": "42d39ad8cb854536e432dcce164fb7392121cccb",
     "sources": ["docs/development/documentation_extraction.md", "docs/development/documentation_extraction_cases.md"],
     "reference_record": "https://gist.github.com/dekobon/acb5b4fd9ada1c2b63f86ae0f0514524",

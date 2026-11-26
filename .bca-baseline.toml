@@ -365,7 +365,7 @@ value = 966.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 137.0
+value = 136.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -455,19 +455,19 @@ value = 13.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "halstead.effort"
-value = 86240.41224844726
+value = 72422.98375857045
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "nexits"
-value = 8.0
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::record_children"
 metric = "halstead.effort"
-value = 67267.11040846657
+value = 125839.60029393726
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -508,62 +508,44 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::rust_attribute"
-metric = "abc"
-value = 38.948684188300895
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/collector.rs"
-qualified = "Builder<'s>::rust_attribute"
 metric = "halstead.effort"
-value = 127301.51843197798
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/collector.rs"
-qualified = "Builder<'s>::rust_attribute"
-metric = "nexits"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-ast/src/documentation/collector.rs"
-qualified = "Builder<'s>::rust_carrier"
-metric = "nexits"
-value = 7.0
+value = 143073.56545441947
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "abc"
-value = 49.85980344927164
+value = 54.286278192559855
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "cognitive"
-value = 17.0
+value = 21.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "halstead.effort"
-value = 182593.08399265425
+value = 224208.069491629
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::walk"
 metric = "nexits"
-value = 9.0
+value = 10.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "abc"
-value = 57.3149195236284
+value = 58.29236656715869
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "collect_typed"
 metric = "halstead.effort"
-value = 98332.32124623262
+value = 99507.69266781778
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -581,7 +563,7 @@ value = 13.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 79.0
+value = 81.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -593,31 +575,31 @@ value = 48218.38058500087
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::combine_pending"
 metric = "halstead.effort"
-value = 58850.75713727861
+value = 77507.87166066223
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 52.44044240850758
+value = 53.61902647381804
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cognitive"
-value = 23.0
+value = 24.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cyclomatic"
-value = 22.0
+value = 23.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 143957.07071732648
+value = 155069.99356991026
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -653,7 +635,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::render_draft"
 metric = "halstead.effort"
-value = 56025.386626091306
+value = 60244.61690661844
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -897,7 +879,7 @@ value = 66174.94088354147
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
-qualified = "NativeRules<T>::target::<anon@L79>"
+qualified = "NativeRules<T>::target::<anon@L86>"
 metric = "cyclomatic"
 value = 17.0
 
@@ -1019,7 +1001,13 @@ value = 8.0
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
 qualified = "Projection<'_, 's>::copy"
 metric = "halstead.effort"
-value = 76728.81532849002
+value = 86098.43456577566
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
+qualified = "Projection<'_, 's>::copy"
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
@@ -1091,7 +1079,7 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 583.0
+value = 584.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1103,13 +1091,13 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "abc"
-value = 69.28924880528002
+value = 67.21606950722423
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "cognitive"
-value = 38.0
+value = 36.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1121,7 +1109,7 @@ value = 28.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "beautify"
 metric = "halstead.effort"
-value = 409210.04703845707
+value = 385472.6566078847
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1133,7 +1121,7 @@ value = 16.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "blank"
 metric = "nexits"
-value = 8.0
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1169,25 +1157,25 @@ value = 11.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "abc"
-value = 46.776062254106
+value = 39.761790704142086
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "cognitive"
-value = 34.0
+value = 29.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "cyclomatic"
-value = 19.0
+value = 18.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "halstead.effort"
-value = 135842.98435141143
+value = 113526.30607942471
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1199,7 +1187,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "emit_blocks"
 metric = "nexits"
-value = 10.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1211,7 +1199,7 @@ value = 16.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "lines"
 metric = "halstead.effort"
-value = 62992.207215869705
+value = 65731.40015873815
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1235,7 +1223,7 @@ value = 28.0
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "prepare"
 metric = "halstead.effort"
-value = 176271.65882530835
+value = 182561.73428562423
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/comments.rs"
@@ -1272,6 +1260,12 @@ path = "big-code-analysis-ast/src/documentation/text/comments.rs"
 qualified = "render_local"
 metric = "nexits"
 value = 8.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/comments.rs"
+qualified = "rust_fragments"
+metric = "cognitive"
+value = 16.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/literals.rs"
@@ -1322,6 +1316,18 @@ metric = "nexits"
 value = 7.0
 
 [[entry]]
+path = "big-code-analysis-ast/src/documentation/text/rust/literal.rs"
+qualified = "escape"
+metric = "cyclomatic"
+value = 17.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/text/rust/literal.rs"
+qualified = "unicode"
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-ast/src/getter.rs"
 qualified = "Getter::is_braced_literal_slot"
 metric = "halstead.effort"
@@ -1361,7 +1367,7 @@ value = 101217.532578918
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 909.0
+value = 921.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -1462,8 +1468,14 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "collect_stretch_with_budget"
+metric = "cognitive"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "collect_stretch_with_budget"
 metric = "halstead.effort"
-value = 66915.85266413665
+value = 79913.2034194401
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
@@ -1558,14 +1570,26 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "stretch_end_with_budget"
+metric = "abc"
+value = 40.8166632639171
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "stretch_end_with_budget"
+metric = "cognitive"
+value = 17.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
+qualified = "stretch_end_with_budget"
 metric = "cyclomatic"
-value = 15.0
+value = 17.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"
 qualified = "stretch_end_with_budget"
 metric = "halstead.effort"
-value = 113377.45845370996
+value = 123841.80744856672
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/doc_comment.rs"

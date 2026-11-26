@@ -13,6 +13,7 @@ pub(super) mod cleanup;
 pub(super) mod comments;
 #[allow(dead_code)]
 pub(super) mod literals;
+pub(super) mod rust;
 pub(super) mod source_cursor;
 
 #[derive(Debug)]
@@ -25,6 +26,22 @@ impl From<SourceError> for TextError {
     fn from(error: SourceError) -> Self {
         Self::Source(error)
     }
+}
+
+pub(super) fn utf8_scalar<'a, B: WorkBudget>(
+    bytes: &'a [u8],
+    budget: &B,
+) -> Result<&'a str, TextError> {
+    let invalid = || TextError::Unavailable(UnavailableReason::InvalidEncoding);
+    let width = match bytes.first() {
+        Some(0..=0x7f) => 1,
+        Some(0xc2..=0xdf) => 2,
+        Some(0xe0..=0xef) => 3,
+        Some(0xf0..=0xf4) => 4,
+        _ => return Err(invalid()),
+    };
+    budget.bytes(width).map_err(Into::into)?;
+    std::str::from_utf8(bytes.get(..width).ok_or_else(invalid)?).map_err(|_| invalid())
 }
 
 #[derive(Default)]

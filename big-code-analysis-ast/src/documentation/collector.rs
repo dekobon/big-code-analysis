@@ -10,6 +10,9 @@ use crate::{Ancestors, Checker, FoldCache, Node, SiblingCache};
 mod assembly;
 mod projections;
 pub(super) mod qualifications;
+mod rust;
+#[cfg(any(test, feature = "test-support"))]
+pub(super) use rust::{attribute_children, carrier_children};
 
 enum Visit {
     Enter(NodeId, usize),
@@ -75,6 +78,7 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         },
         drafts: Vec::new(),
         pending_attributes: Vec::new(),
+        rust_values: std::collections::HashMap::new(),
         names: super::names::Names::default(),
     };
     let root_id = builder
@@ -115,6 +119,7 @@ struct Builder<'s> {
     index: DocumentationIndex<'s>,
     drafts: Vec<Draft<'s>>,
     pending_attributes: Vec<(NodeId, FragmentId, Option<NodeId>)>,
+    rust_values: std::collections::HashMap<FragmentId, rust::Value>,
     names: super::names::Names,
 }
 
@@ -187,6 +192,17 @@ impl<'s> Builder<'s> {
                     if self.index.profile != Profile::Helper {
                         self.finalize_projection(id, budget)?;
                     }
+                    if self.index.profile == Profile::Rust
+                        && matches!(
+                            self.index.canonical.nodes[id.0].evidence.node().kind(),
+                            "attribute_item" | "inner_attribute_item"
+                        )
+                    {
+                        let node = Node::from_tree_sitter(
+                            self.index.canonical.nodes[id.0].evidence.node(),
+                        );
+                        self.rust_attribute(id, &node, budget)?;
+                    }
                     let record = &self.index.canonical.nodes[id.0];
                     let complex = record.signature_complex
                         || matches!(
@@ -252,6 +268,7 @@ impl<'s> Builder<'s> {
         fields: &mut Vec<Option<&'static str>>,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
+        // bca: suppress(abc, cognitive, nexits) -- the canonical batch records fields, following targets and coverage barriers in one reverse pass.
         let node = self.index.canonical.nodes[id.0].evidence.node();
         children.clear();
         fields.clear();
@@ -278,6 +295,8 @@ impl<'s> Builder<'s> {
             .canonical
             .batch(id, children, &self.index.source, budget)?;
         let mut following = None;
+        let mut next_start = None;
+        let mut following_gap = false;
         for (&child, field) in self.index.canonical.children
             [self.index.canonical.nodes[id.0].children.clone()]
         .iter()
@@ -286,11 +305,30 @@ impl<'s> Builder<'s> {
         {
             budget.step()?;
             let record = &mut self.index.canonical.nodes[child.0];
+            let child_node = Node::from_tree_sitter(record.evidence.node());
+            let attribute = child_node.kind() == "attribute_item";
+            let trivia = T::is_comment(&child_node) || attribute;
+            if self.index.profile == Profile::Rust
+                && trivia
+                && let Some(start) = next_start
+            {
+                following_gap |= !self
+                    .index
+                    .source
+                    .covers_with_budget(record.evidence.node().end_byte()..start, budget)?;
+            }
             record.field = *field;
             record.following = following;
-            let child_node = Node::from_tree_sitter(record.evidence.node());
-            if !T::is_comment(&child_node) && child_node.kind() != "attribute_item" {
+            record.following_gap = trivia && following_gap;
+            next_start = Some(child_node.start_byte());
+            if !trivia {
                 following = Some(child);
+                following_gap = false;
+            } else if self.index.profile == Profile::Rust && !attribute {
+                following_gap |= !self
+                    .index
+                    .source
+                    .covers_with_budget(child_node.start_byte()..child_node.end_byte(), budget)?;
             }
         }
         Ok(())
@@ -397,11 +435,6 @@ impl<'s> Builder<'s> {
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
         budget.step()?;
-        if self.index.profile == Profile::Rust
-            && matches!(node.kind(), "attribute_item" | "inner_attribute_item")
-        {
-            self.rust_attribute(id, node, budget)?;
-        }
         if !T::is_comment(node) {
             return Ok(());
         }
@@ -718,8 +751,8 @@ impl<'s> Builder<'s> {
         node: &Node<'s>,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
-        let carrier = self.rust_carrier(node, budget)?;
-        if carrier == Some(false) {
+        let carrier = self.rust_carrier(id, budget)?;
+        if matches!(carrier, rust::Carrier::Other) {
             return Ok(());
         }
         let mut target = if node.kind() == "attribute_item" {
@@ -739,34 +772,35 @@ impl<'s> Builder<'s> {
                     })
             }
         };
-        if let Some(candidate) = target {
-            let target_node = self.index.canonical.nodes[candidate.0].evidence.node();
-            if node.kind() == "attribute_item"
-                && !self
-                    .index
-                    .source
-                    .covers_with_budget(node.end_byte()..target_node.start_byte(), budget)?
-            {
-                target = None;
-            }
+        if node.kind() == "attribute_item" && self.index.canonical.nodes[id.0].following_gap {
+            target = None;
         }
-        let assessment = self.index.assessments.len();
-        self.index.assessments.push(Assessment {
-            axis: AssessmentAxis::Occurrence,
-            reason: if carrier.is_none() {
-                "Excluded or recovered Rust attribute path may carry documentation"
-            } else {
-                "Structured Rust doc/cfg_attr carrier awaits interpretation"
-            },
-            node: Some(self.index.canonical.nodes[id.0].evidence),
-            document: None,
-        });
+        let unassessed = matches!(
+            carrier,
+            rust::Carrier::Unknown | rust::Carrier::Doc(rust::Value::Pending)
+        );
+        if unassessed {
+            let assessment = self.index.assessments.len();
+            self.index.assessments.push(Assessment {
+                axis: AssessmentAxis::Occurrence,
+                reason: if matches!(carrier, rust::Carrier::Unknown) {
+                    "Excluded or recovered Rust attribute path may carry documentation"
+                } else {
+                    "Structured Rust doc/cfg_attr carrier awaits interpretation"
+                },
+                node: Some(self.index.canonical.nodes[id.0].evidence),
+                document: None,
+            });
+            let pending_scope = target
+                .or(self.index.canonical.nodes[id.0].parent)
+                .unwrap_or(NodeId(0));
+            self.index.canonical.nodes[pending_scope.0]
+                .pending
+                .push(assessment);
+        }
         let pending_scope = target
             .or(self.index.canonical.nodes[id.0].parent)
             .unwrap_or(NodeId(0));
-        self.index.canonical.nodes[pending_scope.0]
-            .pending
-            .push(assessment);
         let publication = self.index.assessments.len();
         self.index.assessments.push(Assessment {
             axis: AssessmentAxis::Publication,
@@ -777,9 +811,9 @@ impl<'s> Builder<'s> {
         self.index.canonical.nodes[pending_scope.0]
             .pending
             .push(publication);
-        if carrier.is_none() {
+        let rust::Carrier::Doc(value) = carrier else {
             return Ok(());
-        }
+        };
         let source = self
             .index
             .source
@@ -790,43 +824,8 @@ impl<'s> Builder<'s> {
             FragmentForm::Attribute,
         );
         self.pending_attributes.push((id, fragment, target));
+        self.rust_values.insert(fragment, value);
         Ok(())
-    }
-
-    fn rust_carrier(
-        &self,
-        node: &Node<'s>,
-        budget: &CollectionBudget,
-    ) -> Result<Option<bool>, CollectionError> {
-        for child in node.children() {
-            budget.step()?;
-            bounds(child.as_tree_sitter(), self.index.source.bytes().len())?;
-            if child.kind() != "attribute" {
-                continue;
-            }
-            for path in child.children() {
-                budget.step()?;
-                bounds(path.as_tree_sitter(), self.index.source.bytes().len())?;
-                if !path.is_named() {
-                    continue;
-                }
-                if !self
-                    .index
-                    .source
-                    .covers_with_budget(path.start_byte()..path.end_byte(), budget)?
-                {
-                    return Ok(None);
-                }
-                return Ok(Some(
-                    path.kind() == "identifier"
-                        && matches!(
-                            &self.index.source.bytes()[path.start_byte()..path.end_byte()],
-                            b"doc" | b"cfg_attr"
-                        ),
-                ));
-            }
-        }
-        Ok((!node.has_error()).then_some(false))
     }
 
     fn finish(&mut self, budget: &CollectionBudget) -> Result<(), CollectionError> {
@@ -967,11 +966,12 @@ fn needs_slot(profile: Profile, kind: &str) -> bool {
 }
 
 fn fields_needed(profile: Profile, kind: &str) -> bool {
-    (profile == Profile::Doxygen
-        && (matches!(
-            kind,
-            "declaration" | "field_declaration" | "function_definition"
-        ) || kind.ends_with("declarator")))
+    (profile == Profile::Rust && kind == "attribute")
+        || (profile == Profile::Doxygen
+            && (matches!(
+                kind,
+                "declaration" | "field_declaration" | "function_definition"
+            ) || kind.ends_with("declarator")))
         || (matches!(profile, Profile::Jsdoc | Profile::BcaTypescriptSource)
             && kind == "export_statement")
         || (profile == Profile::Yard && matches!(kind, "if_modifier" | "unless_modifier"))
@@ -1033,6 +1033,8 @@ mod projection_tests;
 mod remediation_tests;
 #[cfg(test)]
 mod ruby_tests;
+#[cfg(test)]
+mod rust_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

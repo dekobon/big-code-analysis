@@ -383,9 +383,179 @@
       0
     ],
     "sha256": "aac39c7cc5bc121b5a806cc7e48af010226c50176197ef51fd62cef6ce0f45d5",
-    "class": "pending-content",
+    "class": "rust-literal-mixed",
     "provenance": "tests/fixtures/documentation/forms.json",
     "fixture": "rust-attribute.rs",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-value-gap",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "4710f3fe76c114469c63024cfdba4b88386261e3e7b6fe0e1770309b96a54ca0",
+    "class": "rust-literal-value-gap",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes",
+    "has_error": false,
+    "raw_sha256": "a85aa5ccd0dc2e9b6601a91bb454df2e4711749fe6721abb98315e15c9b72387"
+  },
+  {
+    "name": "rust-literal-raw-crlf-pieces",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "1577f0caec27c23e67c1d35a172c31e20c05fe4973cf1e1b042b293ef05f9e56",
+    "class": "rust-literal-raw-crlf-pieces",
+    "provenance": "big-code-analysis-ast/src/documentation/text/rust/literal.rs physical CRLF normalization across included pieces",
+    "has_error": false,
+    "raw_sha256": "39a14034283ed3c33f0b77cd7d98c219bf8f2992b5ed78fdbc2c03915467a042"
+  },
+  {
+    "name": "rust-outer-binding",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "36028f36eb6a0632c886be72a574cfcb978111e7eb72a47c2123a4f17194ae49",
+    "class": "rust-outer-binding",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::outer_attribute_merges_binding_into_inner_comment_document",
+    "has_error": false
+  },
+  {
+    "name": "rust-pending-inner-binding",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "78fac0de145d5649f0f3599c6967f36e7bcf37687ce0a2372a25c5da35b0ad11",
+    "class": "rust-pending-inner-binding",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::outer_metadata_keeps_binding_on_pending_composition",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-cr",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "6ca796396427b5b91d4e1dd7f6ab02d78936ebf01cec351582cf0e71470b408c",
+    "class": "rust-second-lines-cr",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-terminal",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "62d255558078494685e9d47dc7ccbdf9bb54db447fcc2062d4484eae32c14241",
+    "class": "rust-second-lines-terminal",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-second-lines-triple-cr",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "187fc91f5f02e06071009d1db9ca18985e66cd380f15f94accdc7e2167c3954d",
+    "class": "rust-second-lines-triple-cr",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::changed_beautification_reinterprets_one_cr_before_terminal_empty",
+    "has_error": false
+  },
+  {
+    "name": "rust-unicode-first-star",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "e21ad513bf862ed7bc748f9a545da213b5aa5b1ec345392dacfce923e479fa13",
+    "class": "rust-unicode-first-star",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs::unicode_first_line_star_keeps_ascii_decoration_and_exact_origins",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-empty",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "c26860901119f987717d9e5d68326c7328d17c9f1eb7cd5c0b16084c5d2fa4f8",
+    "class": "rust-literal-empty",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-raw",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "f4958c10dba07edbcb03772333194a2c97812f5243a5a58a21b0247c9923e9b3",
+    "class": "rust-literal-raw",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-scalar",
+    "header": [
+      0,
+      7,
+      0
+    ],
+    "sha256": "05cff0ff398c6b754572b486133e967ca77298f1feb6770420f9d0e7e7ebc0a2",
+    "class": "rust-literal-scalar",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-continuation",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "63a7d593904affe3e0166eddbdf49e2a37576f09e51553cfb322980a3248379c",
+    "class": "rust-literal-continuation",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_escape_origins_are_complete_tokens_after_cleanup",
+    "has_error": false
+  },
+  {
+    "name": "rust-literal-margin",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "52986541aa9c95a35b72265d66bb2ef0f67119ce375b530f1a66edea63a74039",
+    "class": "rust-literal-margin",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces",
+    "has_error": false
+  },
+  {
+    "name": "rust-pending-metadata",
+    "header": [
+      0,
+      3,
+      0
+    ],
+    "sha256": "ce15503ce0bec5bbe8a14dc49bcf8bae27823c6d866d5669cc44e2c2a1edaeaf",
+    "class": "pending-content",
+    "provenance": "big-code-analysis-ast/src/documentation/collector/tests.rs::rust_pending_attributes_never_report_complete_partial_text",
     "has_error": false
   },
   {

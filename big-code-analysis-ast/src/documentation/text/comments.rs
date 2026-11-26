@@ -6,15 +6,15 @@ use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Fragment, Origin, Profile, SourceContext, UnavailableReason};
 use std::ops::Range;
 
-struct Line {
-    content: Range<usize>,
-    ending: Range<usize>,
+pub(super) struct Line {
+    pub(super) content: Range<usize>,
+    pub(super) ending: Range<usize>,
 }
 
-struct Block {
-    lines: Vec<Line>,
-    rust_decoration: bool,
-    markdown: bool,
+pub(super) struct Block {
+    pub(super) lines: Vec<Line>,
+    pub(super) rust_decoration: bool,
+    pub(super) markdown: bool,
 }
 
 fn charge<B: WorkBudget>(budget: &B) -> Result<(), TextError> {
@@ -23,7 +23,7 @@ fn charge<B: WorkBudget>(budget: &B) -> Result<(), TextError> {
         .map_err(|error| TextError::Source(error.into()))
 }
 
-fn margin<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<usize, TextError> {
+pub(super) fn margin<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<usize, TextError> {
     let mut count = 0;
     for byte in bytes {
         charge(budget)?;
@@ -45,7 +45,7 @@ fn splice(bytes: &[u8], at: usize) -> usize {
     }
 }
 
-fn lines<B: WorkBudget>(
+pub(super) fn lines<B: WorkBudget>(
     bytes: &[u8],
     range: Range<usize>,
     splices: bool,
@@ -177,7 +177,7 @@ fn delimiters<B: WorkBudget>(
     Ok((start.min(end)..end, block, raw.starts_with(b"/*")))
 }
 
-fn prepare<B: WorkBudget>(
+pub(super) fn prepare<B: WorkBudget>(
     profile: Profile,
     context: &SourceContext<'_>,
     fragment: &Fragment<'_>,
@@ -404,15 +404,7 @@ fn emit_blocks<'s, B: WorkBudget>(
                 budget,
             )?;
             if index + first + 1 < end {
-                if line.ending.len() == 2 {
-                    builder.transformed(
-                        "\n",
-                        Origin::Decoded(source.pieces(line.ending.clone(), budget)?),
-                        budget,
-                    )?;
-                } else {
-                    source.copy(&mut builder, line.ending.clone(), budget)?;
-                }
+                source.newline(&mut builder, line.ending.clone(), budget)?;
             }
         }
     }
@@ -431,7 +423,11 @@ fn empty_block<B: WorkBudget>(block: &Block, budget: &B) -> Result<bool, TextErr
     Ok(true)
 }
 
-fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool, TextError> {
+pub(super) fn blank<B: WorkBudget>(
+    bytes: &[u8],
+    unicode: bool,
+    budget: &B,
+) -> Result<bool, TextError> {
     budget
         .step()
         .map_err(|error| TextError::Source(error.into()))?;
@@ -446,30 +442,16 @@ fn blank<B: WorkBudget>(bytes: &[u8], unicode: bool, budget: &B) -> Result<bool,
     }
     let mut at = 0;
     while at < bytes.len() {
-        let width = match bytes[at] {
-            0..=0x7f => 1,
-            0xc2..=0xdf => 2,
-            0xe0..=0xef => 3,
-            0xf0..=0xf4 => 4,
-            _ => return Err(TextError::Unavailable(UnavailableReason::InvalidEncoding)),
-        };
-        budget
-            .bytes(width)
-            .map_err(|error| TextError::Source(error.into()))?;
-        let scalar = bytes
-            .get(at..at + width)
-            .ok_or(TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
-        let text = std::str::from_utf8(scalar)
-            .map_err(|_| TextError::Unavailable(UnavailableReason::InvalidEncoding))?;
+        let text = super::utf8_scalar(&bytes[at..], budget)?;
         if text.chars().any(|character| !character.is_whitespace()) {
             return Ok(false);
         }
-        at += width;
+        at += text.len();
     }
     Ok(true)
 }
 
-fn rust_fragments<B: WorkBudget>(
+pub(super) fn rust_fragments<B: WorkBudget>(
     blocks: &mut [Block],
     bytes: &[u8],
     budget: &B,
@@ -489,6 +471,17 @@ fn rust_fragments<B: WorkBudget>(
             block.lines.pop();
         }
         let changed = beautify(block, bytes, budget)?;
+        if changed {
+            // Rejoining adds LF after every retained line except the last. The
+            // second str::lines pass removes one CR, even before a terminal empty.
+            let rejoined = block.lines.len().saturating_sub(1);
+            for line in &mut block.lines[..rejoined] {
+                budget.step().map_err(Into::into)?;
+                if bytes[line.content.clone()].last() == Some(&b'\r') {
+                    line.content.end -= 1;
+                }
+            }
+        }
         if changed
             && block.lines.len() > 1
             && block
@@ -500,6 +493,18 @@ fn rust_fragments<B: WorkBudget>(
         }
     }
     Ok(())
+}
+
+fn rust_first_line_star<B: WorkBudget>(bytes: &[u8], budget: &B) -> Result<bool, TextError> {
+    let mut at = 0;
+    while at < bytes.len() {
+        let scalar = super::utf8_scalar(&bytes[at..], budget)?;
+        if scalar.chars().any(|character| !character.is_whitespace()) {
+            return Ok(scalar == "*");
+        }
+        at += scalar.len();
+    }
+    Ok(false)
 }
 
 fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Result<bool, TextError> {
@@ -540,11 +545,10 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
     let mut start = 0;
     let mut end = block.lines.len();
     if block.rust_decoration {
-        if let Some(line) = block.lines.first() {
-            let indent = margin(&bytes[line.content.clone()], budget)?;
-            if bytes.get(line.content.start + indent) != Some(&b'*') {
-                start = 1;
-            }
+        if let Some(line) = block.lines.first()
+            && !rust_first_line_star(&bytes[line.content.clone()], budget)?
+        {
+            start = 1;
         }
         while start < end && blank(&bytes[block.lines[start].content.clone()], true, budget)? {
             start += 1;
@@ -606,7 +610,103 @@ fn beautify<B: WorkBudget>(block: &mut Block, bytes: &[u8], budget: &B) -> Resul
 #[cfg(test)]
 mod remediation_tests {
     use super::*;
+    use crate::documentation::SourceError;
     use crate::documentation::budget::{CollectionBudget, WorkPhase, cancel_in_phase};
+    use std::cell::Cell;
+
+    #[derive(Default)]
+    struct CountingBudget {
+        bytes: Cell<usize>,
+        steps: Cell<usize>,
+        fail_byte: Option<usize>,
+        fail_step: Option<usize>,
+    }
+
+    impl WorkBudget for CountingBudget {
+        type Error = SourceError;
+
+        fn checkpoint(&self) -> Result<(), SourceError> {
+            Ok(())
+        }
+
+        fn step(&self) -> Result<(), SourceError> {
+            self.steps.set(self.steps.get() + 1);
+            if self.fail_step == Some(self.steps.get()) {
+                Err(SourceError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn bytes(&self, count: usize) -> Result<(), SourceError> {
+            self.bytes.set(self.bytes.get() + count);
+            if self.fail_byte.is_some_and(|at| self.bytes.get() >= at) {
+                Err(SourceError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn unicode_first_line_scan_is_bounded_and_charges_each_scalar() {
+        for size in [8, 32, 4096] {
+            let source = format!("{}*", "\u{2003}".repeat(size));
+            let budget = CountingBudget::default();
+            assert!(rust_first_line_star(source.as_bytes(), &budget).unwrap());
+            // expected: N three-byte scalars followed by one ASCII star, no line steps.
+            assert_eq!((budget.bytes.get(), budget.steps.get()), (3 * size + 1, 0));
+            let budget = CountingBudget {
+                fail_byte: Some(6),
+                ..CountingBudget::default()
+            };
+            assert!(matches!(
+                rust_first_line_star(source.as_bytes(), &budget),
+                Err(TextError::Source(SourceError::Cancelled))
+            ));
+            assert_eq!(budget.bytes.get(), 6);
+        }
+        for bytes in [b"".as_slice(), b" \t", "\u{a0}".as_bytes()] {
+            assert!(!rust_first_line_star(bytes, &CountingBudget::default()).unwrap());
+        }
+        let bytes = "\u{2003}*".as_bytes();
+        assert!(matches!(
+            rust_first_line_star(&bytes[..2], &CountingBudget::default()),
+            Err(TextError::Unavailable(UnavailableReason::InvalidEncoding))
+        ));
+        assert!(!rust_first_line_star(&bytes[..3], &CountingBudget::default()).unwrap());
+    }
+
+    #[test]
+    fn second_line_inspection_is_charged_before_trimming() {
+        let bytes = b"\na\r\r\nb";
+        for fail_step in [None, Some(5)] {
+            let mut block = Block {
+                lines: lines(bytes, 0..bytes.len(), false, &CountingBudget::default()).unwrap(),
+                rust_decoration: false,
+                markdown: false,
+            };
+            let budget = CountingBudget {
+                fail_step,
+                ..CountingBudget::default()
+            };
+            let result = rust_fragments(std::slice::from_mut(&mut block), bytes, &budget);
+            // expected: one block, two selected lines, one decoration and one rejoined inspection.
+            assert_eq!(budget.steps.get(), 5);
+            assert_eq!(budget.bytes.get(), 2); // last-line all-stars and first-line ASCII margin.
+            if fail_step.is_some() {
+                assert!(matches!(
+                    result,
+                    Err(TextError::Source(SourceError::Cancelled))
+                ));
+                assert_eq!(block.lines[0].content, 1..3);
+            } else {
+                result.unwrap();
+                assert_eq!(block.lines[0].content, 1..2);
+            }
+            assert_eq!(block.lines[0].ending, 3..5);
+        }
+    }
 
     #[test]
     fn star_column_pass_cancels_on_line_budget_before_byte_budget() {

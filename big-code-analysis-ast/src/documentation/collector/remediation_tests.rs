@@ -23,7 +23,7 @@ fn rust_same_target_composition_and_roles_are_independent_of_placement() {
         (
             "/// outer\n#[doc = \"attribute\"]\nfn f() { //! inner\n}\n",
             "function_item",
-            None,
+            Some("outer\nattribute\ninner"),
             3,
             DocumentRole::Primary,
         ),
@@ -51,7 +51,7 @@ fn rust_same_target_composition_and_roles_are_independent_of_placement() {
         (
             "//! first\n#![doc = \"middle\"]\n//! second\n",
             "source_file",
-            None,
+            Some("first\nmiddle\nsecond"),
             3,
             DocumentRole::FilePackage,
         ),

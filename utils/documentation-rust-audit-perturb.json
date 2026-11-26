@@ -1,0 +1,49 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
+  "cases": [
+    {
+      "name": "duplicate-rust-carrier-lookup",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        let carrier = self.rust_carrier(id, budget)?;",
+      "new": "        let _ = self.rust_carrier(id, budget)?;\n        let carrier = self.rust_carrier(id, budget)?;",
+      "expect": ["documentation::collector::rust_tests::rust_carrier_child_work_depends_on_width_not_depth"]
+    },
+    {
+      "name": "delete-continuation-inner-byte-charge",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "            while matches!(bytes.get(*at), Some(b' ' | b'\\t' | b'\\n' | b'\\r')) {\n                budget.bytes(1).map_err(Into::into)?;",
+      "new": "            while matches!(bytes.get(*at), Some(b' ' | b'\\t' | b'\\n' | b'\\r')) {",
+      "expect": ["documentation::text::rust::literal::tests::continuation_whitespace_is_charged_before_any_append"]
+    },
+    {
+      "name": "delete-unicode-inner-byte-charge",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "    let mut digits = 0;\n    loop {\n        budget.bytes(1).map_err(Into::into)?;",
+      "new": "    let mut digits = 0;\n    loop {",
+      "expect": ["documentation::text::rust::literal::tests::unicode_digits_are_charged_before_piece_gathering_and_append"]
+    },
+    {
+      "name": "duplicate-decoded-origin-piece-copy",
+      "file": "big-code-analysis-ast/src/documentation/text/cleanup.rs",
+      "old": "                    Origin::Decoded(pieces) => Origin::Decoded(copy_pieces(pieces, budget)?),",
+      "new": "                    Origin::Decoded(pieces) => {\n                        let _ = copy_pieces(pieces, budget)?;\n                        Origin::Decoded(copy_pieces(pieces, budget)?)\n                    },",
+      "expect": ["documentation::collector::rust_tests::rust_literal_many_adjacent_pieces_do_not_restart_global_intersections"]
+    },
+    {
+      "name": "nested-g-association-document-points-to-f",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "            self.index.facts.associations.push(Association {\n                document,",
+      "new": "            let audit_document = if self.index.profile == Profile::Rust && self.index.source.bytes() == b\"#[test] #[doc = \\\"test\\\"] fn f() { #[doc = \\\"nested\\\"] fn g() {} }\" && draft.binding.is_some_and(|node| node.node().byte_range() == (51..60)) {\n                DocumentId(0)\n            } else { document };\n            self.index.facts.associations.push(Association {\n                document: audit_document,",
+      "expect": ["documentation::collector::rust_tests::rust_literal_inner_root_module_function_and_private_nested_source_owners"]
+    },
+    {
+      "name": "nested-g-association-scope-points-to-root",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                lexical_scope: self.index.canonical.nodes[draft.scope.0].evidence,",
+      "new": "                lexical_scope: if self.index.profile == Profile::Rust && self.index.source.bytes() == b\"#[test] #[doc = \\\"test\\\"] fn f() { #[doc = \\\"nested\\\"] fn g() {} }\" && draft.binding.is_some_and(|node| node.node().byte_range() == (51..60)) {\n                    self.index.canonical.nodes[0].evidence\n                } else { self.index.canonical.nodes[draft.scope.0].evidence },",
+      "expect": ["documentation::collector::rust_tests::rust_literal_inner_root_module_function_and_private_nested_source_owners"]
+    }
+  ]
+}

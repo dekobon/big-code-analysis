@@ -1,0 +1,98 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "-p", "big-code-analysis", "--all-features", "--lib", "--no-fail-fast", "documentation"],
+  "cases": [
+    {
+      "name": "ordinary-siblings-pay-discarded-coverage-searches",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if self.index.profile == Profile::Rust\n                && trivia\n                && let Some(start) = next_start",
+      "new": "if self.index.profile == Profile::Rust\n                && let Some(start) = next_start",
+      "expect": ["documentation::collector::rust_tests::ordinary_rust_sibling_spacing_adds_no_binding_coverage_searches"]
+    },
+    {
+      "name": "empty-output-range-emits-zero-width-map",
+      "file": "big-code-analysis-ast/src/documentation/text/cleanup.rs",
+      "old": "if range.is_empty() {\n            return Ok(());\n        }",
+      "new": "if false && range.is_empty() {\n            return Ok(());\n        }",
+      "expect": ["documentation::collector::rust_tests::rust_literal_escape_origins_are_complete_tokens_after_cleanup"]
+    },
+    {
+      "name": "direct-literal-remains-unassessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "Value::Literal(value.byte_range())",
+      "new": "{ let _ = value; Value::Pending }",
+      "expect": ["documentation::collector::rust_tests::rust_literal_complete_has_exact_owner_raw_fragments_and_prepared_queries", "metrics::loc::documentation_tests::documentation_rust_literal_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "byte-prefix-inspects-invalid-interior-first",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "if matches!(bytes.first(), Some(b'b' | b'c')) {",
+      "new": "if matches!(bytes.first(), Some(b'b' | b'c')) { validate(bytes, budget)?;",
+      "expect": ["documentation::collector::rust_tests::rust_literal_state_priority_is_pending_gap_boundary_then_source_order"]
+    },
+    {
+      "name": "mixed-margin-extra-position-removed",
+      "file": "big-code-analysis-ast/src/documentation/text/rust.rs",
+      "old": "let add = usize::from(sugared && nonsugared);",
+      "new": "let add = usize::from(sugared && nonsugared) * 0;",
+      "expect": ["documentation::collector::rust_tests::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces"]
+    },
+    {
+      "name": "trailing-content-spaces-trimmed",
+      "file": "big-code-analysis-ast/src/documentation/text/rust.rs",
+      "old": "let mut range = line.content.clone();",
+      "new": "let mut range = line.content.clone(); while range.end > range.start && fragment.bytes(context)[range.end - 1] == b' ' { range.end -= 1; }",
+      "expect": ["documentation::collector::rust_tests::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces"]
+    },
+    {
+      "name": "empty-fragment-separator-dropped",
+      "file": "big-code-analysis-ast/src/documentation/text/rust.rs",
+      "old": "if position != 0 {",
+      "new": "if position != 0 && !output.text.is_empty() {",
+      "expect": ["documentation::collector::rust_tests::rust_literal_cleanup_pins_mixed_margin_empty_joins_and_trailing_spaces"]
+    },
+    {
+      "name": "escape-origin-clipped-to-last-byte",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "range.start + start..range.start + at",
+      "new": "range.start + start.max(at - 1)..range.start + at",
+      "expect": ["documentation::collector::rust_tests::rust_literal_escape_origins_are_complete_tokens_after_cleanup"]
+    },
+    {
+      "name": "covered-attribute-path-required",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": ".covers_with_budget(path.byte_range(), budget)?",
+      "new": ".covers_with_budget(path.start_byte()..path.start_byte(), budget)?",
+      "expect": ["documentation::collector::rust_tests::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes"]
+    },
+    {
+      "name": "attribute-internal-gap-blocks-known-comment",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "T::lang() == crate::LANG::Rust && node.kind() == \"attribute_item\"",
+      "new": "false && T::lang() == crate::LANG::Rust && node.kind() == \"attribute_item\"",
+      "expect": ["documentation::collector::rust_tests::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes"]
+    },
+    {
+      "name": "required-gap-loses-state-priority",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "gap |= fragment.source.has_excluded_gap();",
+      "new": "gap |= false && fragment.source.has_excluded_gap();",
+      "expect": ["documentation::collector::rust_tests::rust_literal_excluded_path_stays_scope_only_and_value_gap_contributes"]
+    },
+    {
+      "name": "escape-piece-cursor-restarts-at-prefix",
+      "file": "big-code-analysis-ast/src/documentation/text/rust/literal.rs",
+      "old": "let start = at;",
+      "new": "let start = at; source = SourceCursor::new(&fragment.source);",
+      "expect": ["documentation::collector::rust_tests::rust_literal_many_adjacent_pieces_do_not_restart_global_intersections"]
+    },
+    {
+      "name": "document-rendered-twice",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "render(&self.index.source, &inputs, budget)",
+      "new": "{ let _ = render(&self.index.source, &inputs, budget)?; render(&self.index.source, &inputs, budget) }",
+      "expect": ["documentation::collector::rust_tests::rust_literal_materializes_once_and_prices_decoding_projection_and_retained_reads"]
+    }
+  ]
+}

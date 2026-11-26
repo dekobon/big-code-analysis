@@ -2,7 +2,7 @@
 
 use super::{TextBuilder, TextError};
 use crate::documentation::budget::WorkBudget;
-use crate::documentation::{SourcePiece, SourcePieces, UnavailableReason};
+use crate::documentation::{Origin, SourcePiece, SourcePieces, UnavailableReason};
 use std::ops::Range;
 
 pub(super) struct SourceCursor<'f, 's> {
@@ -63,6 +63,19 @@ impl<'f, 's> SourceCursor<'f, 's> {
             builder.copied(&self.pieces(range, budget)?, budget)?;
         }
         Ok(())
+    }
+
+    pub(super) fn newline<B: WorkBudget>(
+        &mut self,
+        builder: &mut TextBuilder<'s>,
+        range: Range<usize>,
+        budget: &B,
+    ) -> Result<(), TextError> {
+        if range.len() == 2 {
+            builder.transformed("\n", Origin::Decoded(self.pieces(range, budget)?), budget)
+        } else {
+            self.copy(builder, range, budget)
+        }
     }
 }
 

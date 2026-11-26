@@ -1,0 +1,64 @@
+{
+  "scope": "Direct cooked/raw Rust doc attributes and mixed mapped text on existing owners; Unit1 of #1664",
+  "base": "04dc92190555aa5ca6be55f95babd12f74a14a89",
+  "grammar": {"runtime": "0.26.13", "rust": "0.24.2"},
+  "grammar_evidence": "big-code-analysis-ast/tests/rust_documentation_grammar.rs",
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/rust_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifest": "utils/documentation-rust-literal-perturb.json",
+  "audit_corrections": {
+    "base": "69e69b5e3d81231fc308a433713757a02e590265",
+    "mutation_manifest": "utils/documentation-rust-audit-perturb.json",
+    "budget_oracles": "big-code-analysis-ast/src/documentation/text/rust/literal/tests.rs",
+    "carrier_work": "For W plain doc attributes, item readers examine #, [, attribute (returning before ]): 3W. Direct attribute readers examine path, =, value: 3W. Typed/raw collections are measured separately across (0,N), (N,1), (N,N) depth/width controls.",
+    "piece_work": "N four-byte hex escapes clone 4N responsible one-byte pieces or N contiguous token pieces through the actual copy_with_budget loop; retained queries clone zero pieces. Duplicate decoded-origin copying yields 8N split-piece clones.",
+    "continuation_budget": "Whitespace-only LF continuation charges N+2 bytes; CRLF charges N+3. Failing byte 3/4 respectively precedes any source-piece step, append checkpoint or output copy.",
+    "unicode_budget": "Each clean parsed 1F600 token charges backslash + u + five digits + closing brace (8 bytes), then two four-byte append charges: 16N total, N source-piece steps, 2N checkpoints, N copies. Failure at byte 3 precedes piece gathering and append.",
+    "nested_graph": "Exact existing test fixture: f24..62, body31..62, g51..60, root0..62. Both associated_document identity and lexical_scope are asserted separately from enumeration/content and through prepared owner/node queries.",
+    "grammar_evidence": "Representative q, short hex, underscore Unicode, missing bracket and included path/value-gap assertions preserve the previously captured pinned grammar fields/ranges/flags. has_error, is_error and is_missing are separate observations.",
+    "runtime_obligation": "Three unconditional observation recorders add production overhead; test-only accessors do not make that overhead free. Counter/budget tests establish only their named work, not a universal complexity or performance bound. Runtime qualification remains pending."
+  },
+  "preserved_rust_attribute_payload_sha256": "aac39c7cc5bc121b5a806cc7e48af010226c50176197ef51fd62cef6ce0f45d5",
+  "cleanup_sources": [
+    "https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_ast/src/util/comments.rs",
+    "https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_resolve/src/rustdoc.rs"
+  ],
+  "independent_derivations": {
+    "outer_binding": "The outer attribute explicitly targets function17..37 or module17..36 in the line-comment fixtures. Inner block variants end at 39 and 38 respectively. Metadata targets function15..35 and its pending Composition assessment must retain that same node/document link. Inner-only attributes/comments supply no invented outer binding.",
+    "changed_second_lines": "Rust 1.99.0 beautify_doc_string rejoins only changed fragments. add_doc_fragment then calls lines again: decoded \\na\\r\\r\\nb becomes a LF b. Copied a11..12, decoded LF16..18, copied b18..19 survive; both CR escape origins are absent. Unchanged a\\r\\r\\nb retains the first CR10..12. Only one additional CR is removed: changed triple-CR retains one, unchanged retains two.",
+    "terminal_second_lines": "Decoded \\na\\r\\r\\n\\n beautifies to a CR LF, whose second lines pass yields a. The CR must be trimmed before removing the terminal empty line. Decoded \\na\\r\\n also yields a. Both retain only copied a11..12.",
+    "unicode_first_star": "EM SPACE and NBSP are Unicode whitespace for initial trim_start eligibility, so their first-line stars participate. ASCII-only decoration validation then rejects that non-ASCII prefix. For EM SPACE the second star output8..9 copies source11..12; mixed z retains EM SPACE '* a LF * b LF z'. Unicode is never treated as removable ASCII margin.",
+    "comment_cr_policy": "The bare-CR comment control is collector policy rather than Rust/rustdoc source parity. In /** LF a CR CR LF b*/, removed content CR5..6 must not enlarge the retained physical CRLF origin6..8. The mixed literal renderer preserves the same origin.",
+    "withdrawn_priority_examples": "Exactly 256 raw-string hashes in either order with x80 produce attribute ERROR descendants and two-fragment GrammarBoundary before decoding. The unclosed inner block spelling is ERROR, not block_comment, and leaves one literal contributor with InvalidEncoding. These are pinned grammar/content controls, not a global-priority rewrite.",
+    "mixed_margin": "Sugared '     hello' has margin five; nonsugared 'another' participates with add=1. Global minimum one removes one from the comment and zero from the attribute: four spaces remain.",
+    "empty_join": "Each empty prose fragment contributes an assembly LF; one final assembly LF is removed. Two empty attributes produce one LF.",
+    "same_row": "Single-line interiors ' a ' and ' b ' lose their common left space, preserving both right spaces: 'a \\nb '. Physical legacy DLOC remains one.",
+    "decoded_crlf": "Cooked a\\r\\nb decodes CR and LF separately. str::lines removes CR; LF output maps only to the complete \\n escape. Physical CRLF instead maps to both physical bytes.",
+    "unicode_underscores": "Pinned grammar recovers \\u{1_f600} into ERROR plus a missing-delimiter value. Production content is GrammarBoundary; the decoder's valid underscore syntax cannot establish lost supplied-tree boundaries."
+  },
+  "three_fix_remediation": {
+    "base": "6c3201abaa30618062e1e63cf0e0f020fff27ed1",
+    "proposal_sha256": "db399713f8b79faa1e561e0370b8f511678d127676c5334702d6b49d4d773f41",
+    "production_oracles": "big-code-analysis-ast/src/documentation/collector/rust_remediation_tests.rs",
+    "budget_oracles": "big-code-analysis-ast/src/documentation/text/comments.rs::remediation_tests",
+    "mutation_manifest": "utils/documentation-rust-remediation-perturb.json",
+    "oracle_scope": "Executed unchanged Rust 1.99.0 beautify_doc_string, unindent_doc_fragments, add_doc_fragment and Attributes::opt_doc_value bodies with minimal safe symbol/fragment wrappers. This is a decoded-text cleanup oracle, not a full rustdoc compiler or source-span oracle. Source mappings are independently counted from fixture bytes.",
+    "upstream_source_sha256": {
+      "https://raw.githubusercontent.com/rust-lang/rust/1.99.0/compiler/rustc_ast/src/util/comments.rs": "c8c64ea483fb455a85c110e88abd3988b0381b350dcf1ce255dacc7fecbde521",
+      "https://raw.githubusercontent.com/rust-lang/rust/1.99.0/compiler/rustc_resolve/src/rustdoc.rs": "7a486aa7d72eb16979a55563d2995b61b9616d9e3d6474cd6e6d7bfc2f163b42",
+      "https://raw.githubusercontent.com/rust-lang/rust/1.99.0/src/librustdoc/clean/types.rs": "8b351e27a5b3ec9302622e0832b6c425439c1200fb5e60f2af51cc09ed44e7eb"
+    },
+    "extracted_body_sha256": {
+      "beautify_doc_string": "229813f1b1159e51ffd4e7924b08dd8f7f6be0948ed256f4e19da505f3782239",
+      "unindent_doc_fragments_and_add_doc_fragment": "c4b54894e9d0587ea61700598c013beba33f1720544ebc6784b56d621a1877b4",
+      "Attributes_opt_doc_value": "f376ade2f45a5ced85c6cb845d2fb08076d3bc7797d629100c1183d20fef3458"
+    }
+  },
+  "pending": [
+    "Additional field, variant, associated-type and tuple-slot owner projections",
+    "Metadata, computed/conditional carriers and publication interpretation",
+    "Macro attribute-token evidence and inner impl normalization",
+    "Parent-ordered simplification, optimization, test audit and seven review roles",
+    "Coordinated adapter performance fixtures and finite fuzz campaigns"
+  ]
+}
