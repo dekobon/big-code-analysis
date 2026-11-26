@@ -31,33 +31,13 @@ impl Builder<'_> {
         if self.index.profile == Profile::Doxygen && node.kind() == "function_definition" {
             self.index_function_definition(id, budget)?;
         }
-        if self.index.profile == Profile::Doxygen
-            && matches!(node.kind(), "declaration" | "field_declaration")
-            && matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return self.c_slots(id, budget);
+        if !is_wrapper(self.index.profile, node.kind()) {
+            return self.declaration_owners(id, budget);
         }
-        if self.index.profile == Profile::Javadoc
-            && matches!(node.kind(), "field_declaration" | "constant_declaration")
-            && matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
-            return self.java_field_slots(id, budget);
-        }
-        if self.index.profile == Profile::GoDoc {
-            return self.go_member_owners(id, budget);
-        }
-        if !is_wrapper(self.index.profile, node.kind())
-            || !matches!(
-                self.index.canonical.nodes[id.0].projection,
-                Projection::Pending
-            )
-        {
+        if !matches!(
+            self.index.canonical.nodes[id.0].projection,
+            Projection::Pending
+        ) {
             return Ok(());
         }
         let range = self.index.canonical.nodes[id.0].children.clone();
@@ -105,6 +85,38 @@ impl Builder<'_> {
         }
         if !owners.is_empty() {
             self.index.canonical.nodes[id.0].projection = Projection::Ready(owners);
+        }
+        Ok(())
+    }
+
+    // The owners of a node that is no wrapper: one arm per profile that gives a
+    // declaration owners of its own. A profile without such a rule changes nothing.
+    fn declaration_owners(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let node = self.index.canonical.nodes[id.0].evidence.node();
+        if self.index.profile == Profile::Doxygen
+            && matches!(node.kind(), "declaration" | "field_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.c_slots(id, budget);
+        }
+        if self.index.profile == Profile::Javadoc
+            && matches!(node.kind(), "field_declaration" | "constant_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.java_field_slots(id, budget);
+        }
+        if self.index.profile == Profile::GoDoc {
+            return self.go_member_owners(id, budget);
         }
         Ok(())
     }
