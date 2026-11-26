@@ -37,10 +37,10 @@ For example, Python's primary projection is:
 [{"fragments":[[13,20]],"owner":[0,29],"owner_kind":"function_definition","text":"audit"}]
 ```
 
-The module root shares that range but is the wrong owner. Current tests run production parsing,
-recognition and metrics; they do not claim extraction conformance. Lua first-file and Python chained
-assignment controls add raw requirements and recognition tests without extending `selection.json`.
-Their source associations remain requirements for future adapters.
+The module root shares that range but is the wrong owner. Adapter tests exercise extraction
+where implemented; an inventory row alone does not claim conformance. Lua first-file and
+Python chained assignment controls add raw requirements and recognition tests without extending
+`selection.json`. Their source associations remain requirements for future adapters.
 
 - Rust outer docs and comments inside pruned attribute runs disappear with the item. Plain prefixes
   and inner docs survive, as described by the [legacy pruning contract][recognition]. The
