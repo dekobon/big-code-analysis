@@ -11,11 +11,12 @@
     "A field declaration with a missing semicolon has a syntax error in the pinned grammar and stays a pending owner; javac recovers and attaches both comments.",
     "A declaration with an unnamed (_) declarator stays a pending owner as a whole; javac reports an error for the name and still attaches the comment to every declarator.",
     "The local text of /** a */ is a; DocTrees.getDocComment returns the raw text with its trailing space.",
-    "A documentation comment that holds a raw \\u escape has no text and an unresolved association, which lists the field slots of a resolvable declaration as candidates; javac translates the escape and attaches the comment."
+    "A documentation comment that holds a raw \\u escape has no text and an unresolved association, which lists the field slots of a resolvable declaration as candidates; javac translates the escape and attaches the comment.",
+    "For /****/ before class C, BCA preserves the lone interior star as text '*'; JDK 25.0.5 DocTrees returns empty text (gap analysis j45). Publication for non-package targets stays Unknown."
   ],
   "pending": [
-    "Package and module role and filename-dependent publication",
-    "Java text edges /****/ and /** x **/",
+    "Module role and publication",
+    "Other Java text edges such as /** x **/ remain outside the units",
     "Parameter and record-component documentation",
     "Kotlin and Groovy owners",
     "Benchmark workloads and fuzz seeds for field slots"

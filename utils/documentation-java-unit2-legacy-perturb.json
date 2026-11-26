@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_java_package_and_forms_keep_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "java-package-legacy-doc-row-shift",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        LegacyEvent::BoundComment(member) => {\n            stats\n                .dloc\n                .lines\n                .insert_range(member.start_row(), member.end_row());\n        }",
+      "new": "        LegacyEvent::BoundComment(member) => {\n            let shift = if member.start_row() == 0 { 1 } else { 0 };\n            stats\n                .dloc\n                .lines\n                .insert_range(member.start_row() + shift, member.end_row() + shift);\n        }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_java_package_and_forms_keep_legacy_rows"
+      ]
+    }
+  ]
+}

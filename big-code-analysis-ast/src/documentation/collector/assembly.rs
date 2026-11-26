@@ -201,10 +201,26 @@ impl<'s> Builder<'s> {
                 convention: Convention(self.index.profile.name()),
                 binding: draft.binding,
                 lexical_scope: self.index.canonical.nodes[draft.scope.0].evidence,
-                publication: Publication::Unknown,
+                publication: self.publication(draft.target, budget)?,
             });
         }
         Ok(())
+    }
+
+    fn publication(
+        &self,
+        target: Option<NodeId>,
+        budget: &CollectionBudget,
+    ) -> Result<Publication, SourceError> {
+        if self.index.profile == Profile::Javadoc
+            && target.is_some_and(|target| {
+                self.index.canonical.nodes[target.0].evidence.node().kind() == "package_declaration"
+            })
+        {
+            java_package_publication(self.index.context.logical_filename.as_deref(), budget)
+        } else {
+            Ok(Publication::Unknown)
+        }
     }
 
     fn pending_document(
@@ -385,4 +401,24 @@ impl<'s> Builder<'s> {
             Err(crate::documentation::text::TextError::Unavailable(_)) => Ok(None),
         }
     }
+}
+
+pub(super) fn java_package_publication<B: WorkBudget>(
+    filename: Option<&str>,
+    budget: &B,
+) -> Result<Publication, SourceError> {
+    let Some(name) = filename else {
+        return Ok(Publication::Unknown);
+    };
+    let expected = b"package-info.java";
+    if name.len() != expected.len() {
+        return Ok(Publication::Ineligible);
+    }
+    for (&actual, &wanted) in name.as_bytes().iter().zip(expected) {
+        crate::documentation::byte_scan::one(budget).map_err(Into::into)?;
+        if actual != wanted {
+            return Ok(Publication::Ineligible);
+        }
+    }
+    Ok(Publication::Eligible)
 }

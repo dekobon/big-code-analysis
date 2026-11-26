@@ -97,6 +97,7 @@ pub(crate) struct CollectionBudget {
 
 // These count actual checkpoints, not calls to a generic NoBudget wrapper.
 crate::observation::counter!(polls, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(byte_charges, cfg(any(test, feature = "test-support")));
 
 impl CollectionBudget {
     fn charge(
@@ -137,6 +138,7 @@ impl WorkBudget for CollectionBudget {
     }
 
     fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        byte_charges::record();
         self.charge(&self.bytes, count, BYTE_INTERVAL)
     }
     fn phase(&self) -> WorkPhase {

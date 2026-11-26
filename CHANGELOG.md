@@ -26,6 +26,12 @@ for historical reference.
 
 ### Added
 
+- The unstable Java source-documentation collector now marks package documentation
+  eligible only with the explicit logical filename `package-info.java`, ineligible
+  with a different filename, and unknown without one. Attachment and cleaned text
+  remain available in every case. Legacy documentation metrics are unchanged.
+  (#1666, Unit 2)
+
 - The unstable Rust AST documentation collector now decodes direct cooked/raw
   `doc` strings and composes them with comments using Rust 1.99.0 cleanup and
   exact forward origins. Outer attributes retain their binding when combined with
