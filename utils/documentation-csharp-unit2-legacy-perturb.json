@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_csharp_unit2_declarations_keep_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "csharp-field-legacy-documentation-row-is-lost",
+      "file": "big-code-analysis-ast/src/roles/csharp.rs",
+      "old": "DocComment { owns [Comment(text_gated_by opens_with_xml_doc_marker no_chain)] }",
+      "new": "DocComment { owns [] }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_csharp_unit2_declarations_keep_legacy_rows"
+      ]
+    }
+  ]
+}

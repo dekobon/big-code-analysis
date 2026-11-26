@@ -3,12 +3,18 @@
 //! through both entry points, except in the last test, which pins the parse-tree shapes
 //! the other tests rely on.
 
+#![allow(clippy::single_range_in_vec_init, clippy::naive_bytecount)]
+
+#[cfg(feature = "csharp")]
+use crate::documentation::budget::WorkBudget;
 #[cfg(feature = "csharp")]
 use crate::documentation::*;
 #[cfg(feature = "csharp")]
 use crate::test_support::for_each_node_with_chain;
 #[cfg(feature = "csharp")]
 use crate::{Ancestors, AnyParser, Checker, CsharpCode, LANG};
+#[cfg(feature = "csharp")]
+use std::cell::Cell;
 #[cfg(feature = "csharp")]
 use std::ops::Range;
 
@@ -17,7 +23,7 @@ use Run::{Copied, Decoded, Synthetic};
 
 /// The origin of one run of a document's text, with the source byte range it reads.
 #[cfg(feature = "csharp")]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Run {
     Copied(Range<usize>),
     Decoded(Range<usize>),
@@ -28,7 +34,7 @@ enum Run {
 /// One document: its role, its fragments as source byte ranges, its text, and each run
 /// of the text as an output range with its origin.
 #[cfg(feature = "csharp")]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Doc {
     role: DocumentRole,
     composition: Composition,
@@ -46,6 +52,7 @@ struct Doc {
 struct View {
     documents: Vec<Doc>,
     owners: Vec<(Resolution, &'static str, Range<usize>)>,
+    slots: Vec<Vec<(SlotRole, usize, Range<usize>)>>,
     evidence: Vec<(CandidateDisposition, Range<usize>)>,
     assessments: usize,
 }
@@ -89,6 +96,33 @@ fn owned(document: Doc, kind: &'static str, owner: Range<usize>) -> View {
     View {
         documents: vec![document],
         owners: vec![(Resolution::Resolved, kind, owner)],
+        slots: vec![Vec::new()],
+        evidence: Vec::new(),
+        assessments: 0,
+    }
+}
+
+#[cfg(feature = "csharp")]
+fn field_document(
+    fragment: Range<usize>,
+    text: &str,
+    content: Range<usize>,
+    kind: &'static str,
+    declaration: Range<usize>,
+    names: &[Range<usize>],
+    resolution: Resolution,
+) -> View {
+    // bca: suppress(nargs) -- each argument independently pins document bytes or one field-owner property.
+    View {
+        documents: vec![comment(fragment, text, [(0..text.len(), Copied(content))])],
+        owners: vec![(resolution, kind, declaration)],
+        slots: vec![
+            names
+                .iter()
+                .enumerate()
+                .map(|(ordinal, name)| (SlotRole::Field, ordinal, name.clone()))
+                .collect(),
+        ],
         evidence: Vec::new(),
         assessments: 0,
     }
@@ -125,6 +159,7 @@ fn fragment_span(item: &Fragment<'_>) -> Range<usize> {
 
 #[cfg(feature = "csharp")]
 fn published(index: &DocumentationIndex<'_>) -> View {
+    // bca: suppress(halstead) -- one reading of the published documents, associations, and retained evidence.
     let facts = index.facts();
     let documents = index
         .documents()
@@ -148,16 +183,41 @@ fn published(index: &DocumentationIndex<'_>) -> View {
             }
         })
         .collect();
-    let owners = index
+    let associations: Vec<_> = index
         .associations()
-        .map(|association| {
+        .enumerate()
+        .map(|(position, association)| {
+            // bca: suppress(halstead) -- one association's node or ordered slots share binding and scope checks.
             let attachment = association.get();
-            assert_eq!(attachment.owner_count(), 1);
-            let owner = facts.associated_owner(association, 0).unwrap();
-            let Owner::Node(declared) = owner.get() else {
-                panic!("a node owner, found {:?}", owner.get())
+            let listed: Vec<_> = (0..attachment.owner_count())
+                .map(|at| facts.associated_owner(association, at).unwrap())
+                .collect();
+            assert_ne!(attachment.owner_count(), 0);
+            let (declaration, slots) = match listed[0].get() {
+                Owner::Node(declared) => {
+                    assert_eq!(listed.len(), 1);
+                    (declared.node(), Vec::new())
+                }
+                Owner::Slot(_) => {
+                    let mut found = Vec::new();
+                    let mut enclosing = None;
+                    for (ordinal, owner) in listed.iter().enumerate() {
+                        let Owner::Slot(slot) = owner.get() else {
+                            panic!("a field slot, found {:?}", owner.get())
+                        };
+                        let parent = facts.slot_enclosing(*owner).unwrap();
+                        let Owner::Node(node) = parent.get() else {
+                            panic!("a declaration, found {:?}", parent.get())
+                        };
+                        assert!(enclosing.is_none_or(|previous| previous == node.node()));
+                        enclosing = Some(node.node());
+                        assert_eq!(slot.ordinal, ordinal);
+                        found.push((slot.role, slot.ordinal, span(&slot.source)));
+                    }
+                    (enclosing.unwrap(), found)
+                }
+                other => panic!("a declaration or field slot, found {other:?}"),
             };
-            let declaration = declared.node();
             // Both follow from the tree: the binding is the owner itself, and the lexical
             // scope is the parent of the first comment of the document.
             assert_eq!(
@@ -165,6 +225,9 @@ fn published(index: &DocumentationIndex<'_>) -> View {
                 Some(declaration)
             );
             let document = facts.associated_document(association).unwrap();
+            assert_eq!(document, index.documents().nth(position).unwrap());
+            assert_eq!(attachment.convention.name(), "CsharpXml");
+            assert_eq!(attachment.publication, Publication::Unknown);
             let first = facts.document_fragment(document, 0).unwrap();
             let first_comment = first.get().node().unwrap().node();
             assert_eq!(
@@ -172,12 +235,18 @@ fn published(index: &DocumentationIndex<'_>) -> View {
                 first_comment.parent()
             );
             (
-                attachment.resolution,
-                declaration.kind(),
-                declaration.byte_range(),
+                (
+                    attachment.resolution,
+                    declaration.kind(),
+                    declaration.byte_range(),
+                ),
+                slots,
             )
         })
         .collect();
+    let (owners, slots) = associations.into_iter().unzip();
+    assert_eq!(index.capability(), Capability::Partial);
+    assert_eq!(index.qualifications().len(), 0);
     let evidence = index
         .evidence()
         .map(|candidate| {
@@ -188,6 +257,7 @@ fn published(index: &DocumentationIndex<'_>) -> View {
     View {
         documents,
         owners,
+        slots,
         evidence,
         assessments: index.assessments().len(),
     }
@@ -841,18 +911,33 @@ fn csharp_grammar_shapes_the_unit_relies_on() {
 #[test]
 fn csharp_two_declarations_keep_document_and_association_order() {
     // Both independent comments precede different already-supported declarations.
-    let source = b"class C {\n///first\nint P { get; set; }\n///second\nevent System.Action E { add {} remove {} }\n}";
+    let source = concat!(
+        "class C {\n///first\nint P { get; set; }\n",
+        "///second\nevent System.Action E { add {} remove {} }\n}"
+    )
+    .as_bytes();
     let parser = clean(source);
     let both = indexes(&parser, DocumentationOptions::default());
     let seen = agreed(&both);
-    assert_eq!(seen.documents.len(), 2);
-    assert_eq!(seen.documents[0].text, "first");
-    assert_eq!(seen.documents[1].text, "second");
-    assert_eq!(seen.owners[0].1, "property_declaration");
-    assert_eq!(seen.owners[1].1, "event_declaration");
-    assert_eq!(seen.documents[0].fragments, vec![10..18]);
-    assert_eq!(seen.documents[1].fragments, vec![39..48]);
-    assert_eq!(seen.assessments, 0);
+    let first = owned(
+        comment(10..18, "first", [(0..5, Copied(13..18))]),
+        "property_declaration",
+        19..38,
+    );
+    let second = owned(
+        comment(39..48, "second", [(0..6, Copied(42..48))]),
+        "event_declaration",
+        49..91,
+    );
+    assert_eq!(
+        seen,
+        View {
+            documents: [first.documents[0].clone(), second.documents[0].clone()].into(),
+            owners: [first.owners[0].clone(), second.owners[0].clone()].into(),
+            slots: [first.slots[0].clone(), second.slots[0].clone()].into(),
+            ..View::default()
+        }
+    );
 }
 
 #[cfg(feature = "csharp")]
@@ -870,4 +955,758 @@ fn csharp_local_and_top_level_fields_do_not_publish_documents() {
             }
         );
     }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+#[allow(clippy::type_complexity, clippy::single_range_in_vec_init)]
+fn csharp_field_const_and_event_names_each_own_one_field_slot() {
+    let cases: [(&[u8], Range<usize>, Range<usize>, &str, &[Range<usize>]); 3] = [
+        (
+            b"class C {\n///both\nint a, b;\n}",
+            10..17,
+            18..27,
+            "field_declaration",
+            &[22..23, 25..26],
+        ),
+        (
+            b"class C {\n///one\nconst int K = 1;\n}",
+            10..16,
+            17..33,
+            "field_declaration",
+            &[27..28],
+        ),
+        (
+            b"class C {\n///both\nevent System.Action E1, E2;\n}",
+            10..17,
+            18..45,
+            "event_field_declaration",
+            &[38..40, 42..44],
+        ),
+    ];
+    for (source, fragment, declaration, kind, names) in cases {
+        let text = if kind == "field_declaration" && names.len() == 1 {
+            "one"
+        } else {
+            "both"
+        };
+        let content = fragment.start + 3..fragment.end;
+        assert_eq!(
+            view(source),
+            field_document(
+                fragment,
+                text,
+                content,
+                kind,
+                declaration,
+                names,
+                Resolution::Resolved,
+            ),
+            "{}",
+            source.escape_ascii(),
+        );
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_field_modifiers_fixed_buffers_comments_and_unicode_keep_name_slots() {
+    for (source, fragment, text, owner, names) in [
+        (
+            b"class C {\n///both\n[System.Obsolete] private static readonly int a = 1, b;\n}"
+                .as_slice(),
+            10..17,
+            "both",
+            18..73,
+            vec![64..65, 71..72],
+        ),
+        (
+            b"unsafe class C {\n///buf\nfixed int a[4];\n}".as_slice(),
+            17..23,
+            "buf",
+            24..39,
+            vec![34..35],
+        ),
+        (
+            b"class C {\n///both\nint /* c */ a, /* c */ b;\n}".as_slice(),
+            10..17,
+            "both",
+            18..43,
+            vec![30..31, 41..42],
+        ),
+        (
+            "class C {\n///unicode\nint Δ;\n}".as_bytes(),
+            10..20,
+            "unicode",
+            21..28,
+            vec![25..27],
+        ),
+        (
+            b"class C {\n///unnamed\nint _;\n}".as_slice(),
+            10..20,
+            "unnamed",
+            21..27,
+            vec![25..26],
+        ),
+    ] {
+        assert_eq!(
+            view(source),
+            field_document(
+                fragment.clone(),
+                text,
+                fragment.start + 3..fragment.end,
+                "field_declaration",
+                owner,
+                &names,
+                Resolution::Resolved,
+            ),
+            "{}",
+            source.escape_ascii(),
+        );
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_later_documentation_inside_a_field_is_only_retained_evidence() {
+    let source = b"class C {\n///both\nint a, ///later\nb;\n}";
+    let expected = field_document(
+        10..17,
+        "both",
+        13..17,
+        "field_declaration",
+        18..36,
+        &[22..23, 34..35],
+        Resolution::Resolved,
+    );
+    assert_eq!(view(source), expected);
+    let mut retained_view = expected;
+    retained_view
+        .evidence
+        .push((CandidateDisposition::Unattached, 25..33));
+    assert_eq!(retained(source), retained_view);
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_two_unattached_fragments_keep_their_source_order() {
+    let source = b"class C {\n///first\nint a, ///left\nb;\n// plain\n///right\n}";
+    let mut expected = field_document(
+        10..18,
+        "first",
+        13..18,
+        "field_declaration",
+        19..36,
+        &[23..24, 34..35],
+        Resolution::Resolved,
+    );
+    assert_eq!(view(source), expected);
+    expected.evidence = vec![
+        (CandidateDisposition::Unattached, 26..33),
+        (CandidateDisposition::Unattached, 46..54),
+    ];
+    assert_eq!(retained(source), expected);
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_field_and_event_documents_remain_distinct_in_one_class() {
+    let source = b"class C {\n///first\nint a;\n///second\nevent System.Action B;\n}";
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    let actual = agreed(&both);
+    let first = field_document(
+        10..18,
+        "first",
+        13..18,
+        "field_declaration",
+        19..25,
+        &[23..24],
+        Resolution::Resolved,
+    );
+    let second = field_document(
+        26..35,
+        "second",
+        29..35,
+        "event_field_declaration",
+        36..58,
+        &[56..57],
+        Resolution::Resolved,
+    );
+    assert_eq!(
+        actual,
+        View {
+            documents: [first.documents[0].clone(), second.documents[0].clone()].into(),
+            owners: [first.owners[0].clone(), second.owners[0].clone()].into(),
+            slots: [first.slots[0].clone(), second.slots[0].clone()].into(),
+            evidence: Vec::new(),
+            assessments: 0,
+        }
+    );
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_error_field_constant_and_event_declarations_stay_pending() {
+    for (source, kind, range) in [
+        (
+            b"class C {\n///broken\nint a = ;\n}".as_slice(),
+            "field_declaration",
+            20..29,
+        ),
+        (
+            b"class C {\n///broken\nconst int K = ;\n}".as_slice(),
+            "field_declaration",
+            20..35,
+        ),
+        (
+            b"class C {\n///broken\nevent System.Action E = ;\n}".as_slice(),
+            "event_field_declaration",
+            20..45,
+        ),
+    ] {
+        let parser = AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
+        let field = node_at(&parser, kind, range);
+        assert!(field.has_error());
+        let both = indexes(&parser, DocumentationOptions::default());
+        for index in &both {
+            assert_eq!(index.documents().len(), 1);
+            assert_eq!(index.associations().len(), 0);
+            assert_eq!(index.assessments().len(), 3);
+            assert!(index.node_projection(field).unwrap().pending());
+            assert!(index.node_associations(field).unwrap().projection_pending());
+        }
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_broken_field_does_not_erase_the_next_documented_field() {
+    let source = b"class C {\n///a\nint x = ;\n///b\nint y;\n}";
+    let parser = AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
+    let both = indexes(&parser, DocumentationOptions::default());
+    for index in &both {
+        assert_eq!(index.documents().len(), 2);
+        assert_eq!(index.associations().len(), 1);
+        assert_eq!(index.assessments().len(), 3);
+        assert!(
+            index
+                .node_projection(node_at(&parser, "field_declaration", 15..24))
+                .unwrap()
+                .pending()
+        );
+        let good = node_at(&parser, "field_declaration", 30..36);
+        let projection = index.node_projection(good).unwrap();
+        assert!(!projection.pending());
+        assert_eq!(projection.owners().len(), 1);
+        let association = index.associations().next().unwrap();
+        let second = index.documents().nth(1).unwrap();
+        assert_eq!(
+            index.facts().associated_document(association).unwrap(),
+            second
+        );
+        assert_eq!(index.complete_text(second).unwrap().unwrap().text(), "b");
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_field_inside_conditional_keeps_conditional_uncertainty() {
+    let source = b"class C {\n#if X\n///branch\nint a;\n#endif\n}";
+    let mut expected = field_document(
+        16..25,
+        "branch",
+        19..25,
+        "field_declaration",
+        26..32,
+        &[30..31],
+        Resolution::Unresolved(UnresolvedReason::Conditional),
+    );
+    expected.assessments = 1; // The preproc_if itself is still pending.
+    assert_eq!(view(source), expected);
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_document_before_a_conditional_wrapper_stays_pending_while_field_has_slots() {
+    let source = b"class C {\n///wrapper\n#if X\nint a;\n#endif\n}";
+    let parser = clean(source);
+    let both = indexes(&parser, DocumentationOptions::default());
+    for index in &both {
+        assert_eq!(index.documents().len(), 1);
+        assert_eq!(index.associations().len(), 0);
+        assert_eq!(index.assessments().len(), 3);
+        let field = node_at(&parser, "field_declaration", 27..33);
+        let projection = index.node_projection(field).unwrap();
+        assert!(!projection.pending());
+        assert_eq!(projection.owners().len(), 1);
+        assert!(!index.node_associations(field).unwrap().projection_pending());
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_skipped_nested_class_field_keeps_the_existing_conditional_association() {
+    // Characterization, not conditional-compilation policy: a compiler skips this class.
+    let source =
+        b"#if false\nclass C {\n///LIT\nint Y;\n}\n#endif\nclass D {\n///REAL\nint Z;\n}\n";
+    let parser = clean(source);
+    let first = field_document(
+        20..26,
+        "LIT",
+        23..26,
+        "field_declaration",
+        27..33,
+        &[31..32],
+        Resolution::Unresolved(UnresolvedReason::Conditional),
+    );
+    let second = field_document(
+        53..60,
+        "REAL",
+        56..60,
+        "field_declaration",
+        61..67,
+        &[65..66],
+        Resolution::Resolved,
+    );
+    assert_eq!(
+        agreed(&indexes(&parser, DocumentationOptions::default())),
+        View {
+            documents: [first.documents[0].clone(), second.documents[0].clone()].into(),
+            owners: [first.owners[0].clone(), second.owners[0].clone()].into(),
+            slots: [first.slots[0].clone(), second.slots[0].clone()].into(),
+            assessments: 1,
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_verbatim_backslash_does_not_swallow_the_following_field() {
+    // Characterization: C# verbatim strings do not escape a quote with backslash.
+    let source = concat!(
+        "class C {\n    string s = @\"a\\\";\n",
+        "    /// <summary>LIT</summary>\n    public int Y;\n",
+        "    string t = @\"\";\n    /// <summary>REAL</summary>\n",
+        "    public int Z;\n}\n"
+    )
+    .as_bytes();
+    let parser = clean(source);
+    let first = field_document(
+        36..62,
+        "<summary>LIT</summary>",
+        40..62,
+        "field_declaration",
+        67..80,
+        &[78..79],
+        Resolution::Resolved,
+    );
+    let second = field_document(
+        105..132,
+        "<summary>REAL</summary>",
+        109..132,
+        "field_declaration",
+        137..150,
+        &[148..149],
+        Resolution::Resolved,
+    );
+    assert_eq!(
+        agreed(&indexes(&parser, DocumentationOptions::default())),
+        View {
+            documents: [first.documents[0].clone(), second.documents[0].clone()].into(),
+            owners: [first.owners[0].clone(), second.owners[0].clone()].into(),
+            slots: [first.slots[0].clone(), second.slots[0].clone()].into(),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_field_slot_and_declaration_queries_keep_distinct_owner_identities() {
+    let source = b"class C {\n///both\nint a, b;\n}";
+    let parser = clean(source);
+    let declaration = node_at(&parser, "field_declaration", 18..27);
+    for index in indexes(&parser, DocumentationOptions::default()) {
+        let association = index.associations().next().unwrap();
+        let names: Vec<_> = (0..2)
+            .map(|at| index.facts().associated_owner(association, at).unwrap())
+            .collect();
+        assert_ne!(names[0], names[1]);
+        let projection = index.node_projection(declaration).unwrap();
+        assert!(!projection.pending());
+        assert!(projection.owners().eq(names.iter().copied()));
+        assert!(
+            index
+                .node_owners(declaration)
+                .unwrap()
+                .eq(names.iter().copied())
+        );
+        assert!(matches!(
+            index.node_associations(declaration),
+            Err(OwnerError::MultipleOwners)
+        ));
+        for slot in names {
+            assert!(
+                index
+                    .owner_associations(slot)
+                    .unwrap()
+                    .associations()
+                    .eq([association])
+            );
+            let enclosing = index.facts().slot_enclosing(slot).unwrap();
+            assert!(matches!(enclosing.get(), Owner::Node(_)));
+            assert_eq!(
+                index
+                    .owner_associations(enclosing)
+                    .unwrap()
+                    .associations()
+                    .len(),
+                0
+            );
+        }
+        for (kind, range) in [
+            ("variable_declarator", 22..23),
+            ("identifier", 22..23),
+            ("variable_declarator", 25..26),
+        ] {
+            let node = node_at(&parser, kind, range);
+            assert!(matches!(
+                index.node_projection(node),
+                Err(OwnerError::UnsupportedOwner)
+            ));
+        }
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_undocumented_field_still_has_slots_without_a_document() {
+    let source = b"class C { int a, b; }";
+    let parser = clean(source);
+    let field = node_at(&parser, "field_declaration", 10..19);
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(agreed(&both), View::default());
+    for index in &both {
+        let projection = index.node_projection(field).unwrap();
+        assert!(!projection.pending());
+        assert_eq!(projection.owners().len(), 2);
+        assert_eq!(index.node_owners(field).unwrap().count(), 2);
+        assert_eq!(index.facts().owners().len(), 5);
+        assert!(matches!(
+            index.node_associations(field),
+            Err(OwnerError::MultipleOwners)
+        ));
+        for owner in projection.owners() {
+            let query = index.owner_associations(owner).unwrap();
+            assert_eq!(query.associations().len(), 0);
+            assert_eq!(query.assessments().count(), 0);
+        }
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_slot_projection_requires_the_whole_declaration_included() {
+    let source = b"class C {\n///both\nint a, b;\n}";
+    let included = [0..24, 25..source.len()]; // Space between comma and b is excluded.
+    let ranges: Vec<_> = included
+        .iter()
+        .map(|range| {
+            let point = |at: usize| {
+                let before = &source[..at];
+                tree_sitter::Point::new(
+                    before.iter().filter(|byte| **byte == b'\n').count(),
+                    before
+                        .iter()
+                        .rev()
+                        .take_while(|byte| **byte != b'\n')
+                        .count(),
+                )
+            };
+            tree_sitter::Range {
+                start_byte: range.start,
+                end_byte: range.end,
+                start_point: point(range.start),
+                end_point: point(range.end),
+            }
+        })
+        .collect();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&LANG::Csharp.tree_sitter_language().unwrap())
+        .unwrap();
+    parser.set_included_ranges(&ranges).unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    assert!(!tree.root_node().has_error());
+    let options = DocumentationOptions {
+        retain_unbound: true,
+        ..DocumentationOptions::default()
+    };
+    let index = collect(
+        LANG::Csharp,
+        &tree,
+        source,
+        &DocumentationContext::default(),
+        &options,
+    )
+    .unwrap();
+    assert_eq!(index.documents().len(), 0);
+    assert_eq!(index.associations().len(), 0);
+    assert_eq!(index.evidence().len(), 1);
+    let field = tree
+        .root_node()
+        .named_descendant_for_byte_range(18, 27)
+        .unwrap();
+    assert_eq!(field.kind(), "field_declaration");
+    assert!(index.node_projection(field).unwrap().pending());
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_error_beside_an_intact_field_does_not_erase_its_slot() {
+    let source = b"class C {\n///d\nint a;\n%\n}";
+    let parser = AnyParser::parse(LANG::Csharp, source.to_vec(), None, None).unwrap();
+    assert!(parser.root_node().has_error());
+    let field = node_at(&parser, "field_declaration", 15..21);
+    assert!(!field.has_error());
+    let mut expected = field_document(
+        10..14,
+        "d",
+        13..14,
+        "field_declaration",
+        15..21,
+        &[19..20],
+        Resolution::Resolved,
+    );
+    expected.assessments = 1; // Only the containing class remains pending.
+    assert_eq!(
+        agreed(&indexes(&parser, DocumentationOptions::default())),
+        expected
+    );
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_tuple_pattern_field_declarator_stays_pending_without_slots() {
+    let source = b"class C {\n/// doc\nint (a, b) = (1, 2);\n}\n";
+    let parser = clean(source);
+    let declaration = node_at(&parser, "field_declaration", 18..38);
+    let variables = node_at(&parser, "variable_declarator", 22..37);
+    assert_eq!(variables.child(0).unwrap().kind(), "tuple_pattern");
+    let both = indexes(&parser, DocumentationOptions::default());
+    assert_eq!(
+        agreed(&both),
+        View {
+            documents: vec![comment(10..17, "doc", [(0..3, Copied(14..17))])],
+            assessments: 2,
+            ..View::default()
+        }
+    );
+    for index in &both {
+        assert!(index.node_projection(declaration).unwrap().pending());
+        assert!(
+            index
+                .node_associations(declaration)
+                .unwrap()
+                .projection_pending()
+        );
+        assert!(
+            !index
+                .facts()
+                .owners()
+                .any(|owner| matches!(owner.get(), Owner::Slot(_)))
+        );
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[derive(Default)]
+struct Counting {
+    steps: Cell<usize>,
+    bytes: Cell<usize>,
+    fail_at: Option<usize>,
+}
+
+#[cfg(feature = "csharp")]
+impl WorkBudget for Counting {
+    type Error = SourceError;
+
+    #[cfg(feature = "csharp")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "csharp")]
+    fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        self.bytes.set(self.bytes.get() + count);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "csharp")]
+fn wide_fields(width: usize) -> String {
+    let names: Vec<_> = (0..width).map(|at| format!("v{at}")).collect();
+    format!("class C {{\n///audit\nint {};\n}}", names.join(", "))
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_declarator_scan_charges_every_structural_child() {
+    for (source, declaration, steps, names) in [
+        (
+            b"class C {\n///both\nint a, b;\n}".as_slice(),
+            18..27,
+            5,
+            vec![22..23, 25..26],
+        ),
+        (
+            b"class C {\n///both\nint /* c */ a, /* c */ b;\n}".as_slice(),
+            18..43,
+            7,
+            vec![30..31, 41..42],
+        ),
+        (
+            b"class C {\n///both\n[System.Obsolete] private static readonly int a = 1, b;\n}"
+                .as_slice(),
+            18..73,
+            9,
+            vec![64..65, 71..72],
+        ),
+    ] {
+        let parser = clean(source);
+        let index = indexes(&parser, DocumentationOptions::default());
+        let id = index[0]
+            .canonical
+            .lookup(node_at(&parser, "field_declaration", declaration))
+            .unwrap();
+        let count = Counting::default();
+        let found = super::projections::csharp_declarator_names(&index[0].canonical, id, &count)
+            .unwrap()
+            .unwrap();
+        assert_eq!(count.steps.get(), steps);
+        assert_eq!(count.bytes.get(), 0);
+        assert_eq!(
+            found
+                .iter()
+                .map(|name| index[0].canonical.nodes[name.0]
+                    .evidence
+                    .node()
+                    .byte_range())
+                .collect::<Vec<_>>(),
+            names,
+        );
+        for fail_at in 1..=steps {
+            let budget = Counting {
+                fail_at: Some(fail_at),
+                ..Counting::default()
+            };
+            assert!(matches!(
+                super::projections::csharp_declarator_names(&index[0].canonical, id, &budget),
+                Err(SourceError::Cancelled)
+            ));
+            assert_eq!(budget.steps.get(), fail_at);
+        }
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_field_width_has_linear_owner_and_name_work() {
+    for width in [8, 64, 256] {
+        let source = wide_fields(width);
+        let parser = clean(source.as_bytes());
+        let before = observations();
+        let indexes = indexes(&parser, DocumentationOptions::default());
+        let after = observations();
+        let index = &indexes[0];
+        let declaration = parser
+            .root_node()
+            .preorder()
+            .find(|node| node.kind() == "field_declaration")
+            .unwrap();
+        let id = index
+            .canonical
+            .lookup(declaration.as_tree_sitter())
+            .unwrap();
+        let budget = Counting::default();
+        let found = super::projections::csharp_declarator_names(&index.canonical, id, &budget)
+            .unwrap()
+            .unwrap();
+        // expected: the first variable_declaration child, then its type, width
+        // declarators and width - 1 commas: 1 + (2 * width).
+        assert_eq!(budget.steps.get(), 2 * width + 1);
+        assert_eq!(found.len(), width);
+        // expected: file, class, declaration, and one field slot per name.
+        assert_eq!(index.facts().owners().len(), width + 3);
+        assert_eq!(
+            index.associations().next().unwrap().get().owner_count(),
+            width
+        );
+        assert_eq!(after.field_requests - before.field_requests, 0);
+        assert_eq!(after.field_lookups - before.field_lookups, 0);
+        assert_eq!(after.renders - before.renders, 2);
+        assert_eq!(
+            after.visits - before.visits,
+            2 * parser.root_node().preorder().count()
+        );
+    }
+}
+
+#[cfg(feature = "csharp")]
+#[test]
+fn csharp_wide_fields_cancel_in_both_the_name_scan_and_slot_loop() {
+    let width = 2048;
+    let source = wide_fields(width);
+    let parser = clean(source.as_bytes());
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions::default();
+    let before = observations();
+    parser.documentation(&context, &options).unwrap();
+    let polls = observations().polls - before.polls;
+    let mut slots = 0;
+    let mut scan = 0;
+    for checkpoint in 1..=polls {
+        let before = observations();
+        let result = crate::documentation::budget::cancel_after(checkpoint, || {
+            parser.documentation(&context, &options)
+        });
+        let after = observations();
+        assert!(matches!(result, Err(CollectionError::Cancelled)));
+        let owners = after.owner_projections - before.owner_projections;
+        let searches = after.intersection_searches - before.intersection_searches;
+        if owners == 3 && searches < width + 1 {
+            slots += 1;
+        }
+        if owners == 2 && after.visits - before.visits == parser.root_node().preorder().count() - 1
+        {
+            scan += 1;
+        }
+    }
+    // expected: each of 2048 slots charges three steps, yielding 5 or 6 polls.
+    assert!((5..=6).contains(&slots), "slots={slots}");
+    // expected: 4097 scanned children charge at least 4 and at most 5 polls.
+    assert!((4..=5).contains(&scan), "scan={scan}");
+    assert_eq!(
+        crate::documentation::budget::cancel_after(polls + 1, || {
+            parser.documentation(&context, &options)
+        })
+        .unwrap()
+        .associations()
+        .next()
+        .unwrap()
+        .get()
+        .owner_count(),
+        width,
+    );
 }

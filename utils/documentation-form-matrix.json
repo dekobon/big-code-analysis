@@ -23,9 +23,9 @@
       "pending": ["same-row block/declaration source selection", "field slot projection", "publication"]
     },
     "Csharp": {
-      "implemented": ["basic XML type", "leading trivia selection", "attribute-bearing declaration", "literal XML markup"],
+      "implemented": ["basic XML type", "leading trivia selection", "attribute-bearing declaration", "literal XML markup", "field/constant/event-field slots"],
       "ineligible": ["ordinary comments", "four-slash banner", "accessor trivia", "Local placement is not emitted"],
-      "pending": ["field/event slot projection", "conditional member projections", "publication"]
+      "pending": ["invalid or partly excluded field/event declaration", "conditional member projections", "publication"]
     },
     "Php": {
       "implemented": ["basic function/class", "one/two/three-block precedence", "enum declaration-before-file", "file preamble", "last selection"],

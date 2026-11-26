@@ -5,7 +5,6 @@ use crate::{AnyParser, LANG};
     feature = "java",
     feature = "kotlin",
     feature = "groovy",
-    feature = "csharp",
     feature = "php",
     feature = "typescript",
     feature = "ruby",
@@ -106,15 +105,6 @@ fn groovy_same_row_constructor_retains_pending_scope_assessment() {
             .unwrap()
             .assessments()
             .any(|assessment| assessment.get().axis == AssessmentAxis::Selection)
-    );
-}
-#[cfg(feature = "csharp")]
-#[test]
-fn csharp_field_form_is_pending_in_default_queries() {
-    assert_pending_form(
-        LANG::Csharp,
-        "class C {\n///audit\nint x;\n}",
-        "field_declaration",
     );
 }
 #[cfg(feature = "php")]
