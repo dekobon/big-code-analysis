@@ -83,9 +83,9 @@
       "pending": ["Explicit virtual/## owners", "alias and constant owners", "RDoc alternate", "publication"]
     },
     "Lua": {
-      "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps"],
+      "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps", "tagged annotation runs with a following item", "single-name assignment/local and return function/table owners", "named table field slots for leading marked comments"],
       "ineligible": ["ordinary standalone leading run", "empty marked block", "function-body annotation"],
-      "pending": ["tagged virtual/table forms", "native table-field/parameter comments", "assignment/return/field slots", "publication"]
+      "pending": ["tagged virtual/table forms", "native trailing table-field and parameter comments", "bare local declarations and return of an identifier have no documentation selection", "publication"]
     },
     "Elixir": {
       "implemented": ["@moduledoc and @doc with one plain string", "defmodule do-block module owner", "def/defp/defmacro/defmacrop clause groups by kind, name and written arity", "private-definition ineligible publication", "excluded-gap and recovery uncertainty"],

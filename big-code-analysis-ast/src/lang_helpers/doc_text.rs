@@ -549,7 +549,7 @@ pub(crate) fn lua_long_comment_with_budget<B: WorkBudget>(
 
 /// The text after a long comment's opening bracket, or `None` when `s`
 /// is not a long comment.
-fn lua_long_comment_body<'s, B: WorkBudget>(
+pub(crate) fn lua_long_comment_body<'s, B: WorkBudget>(
     s: &'s [u8],
     budget: &B,
 ) -> Result<Option<&'s [u8]>, B::Error> {

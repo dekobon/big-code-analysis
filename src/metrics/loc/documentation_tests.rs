@@ -8215,3 +8215,49 @@ fn documentation_php_unit2_legacy_guard_before_and_after_projection() {
     }
     assert_eq!(moved, 5);
 }
+
+#[cfg(feature = "lua")]
+#[test]
+fn documentation_lua_unit2_sources_keep_their_legacy_rows() {
+    let rows = [
+        LuaLegacyRow {
+            name: "tagged_following_function",
+            source: b"module(\"m\")\n--- audit\n-- @param x thing\nfunction f(x) end\n",
+            loc: [4, 2, 1, 2, 0, 2],
+            dloc_rows: &[1, 2],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "single_local",
+            source: b"module(\"m\")\n--- audit\nlocal a = 1\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "dotted_assignment",
+            source: b"module(\"m\")\n--- audit\nM.a = 1\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "returned_table",
+            source: b"module(\"m\")\n--- audit\nreturn {}\n",
+            loc: [3, 2, 1, 1, 0, 1],
+            dloc_rows: &[1],
+            comment_runs: 1,
+        },
+        LuaLegacyRow {
+            name: "named_field",
+            source: b"module(\"m\")\nlocal t = {\n--- detail\nalpha = 1,\n}\n",
+            loc: [5, 4, 1, 1, 0, 1],
+            dloc_rows: &[2],
+            comment_runs: 1,
+        },
+    ];
+    for row in rows {
+        // expected: each selected run renders one document, so the helper returns one.
+        assert_eq!(check_lua_legacy_row(&row), 1);
+    }
+}

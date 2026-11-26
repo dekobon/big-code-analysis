@@ -359,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 989.0
+value = 1025.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 138.0
+value = 136.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -647,13 +647,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 887.0
+value = 988.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>"
 metric = "wmc"
-value = 139.0
+value = 148.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
@@ -683,13 +683,13 @@ value = 10.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::declaration_owners"
 metric = "cognitive"
-value = 17.0
+value = 19.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::declaration_owners"
 metric = "cyclomatic"
-value = 23.0
+value = 26.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"

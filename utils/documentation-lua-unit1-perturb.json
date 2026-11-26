@@ -18,7 +18,7 @@
       "new": "    const SOURCE_POSITIONAL_DOCS: bool = false;",
       "expect": [
         "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_its_owner",
         "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
         "documentation::collector::lua_tests::lua_plain_comments_give_no_document",
         "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
@@ -49,16 +49,7 @@
       "old": "        Lua::AssignmentStatement | Lua::AssignmentStatement2 => {\n            assigns_one_name_with_budget(node, budget)\n        }",
       "new": "        Lua::AssignmentStatement | Lua::AssignmentStatement2 => {\n            assigns_one_name_with_budget(node, budget).map(|_| false)\n        }",
       "expect": [
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet"
-      ]
-    },
-    {
-      "name": "lua-assignment-owner-not-pending",
-      "file": "big-code-analysis-ast/src/documentation/forms.rs",
-      "old": "            \"assignment_statement\" | \"variable_declaration\" | \"return_statement\" | \"field\"",
-      "new": "            \"variable_declaration\" | \"return_statement\" | \"field\"",
-      "expect": [
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet"
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_its_owner"
       ]
     },
     {
@@ -111,7 +102,7 @@
       "new": "        Lua::Comment | Lua::HashBangLine | Lua::FunctionCall\n",
       "expect": [
         "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_its_owner",
         "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
         "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
         "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
@@ -131,8 +122,8 @@
     {
       "name": "lua-file-document-keeps-the-item-below",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "                draft.target = Some(NodeId(0));\n                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
-      "new": "                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
+      "old": "            draft.target = Some(NodeId(0));\n            draft.role = DocumentRole::FilePackage;\n            draft.binding = None;",
+      "new": "            draft.role = DocumentRole::FilePackage;\n            draft.binding = None;",
       "expect": [
         "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
         "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
@@ -142,8 +133,8 @@
     {
       "name": "lua-file-document-has-primary-role",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "                draft.role = DocumentRole::FilePackage;\n                draft.binding = None;",
-      "new": "                draft.binding = None;",
+      "old": "            draft.role = DocumentRole::FilePackage;\n            draft.binding = None;",
+      "new": "            draft.binding = None;",
       "expect": [
         "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
         "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
@@ -177,7 +168,7 @@
       "new": "        let mut prefix = 2;\n        while raw.get(prefix) == Some(&b'+') {",
       "expect": [
         "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
+        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_its_owner",
         "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
         "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
         "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
@@ -233,14 +224,10 @@
       "old": "    if text.tag {\n        return Ok(Ok(Some(OpenerReason::Tagged)));",
       "new": "    if text.text {\n        return Ok(Ok(Some(OpenerReason::Tagged)));",
       "expect": [
-        "documentation::collector::lua_tests::lua_marked_block_above_a_function_documents_the_function",
-        "documentation::collector::lua_tests::lua_marked_block_above_an_assignment_has_a_document_and_no_owner_yet",
-        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
-        "documentation::collector::lua_tests::lua_first_block_of_a_file_documents_the_file",
         "documentation::collector::lua_tests::lua_blank_row_separates_two_blocks",
-        "documentation::collector::lua_tests::lua_rows_of_a_run_compose_one_document",
-        "documentation::collector::lua_tests::lua_text_cleanup_removes_the_marker_and_at_most_one_space",
-        "documentation::collector::lua_tests::lua_crlf_rows_keep_owners_fragments_and_text"
+        "documentation::collector::lua_tests::lua_long_bracket_block_is_one_fragment_and_ends_its_run",
+        "documentation::collector::lua_tests::lua_unit2_local_and_return_owners_and_unrecognized_controls",
+        "documentation::streaming::positional::tests::lua_plain_marked_first_file_and_later_contexts"
       ]
     },
     {

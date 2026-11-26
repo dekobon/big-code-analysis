@@ -80,6 +80,56 @@ fn ldoc_line_body<'s, B: WorkBudget>(line: &'s [u8], budget: &B) -> Result<&'s [
     Ok(&line[dashes..])
 }
 
+pub(crate) fn standalone_tag_with_budget<B: WorkBudget>(
+    raw: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let mut found = false;
+    let body = crate::lang_helpers::doc_text::lua_long_comment_body(raw, budget)?.unwrap_or(raw);
+    for line in scan::lines(body, budget) {
+        budget.step()?;
+        found |= standalone_line_tag(line?, budget)?;
+    }
+    Ok(found)
+}
+
+fn standalone_line_tag<B: WorkBudget>(line: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let body = scan::trim_start(ldoc_line_body(line, budget)?, budget)?;
+    let Some(tag) = body.strip_prefix(b"@") else {
+        return Ok(false);
+    };
+    let end =
+        scan::position(tag, |byte| !byte.is_ascii_alphanumeric(), budget)?.unwrap_or(tag.len());
+    standalone_tag_name(&tag[..end], budget)
+}
+
+fn standalone_tag_name<B: WorkBudget>(name: &[u8], budget: &B) -> Result<bool, B::Error> {
+    for structural in [
+        b"module".as_slice(),
+        b"script",
+        b"example",
+        b"topic",
+        b"submodule",
+        b"classmod",
+        b"file",
+        b"function",
+        b"lfunction",
+        b"table",
+        b"section",
+        b"type",
+        b"annotation",
+        b"factory",
+        b"name",
+        b"field",
+    ] {
+        budget.bytes(name.len().max(structural.len()))?;
+        if name == structural {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Whether the block `first` opens is the file's first LDoc block, which
 /// LDoc takes as the module's documentation whatever follows it: it sits
 /// at the top level, no earlier block with text opens a run, and the file
