@@ -32,6 +32,7 @@
     {"path":"java-record.java","documents":[{"fragment_spelling":"/** Record doc */","owner":"record R","text":"Record doc"}],"legacy":"Header (int a), bytes 26..33, opens synthetic function; type docs stay in unit."},
     {"path":"java-compact.java","documents":[{"fragment_spelling":"/** Record doc */","owner":"record R","text":"Record doc"}],"legacy":"R {}, bytes 36..40, opens explicit function instead of header."},
     {"path":"csharp-primary.cs","documents":[{"fragment_spelling":"/// <summary>type</summary>","owner":"class C","text":"<summary>type</summary>"}],"legacy":"Parameter list opens primary constructor; it does not own the type's doc."},
-    {"paths":["tcl-continuation.tcl","tcl-crlf.tcl","irules-continuation.irule","irules-crlf.irule"],"documents":[],"evidence":"Ordinary comment with continuation; no declaration owner.","limitation":"#1802: CRLF backslash row parses as command/code; LF twin credits comment continuation. Do not infer owners from affected boundaries."}
+    {"paths":["tcl-continuation.tcl","tcl-crlf.tcl","irules-continuation.irule","irules-crlf.irule"],"documents":[],"evidence":"Ordinary comment with continuation; no declaration owner.","limitation":"#1802: CRLF backslash row parses as command/code; LF twin credits comment continuation. Do not infer owners from affected boundaries."},
+    {"path":"tcl-ruff.tcl","profile":"Ruff","documents":[{"fragment_spelling":"# audit","owner":"proc f {} {","text":"audit"}],"legacy":"The body comment remains CLOC; static Ruff documentation does not change DLOC."}
   ]
 }

@@ -5,6 +5,8 @@ use super::{TextBuilder, TextError};
 use crate::documentation::budget::WorkBudget;
 use crate::documentation::{Content, Fragment, Origin, Profile, SourceContext, UnavailableReason};
 use crate::lang_helpers::doc_text::pod_comment_command;
+use crate::lang_helpers::tcl;
+use crate::lang_helpers::tcl_family::{self, RowMark};
 use std::ops::Range;
 
 pub(super) struct Line {
@@ -288,7 +290,74 @@ pub(in crate::documentation) fn render<'s, B: WorkBudget>(
     if profile == Profile::Pod {
         return render_pod(context, fragments, budget);
     }
+    if profile == Profile::Ruff {
+        return render_ruff(context, fragments, budget);
+    }
     render_local(profile, context, fragments, budget, false)
+}
+
+// The rows of a Ruff document, joined as the other line comments are.
+fn render_ruff<'s, B: WorkBudget>(
+    context: &SourceContext<'s>,
+    fragments: &[&Fragment<'s>],
+    budget: &B,
+) -> Result<Content<'s>, TextError> {
+    let mut blocks = Vec::new();
+    for fragment in fragments {
+        budget
+            .step()
+            .map_err(|error| TextError::Source(error.into()))?;
+        // A row that no comment node carries lies in a body that Tcl ends
+        // elsewhere than the grammar does: it is not known to be a comment.
+        let carrier = fragment.node.map(|carrier| carrier.node().kind_id());
+        if carrier != Some(tcl::BODY_ROW_KINDS.comment) {
+            return Err(TextError::Unavailable(UnavailableReason::GrammarBoundary));
+        }
+        blocks.push(ruff_line(context.bytes(), spelling(fragment)?, budget)?);
+    }
+    emit_blocks(Profile::Ruff, context, fragments, &blocks, budget)
+}
+
+// The byte range of a fragment that no excluded gap cuts.
+fn spelling(fragment: &Fragment<'_>) -> Result<Range<usize>, TextError> {
+    let pieces = fragment.source.pieces();
+    match (pieces.first(), pieces.last()) {
+        (Some(first), Some(last)) if !fragment.source.has_excluded_gap() => {
+            Ok(first.range().start..last.range().end)
+        }
+        _ => Err(TextError::Unavailable(UnavailableReason::ExcludedGap)),
+    }
+}
+
+// One row of a Ruff block. `#ruff` and one space or tab after it are the
+// marker of a directive row. Any other row loses `#` and at most one space,
+// so `## x` keeps its second `#`. A row that ends in an odd run of backslashes
+// continues on the next row in Tcl, which the grammar reads as something else
+// (#1802): the text of its document is not known.
+fn ruff_line<B: WorkBudget>(
+    bytes: &[u8],
+    row: Range<usize>,
+    budget: &B,
+) -> Result<Block, TextError> {
+    let source = |error: B::Error| TextError::Source(error.into());
+    if tcl_family::line_continues(&bytes[row.clone()], budget).map_err(source)? {
+        return Err(TextError::Unavailable(UnavailableReason::GrammarBoundary));
+    }
+    let directive = tcl::ruff_row(&bytes[row.clone()], budget).map_err(source)? == RowMark::Opens;
+    let marker = if directive { tcl::RUFF_MARKER.len() } else { 1 };
+    let separated = match bytes[row.clone()].get(marker) {
+        Some(b' ') => true,
+        Some(b'\t') => directive,
+        _ => false,
+    };
+    Ok(Block {
+        lines: vec![Line {
+            content: row.start + marker + usize::from(separated)..row.end,
+            ending: row.end..row.end,
+        }],
+        rust_decoration: false,
+        markdown: false,
+    })
 }
 
 pub(in crate::documentation) fn render_source_cleaned<'s, B: WorkBudget>(

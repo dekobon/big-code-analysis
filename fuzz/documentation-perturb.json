@@ -31,6 +31,13 @@
       "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
     },
     {
+      "name": "route-tcl-fuzz-oracle-to-irules",
+      "file": "fuzz/src/documentation/header.rs",
+      "old": "        LANG::Tcl => Profile::Ruff,",
+      "new": "        LANG::Tcl => Profile::Irules,",
+      "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
+    },
+    {
       "name": "lose-qualified-candidate-identity",
       "file": "fuzz/src/documentation/tests.rs",
       "old": "                    assert_eq!(\n                        index.qualified_owner(qualification).unwrap(),\n                        Some(owner),\n                        \"candidate owner identity\"\n                    );",

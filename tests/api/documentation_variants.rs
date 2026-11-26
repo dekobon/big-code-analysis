@@ -361,7 +361,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             LANG::Perl => FileDocument(Profile::Pod),
             LANG::Elixir => Rejected(Profile::Elixir),
             LANG::Bash => Rejected(Profile::Shdoc),
-            LANG::Tcl => Rejected(Profile::Ruff),
+            LANG::Tcl => Row(Profile::Ruff),
             LANG::Irules => Rejected(Profile::Irules),
             LANG::Ccomment | LANG::Preproc => Helper,
         };
@@ -395,7 +395,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
     assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
     assert!(ran > 0);
     #[cfg(feature = "all-languages")]
-    assert_eq!(counts, (17, 5, 2, 1));
+    assert_eq!(counts, (18, 4, 2, 1));
 }
 
 #[cfg(feature = "rust")]
@@ -595,6 +595,7 @@ fn form_languages(row: &serde_json::Value) -> Vec<LANG> {
         "lua" => LANG::Lua,
         "php" => LANG::Php,
         "pl" => LANG::Perl,
+        "tcl" => LANG::Tcl,
         "groovy" => LANG::Groovy,
         "cs" => LANG::Csharp,
         other => panic!("unknown form extension {other}"),
@@ -749,7 +750,7 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
     let forms: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("forms.json")).unwrap()).unwrap();
     let rows = forms["cases"].as_array().unwrap();
-    assert_eq!(rows.len(), 29);
+    assert_eq!(rows.len(), 30);
     let mut checked = 0;
     for row in rows {
         let paths: Vec<&str> = if let Some(paths) = row.get("paths") {
@@ -787,7 +788,6 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                 let result = ast.documentation(&DocumentationContext::default(), &options);
                 let unavailable = match path.rsplit('.').next().unwrap() {
                     "py" => Some(Profile::Python),
-                    "tcl" => Some(Profile::Ruff),
                     "irule" => Some(Profile::Irules),
                     _ => None,
                 };

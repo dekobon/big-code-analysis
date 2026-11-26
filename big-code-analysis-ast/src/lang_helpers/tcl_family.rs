@@ -16,8 +16,11 @@
 //! [`Getter::is_value_braced_word`]: crate::getter::Getter::is_value_braced_word
 //! [`Getter::is_braced_literal_slot`]: crate::getter::Getter::is_braced_literal_slot
 
+use crate::documentation::budget::WorkBudget;
+use crate::documentation::byte_scan;
 use crate::getter::{BracedWordKinds, node_text};
 use crate::node::{Ancestors, Cursor, MemoQuestion, Node};
+use std::cell::Cell;
 
 // The sibling scan `argument_slots_are_readable` runs, counted so a
 // test can see that a walk lending a `FoldCache` runs it once per
@@ -509,6 +512,295 @@ fn switch_subject_index<'t>(
         skip_operand = SWITCH_OPTIONS_TAKING_A_WORD.contains(&word);
     }
     None
+}
+
+/// The kind ids a reader of a script's comments and lines needs. Both
+/// dialects spell a comment `#[^\n]*` and end a command with a line-feed
+/// token, under ids of their own.
+#[derive(Clone, Copy)]
+pub(crate) struct BodyRowKinds {
+    /// `comment`.
+    pub(crate) comment: u16,
+    /// The line-feed terminator. One token can cover several line ends.
+    pub(crate) line_feed: u16,
+}
+
+/// How a dialect reads one comment that starts a row of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RowMark {
+    /// Documentation while a block is open, and otherwise nothing.
+    Text,
+    /// Opens a block wherever it stands, and is its first row.
+    Opens,
+    /// No text and no boundary: a block neither starts nor ends at it.
+    Silent,
+}
+
+/// What one direct child of a script body is to the body's documentation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BodyRow {
+    /// Not documentation: a line end, a command, a comment outside every block.
+    Outside,
+    /// A row of a block. Its spelling ends at this byte.
+    Member(usize),
+    /// A [`RowMark::Silent`] row. Its spelling ends at this byte.
+    Directive(usize),
+    /// A recovery node that may hold documentation rows.
+    Obscured,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Block {
+    // No command and no documentation row yet: blank rows do not matter.
+    Leading,
+    Open,
+    Closed,
+}
+
+// A child that is no line end, as the child after it sees it.
+#[derive(Clone, Copy)]
+struct Line {
+    start: usize,
+    spelling_end: usize,
+    end: usize,
+    first_row: usize,
+    last_row: usize,
+    continues: bool,
+    member: bool,
+}
+
+/// Reads the direct children of a script body, in order, for its lead
+/// block and for the later blocks a dialect's [`RowMark`] opens.
+///
+/// The lead block is the first run of comment rows. Blank rows may precede
+/// it; a blank row or a command ends it. Only a child that is a `comment`
+/// can be a row, so a comment row nested in a command is not read. Where a
+/// comment stands is read from the bytes between it and the child before
+/// it, because a line that continues shows in no node.
+pub(crate) struct BodyRows<'a, B> {
+    code: &'a [u8],
+    kinds: BodyRowKinds,
+    budget: &'a B,
+    block: Block,
+    above: Option<Line>,
+}
+
+impl<'a, B: WorkBudget> BodyRows<'a, B> {
+    /// A reader standing after the opening brace of a body.
+    pub(crate) fn new(code: &'a [u8], kinds: BodyRowKinds, budget: &'a B) -> Self {
+        Self {
+            code,
+            kinds,
+            budget,
+            block: Block::Leading,
+            above: None,
+        }
+    }
+
+    /// Classifies the next child between the braces. `mark` is asked at
+    /// most once, for a comment that starts a row of its own.
+    pub(crate) fn read(
+        &mut self,
+        child: tree_sitter::Node<'_>,
+        mark: impl FnOnce(&[u8], &B) -> Result<RowMark, B::Error>,
+    ) -> Result<BodyRow, B::Error> {
+        // A zero-width token is one the parser invented while recovering.
+        let real = child.start_byte() < child.end_byte();
+        if real && child.kind_id() == self.kinds.line_feed {
+            return Ok(BodyRow::Outside);
+        }
+        let here = self.line(child)?;
+        let above = self.above.replace(here);
+        let comment = real && child.kind_id() == self.kinds.comment;
+        // A comment runs to its line end. One that stops before it was cut
+        // short by the parser, at a NUL byte.
+        let cut = comment && self.code.get(here.end).is_some_and(|&next| next != b'\n');
+        if comment && !cut {
+            return self.comment(here, above, mark);
+        }
+        Ok(self.ends_block(here, above, cut || child.is_error()))
+    }
+
+    // What the child after this one needs to know of it.
+    fn line(&self, child: tree_sitter::Node<'_>) -> Result<Line, B::Error> {
+        let start = child.start_byte();
+        let spelling_end = comment_spelling_end(self.code, start, child.end_byte());
+        Ok(Line {
+            start,
+            spelling_end,
+            end: child.end_byte(),
+            first_row: child.start_position().row,
+            last_row: child.end_position().row,
+            continues: line_continues(&self.code[start..spelling_end], self.budget)?,
+            member: false,
+        })
+    }
+
+    // A command, a `;` or a recovery node ends the block. A recovery node
+    // may hold rows that the parser did not read as comments: the next rows
+    // of the block when it starts a row with `#`, and a row that opens a
+    // block, wherever it stands, when it reaches a later row. The rows are
+    // physical here: a continued row counts as a row, which can only
+    // withhold more.
+    fn ends_block(&mut self, here: Line, above: Option<Line>, recovery: bool) -> BodyRow {
+        self.block = Block::Closed;
+        let own_row = above.is_none_or(|above| here.first_row > above.last_row);
+        let comment = own_row && self.code.get(here.start) == Some(&b'#');
+        if recovery && (comment || here.last_row > here.first_row) {
+            BodyRow::Obscured
+        } else {
+            BodyRow::Outside
+        }
+    }
+
+    fn comment(
+        &mut self,
+        here: Line,
+        above: Option<Line>,
+        mark: impl FnOnce(&[u8], &B) -> Result<RowMark, B::Error>,
+    ) -> Result<BodyRow, B::Error> {
+        let Some(above) = above else {
+            return self.marked(here, mark);
+        };
+        // The line ends between the child above and this comment say where
+        // the comment stands. A backslash before a line end joins the rows.
+        let gap = &self.code[above.spelling_end..here.start];
+        match unescaped_line_ends(gap, above.continues, 2, self.budget)? {
+            // On the Tcl line of the child above: the rest of a comment, or
+            // a `#` that starts no command of its own row.
+            0 if above.member => Ok(self.member(here.spelling_end)),
+            0 => Ok(BodyRow::Outside),
+            1 => self.marked(here, mark),
+            // A blank row lies between.
+            _ => {
+                if self.block == Block::Open {
+                    self.block = Block::Closed;
+                }
+                self.marked(here, mark)
+            }
+        }
+    }
+
+    fn marked(
+        &mut self,
+        here: Line,
+        mark: impl FnOnce(&[u8], &B) -> Result<RowMark, B::Error>,
+    ) -> Result<BodyRow, B::Error> {
+        Ok(
+            match mark(&self.code[here.start..here.spelling_end], self.budget)? {
+                RowMark::Silent => BodyRow::Directive(here.spelling_end),
+                RowMark::Text if self.block == Block::Closed => BodyRow::Outside,
+                RowMark::Opens | RowMark::Text => self.member(here.spelling_end),
+            },
+        )
+    }
+
+    fn member(&mut self, spelling_end: usize) -> BodyRow {
+        self.block = Block::Open;
+        if let Some(above) = &mut self.above {
+            above.member = true;
+        }
+        BodyRow::Member(spelling_end)
+    }
+}
+
+/// The end of the spelling of a node that ends its row, as a `comment`
+/// does: the node's end, without a carriage return that a line feed follows.
+/// Both grammars put the CR of a CRLF into the comment token.
+///
+/// The bytes `start..=end` must be included in the parse.
+pub(crate) fn comment_spelling_end(code: &[u8], start: usize, end: usize) -> usize {
+    if end > start && code.get(end) == Some(&b'\n') && code.get(end - 1) == Some(&b'\r') {
+        end - 1
+    } else {
+        end
+    }
+}
+
+/// Whether a line with this spelling continues on the next row: it ends in
+/// an odd run of backslashes. An even run is escaped backslashes. The same
+/// reading as `continuing_backslash` in the root crate's LOC metric, which
+/// this crate cannot call.
+pub(crate) fn line_continues<B: WorkBudget>(spelling: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let run = match byte_scan::rposition(spelling, |byte| byte != b'\\', budget)? {
+        Some(last) => spelling.len() - 1 - last,
+        None => spelling.len(),
+    };
+    Ok(run % 2 == 1)
+}
+
+/// Counts the line ends in `gap` that no backslash escapes, and stops at
+/// `limit`. `gap` is the bytes between two nodes of one script level: white
+/// space, line ends and backslash-newline pairs. `escaped` says whether the
+/// node before the gap ends in an odd run of backslashes.
+///
+/// A line end is what Tcl takes for one when it reads a script file: LF,
+/// CR LF, or a CR alone. The count says how Tcl reads the node after the
+/// gap: 0, it stands on the line of the node before it; 1, it starts the
+/// next row; 2, a blank row lies between.
+pub(crate) fn unescaped_line_ends<B: WorkBudget>(
+    gap: &[u8],
+    escaped: bool,
+    limit: usize,
+    budget: &B,
+) -> Result<usize, B::Error> {
+    let escaped = Cell::new(escaped);
+    let after_cr = Cell::new(false);
+    let found = Cell::new(0);
+    byte_scan::position(
+        gap,
+        |byte| {
+            let lf_of_crlf = after_cr.replace(byte == b'\r') && byte == b'\n';
+            match byte {
+                b'\\' => escaped.set(!escaped.get()),
+                // Counted, or escaped, with its carriage return.
+                b'\n' if lf_of_crlf => {}
+                b'\n' | b'\r' => found.set(found.get() + usize::from(!escaped.replace(false))),
+                _ => escaped.set(false),
+            }
+            found.get() == limit
+        },
+        budget,
+    )?;
+    Ok(found.get())
+}
+
+/// Where Tcl ends the braced word whose `{` stands at `start`: after the `}`
+/// at which the raw brace count returns to zero. A backslash hides the next
+/// byte. Nothing else is special for Tcl inside the word: a `}` in a
+/// comment, in a quoted word or in a bracket closes a level. A grammar that
+/// reads those first ends its node elsewhere than Tcl ends the word.
+///
+/// `None` if the count does not return to zero before `code` ends. A caller
+/// that asks only whether the word ends at one place passes the bytes up to
+/// that place, and no byte behind it is read.
+pub(crate) fn braced_word_end<B: WorkBudget>(
+    code: &[u8],
+    start: usize,
+    budget: &B,
+) -> Result<Option<usize>, B::Error> {
+    let depth = Cell::new(0_usize);
+    let hidden = Cell::new(false);
+    let stop = byte_scan::position(
+        &code[start..],
+        |byte| {
+            if hidden.replace(false) {
+                return false;
+            }
+            match byte {
+                b'\\' => hidden.set(true),
+                b'{' => depth.set(depth.get() + 1),
+                b'}' => {
+                    depth.set(depth.get().saturating_sub(1));
+                    return depth.get() == 0;
+                }
+                _ => {}
+            }
+            false
+        },
+        budget,
+    )?;
+    Ok(stop.map(|at| start + at + 1))
 }
 
 #[cfg(test)]

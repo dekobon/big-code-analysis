@@ -15,6 +15,7 @@ mod pod_literal;
 mod projections;
 pub(super) mod qualifications;
 mod rust;
+mod tcl;
 #[cfg(any(test, feature = "test-support"))]
 pub(super) use rust::{attribute_children, carrier_children};
 
@@ -86,6 +87,7 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         names: super::names::Names::default(),
         pod_doubt: pod_doubt::Doubt::default(),
         pod_hidden: pod::Hidden::default(),
+        tcl_scan: tcl::CommandScan::default(),
     };
     let root_id = builder
         .index
@@ -129,6 +131,7 @@ struct Builder<'s> {
     names: super::names::Names,
     pod_doubt: pod_doubt::Doubt,
     pod_hidden: pod::Hidden,
+    tcl_scan: tcl::CommandScan<'s>,
 }
 
 trait OwnerCandidates: Checker {
@@ -199,6 +202,9 @@ impl<'s> Builder<'s> {
                     chain.truncate(depth);
                     if self.index.profile != Profile::Helper {
                         self.finalize_projection(id, budget)?;
+                    }
+                    if self.index.profile == Profile::Ruff {
+                        self.ruff_procedure(id, budget)?;
                     }
                     if self.index.profile == Profile::Rust
                         && matches!(
@@ -1049,6 +1055,8 @@ mod remediation_tests;
 mod ruby_tests;
 #[cfg(test)]
 mod rust_tests;
+#[cfg(test)]
+mod tcl_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

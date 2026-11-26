@@ -1,0 +1,1598 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "tcl-reader-runs-for-every-profile",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                    if self.index.profile == Profile::Ruff {\n                        self.ruff_procedure(id, budget)?;",
+      "new": "                    if self.index.profile != Profile::Helper {\n                        self.ruff_procedure(id, budget)?;",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_declaration_kinds_own_their_leading_xml_documentation",
+        "documentation::collector::csharp_tests::csharp_expression_bodied_property_and_indexer_own_their_documentation"
+      ]
+    },
+    {
+      "name": "tcl-procedure-is-not-pending-first",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Pending;\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-recovery-in-the-name-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    (!node(canonical, name).has_error()\n",
+      "new": "    (true\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread"
+      ]
+    },
+    {
+      "name": "tcl-recovery-in-the-parameters-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        && !node(canonical, arguments).has_error()\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread"
+      ]
+    },
+    {
+      "name": "tcl-body-need-not-be-braced",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        && read(canonical, open, Tcl::LBRACE as u16)\n        && read(canonical, close, Tcl::RBRACE as u16))\n",
+      "new": "        && node(canonical, open).start_byte() < node(canonical, close).end_byte())\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread"
+      ]
+    },
+    {
+      "name": "tcl-comments-nested-in-a-command-are-rows",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            BodyRow::Outside => {}\n",
+      "new": "            BodyRow::Outside => {\n                let mut nested = vec![child];\n                while let Some(at) = nested.pop() {\n                    for &inner in children(&index.canonical, at) {\n                        if read(&index.canonical, inner, Tcl::Comment as u16) {\n                            let end = node(&index.canonical, inner).end_byte();\n                            rows.members.push((inner, end));\n                        }\n                        nested.push(inner);\n                    }\n                }\n            }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-comment-on-the-brace-row-is-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        budget.step()?;\n        match reader.read(",
+      "new": "        budget.step()?;\n        if node(&index.canonical, child).start_position().row\n            == node(&index.canonical, between[0]).start_position().row\n        {\n            continue;\n        }\n        match reader.read(",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-command-does-not-end-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        self.block = Block::Closed;\n        let own_row",
+      "new": "        let own_row",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-ordinary-row-opens-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                RowMark::Text if self.block == Block::Closed => BodyRow::Outside,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-marker-opens-no-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                RowMark::Opens | RowMark::Text => self.member(here.spelling_end),",
+      "new": "                RowMark::Opens if self.block == Block::Closed => BodyRow::Outside,\n                RowMark::Opens | RowMark::Text => self.member(here.spelling_end),",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-ruffopt-row-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl.rs",
+      "old": "    } else if word(RUFF_OPTIONS) {\n        RowMark::Silent\n",
+      "new": "    } else if word(RUFF_OPTIONS) {\n        RowMark::Text\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text"
+      ]
+    },
+    {
+      "name": "tcl-ruffopt-row-ends-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                RowMark::Silent => BodyRow::Directive(here.spelling_end),\n",
+      "new": "                RowMark::Silent => {\n                    self.block = Block::Closed;\n                    BodyRow::Directive(here.spelling_end)\n                }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text"
+      ]
+    },
+    {
+      "name": "tcl-directives-kept-with-the-unbound-option",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        if self.index.options.retain_directives {\n",
+      "new": "        if self.index.options.retain_directives || self.index.options.retain_unbound {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-directive-row-is-kept-as-unattached",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                disposition: CandidateDisposition::Directive,\n",
+      "new": "                disposition: CandidateDisposition::Unattached,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text"
+      ]
+    },
+    {
+      "name": "tcl-longer-word-is-a-directive",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl.rs",
+      "old": "            .is_some_and(|rest| matches!(rest.first(), None | Some(b' ' | b'\\t')))\n",
+      "new": "            .is_some()\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text"
+      ]
+    },
+    {
+      "name": "tcl-tab-does-not-end-the-marker-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl.rs",
+      "old": "matches!(rest.first(), None | Some(b' ' | b'\\t'))",
+      "new": "matches!(rest.first(), None | Some(b' '))",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read"
+      ]
+    },
+    {
+      "name": "tcl-continued-member-has-complete-text",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if tcl_family::line_continues(&bytes[row.clone()], budget).map_err(source)? {\n",
+      "new": "    if tcl_family::line_continues(&bytes[row.clone()], budget).map_err(source)? && false {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-row-spelling-keeps-its-carriage-return",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        end - 1\n",
+      "new": "        end\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing"
+      ]
+    },
+    {
+      "name": "tcl-fragment-is-the-whole-comment-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        let source = self.index.source.pieces_with_budget(start..end, budget)?;\n",
+      "new": "        let end = nodes[comment.0].evidence.node().end_byte();\n        let source = self.index.source.pieces_with_budget(start..end, budget)?;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing"
+      ]
+    },
+    {
+      "name": "tcl-rows-use-the-shared-hash-rule",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if profile == Profile::Ruff {\n        return render_ruff(context, fragments, budget);\n    }\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-tab-separates-an-ordinary-row",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        Some(b'\\t') => directive,\n",
+      "new": "        Some(b'\\t') => true,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator"
+      ]
+    },
+    {
+      "name": "tcl-row-keeps-its-separator",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            content: row.start + marker + usize::from(separated)..row.end,\n",
+      "new": "            content: row.start + marker..row.end,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-recovery-does-not-end-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        self.block = Block::Closed;\n        let own_row",
+      "new": "        if !recovery {\n            self.block = Block::Closed;\n        }\n        let own_row",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-every-recovery-withholds-the-document",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        if recovery && (comment || here.last_row > here.first_row) {\n",
+      "new": "        if recovery {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-recovery-on-later-rows-holds-nothing",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        if recovery && (comment || here.last_row > here.first_row) {\n",
+      "new": "        if recovery && comment {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-recovery-that-starts-a-row-holds-nothing",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        if recovery && (comment || here.last_row > here.first_row) {\n",
+      "new": "        if recovery && here.last_row > here.first_row {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-cut-comment-is-a-row",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        let cut = comment && self.code.get(here.end).is_some_and(|&next| next != b'\\n');\n",
+      "new": "        let cut = false;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-withheld-document-is-published",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                .push(assessment);\n            return Ok(());\n",
+      "new": "                .push(assessment);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-withheld-document-is-not-reported-by-its-procedure",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            self.index.canonical.nodes[procedure.0]\n                .pending\n                .push(assessment);\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document"
+      ]
+    },
+    {
+      "name": "tcl-document-role-is-primary",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                role: DocumentRole::BodyComment,\n",
+      "new": "                role: DocumentRole::Primary,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-document-scope-is-the-procedure",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                scope: body,\n",
+      "new": "                scope: procedure,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-document-is-bound-to-the-procedure",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                binding: None,\n",
+      "new": "                binding: Some(self.index.canonical.nodes[procedure.0].evidence),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-document-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                target: Some(procedure),\n",
+      "new": "                target: None,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-quoted-or-braced-name-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            _ => Standing::Pending,\n",
+      "new": "            _ => Standing::Owner,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner"
+      ]
+    },
+    {
+      "name": "tcl-uncertain-document-has-no-association",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                unresolved,\n",
+      "new": "                unresolved: None,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-procedure-under-a-root-error-is-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                    draft.unresolved = draft.unresolved.or(self.index.canonical.nodes[target.0]\n                        .qualification\n                        .headline());\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "tcl-body-pass-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    for &child in &between[1..between.len() - 1] {\n        budget.step()?;\n",
+      "new": "    for &child in &between[1..between.len() - 1] {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    },
+    {
+      "name": "tcl-continuation-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "    let run = match byte_scan::rposition(spelling, |byte| byte != b'\\\\', budget)? {\n",
+      "new": "    let _ = budget;\n    let run = match crate::documentation::budget::infallible(byte_scan::rposition(\n        spelling,\n        |byte| byte != b'\\\\',\n        &crate::documentation::budget::NoBudget,\n    )) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-marker-test-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl.rs",
+      "old": "    budget.bytes(spelling.len().min(RUFF_OPTIONS.len() + 1))?;\n",
+      "new": "    let _ = budget;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-member-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        for &row in rows {\n            budget.step()?;\n            fragments.push(self.ruff_fragment(row, carrier, budget)?);\n",
+      "new": "        for &row in rows {\n            fragments.push(self.ruff_fragment(row, carrier, budget)?);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    },
+    {
+      "name": "tcl-directive-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        for &row in rows {\n            budget.step()?;\n            let fragment = self.ruff_fragment(row, carrier, budget)?;\n",
+      "new": "        for &row in rows {\n            let fragment = self.ruff_fragment(row, carrier, budget)?;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    },
+    {
+      "name": "tcl-row-pieces-ignore-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        let source = self.index.source.pieces_with_budget(start..end, budget)?;\n",
+      "new": "        let source = self\n            .index\n            .source\n            .pieces_with_budget(start..end, &crate::documentation::budget::NoBudget)?;\n        let _ = budget;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    },
+    {
+      "name": "tcl-text-loop-is-not-charged",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        budget\n            .step()\n            .map_err(|error| TextError::Source(error.into()))?;\n        // A row that no comment node carries lies in a body that Tcl ends\n",
+      "new": "        // A row that no comment node carries lies in a body that Tcl ends\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-procedure-words-are-read-by-field-name",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))\n",
+      "new": "        || (profile == Profile::Yard && matches!(kind, \"if_modifier\" | \"unless_modifier\"))\n        || (profile == Profile::Ruff && kind == \"procedure\")\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work"
+      ]
+    },
+    {
+      "name": "tcl-ruff-profile-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };\n",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Ruff {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_qualified_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_quoted_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_braced_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_escaped_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_expanded_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_words_of_eval_are_deferred",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds",
+        "documentation::collector::tcl_tests::tcl_quoted_parameter_list_is_deferred",
+        "documentation::collector::tcl_tests::tcl_glued_first_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_brace_in_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_quote_in_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_quote_in_a_braced_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_dollar_at_the_end_of_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_in_a_file_with_carriage_return_line_ends_is_deferred",
+        "documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"
+      ]
+    },
+    {
+      "name": "tcl-procedure-with-excluded-bytes-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "procedure_slots(&index.canonical, procedure).filter(|_| included)",
+      "new": "procedure_slots(&index.canonical, procedure).filter(|_| included || true)",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut"
+      ]
+    },
+    {
+      "name": "tcl-backslash-in-a-gap-escapes-nothing",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                b'\\\\' => escaped.set(!escaped.get()),\n                // Counted, or escaped, with its carriage return.\n",
+      "new": "                b'\\\\' => {}\n                // Counted, or escaped, with its carriage return.\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-carriage-return-alone-is-no-line-end",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "            let lf_of_crlf = after_cr.replace(byte == b'\\r') && byte == b'\\n';\n            match byte {\n                b'\\\\' => escaped.set(!escaped.get()),\n                // Counted, or escaped, with its carriage return.\n                b'\\n' if lf_of_crlf => {}\n                b'\\n' | b'\\r' => found.set(found.get() + usize::from(!escaped.replace(false))),\n",
+      "new": "            match byte {\n                b'\\\\' => escaped.set(!escaped.get()),\n                b'\\r' => {}\n                b'\\n' => found.set(found.get() + usize::from(!escaped.replace(false))),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-line-feed-after-a-carriage-return-is-a-second-line-end",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "            let lf_of_crlf = after_cr.replace(byte == b'\\r') && byte == b'\\n';\n            match byte {\n",
+      "new": "            let lf_of_crlf = after_cr.replace(false) && byte == b'\\n';\n            match byte {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-blank-row-does-not-end-a-block",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                if self.block == Block::Open {\n                    self.block = Block::Closed;\n                }\n                self.marked(here, mark)\n",
+      "new": "                self.marked(here, mark)\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruff_rows_lose_one_marker_and_one_separator",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-comment-on-the-line-of-the-child-above-is-a-row",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "            0 => Ok(BodyRow::Outside),\n",
+      "new": "            0 => self.marked(here, mark),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-row-below-a-continued-ordinary-comment-is-a-row",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "            0 if above.member => Ok(self.member(here.spelling_end)),\n",
+      "new": "            0 if above.continues => Ok(self.member(here.spelling_end)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-continued-child-does-not-escape-its-line-end",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        match unescaped_line_ends(gap, above.continues, 2, self.budget)? {\n",
+      "new": "        match unescaped_line_ends(gap, false, 2, self.budget)? {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row"
+      ]
+    },
+    {
+      "name": "tcl-directives-are-kept-before-the-document-is-withheld",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        let rows = body_rows(&self.index, body, budget)?;\n",
+      "new": "        let rows = body_rows(&self.index, body, budget)?;\n        if self.index.options.retain_directives {\n            self.ruff_directives(&rows.directives, carrier, budget)?;\n        }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text"
+      ]
+    },
+    {
+      "name": "tcl-directives-are-kept-in-reverse-order",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        for &row in rows {\n            budget.step()?;\n            let fragment = self.ruff_fragment(row, carrier, budget)?;\n",
+      "new": "        for &row in rows.iter().rev() {\n            budget.step()?;\n            let fragment = self.ruff_fragment(row, carrier, budget)?;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary"
+      ]
+    },
+    {
+      "name": "tcl-plain-commands-are-read-as-procedures",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        if node(&self.index.canonical, id).kind_id() != Tcl::Procedure as u16 {\n",
+      "new": "        if !matches!(\n            Tcl::from(node(&self.index.canonical, id).kind_id()),\n            Tcl::Procedure | Tcl::Command\n        ) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_primary_body_comment_belongs_to_its_procedure",
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_crlf_row_ends_before_its_carriage_return",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_documents_keep_source_order_and_each_procedure_answers_for_itself",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_qualified_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_quoted_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_braced_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_escaped_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_expanded_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_words_of_eval_are_deferred",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_glued_first_word_is_deferred"
+      ]
+    },
+    {
+      "name": "tcl-body-pass-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        let rows = body_rows(&self.index, body, budget)?;\n",
+      "new": "        let rows = crate::documentation::budget::infallible(body_rows(&self.index, body, &crate::documentation::budget::NoBudget));\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    },
+    {
+      "name": "tcl-body-reader-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    let mut reader = BodyRows::new(index.source.bytes(), BODY_ROW_KINDS, budget);\n    let mut rows = Rows::default();\n    // `procedure_slots` has shown that the first and the last child are the braces.\n    for &child in &between[1..between.len() - 1] {\n        budget.step()?;\n        match reader.read(node(&index.canonical, child), ruff_row)? {\n",
+      "new": "    let mut reader = BodyRows::new(index.source.bytes(), BODY_ROW_KINDS, &crate::documentation::budget::NoBudget);\n    let mut rows = Rows::default();\n    // `procedure_slots` has shown that the first and the last child are the braces.\n    for &child in &between[1..between.len() - 1] {\n        budget.step()?;\n        match crate::documentation::budget::infallible(reader.read(node(&index.canonical, child), ruff_row)) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads"
+      ]
+    },
+    {
+      "name": "tcl-child-backslash-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "            continues: line_continues(&self.code[start..spelling_end], self.budget)?,\n",
+      "new": "            continues: crate::documentation::budget::infallible(line_continues(&self.code[start..spelling_end], &crate::documentation::budget::NoBudget)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads"
+      ]
+    },
+    {
+      "name": "tcl-body-gap-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        match unescaped_line_ends(gap, above.continues, 2, self.budget)? {\n",
+      "new": "        match crate::documentation::budget::infallible(unescaped_line_ends(gap, above.continues, 2, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads"
+      ]
+    },
+    {
+      "name": "tcl-gap-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        budget,\n    )?;\n    Ok(found.get())\n",
+      "new": "        &crate::documentation::budget::NoBudget,\n    )\n    .unwrap_or_default();\n    let _ = budget;\n    Ok(found.get())\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads"
+      ]
+    },
+    {
+      "name": "tcl-text-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        return render_ruff(context, fragments, budget);\n",
+      "new": "        return render_ruff(context, fragments, &crate::documentation::budget::NoBudget);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-text-row-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        blocks.push(ruff_line(context.bytes(), spelling(fragment)?, budget)?);\n",
+      "new": "        blocks.push(ruff_line(context.bytes(), spelling(fragment)?, &crate::documentation::budget::NoBudget)?);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-text-backslash-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if tcl_family::line_continues(&bytes[row.clone()], budget).map_err(source)? {\n",
+      "new": "    if crate::documentation::budget::infallible(tcl_family::line_continues(&bytes[row.clone()], &crate::documentation::budget::NoBudget)) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-text-marker-test-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    let directive = tcl::ruff_row(&bytes[row.clone()], budget).map_err(source)? == RowMark::Opens;\n",
+      "new": "    let directive = crate::documentation::budget::infallible(tcl::ruff_row(&bytes[row.clone()], &crate::documentation::budget::NoBudget)) == RowMark::Opens;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-text-emission-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    emit_blocks(Profile::Ruff, context, fragments, &blocks, budget)\n",
+      "new": "    emit_blocks(Profile::Ruff, context, fragments, &blocks, &crate::documentation::budget::NoBudget)\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruff_text_charges_a_step_and_the_bytes_it_reads_for_each_row"
+      ]
+    },
+    {
+      "name": "tcl-parted-procedure-is-an-excluded-gap",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            Standing::Parted => Some(UnresolvedReason::GrammarBoundary),\n",
+      "new": "            Standing::Parted => Some(UnresolvedReason::ExcludedGap),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-rows-of-a-parted-body-are-carried-by-their-comments",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        let carrier = (standing == Standing::Parted).then_some(slots.body);\n",
+      "new": "        let carrier: Option<NodeId> = None;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-row-without-a-comment-node-has-text",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let carrier = fragment.node.map(|carrier| carrier.node().kind_id());\n        if carrier != Some(tcl::BODY_ROW_KINDS.comment) {\n            return Err(TextError::Unavailable(UnavailableReason::GrammarBoundary));\n        }\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-backslash-hides-nothing-in-a-braced-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                b'\\\\' => hidden.set(true),\n",
+      "new": "                b'\\\\' => {}\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing"
+      ]
+    },
+    {
+      "name": "tcl-open-brace-in-a-braced-word-adds-no-level",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "                b'{' => depth.set(depth.get() + 1),\n",
+      "new": "                b'{' => depth.set(1),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-brace-scan-is-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_family.rs",
+      "old": "        budget,\n    )?;\n    Ok(stop.map(|at| start + at + 1))\n",
+      "new": "        &crate::documentation::budget::NoBudget,\n    )\n    .unwrap_or_default();\n    let _ = budget;\n    Ok(stop.map(|at| start + at + 1))\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_byte_scans_charge_every_byte_they_read",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-nested-procedure-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        if canonical.nodes[slots.procedure.0].parent != Some(NodeId(0)) {\n",
+      "new": "        if false {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl"
+      ]
+    },
+    {
+      "name": "tcl-dynamic-name-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "                Tcl::VariableSubstitution | Tcl::CommandSubstitution => {\n                    Standing::Uncertain(UnresolvedReason::Dynamic)\n                }\n",
+      "new": "                Tcl::VariableSubstitution | Tcl::CommandSubstitution => Standing::Owner,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_name_decides_whether_the_procedure_is_an_owner"
+      ]
+    },
+    {
+      "name": "tcl-dynamic-name-outranks-the-scan",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        } else if let Some(reason) = unlisted(index, slots, commands, budget)? {\n            Standing::Uncertain(reason)\n",
+      "new": "        } else if let Some(reason) = unlisted(index, slots, commands, budget)? {\n            if node(canonical, slots.name).kind_id() == Tcl::VariableSubstitution as u16 {\n                Standing::Uncertain(UnresolvedReason::Dynamic)\n            } else {\n                Standing::Uncertain(reason)\n            }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure"
+      ]
+    },
+    {
+      "name": "tcl-braced-word-that-tcl-ends-elsewhere-is-trusted",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "braced_word_end(&index.source.bytes()[..end], start, budget)? != Some(end) {\n",
+      "new": "braced_word_end(&index.source.bytes()[..end], start, budget)? == Some(usize::MAX) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-last-braced-word-answers-for-the-procedure",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    for word in [slots.arguments, slots.body] {\n",
+      "new": "    for word in [slots.body, slots.body] {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-procedure-that-the-scan-does-not-list-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            Listed::Command(_) | Listed::Nothing => Some(UnresolvedReason::GrammarBoundary),\n",
+      "new": "            Listed::Command(_) | Listed::Nothing => None,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-any-command-at-the-procedure-is-its-command",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            Listed::Command(listed) if listed == command => None,\n",
+      "new": "            Listed::Command(_) => None,\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes"
+      ]
+    },
+    {
+      "name": "tcl-scan-counts-no-fifth-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "                self.command.count = self.command.count.saturating_add(1).min(5);\n",
+      "new": "                self.command.count = self.command.count.saturating_add(1).min(4);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-forgets-the-expansion-prefix",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            Mark::Expands => self.command.expands = true,\n",
+      "new": "            Mark::Expands => {}\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-ends-a-comment-at-every-line-end",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\\\' => self.to(At::Comment { hidden: true }),\n",
+      "new": "            b'\\\\' => self.to(self.at),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-starts-a-comment-inside-a-command",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'#' if lead => self.to(At::Comment { hidden: false }),\n",
+      "new": "            b'#' => self.to(At::Comment { hidden: false }),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-reads-a-carriage-return-as-white-space",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "        self.step(if byte == b'\\r' { b'\\n' } else { byte })\n",
+      "new": "        self.step(if byte == b'\\r' { b' ' } else { byte })\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-reads-past-the-end-of-file-byte",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "        if byte == END_OF_FILE {\n",
+      "new": "        if byte == END_OF_FILE && self.at == At::Stopped {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-backslash-hides-nothing-in-a-braced-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\\\' => (depth, true, Inside::More),\n",
+      "new": "            b'\\\\' => (depth, false, Inside::More),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-open-brace-adds-no-level",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'{' => (depth + 1, false, Inside::More),\n",
+      "new": "            b'{' => (depth, false, Inside::More),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_rows_nested_in_a_command_are_not_read",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-text-after-a-closed-word-is-part-of-it",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            _ if star => Self { expanded, ..self }.word(byte, Mark::Expands),\n            _ => self.nests(Nest::Fault),\n",
+      "new": "            _ if star => Self { expanded, ..self }.word(byte, Mark::Expands),\n            _ => self.to(At::Text(Text::Bare)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-quote-starts-no-quoted-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\"' => word.marks(At::Text(Text::Quoted), mark),\n",
+      "new": "            b'\"' => word.marks(At::Text(Text::Bare), mark),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-bracket-opens-no-script",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            (_, b'[') => self.nests(Nest::Bracket(kind)),\n",
+      "new": "            (_, b'[') => self.to(At::Text(kind)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-paren-opens-no-index",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            (Var::Dollar | Var::Name | Var::Colons, b'(') => self.nests(Nest::Index(kind)),\n",
+      "new": "            (Var::Dollar | Var::Name | Var::Colons, b'(') => self.to(At::Text(kind)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-braced-variable-name-is-plain-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            (Var::Dollar, b'{') => self.to(At::Var(Var::Braced, kind)),\n",
+      "new": "            (Var::Dollar, b'{') => self.to(At::Text(kind)),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-escaped-line-end-ends-the-command",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\n' => self.to(At::Gap),\n",
+      "new": "            b'\\n' => self.marks(At::Lead, Mark::Over),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-semicolon-after-a-closed-word-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\n' | b';' => self.marks(At::Lead, Mark::Closes(0)),\n            b']' if self.nested => self.nests(Nest::Shut),\n            b'\\\\' => self.to(At::Closed { star, slash: true }),\n",
+      "new": "            b'\\n' => self.marks(At::Lead, Mark::Closes(0)),\n            b']' if self.nested => self.nests(Nest::Shut),\n            b'\\\\' => self.to(At::Closed { star, slash: true }),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-knows-no-expansion-prefix",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "                let star = inside == Inside::Star && !self.expanded;\n",
+      "new": "                let star = false;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-reads-on-after-a-parse-error",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            Nest::Fault => {\n                self.machine.at = At::Stopped;\n",
+      "new": "            Nest::Fault => {\n                self.machine.at = At::Lead;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-lists-a-command-that-never-ends",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "        if self.fate == Fate::Open {\n            self.fate = Fate::Broken;\n        }\n    }\n",
+      "new": "        if self.fate == Fate::Open {\n            self.fate = Fate::Done;\n        }\n    }\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-unknown-scan-is-a-grammar-boundary",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "            Listed::Unknown => Some(UnresolvedReason::ExcludedGap),\n",
+      "new": "            Listed::Unknown => Some(UnresolvedReason::GrammarBoundary),\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut"
+      ]
+    },
+    {
+      "name": "tcl-scan-skips-excluded-bytes",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "        if self.at < range.start {\n            self.hide();\n",
+      "new": "        if self.at < range.start {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-escaped-line-end-proves-the-state",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\n' if run.is_multiple_of(2) && seen > run + 1 => {\n",
+      "new": "            b'\\n' if seen > run + 1 => {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-line-end-after-an-excluded-byte-proves-the-state",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan/machine.rs",
+      "old": "            b'\\n' if run.is_multiple_of(2) && seen > run + 1 => {\n",
+      "new": "            b'\\n' if run.is_multiple_of(2) => {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-forgets-what-was-open-at-an-excluded-byte",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "        let at = if open {\n",
+      "new": "        let at = if open && self.at == usize::MAX {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-scan-cut-command-is-a-parse-error",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "                    self.fate = Fate::Cut;\n",
+      "new": "                    self.fate = Fate::Broken;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them"
+      ]
+    },
+    {
+      "name": "tcl-recovery-nodes-are-read-as-procedures",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        if node(&self.index.canonical, id).kind_id() != Tcl::Procedure as u16 {\n",
+      "new": "        let found = node(&self.index.canonical, id);\n        if found.kind_id() != Tcl::Procedure as u16 && !found.is_error() {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_procedure_without_four_readable_words_is_pending_and_unread",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_procedure_under_a_root_error_is_an_unresolved_candidate",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_braced_proc_command_is_deferred",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_quoted_parameter_list_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_dollar_at_the_end_of_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_in_a_file_with_carriage_return_line_ends_is_deferred"
+      ]
+    },
+    {
+      "name": "tcl-set-commands-are-read-as-procedures",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        if node(&self.index.canonical, id).kind_id() != Tcl::Procedure as u16 {\n",
+      "new": "        if !matches!(\n            Tcl::from(node(&self.index.canonical, id).kind_id()),\n            Tcl::Procedure | Tcl::Set\n        ) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_lead_block_runs_from_the_first_comment_row_to_a_blank_row_or_a_command",
+        "documentation::collector::tcl_tests::tcl_ruff_marker_opens_a_block_at_its_own_row",
+        "documentation::collector::tcl_tests::tcl_ruffopt_rows_are_directives_and_no_boundary",
+        "documentation::collector::tcl_tests::tcl_other_words_that_start_with_ruff_are_ordinary_rows",
+        "documentation::collector::tcl_tests::tcl_comment_that_does_not_start_its_row_is_no_row",
+        "documentation::collector::tcl_tests::tcl_row_that_continues_is_text_of_unknown_extent",
+        "documentation::collector::tcl_tests::tcl_recovery_among_the_rows_ends_a_block_as_a_command_does",
+        "documentation::collector::tcl_tests::tcl_recovery_that_may_hold_rows_withholds_the_document",
+        "documentation::collector::tcl_tests::tcl_row_below_a_continued_line_is_no_procedure",
+        "documentation::collector::tcl_tests::tcl_procedure_that_is_not_one_command_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_nested_procedure_keeps_its_document_and_stays_pending",
+        "documentation::collector::tcl_tests::tcl_excluded_bytes_withhold_what_they_cut",
+        "documentation::collector::tcl_tests::tcl_comment_on_the_continued_line_of_a_command_is_no_row",
+        "documentation::collector::tcl_tests::tcl_carriage_return_alone_ends_a_line_between_two_nodes",
+        "documentation::collector::tcl_tests::tcl_named_limits_keep_todays_outcome",
+        "documentation::collector::tcl_tests::tcl_procedure_whose_braced_word_tcl_ends_elsewhere_has_no_owner_and_no_text",
+        "documentation::collector::tcl_tests::tcl_procedure_inside_an_earlier_braced_word_is_no_owner",
+        "documentation::collector::tcl_tests::tcl_braces_that_tcl_and_the_grammar_count_alike_withhold_nothing",
+        "documentation::collector::tcl_tests::tcl_owner_is_read_from_the_bytes_where_the_tokens_differ_from_tcl",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_brace_in_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_quote_in_a_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_quote_in_a_braced_word_is_deferred",
+        "documentation::collector::tcl_tests::tcl_proc_after_a_dollar_at_the_end_of_a_word_is_deferred"
+      ]
+    },
+    {
+      "name": "tcl-scan-starts-anew-for-each-procedure",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "read_procedure(&self.index, id, &mut self.tcl_scan, budget)?\n",
+      "new": "read_procedure(&self.index, id, &mut CommandScan::default(), budget)?\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_procedures_and_rows_cost_linear_work"
+      ]
+    },
+    {
+      "name": "tcl-scan-reads-on-past-the-byte-asked-for",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            range.end.min(asked.max(self.at) + 1)\n",
+      "new": "            range.end\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-bytes-are-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            budget,\n        )?;\n        self.machine = machine.get();\n",
+      "new": "            &crate::documentation::budget::NoBudget,\n        );\n        let stop = crate::documentation::budget::infallible(stop);\n        self.machine = machine.get();\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-open-brackets-are-not-charged",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "                budget.step()?;\n                let bracket = matches!(signal.nest, Nest::Bracket(_));\n",
+      "new": "                let bracket = matches!(signal.nest, Nest::Bracket(_));\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-included-bytes-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            self.pieces = Some(source.pieces_with_budget(0..end, budget)?);\n",
+      "new": "            self.pieces = Some(source.pieces_with_budget(0..end, &crate::documentation::budget::NoBudget)?);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        match commands.command_at(&index.source, command.start, budget)? {\n",
+      "new": "        match commands.command_at(&index.source, command.start, &crate::documentation::budget::NoBudget)? {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-brace-count-of-a-procedure-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "braced_word_end(&index.source.bytes()[..end], start, budget)? != Some(end) {\n",
+      "new": "crate::documentation::budget::infallible(braced_word_end(&index.source.bytes()[..end], start, &crate::documentation::budget::NoBudget)) != Some(end) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-braced-words-of-a-procedure-take-no-step",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    for word in [slots.arguments, slots.body] {\n        budget.step()?;\n",
+      "new": "    for word in [slots.arguments, slots.body] {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-brace-count-of-a-procedure-reads-past-its-node",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "braced_word_end(&index.source.bytes()[..end], start, budget)? != Some(end) {\n",
+      "new": "braced_word_end(index.source.bytes(), start, budget)? != Some(end) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-procedure-coverage-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        .covers_with_budget(span, budget)\n        .map_err(Into::into)?;\n",
+      "new": "        .covers_with_budget(span, &crate::documentation::budget::NoBudget);\n    let included = crate::documentation::budget::infallible(included);\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-owner-test-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "        } else if parted(index, slots, budget).map_err(Into::into)? {\n            Standing::Parted\n        } else if let Some(reason) = unlisted(index, slots, commands, budget)? {\n",
+      "new": "        } else if crate::documentation::budget::infallible(parted(index, slots, &crate::documentation::budget::NoBudget)) {\n            Standing::Parted\n        } else if let Some(reason) = unlisted(index, slots, commands, &crate::documentation::budget::NoBudget)? {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-standing-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "    let standing = standing(index, &slots, commands, budget)?;\n",
+      "new": "    let standing = standing(index, &slots, commands, &crate::documentation::budget::NoBudget)?;\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-rounds-ignore-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            self.advance(end, start, budget).map_err(Into::into)?;\n",
+      "new": "            crate::documentation::budget::infallible(self.advance(end, start, &crate::documentation::budget::NoBudget));\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-read-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "        if let Some(signal) = self.read(rest, budget)? {\n",
+      "new": "        if let Some(signal) = crate::documentation::budget::infallible(self.read(rest, &crate::documentation::budget::NoBudget)) {\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-scan-signal-ignores-the-budget",
+      "file": "big-code-analysis-ast/src/lang_helpers/tcl_scan.rs",
+      "old": "            self.signal(signal, self.at - 1, budget)?;\n",
+      "new": "            crate::documentation::budget::infallible(self.signal(signal, self.at - 1, &crate::documentation::budget::NoBudget));\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_body_reader_charges_one_step_for_each_child_and_the_bytes_it_reads",
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops",
+        "documentation::collector::tcl_tests::tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them",
+        "documentation::collector::tcl_tests::tcl_owner_test_reads_the_file_once_however_many_procedures_it_holds"
+      ]
+    },
+    {
+      "name": "tcl-procedure-reader-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/tcl.rs",
+      "old": "read_procedure(&self.index, id, &mut self.tcl_scan, budget)?\n",
+      "new": "read_procedure(&self.index, id, &mut self.tcl_scan, &crate::documentation::budget::NoBudget)?\n",
+      "expect": [
+        "documentation::collector::tcl_tests::tcl_collection_observes_cancellation_in_its_loops"
+      ]
+    }
+  ]
+}

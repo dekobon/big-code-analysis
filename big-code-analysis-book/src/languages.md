@@ -109,8 +109,8 @@ selected directly when analysing source files:
 ## Documentation profiles {#documentation-profiles}
 
 `DocumentationOptions::default()` selects the profile below for each `LANG` variant.
-The profile name is `Profile::name()`; a shared grammar can still have a distinct
-language variant. "Unavailable" means the default profile currently returns
+The profile name is `Profile::name()`; a shared grammar can still
+have a distinct language variant. "Unavailable" means the default profile currently returns
 `CollectionError::AdapterUnavailable`, not that the source has no documentation.
 The implemented adapters have partial support: check pending assessments and
 content states rather than inferring that every form is supported. See
@@ -138,7 +138,7 @@ content states rather than inferring that every form is supported. See
 | `Python` | `Python` | Unavailable |
 | `Ruby` | `YARD` | Partial |
 | `Rust` | `Rust` | Partial |
-| `Tcl` | `Ruff` | Unavailable |
+| `Tcl` | `Ruff` | Partial |
 | `Tsx` | `BcaTypescriptSource` | Partial |
 | `Typescript` | `BcaTypescriptSource` | Partial |
 | `Ccomment` | `Helper` | No declaration model |
