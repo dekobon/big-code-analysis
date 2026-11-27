@@ -168,6 +168,10 @@ Use module wrapper `defmodule M do\n` + body + `\nend` for every row.
 | doxygen-missing | `/**@fn void missing()\n * audit*/\nvoid f();` | text `@fn void missing()\naudit`; unresolved missing-name association, no f edge |
 | doxygen-ambiguous | `/**@fn f\n * audit*/\nvoid f(int);\nvoid f(double);` | text `@fn f\naudit`; unresolved alternatives, no first-wins overload |
 | doxygen-quoted | `/** text "@file" */\nvoid f();` | declaration doc -> f, text `text "@file"`; quoted @file does not reassign to file |
+| doxygen-gather-before-target | `/** head */\n/** @file */\n/** tail */\nint f(void);` | file doc `head\n@file` and separate declaration doc `tail` -> f; the file doc has no f edge |
+| doxygen-enum-comma | `enum E { A, /**< ta */ B };` | trailing doc `ta` -> enumerator A; a declarator comma and commas inside an enumerator initializer remain pending, not attached to A |
+| doxygen-single-linkage | `/** audit */\nextern "C" void f(void);` | one doc audit -> inner f, with the linkage wrapper retained as the binding |
+| doxygen-braced-linkage | `/** audit */\nextern "C" { void f(void); void g(void); }` | deferred: no first-member association; doc and candidate owners remain pending |
 | objc-method | `@interface C\n/**audit*/\n- (void)f;\n@end` | one doc audit -> Objective-C method f |
 
 JS controls run separately for Javascript and Mozjs; TS controls for Typescript

@@ -167,7 +167,7 @@
     {
       "name": "trailing-block-takes-the-following-target",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "                        draft.target = code_before;\n                        draft.binding = run.code_before;",
+      "old": "                        draft.target = trailing;\n                        draft.binding =\n                            trailing.map(|id| self.index.canonical.nodes[id.0].evidence);",
       "new": "                        draft.target = target;\n                        draft.binding = run.target;",
       "expect": [
         "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
@@ -214,14 +214,10 @@
       "old": "    Ok(!doxygen_member_after(bytes)\n        && !doxygen_standalone_with_budget(bytes, budget)?\n        && ancestors",
       "new": "    Ok(!doxygen_member_after(bytes)\n        && ancestors",
       "expect": [
-        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
-        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
-        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
-        "documentation::collector::c_family_tests::objc_file_command_documents_the_file",
-        "documentation::collector::c_family_tests::c_fn_command_resolves_by_signature",
-        "documentation::collector::c_family_tests::cpp_fn_command_resolves_by_signature",
-        "documentation::collector::c_family_tests::mozcpp_fn_command_resolves_by_signature",
-        "documentation::collector::c_family_tests::objc_fn_command_resolves_by_signature"
+        "documentation::streaming::markers::tests::c_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::cpp_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::mozcpp_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::objc_gatherer_and_predecessors_once"
       ]
     },
     {

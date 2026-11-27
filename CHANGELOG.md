@@ -26,6 +26,10 @@ for historical reference.
 
 ### Added
 
+- Doxygen C-family source documentation now gathers file comments before a declaration,
+  attaches trailing enum comments after a comma, and projects single-declaration C++
+  template/linkage wrappers. Braced linkage blocks and initializer commas remain pending.
+
 - Exposed `Ast::documentation` and `big_code_analysis::documentation` as
   public source-documentation APIs. The AST result model supports additive
   shape growth, chainable context and option builders, displayable errors,

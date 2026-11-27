@@ -293,8 +293,8 @@
     {
       "name": "superseded-block-is-unattached",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "                && !self.kept.is_empty()",
-      "new": "                && self.kept.is_empty()",
+      "old": "&& !self.kept.is_empty()",
+      "new": "&& self.kept.is_empty()",
       "expect": [
         "documentation::collector::ts_tests::typescript_nearest_block_before_the_declaration_is_selected",
         "documentation::collector::ts_tests::tsx_nearest_block_before_the_declaration_is_selected"

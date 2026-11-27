@@ -1,0 +1,366 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "--offline",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "record": "../../ast-perturb-results.json",
+  "cases": [
+    {
+      "name": "at-target-gatherer-disabled",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            let gathered = if binding.gathers.is_some() {",
+      "new": "            let gathered = if false {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::cpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::mozcpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::objc_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::c_unit2_gather_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::objc_unit2_gather_tail",
+        "documentation::collector::c_family_tests::c_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::objc_unit2_line_gatherer_keeps_tail"
+      ]
+    },
+    {
+      "name": "gathered-tail-reselected",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                &stretch[bound_offset..],",
+      "new": "                stretch,",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::cpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::mozcpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::objc_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::c_unit2_gather_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::objc_unit2_gather_tail"
+      ]
+    },
+    {
+      "name": "gathered-kept-lost",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            kept.append(&mut bound.nodes);",
+      "new": "            kept.clear();\n            kept.append(&mut bound.nodes);",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::cpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::mozcpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::objc_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::c_unit2_gather_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::objc_unit2_gather_tail",
+        "documentation::collector::c_family_tests::c_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::objc_unit2_line_gatherer_keeps_tail"
+      ]
+    },
+    {
+      "name": "forward-tail-misplaced",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "self.bound.is_none() || index < self.bound_offset",
+      "new": "true",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::cpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::mozcpp_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::objc_unit2_quoted_fixture",
+        "documentation::collector::c_family_tests::c_unit2_gather_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_gather_tail",
+        "documentation::collector::c_family_tests::objc_unit2_gather_tail",
+        "documentation::collector::c_family_tests::c_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::objc_unit2_line_gatherer_keeps_tail"
+      ]
+    },
+    {
+      "name": "comma-never-steps-back",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                            if node.kind() == \",\"",
+      "new": "                            if node.kind() == \";\"",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma",
+        "documentation::collector::c_family_tests::c_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::cpp_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::mozcpp_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::objc_unit2_recovered_enumerator"
+      ]
+    },
+    {
+      "name": "comma-confuses-declarator",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "parent.kind() == \"enumerator_list\"",
+      "new": "parent.kind() == \"declaration\"",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma"
+      ]
+    },
+    {
+      "name": "bang-trailing-marker-not-recognized",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "Some(b\"///<\" | b\"//!<\" | b\"/**<\" | b\"/*!<\")",
+      "new": "Some(b\"///<\" | b\"//!<\" | b\"/**<\")",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma"
+      ]
+    },
+    {
+      "name": "nested-argument-comma-control",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "b\"enum E { A = foo(bar(1, /**< nested */ 2)), B };\\n\".as_slice()",
+      "new": "b\"enum E { A = foo(1, /**< nested */ 2), B };\\n\".as_slice()",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma"
+      ]
+    },
+    {
+      "name": "wrapper-profile-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        Profile::Doxygen => matches!(kind, \"template_declaration\" | \"linkage_specification\"),",
+      "new": "        Profile::Doxygen => false,",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_linkage",
+        "documentation::collector::c_family_tests::cpp_unit2_linkage",
+        "documentation::collector::c_family_tests::mozcpp_unit2_linkage",
+        "documentation::collector::c_family_tests::objc_unit2_linkage",
+        "documentation::collector::c_family_tests::cpp_unit2_template",
+        "documentation::collector::c_family_tests::mozcpp_unit2_template"
+      ]
+    },
+    {
+      "name": "template-header-consumed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"template\" | \"template_parameter_list\" | \"requires_clause\"",
+      "new": "\"template\" | \"requires_clause\"",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_template",
+        "documentation::collector::c_family_tests::mozcpp_unit2_template"
+      ]
+    },
+    {
+      "name": "linkage-header-consumed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "&& matches!(kind, \"extern\" | \"string_literal\")",
+      "new": "&& kind == \"extern\"",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_linkage",
+        "documentation::collector::c_family_tests::cpp_unit2_linkage",
+        "documentation::collector::c_family_tests::mozcpp_unit2_linkage",
+        "documentation::collector::c_family_tests::objc_unit2_linkage"
+      ]
+    },
+    {
+      "name": "wrapper-comments-are-trivia",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                if kind == \"comment\"",
+      "new": "                if kind == \"not_a_comment\"",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_template",
+        "documentation::collector::c_family_tests::mozcpp_unit2_template"
+      ]
+    },
+    {
+      "name": "gathered-line-continuation-is-target-bound",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": ".unwrap_or(gatherer);",
+      "new": ".unwrap_or(gatherer);\n                let end_gathered = gatherer;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::cpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::mozcpp_unit2_line_gatherer_keeps_tail",
+        "documentation::collector::c_family_tests::objc_unit2_line_gatherer_keeps_tail"
+      ]
+    },
+    {
+      "name": "gather-call-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            let gathered = if binding.gathers.is_some() {\n                budget.step()?;",
+      "new": "            let gathered = if binding.gathers.is_some() {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_selection_budget_has_two_sides_and_cancels_each_step"
+      ]
+    },
+    {
+      "name": "gather-offset-search-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                for (at, node) in stretch.iter().enumerate() {\n                    budget.step()?;",
+      "new": "                for (at, node) in stretch.iter().enumerate() {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_selection_budget_has_two_sides_and_cancels_each_step"
+      ]
+    },
+    {
+      "name": "enum-comma-sibling-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    while let Some(sibling) = before {\n        budget.step()?;",
+      "new": "    while let Some(sibling) = before {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma_budget_has_two_sides_and_cancels_each_step"
+      ]
+    },
+    {
+      "name": "enum-comma-excluded-gap-ignored",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if !source.covers_with_budget(sibling.end_byte()..comma.start_byte(), budget)? {",
+      "new": "        if false && !source.covers_with_budget(sibling.end_byte()..comma.start_byte(), budget)? {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma"
+      ]
+    },
+    {
+      "name": "enum-comma-comment-sibling-not-skipped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if sibling.kind() != \"comment\" {",
+      "new": "        if true {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma",
+        "documentation::collector::c_family_tests::cpp_unit2_comma",
+        "documentation::collector::c_family_tests::mozcpp_unit2_comma",
+        "documentation::collector::c_family_tests::objc_unit2_comma"
+      ]
+    },
+    {
+      "name": "linkage-declaration-list-not-guarded",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                if node.kind() == \"linkage_specification\" && kind == \"declaration_list\" {",
+      "new": "                if node.kind() == \"linkage_specification\" && kind == \"declaration_list\" {\n                    self.index.canonical.nodes[id.0].projection = Projection::Unsupported;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_linkage",
+        "documentation::collector::c_family_tests::cpp_unit2_linkage",
+        "documentation::collector::c_family_tests::mozcpp_unit2_linkage",
+        "documentation::collector::c_family_tests::objc_unit2_linkage"
+      ]
+    },
+    {
+      "name": "recovered-enumerator-not-a-trailing-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            return Ok(((sibling.kind() == \"enumerator\").then_some(sibling), false));",
+      "new": "            return Ok((None, false));",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::cpp_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::mozcpp_unit2_recovered_enumerator",
+        "documentation::collector::c_family_tests::objc_unit2_recovered_enumerator"
+      ]
+    },
+    {
+      "name": "recovered-wrapper-incorrectly-projects",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()",
+      "new": "        if false && node.has_error()\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_recovered_wrappers",
+        "documentation::collector::c_family_tests::mozcpp_unit2_recovered_wrappers"
+      ]
+    },
+    {
+      "name": "ordinary-literal-no-fake-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "let ordinary = b\"const char *s = \\\"\\\\n/** @file */\\\\nint f(void);\\\\n\\\";\\nint f(void);\\n\";",
+      "new": "let ordinary = b\"/** @file */\\nint f(void);\\n\";",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_literal_boundaries",
+        "documentation::collector::c_family_tests::cpp_unit2_literal_boundaries",
+        "documentation::collector::c_family_tests::mozcpp_unit2_literal_boundaries",
+        "documentation::collector::c_family_tests::objc_unit2_literal_boundaries"
+      ]
+    },
+    {
+      "name": "raw-literal-no-fake-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "let source = b\"const char *s = R\\\"(\\n/** @file */\\nint f(void);\\n)\\\";\\nint f(void);\\n\";",
+      "new": "let source = b\"/** @file */\\nint f(void);\\n\";",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_cpp_raw_literal",
+        "documentation::collector::c_family_tests::mozcpp_unit2_cpp_raw_literal"
+      ]
+    },
+    {
+      "name": "objc-literal-no-fake-file",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "let source = b\"id s = @\\\"\\\\n/** @file */\\\\nint f(void);\\\\n\\\";\\nint f(void);\\n\";",
+      "new": "let source = b\"/** @file */\\nint f(void);\\n\";",
+      "expect": [
+        "documentation::collector::c_family_tests::objc_unit2_objc_literal"
+      ]
+    },
+    {
+      "name": "c-recovered-literal-is-characterized",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "b\"const char *s = \\\"\\n/** @file */\\nint f(void);\\n\\\";\\n\"",
+      "new": "b\"const char *s = \\\"\\\\n/** @file */\\\\nint f(void);\\\\n\\\";\\n\"",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_invalid_multiline_quote"
+      ]
+    },
+    {
+      "name": "objc-recovered-literal-is-characterized",
+      "file": "big-code-analysis-ast/src/documentation/collector/c_family_tests.rs",
+      "old": "b\"id s = @\\\"\\n/** @file */\\nint f(void);\\n\\\";\\n\"",
+      "new": "b\"id s = @\\\"\\\\n/** @file */\\\\nint f(void);\\\\n\\\";\\n\"",
+      "expect": [
+        "documentation::collector::c_family_tests::objc_unit2_invalid_multiline_quote"
+      ]
+    },
+    {
+      "name": "constrained-template-requires-clause-is-trivia",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"template\" | \"template_parameter_list\" | \"requires_clause\"",
+      "new": "\"template\" | \"template_parameter_list\"",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_template",
+        "documentation::collector::c_family_tests::mozcpp_unit2_template"
+      ]
+    },
+    {
+      "name": "error-adjacent-enumerator-not-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                        if previous.is_error() {\n                            return Ok((None, false));\n                        }",
+      "new": "                        if false && previous.is_error() {\n                            return Ok((None, false));\n                        }",
+      "expect": [
+        "documentation::collector::c_family_tests::c_unit2_comma"
+      ]
+    },
+    {
+      "name": "unsupported-doxygen-wrapper-stays-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                    if self.index.profile != Profile::Doxygen {\n                        self.index.canonical.nodes[id.0].projection = Projection::Unsupported;\n                    }",
+      "new": "                    self.index.canonical.nodes[id.0].projection = Projection::Unsupported;",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_unit2_template",
+        "documentation::collector::c_family_tests::mozcpp_unit2_template"
+      ]
+    }
+  ]
+}
