@@ -297,12 +297,15 @@ fn check_policy(ast: &Ast, lang: LANG, expected: Expectation, filename: Option<&
             }
         }
         Expectation::Rejected(profile) => {
-            assert_eq!(
-                result.err(),
-                Some(CollectionError::AdapterUnavailable {
-                    language: lang,
-                    profile
-                }),
+            assert!(
+                matches!(
+                    result,
+                    Err(CollectionError::AdapterUnavailable {
+                        language,
+                        profile: actual,
+                        ..
+                    }) if language == lang && actual == profile
+                ),
                 "{lang}"
             );
         }
@@ -786,10 +789,7 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
             };
             for language in languages.into_iter().filter(LANG::is_enabled) {
                 let ast = Ast::parse(Source::new(language, &bytes)).unwrap();
-                let options = DocumentationOptions {
-                    retain_unbound: true,
-                    ..Default::default()
-                };
+                let options = DocumentationOptions::default().with_unbound_evidence(true);
                 let result = ast.documentation(&DocumentationContext::default(), &options);
                 let unavailable = match path.rsplit('.').next().unwrap() {
                     "py" => Some(Profile::Python),
@@ -799,7 +799,7 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                 if let Some(profile) = unavailable {
                     assert!(
                         matches!(result, Err(CollectionError::AdapterUnavailable {
-                        language: got, profile: found
+                        language: got, profile: found, ..
                     }) if got == language && found == profile),
                         "{path}"
                     );
@@ -808,17 +808,13 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                 }
                 let index = result.unwrap();
                 if path == "php-define.php" {
-                    let alternate = DocumentationOptions {
-                        profile: Profile::PhpDocumentor,
-                        ..Default::default()
-                    };
-                    assert_eq!(
-                        ast.documentation(&DocumentationContext::default(), &alternate)
-                            .err(),
-                        Some(CollectionError::AdapterUnavailable {
-                            language,
-                            profile: Profile::PhpDocumentor,
-                        }),
+                    let alternate =
+                        DocumentationOptions::default().with_profile(Profile::PhpDocumentor);
+                    assert!(
+                        matches!(ast.documentation(&DocumentationContext::default(), &alternate),
+                        Err(CollectionError::AdapterUnavailable {
+                            language: got, profile: Profile::PhpDocumentor, ..
+                        }) if got == language),
                         "{path}: promised alternate profile is pending"
                     );
                 }

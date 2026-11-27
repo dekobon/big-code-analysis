@@ -43,10 +43,9 @@ fn decoder_mode_table_is_independent() {
     ] {
         assert_eq!(
             exercise(&bytes),
-            Ok(Outcome::Rejected(CollectionError::AdapterUnavailable {
-                language,
-                profile
-            }))
+            Ok(Outcome::Rejected(CollectionError::adapter_unavailable(
+                language, profile
+            )))
         );
     }
 }
@@ -222,10 +221,7 @@ fn observation_scope_restores_on_rejection_skip_and_unwind() {
         assert_eq!(events, []);
     }
     let (result, events) = observation::capture(|| exercise(&[1, 0, 0]));
-    let error = CollectionError::AdapterUnavailable {
-        language: LANG::Python,
-        profile: Profile::Python,
-    };
+    let error = CollectionError::adapter_unavailable(LANG::Python, Profile::Python);
     assert_eq!(result, Ok(Outcome::Rejected(error)));
     assert_eq!(events, [Event::Parse, Event::Collection(Err(error))]);
     let ((), outer) = observation::capture(|| {
@@ -457,38 +453,17 @@ fn producer_second_collection_repeat_control() {
 #[test]
 fn repeat_checks_nondefault_context_and_options() {
     let parser = AnyParser::parse(LANG::Rust, b"///audit\nfn f() {}".to_vec(), None, None).unwrap();
-    let context = DocumentationContext {
-        logical_filename: Some("named.rs".into()),
-    };
-    let options = DocumentationOptions {
-        profile: Profile::Rust,
-        retain_unbound: true,
-        retain_directives: true,
-    };
+    let context = DocumentationContext::default().with_logical_filename("named.rs");
+    let options = DocumentationOptions::default()
+        .with_profile(Profile::Rust)
+        .with_unbound_evidence(true)
+        .with_directive_evidence(true);
     let first = parser.documentation(&context, &options).unwrap();
     for (context, options) in [
         (DocumentationContext::default(), options),
-        (
-            context.clone(),
-            DocumentationOptions {
-                profile: Profile::Default,
-                ..options
-            },
-        ),
-        (
-            context.clone(),
-            DocumentationOptions {
-                retain_unbound: false,
-                ..options
-            },
-        ),
-        (
-            context.clone(),
-            DocumentationOptions {
-                retain_directives: false,
-                ..options
-            },
-        ),
+        (context.clone(), options.with_profile(Profile::Default)),
+        (context.clone(), options.with_unbound_evidence(false)),
+        (context.clone(), options.with_directive_evidence(false)),
     ] {
         let second = parser.documentation(&context, &options).unwrap();
         assert_eq!(

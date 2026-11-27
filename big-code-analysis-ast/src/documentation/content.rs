@@ -43,6 +43,17 @@ pub enum TextRangeError {
     ScalarBoundary,
 }
 
+impl std::fmt::Display for TextRangeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Bounds => "documentation text range is outside the text",
+            Self::ScalarBoundary => "documentation text range splits a UTF-8 scalar",
+        })
+    }
+}
+
+impl std::error::Error for TextRangeError {}
+
 /// The source responsible for one output run. Disjoint included pieces stay
 /// disjoint, including when a decoded token crosses an excluded range.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,6 +170,7 @@ pub enum OriginView<'i, 's> {
 
 /// One intersecting output portion and its exact origin.
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MappingPortion<'i, 's> {
     /// Half-open UTF-8 byte coordinates in the complete text.
     pub output: Range<usize>,

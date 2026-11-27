@@ -94,6 +94,27 @@ section.
     parser-generic `metrics` / `metrics_with_options` functions and the
     `MetricsCfg` builder were removed at `2.0` in favor of `analyze` /
     `Ast`.
+  - `Ast::documentation` and `big_code_analysis::documentation` expose a
+    borrowed source-documentation index and its explicitly re-exported result
+    and option types. `DocumentationContext::default().with_logical_filename(name)`
+    supplies optional caller metadata; `DocumentationOptions::default()` can be
+    refined with `with_profile`, `with_unbound_evidence` and
+    `with_directive_evidence`. The index cannot outlive its `Ast` and keeps no
+    documentation cache in the `Ast`. `DocumentationContext` and
+    `DocumentationOptions` are `#[non_exhaustive]`: construct them through
+    `Default` and the builders, not struct literals. Their existing public
+    fields remain readable and their names and types are shape-stable, while
+    new fields may be added. The re-exported names, method signatures, fields
+    and currently named enum variants are protected by the `2.x` shape
+    contract; `#[non_exhaustive]` permits additive variants and fields.
+    `Convention`, `MappingPortions`, and `TextRange` are re-exported as part
+    of the result model. Node-based queries accept the pinned
+    `tree_sitter::Node`, obtainable from `Ast::as_tree_sitter()`; this parameter
+    and `NodeEvidence::node()` follow the tree-sitter escape-hatch pin.
+    `CollectionError`, `OwnerError`, `FactError`, `SourceError` and
+    `TextRangeError` implement `Display + Error`; their display wording is not
+    shape-stable. Internal collector functions and test counters in the AST
+    crate are not re-exported or promised by this contract.
   - `Metric`, `MetricSet` in `src/metric_set.rs`: `Metric` carries
     `#[non_exhaustive]`, so adding variants is additive. `MetricSet`
     is the opaque bitfield consumed by
@@ -547,7 +568,7 @@ The following are explicitly **not** part of the shape contract:
   crate *does* re-export from it (`LANG`, `ParseLangError`, `Node`,
   `MetricsError`, `SpaceKind`, `metrics::halstead::TokenRole`, the AST
   dump types, `Count` / `CountCollector`, the preprocessor types and
-  functions, and the file readers) are covered exactly as the sections
+  functions, the file readers, and the documentation result model) are covered exactly as the sections
   above describe, through this crate's paths. Depend on
   `big-code-analysis`; depend on `big-code-analysis-ast` directly only
   if you accept re-pinning on every release.
@@ -581,6 +602,10 @@ versions, even within `2.x`.** Concretely:
 
 This is the one deliberate carve-out in the `2.x` contract. The
 *shape* of the data is stable; the *numbers in the cells* are not.
+The same distinction applies to source documentation: its owners, byte
+ranges, cleaned text, assessments and publication may change with pinned
+grammar versions and fixes to source adapters. Exact-result reproducibility
+requires an exact crate version, not only a stable API shape.
 If you need to compare metric runs across time, pin to an exact
 version (`big-code-analysis = "= 2.6.0"`) and store the version
 alongside the results.
@@ -817,7 +842,8 @@ reach the raw tree-sitter surface.
   re-export. The rest of `Ast`'s API surface (`parse`,
   `from_tree_sitter`, `from_path`, `metrics`, `ops`, `strip_comments`,
   `functions`, `dump`, `dump_cursor`, `dump_indexed`, `count`, `find`,
-  `root_node`, `suppressions`, `language`, `source`, `name`) is
+  `root_node`, `suppressions`, `language`, `source`, `name`,
+  `documentation`) is
   shape-stable. `from_path` (#727) is the file-backed counterpart to
   `parse`; it returns the `#[non_exhaustive]` `FromPathError` (`Io`,
   `NonUtf8Path`, `Skipped(SkipReason)`, `UnknownLanguage`,

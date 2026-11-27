@@ -5,7 +5,7 @@ the [documentation extraction contract](documentation_extraction.md#acceptance-c
 It supplements the primary language roster with inputs that distinguish attachment,
 composition, text availability and profile choices. These are required outcomes,
 not a claim that each adapter currently implements every case. The direct-AST
-collector and a hidden root facade are available with partial adapter support.
+collector and a public root facade are available with partial adapter support.
 Profile definitions and references
 are in the contract.
 

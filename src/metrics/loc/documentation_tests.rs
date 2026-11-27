@@ -1961,10 +1961,7 @@ fn documentation_js_source_and_legacy_views_are_independent() {
             let index = parser
                 .documentation(
                     &DocumentationContext::default(),
-                    &DocumentationOptions {
-                        retain_unbound: true,
-                        ..DocumentationOptions::default()
-                    },
+                    &DocumentationOptions::default().with_unbound_evidence(true),
                 )
                 .unwrap();
             let collected = observations();
@@ -2613,10 +2610,7 @@ fn documentation_groovy_source_and_legacy_views_are_independent() {
         let index = parser
             .documentation(
                 &DocumentationContext::default(),
-                &DocumentationOptions {
-                    retain_unbound: true,
-                    ..DocumentationOptions::default()
-                },
+                &DocumentationOptions::default().with_unbound_evidence(true),
             )
             .unwrap();
         let collected = observations();

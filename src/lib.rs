@@ -194,6 +194,23 @@ pub(crate) use crate::metrics::{
 mod spaces;
 pub use crate::spaces::{Ast, CodeMetrics, FuncSpace, MetricsOptions, Source, SpaceKind, analyze};
 
+/// Source documentation from a borrowed [`Ast`], independent of metric walks.
+///
+/// The result model is re-exported by name; collector plumbing remains in the
+/// AST crate. Node queries accept nodes from [`Ast::as_tree_sitter`].
+pub mod documentation {
+    pub use big_code_analysis_ast::documentation::{
+        Assessment, AssessmentAxis, Association, CandidateDisposition, CandidateEvidence,
+        Capability, CollectionError, CompleteText, Composition, Content, Convention, Document,
+        DocumentRole, DocumentationContext, DocumentationIndex, DocumentationOptions, FactError,
+        FactRef, Facts, Fragment, FragmentForm, Mapping, MappingPortion, MappingPortions,
+        NodeEvidence, NodeProjection, Origin, OriginView, Owner, OwnerAssociations, OwnerError,
+        OwnerGroup, OwnerPiece, Profile, Publication, Qualification, QualificationSubject,
+        Resolution, Slot, SlotRole, SourceError, SourcePiece, SourcePieces, TextRange,
+        TextRangeError, UnavailableReason, UnresolvedReason, VirtualOwner,
+    };
+}
+
 /// Per-metric implementations.
 ///
 /// Each sub-module owns one metric — its `Stats` accumulator, the

@@ -3,8 +3,8 @@
 #[cfg(feature = "rust")]
 #[test]
 fn collect_and_read() {
+    use big_code_analysis::documentation::{DocumentationContext, DocumentationOptions};
     use big_code_analysis::{Ast, LANG, Source};
-    use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
 
     let ast =
         Ast::parse(Source::new(LANG::Rust, b"/// audit\nfn f() {}")).expect("rust feature enabled");
@@ -31,10 +31,10 @@ fn collect_and_read() {
 #[cfg(feature = "rust")]
 #[test]
 fn owners_and_origins() {
-    use big_code_analysis::{Ast, LANG, Source};
-    use big_code_analysis_ast::documentation::{
+    use big_code_analysis::documentation::{
         DocumentationContext, DocumentationOptions, OriginView, Owner, Resolution,
     };
+    use big_code_analysis::{Ast, LANG, Source};
 
     let ast = Ast::parse(Source::new(
         LANG::Rust,
@@ -101,10 +101,10 @@ fn owners_and_origins() {
 #[cfg(feature = "rust")]
 #[test]
 fn empty_and_errors() {
-    use big_code_analysis::{Ast, LANG, Source};
-    use big_code_analysis_ast::documentation::{
+    use big_code_analysis::documentation::{
         CollectionError, DocumentationContext, DocumentationOptions, Profile,
     };
+    use big_code_analysis::{Ast, LANG, Source};
 
     let context = DocumentationContext::default();
     let empty = Ast::parse(Source::new(LANG::Rust, b"")).expect("rust feature enabled");
@@ -114,26 +114,22 @@ fn empty_and_errors() {
     assert_eq!(index.documents().len(), 0);
     let ast =
         Ast::parse(Source::new(LANG::Rust, b"/// audit\nfn f() {}")).expect("rust feature enabled");
-    let wrong = DocumentationOptions {
-        profile: Profile::Javadoc,
-        ..DocumentationOptions::default()
-    };
-    assert_eq!(
-        ast.documentation(&context, &wrong).err(),
-        Some(CollectionError::UnsupportedProfile {
+    let wrong = DocumentationOptions::default().with_profile(Profile::Javadoc);
+    assert!(matches!(
+        ast.documentation(&context, &wrong),
+        Err(CollectionError::UnsupportedProfile {
             language: LANG::Rust,
-            profile: Profile::Javadoc
+            profile: Profile::Javadoc,
+            ..
         })
-    );
+    ));
 }
 
 #[cfg(feature = "rust")]
 #[test]
 fn present_empty_and_unavailable() {
+    use big_code_analysis::documentation::{Content, DocumentationContext, DocumentationOptions};
     use big_code_analysis::{Ast, LANG, Source};
-    use big_code_analysis_ast::documentation::{
-        Content, DocumentationContext, DocumentationOptions,
-    };
 
     let context = DocumentationContext::default();
     let options = DocumentationOptions::default();
@@ -177,7 +173,7 @@ fn present_empty_and_unavailable() {
 #[test]
 fn normalized_path_coordinates() {
     use big_code_analysis::Ast;
-    use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+    use big_code_analysis::documentation::{DocumentationContext, DocumentationOptions};
 
     let dir = tempfile::tempdir().expect("temporary directory");
     let path = dir.path().join("example.rs");

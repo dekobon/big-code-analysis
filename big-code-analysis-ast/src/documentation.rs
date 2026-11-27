@@ -4,7 +4,8 @@
 //! owners. Fragments add included source spelling, documents add composition
 //! and content state, and associations add profile-qualified attachment.
 //! Collection retains immutable source facts, local text and prepared owner queries.
-//! All items are unstable direct-AST plumbing.
+//! The root crate re-exports the public result model through its documentation facade;
+//! collector plumbing remains an unstable direct-AST interface.
 //!
 //! The collector stores flat node, occurrence and membership arenas. Text and
 //! maps are materialized once per document. Structural work is linear in visits,
@@ -548,6 +549,75 @@ pub enum FactError {
     ForeignIndex,
     /// The requested record or composition position does not exist.
     MissingRecord,
+}
+
+impl std::fmt::Display for FactError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ForeignIndex => "documentation handle belongs to another index",
+            Self::MissingRecord => "documentation record is missing",
+        })
+    }
+}
+
+impl std::error::Error for FactError {}
+
+#[cfg(test)]
+mod facade_type_tests {
+    use super::*;
+
+    #[test]
+    fn builders_are_chainable_and_preserve_independent_choices() {
+        let context = DocumentationContext::default().with_logical_filename("lib.rs");
+        assert_eq!(context.logical_filename.as_deref(), Some("lib.rs"));
+        let options = DocumentationOptions::default()
+            .with_profile(Profile::Rust)
+            .with_unbound_evidence(true)
+            .with_directive_evidence(true);
+        assert_eq!(options.profile, Profile::Rust);
+        assert!(options.retain_unbound);
+        assert!(options.retain_directives);
+        let options = options.with_unbound_evidence(false);
+        assert!(!options.retain_unbound);
+        assert!(options.retain_directives);
+    }
+
+    #[test]
+    fn error_displays_and_sources_are_available_without_debug_formatting() {
+        fn is_error<T: std::error::Error>() {}
+        is_error::<CollectionError>();
+        is_error::<OwnerError>();
+        is_error::<FactError>();
+        is_error::<SourceError>();
+        is_error::<TextRangeError>();
+        assert_eq!(
+            FactError::ForeignIndex.to_string(),
+            "documentation handle belongs to another index"
+        );
+        assert_eq!(
+            TextRangeError::ScalarBoundary.to_string(),
+            "documentation text range splits a UTF-8 scalar"
+        );
+        let error = CollectionError::Source(SourceError::ForeignTree);
+        assert_eq!(
+            error.to_string(),
+            "documentation source: documentation node belongs to another tree"
+        );
+        assert_eq!(
+            std::error::Error::source(&error)
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("documentation node belongs to another tree")
+        );
+        let error = OwnerError::Fact(FactError::MissingRecord);
+        assert_eq!(
+            std::error::Error::source(&error)
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("documentation record is missing")
+        );
+        assert!(std::error::Error::source(&CollectionError::Cancelled).is_none());
+    }
 }
 
 #[cfg(test)]

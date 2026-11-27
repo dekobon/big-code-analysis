@@ -6,10 +6,11 @@ assumes the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) model of n
 ranges. For parsing and tree adoption, see [Parse once](parse-once.md); for direct node traversal,
 see [Walking the AST directly](ast-traversal.md).
 
-This API is currently hidden, unstable direct-AST plumbing. Its argument and result types come
-from `big-code-analysis-ast`, not root-crate re-exports. A consumer using it must depend on that
-crate as well as `big-code-analysis` and must check its current API when upgrading. The examples
-below run in this repository's integration tests with the `rust` Cargo feature enabled.
+`Ast::documentation` and its argument and result types are part of the public
+`big-code-analysis` library API. Import the types through
+`big_code_analysis::documentation`; a separate dependency on
+`big-code-analysis-ast` is not required. The examples below run in this
+repository's integration tests with the `rust` Cargo feature enabled.
 
 ## Collect and read a document {#collect-and-read}
 
@@ -18,7 +19,7 @@ keep the `Ast` alive while reading the index. Default options select the languag
 
 ```rust,ignore
 use big_code_analysis::{Ast, LANG, Source};
-use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+use big_code_analysis::documentation::{DocumentationContext, DocumentationOptions};
 
 let ast = Ast::parse(Source::new(LANG::Rust, b"/// audit\nfn f() {}"))
     .expect("rust feature enabled");
@@ -47,7 +48,7 @@ therefore returns several origin portions; never assume one continuous source sp
 
 ```rust,ignore
 use big_code_analysis::{Ast, LANG, Source};
-use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions, OriginView, Owner, Resolution};
+use big_code_analysis::documentation::{DocumentationContext, DocumentationOptions, OriginView, Owner, Resolution};
 
 let ast = Ast::parse(Source::new(LANG::Rust, b"/// @audit\n#[doc = \"detail\"]\nfn f() {}"))
     .expect("rust feature enabled");
@@ -97,7 +98,7 @@ has no documentation.
 
 ```rust,ignore
 use big_code_analysis::{Ast, LANG, Source};
-use big_code_analysis_ast::documentation::{CollectionError, DocumentationContext, DocumentationOptions, Profile};
+use big_code_analysis::documentation::{CollectionError, DocumentationContext, DocumentationOptions, Profile};
 
 let context = DocumentationContext::default();
 let empty = Ast::parse(Source::new(LANG::Rust, b"")).expect("rust feature enabled");
@@ -106,9 +107,11 @@ let index = empty.documentation(&context, &DocumentationOptions::default())
 assert_eq!(index.documents().len(), 0);
 let ast = Ast::parse(Source::new(LANG::Rust, b"/// audit\nfn f() {}"))
     .expect("rust feature enabled");
-let wrong = DocumentationOptions { profile: Profile::Javadoc, ..DocumentationOptions::default() };
-assert_eq!(ast.documentation(&context, &wrong).err(),
-    Some(CollectionError::UnsupportedProfile { language: LANG::Rust, profile: Profile::Javadoc }));
+let wrong = DocumentationOptions::default().with_profile(Profile::Javadoc);
+assert!(matches!(ast.documentation(&context, &wrong),
+    Err(CollectionError::UnsupportedProfile {
+        language: LANG::Rust, profile: Profile::Javadoc, ..
+    })));
 ```
 
 Handle `CollectionError::Cancelled`, `LanguageDisabled`, `UnsupportedProfile`,
@@ -122,7 +125,7 @@ attribute retains its raw fragment when its value cannot be decoded as prose:
 
 ```rust,ignore
 use big_code_analysis::{Ast, LANG, Source};
-use big_code_analysis_ast::documentation::{Content, DocumentationContext, DocumentationOptions};
+use big_code_analysis::documentation::{Content, DocumentationContext, DocumentationOptions};
 
 let context = DocumentationContext::default();
 let options = DocumentationOptions::default();
@@ -150,8 +153,9 @@ expanded bytes). `Ast::from_path` reads a file and normalizes its end-of-line ch
 UTF-8 BOM before parsing. Every fragment and origin range indexes `index.source()`, which is
 the same buffer as `ast.source()`, **not** necessarily the file's original bytes. A path-backed
 `Ast` supplies its final path component as the default logical filename. A name set on an
-in-memory `Source` is only a display label: set `DocumentationContext::logical_filename`
-explicitly if a profile needs that filename. The caller's explicit filename takes precedence.
+in-memory `Source` is only a display label: use
+`DocumentationContext::default().with_logical_filename(name)` when a profile
+needs that filename. The caller's explicit filename takes precedence.
 
 `Ast::from_tree_sitter` adopts the caller's tree and bytes. For a parse with included ranges,
 excluded gaps are not source text: fragments retain separate included pieces and can report
@@ -163,7 +167,7 @@ file with CRLF line endings:
 
 ```rust,ignore
 use big_code_analysis::Ast;
-use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+use big_code_analysis::documentation::{DocumentationContext, DocumentationOptions};
 
 let dir = tempfile::tempdir().expect("temporary directory");
 let path = dir.path().join("example.rs");
@@ -179,7 +183,8 @@ assert_eq!(second.get().source().pieces()[0].range(), 6..11);
 assert_eq!(index.complete_text(document).expect("same index").expect("complete").text(), "a\nb");
 ```
 
-`DocumentationOptions::profile` defaults to the language's named profile. The
+`DocumentationOptions::default()` selects the language's named profile. Use
+`with_profile` to choose another profile. The
 [language-profile table](../languages.md#documentation-profiles) lists the defaults and
 current unavailable adapters. `Ccomment` and `Preproc` are helper grammars: a successful
 collection reports `Capability::NoDeclarationModel`, not a set of declarations. Profile

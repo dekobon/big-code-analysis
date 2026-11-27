@@ -26,8 +26,8 @@
     {
       "name": "lose-deferred-profile-distinction",
       "file": "fuzz/src/documentation/header.rs",
-      "old": "Err(CollectionError::AdapterUnavailable { language, profile })",
-      "new": "Err(CollectionError::UnsupportedProfile { language, profile })",
+      "old": "Err(CollectionError::adapter_unavailable(language, profile))",
+      "new": "Err(CollectionError::unsupported_profile(language, profile))",
       "expect": ["documentation::tests::registry_executes_every_dispatch_and_edge_assertion"]
     },
     {

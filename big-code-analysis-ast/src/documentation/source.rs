@@ -356,3 +356,17 @@ pub enum SourceError {
     /// The held tree matches but canonical node context does not.
     NoncanonicalNode,
 }
+
+impl std::fmt::Display for SourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Cancelled => "documentation source operation cancelled",
+            Self::InvalidRange => "documentation source range is invalid",
+            Self::Excluded => "documentation source range is excluded",
+            Self::ForeignTree => "documentation node belongs to another tree",
+            Self::NoncanonicalNode => "documentation node is not canonical",
+        })
+    }
+}
+
+impl std::error::Error for SourceError {}

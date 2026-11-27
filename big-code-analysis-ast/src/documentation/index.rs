@@ -5,6 +5,7 @@ use super::*;
 
 /// Whether the selected grammar has a source declaration model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Capability {
     /// Implemented source paths coexist with default-visible pending forms.
     Partial,
@@ -30,6 +31,7 @@ pub enum AssessmentAxis {
 
 /// A default-visible pending implementation assessment.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Assessment<'s> {
     /// The unfinished decision, independent of other dimensions.
     pub axis: AssessmentAxis,
@@ -42,6 +44,7 @@ pub struct Assessment<'s> {
 
 /// Retained nonselected source evidence, independently of pending assessments.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct CandidateEvidence {
     pub(super) fragment: FragmentId,
     /// Why this occurrence does not contribute to selected prose.
@@ -50,6 +53,7 @@ pub struct CandidateEvidence {
 
 /// Source-selection evidence, not an owner or publication conclusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CandidateDisposition {
     /// A later candidate replaced this occurrence.
     Superseded,
@@ -101,6 +105,26 @@ pub struct NodeProjection<'i, 's> {
     id: super::canonical::NodeId,
     owners: &'i [OwnerId],
     pending: bool,
+}
+
+impl std::fmt::Debug for OwnerAssociations<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnerAssociations")
+            .field("projection_pending", &self.projection_pending)
+            .field("associations", &self.associations.len())
+            .field("assessments", &self.assessments.len())
+            .field("qualifications", &self.qualifications.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for NodeProjection<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeProjection")
+            .field("pending", &self.pending)
+            .field("owners", &self.owners.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'i, 's> NodeProjection<'i, 's> {
@@ -208,6 +232,28 @@ pub enum OwnerError {
     Source(SourceError),
     /// A borrowed handle belongs to another index.
     Fact(FactError),
+}
+
+impl std::fmt::Display for OwnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedOwner => f.write_str("unsupported documentation owner"),
+            Self::PendingOwner => f.write_str("documentation owner projection is pending"),
+            Self::MultipleOwners => f.write_str("documentation node projects to multiple owners"),
+            Self::Source(error) => write!(f, "documentation owner source: {error}"),
+            Self::Fact(error) => write!(f, "documentation owner fact: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for OwnerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Source(error) => Some(error),
+            Self::Fact(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl<'s> DocumentationIndex<'s> {
