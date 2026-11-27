@@ -114,17 +114,15 @@ fn empty_and_errors() {
     assert_eq!(index.documents().len(), 0);
     let ast =
         Ast::parse(Source::new(LANG::Rust, b"/// audit\nfn f() {}")).expect("rust feature enabled");
-    let wrong = DocumentationOptions {
-        profile: Profile::Javadoc,
-        ..DocumentationOptions::default()
-    };
-    assert_eq!(
-        ast.documentation(&context, &wrong).err(),
-        Some(CollectionError::UnsupportedProfile {
+    let wrong = DocumentationOptions::default().with_profile(Profile::Javadoc);
+    assert!(matches!(
+        ast.documentation(&context, &wrong),
+        Err(CollectionError::UnsupportedProfile {
             language: LANG::Rust,
-            profile: Profile::Javadoc
+            profile: Profile::Javadoc,
+            ..
         })
-    );
+    ));
 }
 
 #[cfg(feature = "rust")]

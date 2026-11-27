@@ -1,7 +1,7 @@
 //! Stable workload identities and source generators; shared by both timing methods.
 
 use big_code_analysis_ast::LANG;
-use big_code_analysis_ast::documentation::{DocumentationOptions, Profile};
+use big_code_analysis_ast::documentation::DocumentationOptions;
 use std::fmt::Write;
 
 use super::{HarnessError, require};
@@ -581,11 +581,9 @@ impl SourceProbe {
     /// The explicit options used by both runners.
     #[must_use]
     pub fn options(&self) -> DocumentationOptions {
-        DocumentationOptions {
-            profile: Profile::Default,
-            retain_unbound: self.evidence && self.key != "directives",
-            retain_directives: self.evidence && self.key == "directives",
-        }
+        DocumentationOptions::default()
+            .with_unbound_evidence(self.evidence && self.key != "directives")
+            .with_directive_evidence(self.evidence && self.key == "directives")
     }
 
     /// Generate the exact source for a positive size, without newline normalization.

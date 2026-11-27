@@ -98,11 +98,10 @@ impl<'a> Input<'a> {
             },
             repeat: mode & 1 != 0,
             identity: mode & 2 != 0,
-            options: DocumentationOptions {
-                profile,
-                retain_unbound: flags & 0x20 != 0,
-                retain_directives: flags & 0x40 != 0,
-            },
+            options: DocumentationOptions::default()
+                .with_profile(profile)
+                .with_unbound_evidence(flags & 0x20 != 0)
+                .with_directive_evidence(flags & 0x40 != 0),
             source,
         })
     }
@@ -143,9 +142,9 @@ pub(super) fn expected_profile(
         (LANG::Php, Profile::PhpDocumentor) | (LANG::Ruby, Profile::Rdoc)
     );
     if profile != default && !alternate {
-        Err(CollectionError::UnsupportedProfile { language, profile })
+        Err(CollectionError::unsupported_profile(language, profile))
     } else if alternate || matches!(language, LANG::Python | LANG::Bash | LANG::Irules) {
-        Err(CollectionError::AdapterUnavailable { language, profile })
+        Err(CollectionError::adapter_unavailable(language, profile))
     } else {
         Ok(profile)
     }

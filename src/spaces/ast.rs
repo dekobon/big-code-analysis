@@ -454,8 +454,8 @@ impl PathProvenance {
     /// with an error, so its final component converts as well.
     fn of(utf8_path: &str) -> Option<Self> {
         let filename = Path::new(utf8_path).file_name()?.to_str()?;
-        Some(Self(DocumentationContext {
-            logical_filename: Some(filename.to_owned()),
-        }))
+        Some(Self(
+            DocumentationContext::default().with_logical_filename(filename),
+        ))
     }
 }

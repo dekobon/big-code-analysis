@@ -5,9 +5,19 @@ use crate::LANG;
 
 /// Caller metadata used by documentation rules, never a filesystem credential.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct DocumentationContext {
     /// Explicit logical filename. Display labels are not substituted for it.
     pub logical_filename: Option<String>,
+}
+
+impl DocumentationContext {
+    /// Set the logical name used by source attachment rules, without filesystem access.
+    #[must_use]
+    pub fn with_logical_filename(mut self, filename: impl Into<String>) -> Self {
+        self.logical_filename = Some(filename.into());
+        self
+    }
 }
 
 /// One named source attachment convention.
@@ -132,6 +142,7 @@ impl Profile {
 
 /// Immutable collection choices; pending assessments are always retained.
 #[derive(Clone, Copy, Debug, Default)]
+#[non_exhaustive]
 pub struct DocumentationOptions {
     /// One named attachment convention.
     pub profile: Profile,
@@ -139,6 +150,29 @@ pub struct DocumentationOptions {
     pub retain_unbound: bool,
     /// Preserve recognized non-prose directive occurrences.
     pub retain_directives: bool,
+}
+
+impl DocumentationOptions {
+    /// Select a named source attachment convention.
+    #[must_use]
+    pub fn with_profile(mut self, profile: Profile) -> Self {
+        self.profile = profile;
+        self
+    }
+
+    /// Retain superseded and unattached source candidates.
+    #[must_use]
+    pub fn with_unbound_evidence(mut self, retain: bool) -> Self {
+        self.retain_unbound = retain;
+        self
+    }
+
+    /// Retain recognized non-prose directives.
+    #[must_use]
+    pub fn with_directive_evidence(mut self, retain: bool) -> Self {
+        self.retain_directives = retain;
+        self
+    }
 }
 
 /// Failure before a complete immutable index can be returned.
@@ -150,6 +184,7 @@ pub enum CollectionError {
     /// The grammar feature is disabled.
     LanguageDisabled(LANG),
     /// The named profile does not apply to this language.
+    #[non_exhaustive]
     UnsupportedProfile {
         /// Requested source language.
         language: LANG,
@@ -157,6 +192,7 @@ pub enum CollectionError {
         profile: Profile,
     },
     /// The recognized adapter/profile has not been implemented.
+    #[non_exhaustive]
     AdapterUnavailable {
         /// Requested source language.
         language: LANG,
@@ -171,11 +207,66 @@ pub enum CollectionError {
     Source(SourceError),
 }
 
+impl CollectionError {
+    /// Construct a profile/language incompatibility without depending on the
+    /// fields of this extensible error variant.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn unsupported_profile(language: LANG, profile: Profile) -> Self {
+        Self::UnsupportedProfile { language, profile }
+    }
+
+    /// Construct an adapter availability result without depending on the
+    /// fields of this extensible error variant.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn adapter_unavailable(language: LANG, profile: Profile) -> Self {
+        Self::AdapterUnavailable { language, profile }
+    }
+}
+
 impl From<SourceError> for CollectionError {
     fn from(error: SourceError) -> Self {
         match error {
             SourceError::Cancelled => Self::Cancelled,
             error => Self::Source(error),
+        }
+    }
+}
+
+impl std::fmt::Display for CollectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("documentation collection cancelled"),
+            Self::LanguageDisabled(language) => {
+                write!(f, "documentation language disabled: {language}")
+            }
+            Self::UnsupportedProfile { language, profile } => {
+                write!(
+                    f,
+                    "documentation profile {} is unsupported for {language}",
+                    profile.name()
+                )
+            }
+            Self::AdapterUnavailable { language, profile } => {
+                write!(
+                    f,
+                    "documentation adapter {} is unavailable for {language}",
+                    profile.name()
+                )
+            }
+            Self::GrammarMismatch => f.write_str("documentation grammar mismatch"),
+            Self::SourceBounds => f.write_str("documentation source bounds are invalid"),
+            Self::Source(error) => write!(f, "documentation source: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for CollectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Source(error) => Some(error),
+            _ => None,
         }
     }
 }

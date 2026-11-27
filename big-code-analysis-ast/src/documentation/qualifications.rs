@@ -40,6 +40,7 @@ impl QualificationSet {
 
 /// Whether a known source qualification describes a candidate or the reference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QualificationSubject {
     /// The named declaration candidate; consult its association before claiming it.
     Candidate,
@@ -50,6 +51,7 @@ pub enum QualificationSubject {
 /// One known conditional/recovery fact for a document and source occurrence.
 /// These records are available by default and do not imply pending implementation.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Qualification<'s> {
     /// Candidate provenance versus reference-context provenance.
     pub subject: QualificationSubject,

@@ -34,9 +34,7 @@ fn java_path_provenance_decides_package_publication_but_display_labels_do_not() 
             index.associations().next().unwrap().get().publication,
             expected
         );
-        let explicit = JavaContext {
-            logical_filename: Some("Other.java".to_owned()),
-        };
+        let explicit = JavaContext::default().with_logical_filename("Other.java");
         assert_eq!(
             ast.documentation(&explicit, &JavaOptions::default())
                 .unwrap()
@@ -152,17 +150,12 @@ fn adopted(source: &[u8], included: &[Range<usize>], label: Option<&str>) -> Ast
 
 #[cfg(feature = "rust")]
 fn named(filename: &str) -> DocumentationContext {
-    DocumentationContext {
-        logical_filename: Some(filename.to_owned()),
-    }
+    DocumentationContext::default().with_logical_filename(filename)
 }
 
 #[cfg(feature = "rust")]
 fn unbound() -> DocumentationOptions {
-    DocumentationOptions {
-        retain_unbound: true,
-        ..DocumentationOptions::default()
-    }
+    DocumentationOptions::default().with_unbound_evidence(true)
 }
 
 /// The index under no context and default options.
@@ -963,10 +956,7 @@ fn the_facade_publishes_what_the_collector_publishes_on_the_same_tree_and_bytes(
     let read = Ast::from_path(&written(directory.path(), "lib.rs", TESTS_AND_CODE)).unwrap();
     let nothing = DocumentationContext::default();
     let defaults = DocumentationOptions::default();
-    let both = DocumentationOptions {
-        retain_directives: true,
-        ..unbound()
-    };
+    let both = unbound().with_directive_evidence(true);
     // Each row: the `Ast`, the caller's context, the context the collector must
     // receive, the options, and how many documents and retained candidates there are.
     let rows = [
@@ -1016,10 +1006,7 @@ fn the_facade_publishes_what_the_collector_publishes_on_the_same_tree_and_bytes(
 fn collection_options_reach_the_collector() {
     let ast = parsed(DANGLING);
     let context = DocumentationContext::default();
-    let directives = DocumentationOptions {
-        retain_directives: true,
-        ..DocumentationOptions::default()
-    };
+    let directives = DocumentationOptions::default().with_directive_evidence(true);
     // Neither comment has an item to document, and neither is a directive.
     for options in [DocumentationOptions::default(), directives] {
         let index = ast.documentation(&context, &options).unwrap();
@@ -1045,20 +1032,17 @@ fn collection_errors_come_back_unchanged() {
     let directory = tempfile::tempdir().unwrap();
     let read = Ast::from_path(&written(directory.path(), "lib.rs", ROSTER)).unwrap();
     let context = DocumentationContext::default();
-    let profiled = |profile| DocumentationOptions {
-        profile,
-        ..DocumentationOptions::default()
-    };
+    let profiled = |profile| DocumentationOptions::default().with_profile(profile);
     for ast in [parsed(ROSTER), read] {
         // A profile of another language.
-        assert_eq!(
-            ast.documentation(&context, &profiled(Profile::Javadoc))
-                .err(),
-            Some(CollectionError::UnsupportedProfile {
+        assert!(matches!(
+            ast.documentation(&context, &profiled(Profile::Javadoc)),
+            Err(CollectionError::UnsupportedProfile {
                 language: LANG::Rust,
                 profile: Profile::Javadoc,
+                ..
             })
-        );
+        ));
         // The language's own profile, named or by default, resolves to itself.
         for profile in [Profile::Rust, Profile::Default] {
             let index = ast.documentation(&context, &profiled(profile)).unwrap();
