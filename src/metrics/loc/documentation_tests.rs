@@ -8345,3 +8345,107 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
     }
     assert!(rendered > 0);
 }
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+#[test]
+fn documentation_c_family_unit2_legacy_rows_stay_independent() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::documentation::{
+        DocumentationContext, DocumentationOptions, observations,
+    };
+    const LANGUAGES: [LANG; 4] = [LANG::C, LANG::Cpp, LANG::Mozcpp, LANG::Objc];
+    let quoted = documentation::source("doxygen-quoted.h");
+    let quote = documentation::source("doxygen-quote.h");
+    let cdata = documentation::source("doxygen-cdata.h");
+    let rows: [(&[u8], [u64; 6], &[usize]); 7] = [
+        (&quoted, [9, 4, 1, 5, 0, 5], &[0, 2, 4, 6, 7]),
+        (&quote, [2, 1, 0, 1, 0, 0], &[]),
+        (&cdata, [2, 1, 0, 1, 0, 0], &[]),
+        (b"enum E { A, /**< ta */ B };\n", [1, 1, 0, 1, 0, 1], &[0]),
+        (b"int a, /**< ta */ b;\n", [1, 1, 1, 1, 0, 1], &[0]),
+        (
+            b"/** e */\nextern \"C\" void f(void);\n",
+            [2, 1, 1, 1, 0, 1],
+            &[0],
+        ),
+        (
+            b"/** e */\nextern \"C\" { void f(void); void g(void); }\n",
+            [2, 1, 2, 1, 0, 1],
+            &[0],
+        ),
+    ];
+    let mut ran = 0;
+    let mut rendered = 0;
+    for lang in LANGUAGES {
+        if !lang.is_enabled() {
+            continue;
+        }
+        for (source, expected, dloc_rows) in rows {
+            let parser = crate::langs::AnyParser::parse(lang, source.to_vec(), None, None).unwrap();
+            assert!(!parser.ts_tree().root_node().has_error());
+            let idle = observations();
+            let old_built = evidence_built::observed();
+            let index = parser
+                .documentation(
+                    &DocumentationContext::default(),
+                    &DocumentationOptions::default(),
+                )
+                .unwrap();
+            let collected = observations();
+            let built = evidence_built::observed();
+            // expected: one primary visit for each node, root included.
+            assert_eq!(
+                collected.visits - idle.visits,
+                parser.root_node().preorder().count()
+            );
+            // expected: each published document is rendered exactly once.
+            assert_eq!(collected.renders - idle.renders, index.documents().len());
+            // expected: every selected marker contributes one physical fragment.
+            assert_eq!(
+                built - old_built,
+                index
+                    .documents()
+                    .map(|d| d.get().fragment_count())
+                    .sum::<usize>()
+            );
+            rendered += collected.renders - idle.renders;
+            let metrics = analyze(
+                Source::new(lang, source),
+                MetricsOptions::default().with_only(&[Metric::Loc]),
+            )
+            .unwrap();
+            let after = observations();
+            // expected: analyze reads only legacy LOC; it enters no source collector node.
+            assert_eq!(after.visits - collected.visits, 0);
+            // expected: legacy LOC builds no source document text.
+            assert_eq!(after.renders - collected.renders, 0);
+            // expected: legacy LOC builds no source evidence for marker runs.
+            assert_eq!(evidence_built::observed() - built, 0);
+            let loc = &metrics.metrics.loc;
+            assert_eq!(
+                [
+                    loc.sloc(),
+                    loc.ploc(),
+                    loc.lloc(),
+                    loc.cloc(),
+                    loc.blank(),
+                    loc.dloc()
+                ],
+                expected,
+                "{lang:?}: {}",
+                source.escape_ascii()
+            );
+            assert_eq!(
+                (0..source.len())
+                    .filter(|row| loc.dloc.lines.contains(*row))
+                    .collect::<Vec<_>>(),
+                dloc_rows,
+                "{lang:?}: {}",
+                source.escape_ascii()
+            );
+            ran += 1;
+        }
+    }
+    assert!(ran > 0);
+    assert!(rendered > 0);
+}
