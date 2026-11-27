@@ -135,7 +135,7 @@ content states rather than inferring that every form is supported. See
 | `Objc` | `Doxygen` | Partial |
 | `Perl` | `POD` | Partial |
 | `Php` | `BcaPhpSource` | Partial |
-| `Python` | `Python` | Unavailable |
+| `Python` | `Python` | Partial |
 | `Ruby` | `YARD` | Partial |
 | `Rust` | `Rust` | Partial |
 | `Tcl` | `Ruff` | Partial |

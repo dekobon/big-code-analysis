@@ -1,0 +1,12 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "python"],
+  "cases": [
+    {"name": "python-unnamed-sibling-ends-scan", "file": "big-code-analysis-ast/src/lang_helpers/python.rs", "old": "    node.is_named() && !python_is_extra(node)\n", "new": "    !python_is_extra(node)\n", "expect": ["metrics::loc::documentation_tests::documentation_python_semicolon_rows_are_characterized"]},
+    {"name": "python-prefix-predicate-accepts-any-literal", "file": "big-code-analysis-ast/src/lang_helpers/python.rs", "old": "        if matches!(byte.to_ascii_lowercase(), b'f' | b't' | b'b') {\n", "new": "        if false && matches!(byte.to_ascii_lowercase(), b'f' | b't' | b'b') {\n", "expect": ["metrics::loc::tests::python_documentation_positions_follow_pep_257"]},
+    {"name": "python-attribute-run-collected-as-body", "file": "big-code-analysis-ast/src/documentation/collector/python.rs", "old": "        if run.after.is_some() {\n            self.python_attribute_run(owner, &run, budget)\n", "new": "        if false && run.after.is_some() {\n            self.python_attribute_run(owner, &run, budget)\n", "expect": ["metrics::loc::documentation_tests::documentation_python_docstring_source_and_legacy_views_are_independent"]},
+    {"name": "python-document-rendered-twice", "file": "big-code-analysis-ast/src/documentation/collector/python.rs", "old": "        match crate::documentation::text::python::render(&self.index.source, &fragments, budget) {\n", "new": "        let _ = crate::documentation::text::python::render(&self.index.source, &fragments, budget);\n        match crate::documentation::text::python::render(&self.index.source, &fragments, budget) {\n", "expect": ["metrics::loc::documentation_tests::documentation_python_docstring_source_and_legacy_views_are_independent"]},
+    {"name": "python-adapter-still-deferred", "file": "big-code-analysis-ast/src/documentation/options.rs", "old": "        let profile = if self == Self::Default { default } else { self };\n", "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Python {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }\n", "expect": ["metrics::loc::documentation_tests::documentation_python_docstring_source_and_legacy_views_are_independent"]}
+  ]
+}

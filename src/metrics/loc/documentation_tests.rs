@@ -8529,3 +8529,198 @@ fn documentation_c_family_unit2_legacy_rows_stay_independent() {
     assert!(ran > 0);
     assert!(rendered > 0);
 }
+
+#[cfg(feature = "python")]
+#[test]
+fn documentation_python_semicolon_rows_are_characterized() {
+    // The legacy view only: a `;` between two statements is an unnamed sibling, and the
+    // statement after it is still "directly after" the one before it.
+    let sources: [(&[u8], [u64; 6], &[usize]); 5] = [
+        // Two module docstrings, the first with a `;` after it.
+        (b"\"a\";\n\"b\"\nx = 1\n", [3, 2, 3, 2, 0, 2], &[0, 1]),
+        // An attribute docstring after an assignment that ends with `;`.
+        (b"x = 1;\n\"x doc\"\n", [2, 1, 2, 1, 0, 1], &[1]),
+        // The same on one row.
+        (b"x = 1; \"attribute\"\n", [1, 1, 2, 1, 0, 1], &[0]),
+        // Two triple-quoted strings that share the row of the `;`.
+        (
+            b"\"\"\"a\nA\"\"\"; \"\"\"b\nB\"\"\"\n",
+            [3, 1, 2, 3, 0, 3],
+            &[0, 1, 2],
+        ),
+        // The control without a `;`.
+        (b"\"a\"\n\"b\"\nx = 1\n", [3, 1, 3, 2, 0, 2], &[0, 1]),
+    ];
+    for (source, expected, rows) in sources {
+        let name = source.escape_ascii();
+        let space = analyze(
+            Source::new(LANG::Python, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            expected,
+            "{name}"
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
+            "{name}"
+        );
+    }
+}
+
+#[cfg(feature = "python")]
+#[test]
+#[allow(clippy::too_many_lines)] // One row for each fixture, and both views of each row.
+fn documentation_python_docstring_source_and_legacy_views_are_independent() {
+    use DocumentRole::{Additional, Primary};
+    use big_code_analysis_ast::documentation::{
+        AssessmentAxis, DocumentRole, DocumentationContext, DocumentationOptions, observations,
+    };
+    struct Row<'a> {
+        fixture: &'a str,
+        // The text of each document in index order; `None` where it is unavailable.
+        documents: &'a [(DocumentRole, Option<&'a str>)],
+        // The runs after an assignment, which give one pending assessment each.
+        attribute_runs: usize,
+        loc: [u64; 6],
+        dloc_rows: &'a [usize],
+    }
+    let rows = [
+        // Rows 7 and 9, the `#:` comment and the string after `x = 1`, are legacy
+        // documentation rows and no source documents in this unit.
+        Row {
+            fixture: "python-runs.py",
+            documents: &[(Primary, Some("")), (Additional, Some("extra"))],
+            attribute_runs: 1,
+            loc: [10, 5, 7, 4, 1, 4],
+            dloc_rows: &[1, 2, 7, 9],
+        },
+        Row {
+            fixture: "python-paren.py",
+            documents: &[(Primary, Some("@audit"))],
+            attribute_runs: 0,
+            loc: [3, 1, 1, 2, 0, 2],
+            dloc_rows: &[1, 2],
+        },
+        Row {
+            fixture: "python-extras.py",
+            documents: &[(Primary, Some("doc"))],
+            attribute_runs: 0,
+            loc: [6, 2, 2, 4, 0, 2],
+            dloc_rows: &[1, 4],
+        },
+        // The named escape is not decoded in this unit: a document without text.
+        Row {
+            fixture: "python-named.py",
+            documents: &[(Primary, None)],
+            attribute_runs: 0,
+            loc: [3, 2, 2, 1, 0, 1],
+            dloc_rows: &[1],
+        },
+        Row {
+            fixture: "python-continuation.py",
+            documents: &[(Primary, Some("primary")), (Additional, Some("additional"))],
+            attribute_runs: 0,
+            loc: [6, 2, 3, 2, 2, 2],
+            dloc_rows: &[2, 4],
+        },
+    ];
+    for row in rows {
+        let name = row.fixture;
+        let source = documentation::source(name);
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Python, source.clone(), None, None).unwrap();
+        let idle = observations();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let space = analyze(
+            Source::new(LANG::Python, &source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let analyzed = observations();
+
+        let documents: Vec<_> = index
+            .documents()
+            .map(|document| {
+                let complete = index.complete_text(document).unwrap();
+                (
+                    document.get().role(),
+                    complete.map(|complete| complete.text().to_owned()),
+                )
+            })
+            .collect();
+        let expected: Vec<_> = row
+            .documents
+            .iter()
+            .map(|(role, text)| (*role, text.map(str::to_owned)))
+            .collect();
+        assert_eq!(documents, expected, "{name}");
+        assert_eq!(index.assessments().len(), row.attribute_runs, "{name}");
+        assert!(
+            index
+                .assessments()
+                .all(|assessment| assessment.get().axis == AssessmentAxis::Owner),
+            "{name}"
+        );
+
+        // The collection moves both counters on this thread, so a zero across `analyze`
+        // is a reading.
+        // expected: the walk enters every node of the tree once.
+        assert_eq!(
+            collected.visits - idle.visits,
+            parser.root_node().preorder().count(),
+            "{name}"
+        );
+        // expected: 3 text builds for each document with complete text (decoded value,
+        // tab expansion, margin) and none for a document without it.
+        let complete = row.documents.iter().filter(|document| document.1.is_some());
+        assert_eq!(
+            collected.renders - idle.renders,
+            3 * complete.count(),
+            "{name}"
+        );
+        // expected: 0 and 0, because `analyze` builds no documentation index.
+        assert_eq!(analyzed.visits - collected.visits, 0, "{name}");
+        assert_eq!(analyzed.renders - collected.renders, 0, "{name}");
+
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            row.loc,
+            "{name}"
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|at| loc.dloc.lines.contains(*at))
+                .collect::<Vec<_>>(),
+            row.dloc_rows,
+            "{name}"
+        );
+    }
+}

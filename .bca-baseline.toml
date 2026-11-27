@@ -359,13 +359,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1215.0
+value = 1219.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.sloc"
-value = 1257.0
+value = 1261.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -377,7 +377,7 @@ value = 31.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 162.0
+value = 163.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -467,13 +467,13 @@ value = 13.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "halstead.effort"
-value = 81796.34738938176
+value = 88948.44228259446
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::recognize"
 metric = "nexits"
-value = 8.0
+value = 9.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -593,7 +593,7 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 85.0
+value = 89.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -611,31 +611,31 @@ value = 77507.87166066223
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "abc"
-value = 56.16048432839589
+value = 63.45076831686122
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cognitive"
-value = 24.0
+value = 29.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "cyclomatic"
-value = 23.0
+value = 27.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "halstead.effort"
-value = 163157.6394904263
+value = 193615.31545075917
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
 qualified = "Builder<'s>::document"
 metric = "nexits"
-value = 8.0
+value = 10.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/assembly.rs"
@@ -983,13 +983,13 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
 qualified = "NativeRules<T>::target"
 metric = "halstead.effort"
-value = 66174.94088354147
+value = 68938.71538603898
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
 qualified = "NativeRules<T>::target::<anon@L86>"
 metric = "cyclomatic"
-value = 17.0
+value = 18.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/recognition.rs"
@@ -1133,7 +1133,7 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
 qualified = "python_margin"
 metric = "abc"
-value = 60.08327554319921
+value = 62.8410693734599
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
@@ -1151,13 +1151,13 @@ value = 18.0
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
 qualified = "python_margin"
 metric = "halstead.effort"
-value = 215562.59407539252
+value = 231666.75147732653
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
 qualified = "python_margin"
 metric = "nexits"
-value = 9.0
+value = 10.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/text/cleanup.rs"
@@ -1809,9 +1809,9 @@ value = 5.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/python.rs"
-qualified = "documentation_run"
-metric = "nexits"
-value = 5.0
+qualified = "<file>"
+metric = "loc.ploc"
+value = 728.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/lang_helpers/ruby.rs"

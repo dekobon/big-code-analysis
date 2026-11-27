@@ -21,7 +21,7 @@
       0
     ],
     "sha256": "e0c7b85344ed518c3d52629eaaab3fe85ac811d4c1bd67abb9b1ff3079182d7f",
-    "class": "deferred",
+    "class": "positive",
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "python",
     "fixture": "primary.py",

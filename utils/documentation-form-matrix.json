@@ -7,6 +7,11 @@
       "ineligible": ["plain comments", "document/test/rustfmt::skip attribute paths"],
       "pending": ["doc assignment/raw/cooked/metadata attributes", "cfg_attr", "mixed comment/attribute composition", "field/variant/tuple slots", "other local contexts"]
     },
+    "Python": {
+      "implemented": ["module, class and function body docstring as Primary", "string statements directly after it as Additional", "implicit concatenation as one document", "raw and cooked literals", "cleandoc-style margin and tab cleanup with local maps", "statements joined by a semicolon"],
+      "ineligible": ["f-string, template-string and bytes literals", "strings outside a documenting position", "plain # comments", "strings past a recovered syntax error inside parentheses"],
+      "pending": ["attribute docstrings and binding owners", "Sphinx #: comments", "text of a literal that holds a carriage return", "named \\N{...} escapes", "attachment after an excluded range", "publication"]
+    },
     "Java": {
       "implemented": ["traditional/Markdown basic declaration", "empty block", "four-slash Markdown", "last selection", "annotation-bearing declaration", "prelex unavailable plus source-cleaned evidence", "field/constant declarator slots", "package publication from explicit logical filename"],
       "ineligible": ["ordinary comments", "signature/accessor trivia without a target", "body working notes"],
@@ -103,6 +108,6 @@
       "pending": ["procedures in other scopes", "procedures in a bracket's script", "quoted, braced and multi-part names", "other spellings of the proc command: ::proc, quoted, braced, escaped, expanded, eval words, a quoted parameter list, a bracket glued before proc", "proc commands that earlier text hides from the grammar", "rows nested in commands or hidden by recovery", "TclOO methods, constructors and destructors", "namespace preambles", "publication"]
     }
   },
-  "deferred": ["Python", "Bash", "Irules"],
+  "deferred": ["Bash", "Irules"],
   "helpers": ["Ccomment", "Preproc"]
 }

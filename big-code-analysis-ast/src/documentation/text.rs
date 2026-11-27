@@ -13,6 +13,7 @@ pub(super) mod cleanup;
 pub(super) mod comments;
 #[allow(dead_code)]
 pub(super) mod literals;
+pub(super) mod python;
 pub(super) mod rust;
 pub(super) mod source_cursor;
 

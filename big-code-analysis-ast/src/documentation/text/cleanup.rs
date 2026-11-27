@@ -198,6 +198,9 @@ fn python_margin<'s, B: WorkBudget>(
     lines.push(start..text.len());
     let mut margin = usize::MAX;
     for (position, line) in lines.iter_mut().enumerate() {
+        budget
+            .step()
+            .map_err(|error| TextError::Source(error.into()))?;
         let mut indent = 0;
         let mut prefix_bytes = 0;
         for scalar in text[line.clone()].chars() {
@@ -355,8 +358,83 @@ mod tests {
     use super::*;
     use crate::documentation::budget::NoBudget;
     use crate::documentation::text::literals::{LiteralPolicy, decode};
-    use crate::documentation::{CompleteText, OriginView, SourceContext};
+    use crate::documentation::{CompleteText, OriginView, SourceContext, SourceError, SourcePiece};
     use crate::{AnyParser, LANG};
+    use std::cell::Cell;
+
+    /// Counts `step` calls and can fail on one of them.
+    #[derive(Default)]
+    struct Counting {
+        steps: Cell<usize>,
+        fail_at: Option<usize>,
+    }
+
+    impl WorkBudget for Counting {
+        type Error = SourceError;
+
+        fn checkpoint(&self) -> Result<(), SourceError> {
+            Ok(())
+        }
+
+        fn step(&self) -> Result<(), SourceError> {
+            self.steps.set(self.steps.get() + 1);
+            if self.fail_at == Some(self.steps.get()) {
+                Err(SourceError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn bytes(&self, _: usize) -> Result<(), SourceError> {
+            Ok(())
+        }
+    }
+
+    type ExpectedMapping = (Range<usize>, &'static str, Vec<Range<usize>>);
+
+    /// The decoded interior `3..len - 3` of a triple-quoted module docstring,
+    /// cleaned under `budget`: its text and every mapping run.
+    fn cleaned_with<B: WorkBudget>(
+        source: &str,
+        budget: &B,
+    ) -> Result<(String, Vec<ExpectedMapping>), TextError> {
+        let parser =
+            AnyParser::parse(LANG::Python, source.as_bytes().to_vec(), None, None).unwrap();
+        let context = SourceContext::new(parser.ts_tree(), source.as_bytes());
+        let mut builder = TextBuilder::default();
+        decode(
+            &context,
+            3..source.len() - 3,
+            LiteralPolicy::PythonCooked,
+            &mut builder,
+            &NoBudget,
+        )
+        .unwrap();
+        let Content::Complete { text, mappings } = python(builder.finish(), budget)? else {
+            panic!("complete value")
+        };
+        let runs = mappings
+            .iter()
+            .map(|mapping| {
+                let (kind, pieces) = match &mapping.origin {
+                    Origin::Copied(pieces) => ("copied", pieces.pieces()),
+                    Origin::Decoded(pieces) => ("decoded", pieces.pieces()),
+                    Origin::Expanded(pieces) => ("expanded", pieces.pieces()),
+                    Origin::Synthetic => ("synthetic", &[][..]),
+                };
+                (
+                    mapping.output.range(),
+                    kind,
+                    pieces.iter().map(SourcePiece::range).collect(),
+                )
+            })
+            .collect();
+        Ok((text, runs))
+    }
+
+    fn cleaned(source: &str) -> (String, Vec<ExpectedMapping>) {
+        cleaned_with(source, &NoBudget).unwrap()
+    }
 
     #[test]
     fn whole_python_document_cleanup_keeps_escape_and_tab_origins() {
@@ -408,5 +486,84 @@ mod tests {
             panic!("complete value")
         };
         assert_eq!(text, "alpha\nbeta");
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn python_cleanup_emits_no_zero_width_run() {
+        // An empty line between two kept lines: the cleaner copies the empty
+        // range `10..10` of the decoded value and must emit no run for it.
+        let (text, runs) = cleaned("\"\"\"First.\n\n    Second.\n    \"\"\"");
+        assert_eq!(text, "First.\n\nSecond.");
+        assert_eq!(
+            runs,
+            [
+                (0..6, "copied", vec![3..9]),
+                (6..7, "copied", vec![9..10]),
+                (7..8, "copied", vec![10..11]),
+                (8..15, "copied", vec![15..22]),
+            ]
+        );
+        // Two adjacent tabs: the text between them is the empty range `5..5`.
+        let (text, runs) = cleaned("\"\"\"a\t\tb\"\"\"");
+        assert_eq!(text, format!("a{}b", " ".repeat(15)));
+        assert_eq!(
+            runs,
+            [
+                (0..1, "copied", vec![3..4]),
+                (1..8, "expanded", vec![4..5]),
+                (8..16, "expanded", vec![5..6]),
+                (16..17, "copied", vec![6..7]),
+            ]
+        );
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn python_cleanup_charges_one_step_for_each_line_of_margin_discovery() {
+        // `a`, n empty lines, `b`: n + 2 lines and n + 1 line breaks, decoded as
+        // one copied run.
+        for (empty_lines, expected) in [(2, 13), (1_500, 4_507)] {
+            let source = format!("\"\"\"a\n{}b\"\"\"", "\n".repeat(empty_lines));
+            let counting = Counting::default();
+            let (text, runs) = cleaned_with(&source, &counting).unwrap();
+            // The cleaner changes nothing here: every line is kept and the margin is 0.
+            assert_eq!(text, source[3..source.len() - 3]);
+            // expected: one run for `a`, one for each line break, one for `b`.
+            assert_eq!(runs.len(), empty_lines + 3);
+            // expected: 3n + 7 = 1 (`python` copies the one run)
+            //   + (n + 2) (margin discovery: one for each line)
+            //   + (n + 1) (margin removal: one for each line after the first)
+            //   + (n + 3) (output: `a`, n + 1 line breaks, `b`; an empty line copies nothing).
+            assert_eq!(expected, 3 * empty_lines + 7);
+            assert_eq!(counting.steps.get(), expected);
+            // Both sides of the count: the last step is charged, and no step follows it.
+            let last = Counting {
+                fail_at: Some(expected),
+                ..Counting::default()
+            };
+            assert!(matches!(
+                cleaned_with(&source, &last),
+                Err(TextError::Source(SourceError::Cancelled))
+            ));
+            let past = Counting {
+                fail_at: Some(expected + 1),
+                ..Counting::default()
+            };
+            assert!(cleaned_with(&source, &past).is_ok());
+            assert_eq!(past.steps.get(), expected);
+        }
+        let (text, runs) = cleaned("\"\"\"a\n\n\nb\"\"\"");
+        assert_eq!(text, "a\n\n\nb");
+        assert_eq!(
+            runs,
+            [
+                (0..1, "copied", vec![3..4]),
+                (1..2, "copied", vec![4..5]),
+                (2..3, "copied", vec![5..6]),
+                (3..4, "copied", vec![6..7]),
+                (4..5, "copied", vec![7..8]),
+            ]
+        );
     }
 }

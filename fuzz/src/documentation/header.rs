@@ -143,7 +143,7 @@ pub(super) fn expected_profile(
     );
     if profile != default && !alternate {
         Err(CollectionError::unsupported_profile(language, profile))
-    } else if alternate || matches!(language, LANG::Python | LANG::Bash | LANG::Irules) {
+    } else if alternate || matches!(language, LANG::Bash | LANG::Irules) {
         Err(CollectionError::adapter_unavailable(language, profile))
     } else {
         Ok(profile)

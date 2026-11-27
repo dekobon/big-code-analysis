@@ -26,6 +26,17 @@ for historical reference.
 
 ### Added
 
+- The unstable AST documentation collector now accepts Python. PEP 257 body
+  docstrings of modules, classes and functions become primary and additional
+  documents with their owners, raw literal fragments, decoded and
+  `inspect.cleandoc`-style cleaned text and exact forward origins; an implicit
+  concatenation is one document. Named `\N{...}` escapes and lone surrogates
+  give explicit unavailable text. A literal holding a carriage return and a
+  string after an assignment stay visible as pending assessments. In a
+  restricted parse, a docstring after an excluded range is reported as
+  unresolved. Binding owners and Sphinx `#:` comments follow separately. Legacy
+  documentation rows are unchanged. (#1665, Unit1)
+
 - Doxygen C-family source documentation now gathers file comments before a declaration,
   attaches trailing enum comments after a comma, and projects single-declaration C++
   template/linkage wrappers. Braced linkage blocks and initializer commas remain pending.

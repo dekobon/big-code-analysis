@@ -100,12 +100,18 @@ impl<'s> Builder<'s> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)] // One pass over one draft: content, composition, owners, assessments, association.
     pub(super) fn document(
         &mut self,
         mut draft: Draft<'s>,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
-        let (content, attribute) = self.render_draft(&mut draft, budget)?;
+        let literal = self.literal_draft(&draft);
+        let (content, attribute) = if literal {
+            (self.python_content(&draft, budget)?, false)
+        } else {
+            self.render_draft(&mut draft, budget)?
+        };
         let prelex = self.index.profile == Profile::Javadoc
             && matches!(
                 content,
@@ -124,6 +130,8 @@ impl<'s> Builder<'s> {
             Composition::AttributeSequence
         } else if draft.fragments.len() == 1 {
             Composition::Single
+        } else if literal {
+            Composition::LiteralConcatenation
         } else {
             Composition::CommentRun
         };
@@ -185,6 +193,14 @@ impl<'s> Builder<'s> {
                 budget,
             )?;
             self.pending_conditional_selection(draft.target, document);
+        }
+        if literal
+            && matches!(
+                self.index.facts.documents[document.0].content,
+                Content::PendingAdapter
+            )
+        {
+            self.python_pending_text(document, &owners, draft.target, budget)?;
         }
         if (!owners.is_empty() && (!pending || draft.target.is_some()))
             || draft.unresolved.is_some()
