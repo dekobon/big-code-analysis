@@ -1,4 +1,4 @@
-//! The hidden `Ast::documentation`: the context and the options it hands to the
+//! The public `Ast::documentation`: the context and the options it hands to the
 //! documentation collector of `big-code-analysis-ast`, the index and the errors it
 //! returns, and the buffer and tree the index refers to.
 //!
@@ -67,15 +67,17 @@ use std::path::Path;
 
 #[cfg(feature = "rust")]
 use big_code_analysis::{
-    Ast, AstCfg, FromPathError, LANG, Metric, MetricsOptions, ParseCancel, Source, tree_sitter,
+    Ast, AstCfg, FromPathError, LANG, Metric, MetricsOptions, ParseCancel, Source,
+    documentation::{
+        CandidateDisposition, CollectionError, CompleteText, DocumentationContext,
+        DocumentationIndex, DocumentationOptions, FactError, FactRef, Fragment, FragmentForm,
+        NodeEvidence, Origin, OriginView, Owner, OwnerError, Profile, Resolution, SourceError,
+        SourcePiece, SourcePieces,
+    },
+    tree_sitter,
 };
 #[cfg(feature = "rust")]
-use big_code_analysis_ast::documentation::{
-    CandidateDisposition, CollectionError, CompleteText, DocumentationContext, DocumentationIndex,
-    DocumentationOptions, FactError, FactRef, Fragment, FragmentForm, NodeEvidence, Origin,
-    OriginView, Owner, OwnerError, Profile, Resolution, SourceError, SourcePiece, SourcePieces,
-    collect, observations,
-};
+use big_code_analysis_ast::documentation::{collect, observations};
 
 /// The contract's primary row for Rust.
 #[cfg(feature = "rust")]
@@ -774,10 +776,15 @@ fn a_file_read_from_a_path_is_cancelled_as_a_parsed_source_is() {
     let stopped = cancel.run(|| Ast::from_path(&path).unwrap());
     assert_eq!(stopped.as_tree_sitter().root_node().byte_range(), 0..0);
     assert_eq!(stopped.source(), source.as_bytes());
+    assert_eq!(stopped.name(), Some(path.to_str().unwrap()));
     assert_eq!(
         stopped.documentation(&context, &options).err(),
         Some(CollectionError::Cancelled)
     );
+    let fresh = Ast::from_path(&path).unwrap();
+    let index = fresh.documentation(&context, &options).unwrap();
+    assert_eq!(index.context().logical_filename.as_deref(), Some("lib.rs"));
+    assert_eq!(index.documents().len(), 200);
 }
 
 #[cfg(feature = "rust")]
@@ -1088,4 +1095,65 @@ fn a_long_logical_filename_is_charged_to_the_collection() {
         // falls on every 16 KiB charged.
         assert_eq!(charged - unnamed, 4);
     }
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn public_documentation_builders_and_error_traits_are_usable() {
+    fn error<T: std::error::Error>() {}
+    error::<CollectionError>();
+    error::<OwnerError>();
+    error::<FactError>();
+    error::<SourceError>();
+    error::<big_code_analysis::documentation::TextRangeError>();
+
+    let ast = parsed(ROSTER);
+    let context = DocumentationContext::default().with_logical_filename("explicit.rs");
+    let options = DocumentationOptions::default()
+        .with_profile(Profile::Rust)
+        .with_unbound_evidence(true)
+        .with_directive_evidence(true);
+    let index = ast.documentation(&context, &options).unwrap();
+    assert_eq!(
+        index.context().logical_filename.as_deref(),
+        Some("explicit.rs")
+    );
+    assert_eq!(index.options().profile, Profile::Rust);
+    assert!(index.options().retain_unbound);
+    assert!(index.options().retain_directives);
+    assert_eq!(index.documents().len(), 1);
+    let _: big_code_analysis::documentation::Convention =
+        index.associations().next().unwrap().get().convention;
+    let text = index
+        .complete_text(index.documents().next().unwrap())
+        .unwrap()
+        .unwrap();
+    let range: big_code_analysis::documentation::TextRange =
+        big_code_analysis::documentation::TextRange::new(text.text(), 0..1).unwrap();
+    assert_eq!(range.range(), 0..1);
+    let portions: big_code_analysis::documentation::MappingPortions<'_, '_> =
+        text.origins(range.range()).unwrap();
+    assert_eq!(portions.count(), 1);
+    let node = ast.as_tree_sitter().root_node().named_child(1).unwrap();
+    let projection = index.node_projection(node).unwrap();
+    let debug_projection = format!("{projection:?}");
+    assert!(debug_projection.contains("pending: false"));
+    assert!(debug_projection.contains("owners: 1"));
+    assert!(!debug_projection.contains("DocumentationIndex"));
+    let owner = index.node_owners(node).unwrap().next().unwrap();
+    let associations = index.owner_associations(owner).unwrap();
+    let debug_associations = format!("{associations:?}");
+    assert!(debug_associations.contains("projection_pending: false"));
+    assert!(debug_associations.contains("associations: 1"));
+    assert!(!debug_associations.contains("DocumentationIndex"));
+    assert_eq!(
+        CollectionError::Source(SourceError::ForeignTree).to_string(),
+        "documentation source: documentation node belongs to another tree"
+    );
+    assert_eq!(
+        std::error::Error::source(&CollectionError::Source(SourceError::ForeignTree))
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("documentation node belongs to another tree")
+    );
 }

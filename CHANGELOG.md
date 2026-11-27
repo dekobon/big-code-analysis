@@ -26,6 +26,13 @@ for historical reference.
 
 ### Added
 
+- Exposed `Ast::documentation` and `big_code_analysis::documentation` as
+  public source-documentation APIs. The AST result model supports additive
+  shape growth, chainable context and option builders, displayable errors,
+  and debug views of owner queries. Added public examples and a lifetime
+  compile-fail example. Documentation values may change with grammar and
+  adapter fixes. (#1680, Unit 2)
+
 - TypeScript and TSX documentation collection now resolves anonymous default exports,
   namespaces, named variable declarators, and `using`/`await using` assignment owners.
   `declare` wrappers skip comment children. Parameter slots remain pending; legacy
@@ -134,15 +141,14 @@ for historical reference.
   on `Parser` and `AnyParser`. The root library's documentation facade follows
   separately; existing metric behavior is unchanged. (#1656)
 
-- Added a hidden, unstable `Ast::documentation` to the root library. It hands
+- Added `Ast::documentation` to the root library. It hands
   its context and options to the AST crate's typed documentation collector and
   returns that collector's index, which borrows the `Ast`. An `Ast` read with
   `Ast::from_path` supplies the final component of its path as the logical
   filename when the context names none; a display name is never used for it.
-  The method is `#[doc(hidden)]` and outside the stability contract
-  (`STABILITY.md`): its signature names `big-code-analysis-ast` types that the
-  root library does not re-export, and it may change in any release. Existing
-  metric behavior is unchanged. (#1680)
+  It was staged as hidden plumbing before the public facade and root re-exports
+  landed in the same Unreleased series; its stable shape is now covered by
+  `STABILITY.md`. Existing metric behavior is unchanged. (#1680)
 
 - The unstable AST documentation collector now reads Perl POD. A POD block
   before the data section is one document of the file, with its POD markup as

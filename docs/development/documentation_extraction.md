@@ -7,7 +7,7 @@ counting, and which outcomes its tests must establish. It assumes familiarity
 with the project's [grammar dispatch](grammar_dispatch.md) and
 [tree-sitter](https://tree-sitter.github.io/tree-sitter/) syntax trees.
 
-The direct-AST collector and a hidden root `Ast::documentation` method are available;
+The direct-AST collector and a public root `Ast::documentation` method are available;
 adapter support remains partial. This contract describes required outcomes, not a
 claim that every form is implemented. The current stable public surface is listed in
 [STABILITY.md](../../STABILITY.md). Track per-adapter status and review evidence in
@@ -468,7 +468,7 @@ bytes but does not justify recovering an original identifier from dollar runs.
 
 Logical filename is explicit caller metadata. `Ast` holds a private
 path-provenance field populated by `Ast::from_path`: the final component of the
-path. The hidden `Ast::documentation` supplies it when the context names no
+path. `Ast::documentation` supplies it when the context names no
 logical filename; an explicit one always wins.
 `Source::with_name` and adopted-tree display labels remain display labels. A
 logical filename is context for documentation rules, not a filesystem credential.

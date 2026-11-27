@@ -135,21 +135,46 @@ impl Ast {
 
     /// Collect source documentation from the held parse.
     ///
-    /// Hidden and unstable: the types it names belong to `big-code-analysis-ast`
-    /// and are not re-exported here.
-    ///
     /// The index borrows this `Ast`, and its offsets refer to [`Ast::source`]. A
     /// `context` that names a logical filename is passed on as it is. One that
     /// names none receives the final component of the path [`Ast::from_path`]
     /// read this `Ast` from. An `Ast` built any other way has no such path, and
     /// its display name is never used in its place.
     ///
+    /// Excluded parse ranges are not part of the returned source spelling. The
+    /// selected profile may report pending assessments or an unavailable adapter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rust")]
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use big_code_analysis::{Ast, LANG, Source, documentation::{DocumentationContext, DocumentationOptions}};
+    /// let ast = Ast::parse(Source::new(LANG::Rust, b"///audit\nfn f() {}"))?;
+    /// let index = ast.documentation(&DocumentationContext::default(), &DocumentationOptions::default())?;
+    /// assert_eq!(index.source(), ast.source());
+    /// assert_eq!(index.documents().len(), 1);
+    /// let document = index.documents().next().ok_or("missing document")?;
+    /// assert_eq!(index.complete_text(document)?.ok_or("missing text")?.text(), "audit");
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rust"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// ```compile_fail,E0505
+    /// use big_code_analysis::{Ast, LANG, Source, documentation::{DocumentationContext, DocumentationOptions}};
+    /// let ast = Ast::parse(Source::new(LANG::Rust, b"///audit\nfn f() {}")).unwrap();
+    /// let index = ast.documentation(&DocumentationContext::default(), &DocumentationOptions::default()).unwrap();
+    /// drop(ast); // the borrowed index must not outlive its Ast
+    /// assert_eq!(index.documents().len(), 1);
+    /// ```
+    ///
     /// # Errors
     ///
     /// The error of the typed parser's documentation method, unchanged: a
     /// cancelled parse or collection, a profile that does not belong to the
     /// language or has no adapter, and the detectable faults of an adopted tree.
-    #[doc(hidden)]
     pub fn documentation(
         &self,
         context: &DocumentationContext,

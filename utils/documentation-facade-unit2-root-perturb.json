@@ -1,0 +1,89 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--no-fail-fast",
+    "--test",
+    "api",
+    "documentation_facade"
+  ],
+  "cases": [
+    {
+      "name": "context-builder-drops-filename",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.logical_filename = Some(filename.into());",
+      "new": "        self.logical_filename = None;",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "profile-builder-ignores-selection",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.profile = profile;",
+      "new": "        self.profile = Profile::Default;",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "unbound-builder-ignores-selection",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.retain_unbound = retain;",
+      "new": "        self.retain_unbound = false;",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "directives-builder-ignores-selection",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.retain_directives = retain;",
+      "new": "        self.retain_directives = false;",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "facade-changes-index-source",
+      "file": "src/spaces/ast.rs",
+      "old": "        self.inner.documentation(context, options)\n",
+      "new": "        self.inner.documentation(context, &DocumentationOptions::default())\n",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "source-error-display-loses-detail",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            Self::Source(error) => write!(f, \"documentation source: {error}\"),",
+      "new": "            Self::Source(_) => f.write_str(\"documentation source\"),",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "collection-error-loses-source",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "            Self::Source(error) => Some(error),",
+      "new": "            Self::Source(_) => None,",
+      "expect": [
+        "documentation_facade::public_documentation_builders_and_error_traits_are_usable"
+      ]
+    },
+    {
+      "name": "from-path-cancelled-parse-treated-as-complete",
+      "file": "big-code-analysis-ast/src/node/parser_cache.rs",
+      "old": "(tree, ParseCompletion::Cancelled)",
+      "new": "(tree, ParseCompletion::Complete)",
+      "expect": [
+        "documentation_facade::a_file_read_from_a_path_is_cancelled_as_a_parsed_source_is"
+      ]
+    }
+  ]
+}

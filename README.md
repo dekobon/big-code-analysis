@@ -150,7 +150,7 @@ analysis, walking `FuncSpace` results, error handling). The API
 reference is on [docs.rs](https://docs.rs/big-code-analysis).
 
 `Ast::documentation` extracts source documentation, semantic owners and text-to-source
-mappings from a held parse. It is currently a hidden, unstable API; see
+mappings from a held parse through the public `big_code_analysis::documentation` types; see
 [Extracting source documentation](https://dekobon.github.io/big-code-analysis/library/documentation.html)
 for its availability and examples.
 
