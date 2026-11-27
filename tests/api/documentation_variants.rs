@@ -626,6 +626,7 @@ fn form_languages(row: &serde_json::Value) -> Vec<LANG> {
     feature = "tcl",
     feature = "irules"
 ))]
+#[allow(clippy::too_many_lines)]
 fn check_form_documents(
     index: &DocumentationIndex<'_>,
     source: &[u8],
@@ -713,16 +714,39 @@ fn check_form_documents(
                 assert_eq!(association.get().owner_count(), 1, "{path}");
                 let name = owner.as_str().unwrap();
                 let binding = index.facts().associated_owner(association, 0).unwrap();
-                let Owner::Node(node) = binding.get() else {
-                    panic!("{path}: expected node owner")
-                };
-                let span = node.node().byte_range();
-                assert!(span.end <= source.len(), "{path}");
-                let bytes = &source[span];
-                assert!(
-                    bytes.starts_with(name.as_bytes()),
-                    "{path}: {name} vs {bytes:?}"
-                );
+                if path == "groovy-spaces.groovy" && name == "field C.x" {
+                    let Owner::Slot(slot) = binding.get() else {
+                        panic!("{path}: expected field slot")
+                    };
+                    assert_eq!(
+                        slot.role,
+                        big_code_analysis_ast::documentation::SlotRole::Field
+                    );
+                    assert_eq!(slot.ordinal, 0);
+                    assert_eq!(slot.source.pieces()[0].range(), 107..108);
+                    let Owner::Node(declaration) =
+                        index.facts().slot_enclosing(binding).unwrap().get()
+                    else {
+                        panic!("{path}: expected enclosing field declaration")
+                    };
+                    assert_eq!(declaration.node().byte_range(), 103..108);
+                } else {
+                    let Owner::Node(node) = binding.get() else {
+                        panic!("{path}: expected node owner")
+                    };
+                    let span = node.node().byte_range();
+                    assert!(span.end <= source.len(), "{path}");
+                    let bytes = &source[span];
+                    let spelling = match (path, name) {
+                        ("groovy-spaces.groovy", "constructor C()") => "C()",
+                        ("groovy-spaces.groovy", "method C.f") => "def f()",
+                        _ => name,
+                    };
+                    assert!(
+                        bytes.starts_with(spelling.as_bytes()),
+                        "{path}: {name} vs {bytes:?}"
+                    );
+                }
             }
         }
     }
@@ -868,7 +892,7 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                                 && index.assessed_document(*assessment).unwrap().is_none()
                         }), "{path}: data section occurrence is pending");
                     }
-                    "php-define.php" | "groovy-spaces.groovy" => {
+                    "php-define.php" => {
                         assert!(
                             !index.assessments().collect::<Vec<_>>().is_empty(),
                             "{path}"
@@ -881,6 +905,10 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                                 "{path}"
                             );
                         }
+                    }
+                    "groovy-spaces.groovy" => {
+                        assert_eq!(index.assessments().len(), 0, "{path}");
+                        check_form_documents(&index, &bytes, promised, path);
                     }
                     "rust-reach.rs" => {
                         check_form_documents(&index, &bytes, promised, path);

@@ -101,6 +101,11 @@ for historical reference.
   error, excluded bytes or an unnamed (`_`) declarator stays a pending owner.
   Legacy documentation rows are unchanged. (#1666)
 
+- The unstable AST documentation collector now gives Groovy fields an enclosing
+  declaration owner and a field slot per declarator, in source order. A
+  Groovydoc block above a field is associated with its slots; same-row blocks
+  remain unselected. Legacy documentation rows are unchanged. (#1666)
+
 - The unstable AST documentation collector now gives Go struct fields and
   interface elements owners. A field declaration with names has the declaration
   and one field slot per name, spelled by the name; a comment above it is one

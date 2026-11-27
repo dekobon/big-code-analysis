@@ -18,9 +18,9 @@
       "pending": ["Local signature/modifier/accessor/constructor projection", "class/function parameter slots and destructuring properties", "publication"]
     },
     "Groovy": {
-      "implemented": ["basic Groovydoc type", "nearest selection", "annotation-bearing type"],
+      "implemented": ["basic Groovydoc type", "nearest selection", "annotation-bearing type", "field declarator slots"],
       "ineligible": ["ordinary comments", "plain comment detaches nearest block", "Local placement is not emitted"],
-      "pending": ["same-row block/declaration source selection", "field slot projection", "publication"]
+      "pending": ["same-row block/declaration source selection", "recovered field declarations", "publication"]
     },
     "Csharp": {
       "implemented": ["basic XML type", "leading trivia selection", "attribute-bearing declaration", "literal XML markup", "field/constant/event-field slots"],

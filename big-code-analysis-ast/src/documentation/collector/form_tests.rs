@@ -4,7 +4,6 @@ use crate::{AnyParser, LANG};
 #[cfg(any(
     feature = "java",
     feature = "kotlin",
-    feature = "groovy",
     feature = "php",
     feature = "typescript",
     feature = "ruby",
@@ -63,11 +62,34 @@ fn kotlin_parameter_form_is_pending_in_default_queries() {
 }
 #[cfg(feature = "groovy")]
 #[test]
-fn groovy_field_form_is_pending_in_default_queries() {
-    assert_pending_form(
-        LANG::Groovy,
-        "class C {\n/**audit*/\nint x\n}",
-        "field_declaration",
+fn groovy_field_form_has_a_slot_in_default_queries() {
+    let source = b"class C {\n/**audit*/\nint x\n}";
+    let parser = AnyParser::parse(LANG::Groovy, source.to_vec(), None, None).unwrap();
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    let field = parser
+        .root_node()
+        .preorder()
+        .find(|node| node.kind() == "field_declaration")
+        .unwrap();
+    let projection = index.node_projection(field.as_tree_sitter()).unwrap();
+    assert!(!projection.pending());
+    assert_eq!(projection.owners().len(), 1);
+    let slot = projection.owners().next().unwrap();
+    let Owner::Slot(slot_data) = slot.get() else {
+        panic!("field has a slot")
+    };
+    assert_eq!(slot_data.role, SlotRole::Field);
+    assert_eq!(slot_data.ordinal, 0);
+    assert_eq!(slot_data.source.pieces()[0].range(), 25..26);
+    assert_eq!(index.associations().len(), 1);
+    assert_eq!(
+        index.owner_associations(slot).unwrap().associations().len(),
+        1
     );
 }
 

@@ -155,7 +155,7 @@ impl Builder<'_> {
         {
             return self.c_slots(id, budget);
         }
-        if self.index.profile == Profile::Javadoc
+        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)
             && matches!(node.kind(), "field_declaration" | "constant_declaration")
             && matches!(
                 self.index.canonical.nodes[id.0].projection,

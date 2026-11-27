@@ -8352,10 +8352,26 @@ fn documentation_groovy_new_field_spellings_keep_legacy_rows() {
     use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
     use big_code_analysis_ast::{AnyParser, documentation::*};
     let rows: [(&[u8], [u64; 6], &[usize]); 5] = [
-        (b"class C {\n/**audit*/\nint a = 1, b = 2\n}\n", [4, 3, 0, 1, 0, 1], &[1]),
-        (b"class C {\n/**audit*/\nstatic final int X = 1\n}\n", [4, 3, 0, 1, 0, 1], &[1]),
-        (b"trait T {\n/**audit*/\ndef x\n}\n", [4, 3, 0, 1, 0, 1], &[1]),
-        (b"enum E { A;\n/**audit*/\nint x\n}\n", [4, 3, 0, 1, 0, 1], &[1]),
+        (
+            b"class C {\n/**audit*/\nint a = 1, b = 2\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"class C {\n/**audit*/\nstatic final int X = 1\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"trait T {\n/**audit*/\ndef x\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"enum E { A;\n/**audit*/\nint x\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
         (
             b"class C {\n/**audit*/\nint a, /* plain */ b\n}\n",
             [4, 3, 0, 2, 0, 1],
@@ -8376,7 +8392,10 @@ fn documentation_groovy_new_field_spellings_keep_legacy_rows() {
         let collected = observations();
         let built = evidence_built::observed();
         assert_eq!(index.documents().len(), 1, "{}", source.escape_ascii());
-        assert_eq!(collected.visits - before.visits, parser.root_node().preorder().count());
+        assert_eq!(
+            collected.visits - before.visits,
+            parser.root_node().preorder().count()
+        );
         assert_eq!(collected.renders - before.renders, 1);
         assert_eq!(built - unbuilt, 1);
         let space = analyze(
@@ -8386,7 +8405,14 @@ fn documentation_groovy_new_field_spellings_keep_legacy_rows() {
         .unwrap();
         let loc = &space.metrics.loc;
         assert_eq!(
-            [loc.sloc(), loc.ploc(), loc.lloc(), loc.cloc(), loc.blank(), loc.dloc()],
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
             expected,
             "{}",
             source.escape_ascii()

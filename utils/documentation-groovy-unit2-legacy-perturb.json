@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_groovy_new_field_spellings_keep_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "groovy-legacy-field-row-count",
+      "file": "src/metrics/loc/groovy.rs",
+      "old": "                add_comment_lines::<Self>(node, code, ancestors, stats);",
+      "new": "                let _ = (node, code, ancestors, stats);",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_groovy_new_field_spellings_keep_legacy_rows"
+      ]
+    }
+  ]
+}
