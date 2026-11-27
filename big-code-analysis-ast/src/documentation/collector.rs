@@ -1239,6 +1239,8 @@ mod ruby_tests;
 #[cfg(test)]
 mod rust_tests;
 #[cfg(test)]
+mod shdoc_tests;
+#[cfg(test)]
 mod tcl_tests;
 #[cfg(test)]
 mod tests;
