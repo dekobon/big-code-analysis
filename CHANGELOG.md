@@ -26,6 +26,10 @@ for historical reference.
 
 ### Added
 
+- Doxygen C-family source documentation now gathers file comments before a declaration,
+  attaches trailing enum comments after a comma, and projects single-declaration C++
+  template/linkage wrappers. Braced linkage blocks and initializer commas remain pending.
+
 - TypeScript and TSX documentation collection now resolves anonymous default exports,
   namespaces, named variable declarators, and `using`/`await using` assignment owners.
   `declare` wrappers skip comment children. Parameter slots remain pending; legacy

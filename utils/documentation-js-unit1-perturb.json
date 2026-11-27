@@ -204,8 +204,8 @@
     {
       "name": "superseded-needs-no-selected-block",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "                && !self.kept.is_empty()",
-      "new": "                && self.kept.is_empty()",
+      "old": "&& !self.kept.is_empty()",
+      "new": "&& self.kept.is_empty()",
       "expect": [
         "documentation::collector::js_tests::javascript_nearest_block_comment_before_a_declaration_decides",
         "documentation::collector::js_tests::mozjs_nearest_block_comment_before_a_declaration_decides"

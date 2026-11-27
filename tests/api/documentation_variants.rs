@@ -895,8 +895,8 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                         assert_eq!(
                             texts,
                             [
-                                "\"@file\"\n<![CDATA[ @file ]]>\nfirst\nsecond",
-                                "\"x\" @file"
+                                "\"@file\"\n<![CDATA[ @file ]]>\n\"x\" @file",
+                                "first\nsecond"
                             ],
                             "{path}"
                         );

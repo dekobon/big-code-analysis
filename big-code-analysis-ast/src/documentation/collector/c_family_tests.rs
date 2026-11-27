@@ -296,7 +296,13 @@ fn published(index: &DocumentationIndex<'_>, root: tree_sitter::Node<'_>) -> Vie
         .evidence()
         .map(|candidate| {
             let fragment = index.evidence_fragment(candidate).unwrap();
-            (candidate.get().disposition, span(fragment.get().source()))
+            let range = span(fragment.get().source());
+            assert_eq!(fragment.get().form(), FragmentForm::Comment);
+            assert_eq!(
+                fragment.get().node().map(|carrier| site(carrier.node())),
+                Some(("comment", range.clone()))
+            );
+            (candidate.get().disposition, range)
         })
         .collect();
     let assessments = unordered(index.assessments().map(|assessment| Pending {
@@ -335,6 +341,11 @@ fn clean(language: LANG, source: &[u8]) -> AnyParser {
 #[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
 fn view(language: LANG, source: &[u8]) -> View {
     let parser = clean(language, source);
+    view_from_parser(language, &parser)
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn view_from_parser(language: LANG, parser: &AnyParser) -> View {
     let context = DocumentationContext::default();
     let options = DocumentationOptions::default();
     let root = parser.ts_tree().root_node();
@@ -1250,4 +1261,1110 @@ fn mozcpp_grammar_shapes_the_unit_relies_on() {
 fn objc_grammar_shapes_the_unit_relies_on() {
     grammar_shapes_the_unit_relies_on(LANG::Objc);
     objc_grammar_shapes();
+}
+
+// expected: forms.json has one three-fragment file document and one two-fragment
+// function document; quoted and CDATA commands alone have no document.
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_quoted_fixture(language: LANG) {
+    let source = crate::test_support::documentation::source("doxygen-quoted.h");
+    let source = source.as_slice();
+    assert_eq!(clean(language, source).root_node().end_byte(), source.len());
+    let expected = View {
+        documents: vec![
+            Doc {
+                role: DocumentRole::FilePackage,
+                composition: Composition::CommentRun,
+                fragments: vec![0..14, 30..56, 72..88],
+                text: "\"@file\"\n<![CDATA[ @file ]]>\n\"x\" @file".to_owned(),
+                map: vec![
+                    (0..7, Copied(4..11)),
+                    (7..8, Synthetic),
+                    (8..27, Copied(34..53)),
+                    (27..28, Synthetic),
+                    (28..37, Copied(76..85)),
+                ],
+            },
+            Doc {
+                role: DocumentRole::Primary,
+                composition: Composition::CommentRun,
+                fragments: vec![104..116, 117..130],
+                text: "first\nsecond".to_owned(),
+                map: vec![
+                    (0..5, Copied(108..113)),
+                    (5..6, Synthetic),
+                    (6..12, Copied(121..127)),
+                ],
+            },
+        ],
+        associations: vec![
+            Link {
+                document: 0,
+                resolution: Resolution::Resolved,
+                owners: vec![Holder::File(0..157)],
+                binding: None,
+            },
+            bound(
+                1,
+                Resolution::Resolved,
+                vec![Holder::Node(("function_definition", 131..156))],
+            ),
+        ],
+        ..View::default()
+    };
+    assert_eq!(view(language, source), expected);
+    // The sibling grammar must preserve the complete public view on the shared fixture.
+    if language == LANG::Mozcpp {
+        assert_eq!(view(LANG::Mozcpp, source), view(LANG::Cpp, source));
+    }
+    assert_eq!(
+        view(
+            language,
+            &crate::test_support::documentation::source("doxygen-quote.h")
+        ),
+        View::default()
+    );
+    assert_eq!(
+        view(
+            language,
+            &crate::test_support::documentation::source("doxygen-cdata.h")
+        ),
+        View::default()
+    );
+    // expected: both quoted structural lookalikes are detached. Retention
+    // publishes their evidence in source order, not sorted by disposition.
+    let source = b"/** \"@file\" */\n\n/** <![CDATA[ @file ]]> */\n";
+    let parser = clean(language, source);
+    let context = DocumentationContext::default();
+    let options = DocumentationOptions {
+        retain_unbound: true,
+        ..DocumentationOptions::default()
+    };
+    let root = parser.ts_tree().root_node();
+    let typed = published(&parser.documentation(&context, &options).unwrap(), root);
+    let raw = published(
+        &collect(
+            language,
+            parser.ts_tree(),
+            parser.code(),
+            &context,
+            &options,
+        )
+        .unwrap(),
+        root,
+    );
+    assert_eq!(typed, raw);
+    assert_eq!(
+        typed,
+        View {
+            evidence: vec![
+                (CandidateDisposition::Unattached, 0..14),
+                (CandidateDisposition::Unattached, 16..42),
+            ],
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_gather_tail(language: LANG) {
+    // expected: the first two comments gather as a file document; only the
+    // last comment is bound forward to the prototype after the gatherer.
+    assert_eq!(
+        view(
+            language,
+            b"/** head */\n/** @file */\n/** tail */\nint f(void);\n"
+        ),
+        View {
+            documents: vec![
+                Doc {
+                    role: DocumentRole::FilePackage,
+                    composition: Composition::CommentRun,
+                    fragments: vec![0..11, 12..24],
+                    text: "head\n@file".to_owned(),
+                    map: vec![
+                        (0..4, Copied(4..8)),
+                        (4..5, Synthetic),
+                        (5..10, Copied(16..21))
+                    ],
+                },
+                comment(25..36, "tail", [(0..4, Copied(29..33))]),
+            ],
+            associations: vec![
+                Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owners: vec![Holder::File(0..50)],
+                    binding: None
+                },
+                bound(
+                    1,
+                    Resolution::Resolved,
+                    vec![Holder::Node(("declaration", 37..49))]
+                ),
+            ],
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+#[allow(clippy::too_many_lines)]
+fn unit2_comma(language: LANG) {
+    // expected: the comma is an unnamed child of enumerator_list, and A is its
+    // previous non-comment named sibling; the analogous variable remains pending.
+    let parser = clean(language, b"enum E { A, /**< ta */ B };\n");
+    let comma = node_at(&parser, ",", 10..11);
+    assert!(!comma.is_named());
+    assert_eq!(comma.parent().map(site), Some(("enumerator_list", 7..26)));
+    assert_eq!(comma.prev_sibling().map(site), Some(("enumerator", 9..10)));
+    assert_eq!(
+        view(language, b"enum E { A, /**< ta */ B };\n"),
+        owned(
+            comment(12..22, "ta", [(0..2, Copied(17..19))]),
+            vec![Holder::Node(("enumerator", 9..10))]
+        )
+    );
+    let spaced = clean(language, b"enum E { A /* gap */, /**< ta */ B };\n");
+    let gap_comment = node_at(&spaced, "comment", 11..20);
+    assert_eq!(gap_comment.next_sibling().map(site), Some((",", 20..21)));
+    assert_eq!(
+        gap_comment.prev_sibling().map(site),
+        Some(("enumerator", 9..10))
+    );
+    assert_eq!(
+        view(language, b"enum E { A /* gap */, /**< ta */ B };\n"),
+        owned(
+            comment(22..32, "ta", [(0..2, Copied(27..29))]),
+            vec![Holder::Node(("enumerator", 9..10))]
+        )
+    );
+    // The excluded bytes hide the actual enumerator B between A and the comma.
+    let source = b"enum E { A, B, /**< ta */ C };\n";
+    let point = |at: usize| tree_sitter::Point::new(0, at);
+    let ranges = [
+        tree_sitter::Range {
+            start_byte: 0,
+            end_byte: 10,
+            start_point: point(0),
+            end_point: point(10),
+        },
+        tree_sitter::Range {
+            start_byte: 13,
+            end_byte: source.len(),
+            start_point: point(13),
+            end_point: point(source.len()),
+        },
+    ];
+    let mut raw = tree_sitter::Parser::new();
+    raw.set_language(&language.tree_sitter_language().unwrap())
+        .unwrap();
+    raw.set_included_ranges(&ranges).unwrap();
+    let tree = raw.parse(source, None).unwrap();
+    assert!(!tree.root_node().has_error());
+    let index = collect(
+        language,
+        &tree,
+        source,
+        &DocumentationContext::default(),
+        &DocumentationOptions::default(),
+    )
+    .unwrap();
+    let docs: Vec<_> = index.documents().collect();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].get().role(), DocumentRole::Primary);
+    assert_eq!(docs[0].get().composition(), Composition::Single);
+    let fragment = index.facts().document_fragment(docs[0], 0).unwrap();
+    assert_eq!(span(fragment.get().source()), 15..25);
+    assert_eq!(fragment.get().form(), FragmentForm::Comment);
+    assert_eq!(
+        fragment.get().node().map(|node| site(node.node())),
+        Some(("comment", 15..25))
+    );
+    assert_eq!(
+        index
+            .complete_text(docs[0])
+            .unwrap()
+            .map(|text| text.text().to_owned()),
+        None
+    );
+    assert!(matches!(
+        docs[0].get().content(),
+        Content::Unavailable(UnavailableReason::ExcludedGap)
+    ));
+    let associations: Vec<_> = index.associations().collect();
+    assert_eq!(associations.len(), 1);
+    assert_eq!(
+        index.facts().associated_document(associations[0]),
+        Ok(docs[0])
+    );
+    assert_eq!(
+        associations[0].get().resolution,
+        Resolution::Unresolved(UnresolvedReason::ExcludedGap)
+    );
+    assert_eq!(associations[0].get().owner_count(), 0);
+    assert!(associations[0].get().binding.is_none());
+    assert_eq!(index.assessments().len(), 3);
+    assert_eq!(index.evidence().len(), 0);
+    if language == LANG::Mozcpp {
+        assert_eq!(
+            view(LANG::Mozcpp, b"enum E { A, /**< ta */ B };\n"),
+            view(LANG::Cpp, b"enum E { A, /**< ta */ B };\n")
+        );
+    }
+    // expected: this comma belongs to the call's argument_list, not the
+    // enumerator_list. All initializer commas keep a pending document, not A.
+    for (source, comma_at, comment_at, text_at, text) in [
+        (
+            b"enum E { A = foo(1, /**< bad */ 2), B };\n".as_slice(),
+            18..19,
+            20..31,
+            25..28,
+            "bad",
+        ),
+        (
+            b"enum E { A = foo(1, /*!< bang */ 2), B };\n".as_slice(),
+            18..19,
+            20..32,
+            25..29,
+            "bang",
+        ),
+        (
+            b"enum E { A = foo(bar(1, /**< nested */ 2)), B };\n".as_slice(),
+            22..23,
+            24..38,
+            29..35,
+            "nested",
+        ),
+    ] {
+        let parser = clean(language, source);
+        let comma = node_at(&parser, ",", comma_at.clone());
+        assert_eq!(
+            comma.parent().map(|parent| parent.kind()),
+            Some("argument_list")
+        );
+        let expected = View {
+            documents: vec![comment(
+                comment_at,
+                text,
+                [(0..text.len(), Copied(text_at))],
+            )],
+            assessments: unordered([pending(AWAITS_OWNER, Some((",", comma_at)), Some(0))]),
+            ..View::default()
+        };
+        assert_eq!(view(language, source), expected);
+        let context = DocumentationContext::default();
+        let options = DocumentationOptions {
+            retain_unbound: true,
+            ..DocumentationOptions::default()
+        };
+        let root = parser.ts_tree().root_node();
+        let typed = published(&parser.documentation(&context, &options).unwrap(), root);
+        let raw = published(
+            &collect(
+                language,
+                parser.ts_tree(),
+                parser.code(),
+                &context,
+                &options,
+            )
+            .unwrap(),
+            root,
+        );
+        assert_eq!(typed, raw);
+        assert_eq!(typed, expected);
+    }
+    // Recovery puts `#ifdef` in an ERROR before X in C, and Objc keeps
+    // the comma within the preprocessor node. Neither may resolve X.
+    let source = b"enum E {\n  A\n#ifdef X\n  , /**< ta */ B\n#endif\n};\n";
+    let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    let index = parser
+        .documentation(
+            &DocumentationContext::default(),
+            &DocumentationOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(index.documents().len(), 1);
+    assert_eq!(index.associations().len(), 0);
+    let assessments: Vec<_> = index.assessments().collect();
+    assert!(assessments.iter().any(|assessment| {
+        assessment.get().axis == AssessmentAxis::Owner
+            && assessment.get().reason == AWAITS_OWNER
+            && index.assessed_document(*assessment).unwrap().is_some()
+    }));
+    if language == LANG::C {
+        assert_eq!(
+            assessments[0].get().node.map(|node| site(node.node())),
+            Some((",", 24..25))
+        );
+    }
+    assert_eq!(
+        view(language, b"int a, /**< ta */ b;\n"),
+        View {
+            documents: vec![comment(7..17, "ta", [(0..2, Copied(12..14))])],
+            assessments: unordered([pending(AWAITS_OWNER, Some((",", 5..6)), Some(0))]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_linkage(language: LANG) {
+    let one = b"/** e */\nextern \"C\" void f(void);\n";
+    assert_eq!(
+        view(language, one),
+        View {
+            documents: vec![comment(0..8, "e", [(0..1, Copied(4..5))])],
+            associations: vec![Link {
+                document: 0,
+                resolution: Resolution::Resolved,
+                owners: vec![Holder::Node(("declaration", 20..33))],
+                binding: Some(("linkage_specification", 9..33)),
+            }],
+            ..View::default()
+        }
+    );
+    if matches!(language, LANG::Cpp | LANG::Mozcpp) {
+        // expected: the inner variable declaration has one Field slot;
+        // the outer linkage specification remains the binding.
+        assert_eq!(
+            view(language, b"/** e */\nextern \"C++\" int x;\n"),
+            View {
+                documents: vec![comment(0..8, "e", [(0..1, Copied(4..5))])],
+                associations: vec![Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owners: vec![field_slot(0, 26..27, &("declaration", 22..28))],
+                    binding: Some(("linkage_specification", 9..28)),
+                }],
+                ..View::default()
+            }
+        );
+    }
+    // A comment inside the header is skipped, not projected as an owner.
+    assert_eq!(
+        view(
+            language,
+            b"/** e */\nextern /* between */ \"C\" /* between */ void f(void);\n"
+        ),
+        View {
+            documents: vec![comment(0..8, "e", [(0..1, Copied(4..5))])],
+            associations: vec![Link {
+                document: 0,
+                resolution: Resolution::Resolved,
+                owners: vec![Holder::Node(("declaration", 48..61))],
+                binding: Some(("linkage_specification", 9..61)),
+            }],
+            ..View::default()
+        }
+    );
+    // A declaration_list cannot project to one declaration, even when a tool picks first.
+    assert_eq!(
+        view(
+            language,
+            b"/** e */\nextern \"C\" { void f(void); void g(void); }\n"
+        ),
+        View {
+            documents: vec![comment(0..8, "e", [(0..1, Copied(4..5))])],
+            assessments: unordered([
+                pending(
+                    AWAITS_OWNER,
+                    Some(("linkage_specification", 9..51)),
+                    Some(0)
+                ),
+                pending(
+                    NEEDS_PROJECTION,
+                    Some(("linkage_specification", 9..51)),
+                    None
+                ),
+            ]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn unit2_template(language: LANG) {
+    // expected: the outer template remains the binding for every projected inner owner.
+    for (source, owner, binding) in [
+        (
+            b"/** t */\ntemplate <typename T> void f(T x);\n".as_slice(),
+            ("declaration", 31..43),
+            ("template_declaration", 9..43),
+        ),
+        (
+            b"/** t */\ntemplate <typename T> void f(T x) {}\n".as_slice(),
+            ("function_definition", 31..45),
+            ("template_declaration", 9..45),
+        ),
+        (
+            b"/** t */\ntemplate <typename T> class C {};\n".as_slice(),
+            ("class_specifier", 31..41),
+            ("template_declaration", 9..42),
+        ),
+        (
+            b"/** t */\ntemplate <typename T> template <typename U> class C {};\n".as_slice(),
+            ("class_specifier", 53..63),
+            ("template_declaration", 9..64),
+        ),
+        (
+            b"/** t */\ntemplate <typename T> /* between */ void f(T x);\n".as_slice(),
+            ("declaration", 45..57),
+            ("template_declaration", 9..57),
+        ),
+        (
+            b"/** b */\ntemplate <typename T> requires true void g(T);\n".as_slice(),
+            ("declaration", 45..55),
+            ("template_declaration", 9..55),
+        ),
+        (
+            b"/** p */\ntemplate <typename T> struct S<T*> {};\n".as_slice(),
+            ("struct_specifier", 31..46),
+            ("template_declaration", 9..47),
+        ),
+    ] {
+        let text = match source.get(4).copied() {
+            Some(b'b') => "b",
+            Some(b'p') => "p",
+            _ => "t",
+        };
+        assert_eq!(
+            view(language, source),
+            View {
+                documents: vec![comment(0..8, text, [(0..1, Copied(4..5))])],
+                associations: vec![Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owners: vec![Holder::Node(owner)],
+                    binding: Some(binding),
+                }],
+                ..View::default()
+            },
+            "{}",
+            source.escape_ascii()
+        );
+    }
+    // Characterization: forward declarations and concepts have no supported
+    // inner owner yet. The wrapper keeps a pending assessment, not a resolved
+    // association and not an assertion of semantic absence.
+    for (source, wrapper) in [
+        (
+            b"/** f */\ntemplate <typename T> struct S;\n".as_slice(),
+            9..40,
+        ),
+        (
+            b"/** f */\ntemplate <typename T> class C;\n".as_slice(),
+            9..39,
+        ),
+        (
+            b"/** f */\ntemplate <typename T> concept C = true;\n".as_slice(),
+            9..48,
+        ),
+    ] {
+        assert_eq!(
+            view(language, source),
+            View {
+                documents: vec![comment(0..8, "f", [(0..1, Copied(4..5))])],
+                assessments: unordered([
+                    pending(
+                        AWAITS_OWNER,
+                        Some(("template_declaration", wrapper.clone())),
+                        Some(0)
+                    ),
+                    pending(
+                        NEEDS_PROJECTION,
+                        Some(("template_declaration", wrapper)),
+                        None
+                    ),
+                ]),
+                ..View::default()
+            },
+            "{}",
+            source.escape_ascii()
+        );
+    }
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_recovered_enumerator(language: LANG) {
+    // expected: the error after A does not damage A itself or the preceding comma.
+    let source = b"enum E { A, /**< ta */ %% B };\n";
+    let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    assert_eq!(
+        view_from_parser(language, &parser),
+        View {
+            documents: vec![comment(12..22, "ta", [(0..2, Copied(17..19))])],
+            associations: vec![bound(
+                0,
+                Resolution::Resolved,
+                vec![Holder::Node(("enumerator", 9..10))]
+            )],
+            assessments: unordered([pending(
+                NEEDS_PROJECTION,
+                Some(("enum_specifier", 0..29)),
+                None
+            ),]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn unit2_recovered_wrappers(language: LANG) {
+    for (source, wrapper, declaration, label) in [
+        (
+            b"/** t */\ntemplate <typename T> void f(%%);\n".as_slice(),
+            "template_declaration",
+            31..42,
+            "t",
+        ),
+        (
+            b"/** e */\nextern \"C\" void f(%%);\n".as_slice(),
+            "linkage_specification",
+            20..31,
+            "e",
+        ),
+    ] {
+        let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+        assert!(parser.ts_tree().root_node().has_error());
+        let wrapped = (wrapper, 9..declaration.end);
+        let declaration = ("declaration", declaration);
+        assert_eq!(
+            view_from_parser(language, &parser),
+            View {
+                documents: vec![comment(0..8, label, [(0..1, Copied(4..5))])],
+                assessments: unordered([
+                    pending(
+                        "Complex signature awaits exact named matching",
+                        Some(declaration.clone()),
+                        None
+                    ),
+                    pending(AWAITS_OWNER, Some(wrapped.clone()), Some(0)),
+                    pending(NEEDS_PROJECTION, Some(wrapped), None),
+                    pending(NEEDS_PROJECTION, Some(declaration), None),
+                ]),
+                ..View::default()
+            }
+        );
+    }
+}
+
+// Characterization only: an unescaped physical LF inside an ordinary quoted
+// string is invalid C/Objective-C. This pins today's grammar recovery, not
+// conformant source documentation or an intended @file attachment.
+#[cfg(any(feature = "c", feature = "objc"))]
+fn unit2_invalid_multiline_quote(language: LANG) {
+    let (source, fragment, text_start, scope, declaration, root_len) = match language {
+        LANG::C => (
+            b"const char *s = \"\n/** @file */\nint f(void);\n\";\n".as_slice(),
+            18..30,
+            22..27,
+            ("string_literal", 16..30),
+            ("declaration", 0..43),
+            47,
+        ),
+        LANG::Objc => (
+            b"id s = @\"\n/** @file */\nint f(void);\n\";\n".as_slice(),
+            10..22,
+            14..19,
+            ("string_literal", 7..22),
+            ("declaration", 0..35),
+            39,
+        ),
+        other => panic!("not a characterization variant: {other:?}"),
+    };
+    let parser = AnyParser::parse(language, source.to_vec(), None, None).unwrap();
+    assert!(parser.ts_tree().root_node().has_error());
+    assert_eq!(
+        node_at(&parser, "comment", fragment.clone())
+            .parent()
+            .map(site),
+        Some(scope)
+    );
+    assert_eq!(
+        view_from_parser(language, &parser),
+        View {
+            documents: vec![Doc {
+                role: DocumentRole::FilePackage,
+                ..comment(fragment, "@file", [(0..5, Copied(text_start))])
+            }],
+            associations: vec![Link {
+                document: 0,
+                resolution: Resolution::Resolved,
+                owners: vec![Holder::File(0..root_len)],
+                binding: None
+            }],
+            assessments: unordered([pending(NEEDS_PROJECTION, Some(declaration), None)]),
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_invalid_multiline_quote() {
+    unit2_invalid_multiline_quote(LANG::C);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_invalid_multiline_quote() {
+    unit2_invalid_multiline_quote(LANG::Objc);
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_literal_boundaries(language: LANG) {
+    let ordinary = b"const char *s = \"\\n/** @file */\\nint f(void);\\n\";\nint f(void);\n";
+    let line = b"// /** @file */ int f(void);\nint f(void);\n";
+    let block = b"/*\n/** @file * /\nint f(void);\n*/\nint f(void);\n";
+    for source in [ordinary.as_slice(), line.as_slice(), block.as_slice()] {
+        let parser = clean(language, source);
+        assert_eq!(parser.root_node().end_byte(), source.len());
+        assert_eq!(view(language, source), View::default());
+    }
+}
+
+#[cfg(any(feature = "cpp", feature = "mozcpp"))]
+fn unit2_cpp_raw_literal(language: LANG) {
+    let source = b"const char *s = R\"(\n/** @file */\nint f(void);\n)\";\nint f(void);\n";
+    assert_eq!(view(language, source), View::default());
+}
+
+#[cfg(feature = "objc")]
+fn unit2_objc_literal() {
+    let source = b"id s = @\"\\n/** @file */\\nint f(void);\\n\";\nint f(void);\n";
+    assert_eq!(view(LANG::Objc, source), View::default());
+}
+
+#[cfg(any(feature = "c", feature = "cpp", feature = "mozcpp", feature = "objc"))]
+fn unit2_line_gatherer_keeps_tail(language: LANG) {
+    // expected: Doxygen's adjacent /// row below @file belongs to the file, too;
+    // the block after those rows is a separate declaration document.
+    let source = b"/// head\n/// @file\n/// after\n/** tail */\nint f(void);\n";
+    let expected = View {
+        documents: vec![
+            Doc {
+                role: DocumentRole::FilePackage,
+                composition: Composition::CommentRun,
+                fragments: vec![0..8, 9..18, 19..28],
+                text: "head\n@file\nafter".to_owned(),
+                map: vec![
+                    (0..4, Copied(4..8)),
+                    (4..5, Synthetic),
+                    (5..10, Copied(13..18)),
+                    (10..11, Synthetic),
+                    (11..16, Copied(23..28)),
+                ],
+            },
+            comment(29..40, "tail", [(0..4, Copied(33..37))]),
+        ],
+        associations: vec![
+            Link {
+                document: 0,
+                resolution: Resolution::Resolved,
+                owners: vec![Holder::File(0..54)],
+                binding: None,
+            },
+            bound(
+                1,
+                Resolution::Resolved,
+                vec![Holder::Node(("declaration", 41..53))],
+            ),
+        ],
+        ..View::default()
+    };
+    assert_eq!(view(language, source), expected);
+    // A retained candidate cannot mask a duplicate or a superseded tail.
+    let parser = clean(language, source);
+    let options = DocumentationOptions {
+        retain_unbound: true,
+        ..DocumentationOptions::default()
+    };
+    let index = parser
+        .documentation(&DocumentationContext::default(), &options)
+        .unwrap();
+    assert_eq!(published(&index, parser.ts_tree().root_node()), expected);
+    assert_eq!(index.evidence().len(), 0);
+
+    // A blank row ends the line gatherer's continuation, not the file document.
+    assert_eq!(
+        view(
+            language,
+            b"/// @file\n/// file second line\n\n/// func doc\nint f(void);\n"
+        ),
+        View {
+            documents: vec![
+                Doc {
+                    role: DocumentRole::FilePackage,
+                    composition: Composition::CommentRun,
+                    fragments: vec![0..9, 10..30],
+                    text: "@file\nfile second line".to_owned(),
+                    map: vec![
+                        (0..5, Copied(4..9)),
+                        (5..6, Synthetic),
+                        (6..22, Copied(14..30))
+                    ]
+                },
+                comment(32..44, "func doc", [(0..8, Copied(36..44))]),
+            ],
+            associations: vec![
+                Link {
+                    document: 0,
+                    resolution: Resolution::Resolved,
+                    owners: vec![Holder::File(0..58)],
+                    binding: None
+                },
+                bound(
+                    1,
+                    Resolution::Resolved,
+                    vec![Holder::Node(("declaration", 45..57))]
+                ),
+            ],
+            ..View::default()
+        }
+    );
+}
+
+#[cfg(feature = "c")]
+#[derive(Default)]
+struct Unit2Counting {
+    steps: std::cell::Cell<usize>,
+    fail_at: Option<usize>,
+}
+
+#[cfg(feature = "c")]
+impl crate::documentation::budget::WorkBudget for Unit2Counting {
+    type Error = SourceError;
+    // test-lang-gates: hand-written(c) — method belongs to the c-gated budget implementation.
+    #[cfg(feature = "c")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+    // test-lang-gates: hand-written(c) — method belongs to the c-gated budget implementation.
+    #[cfg(feature = "c")]
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+    // test-lang-gates: hand-written(c) — method belongs to the c-gated budget implementation.
+    #[cfg(feature = "c")]
+    fn bytes(&self, _: usize) -> Result<(), SourceError> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_comma_budget_has_two_sides_and_cancels_each_step() {
+    let source = b"enum E { A /* gap */, /**< ta */ B };\n";
+    let parser = clean(LANG::C, source);
+    let context = SourceContext::new(parser.ts_tree(), parser.code());
+    let comma = node_at(&parser, ",", 20..21);
+    let budget = Unit2Counting::default();
+    let (owner, gap) = super::enum_comma_predecessor(&context, comma, &budget).unwrap();
+    assert_eq!(owner.map(site), Some(("enumerator", 9..10)));
+    assert!(!gap);
+    let steps = budget.steps.get();
+    // expected: comment and enumerator, one gap lookup, one earlier-sibling check.
+    assert_eq!(steps, 4);
+    for fail_at in 1..=steps {
+        let budget = Unit2Counting {
+            fail_at: Some(fail_at),
+            ..Unit2Counting::default()
+        };
+        assert!(matches!(
+            super::enum_comma_predecessor(&context, comma, &budget),
+            Err(SourceError::Cancelled)
+        ));
+        assert_eq!(budget.steps.get(), fail_at);
+    }
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_quoted_fixture() {
+    unit2_quoted_fixture(LANG::C);
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_gather_tail() {
+    unit2_gather_tail(LANG::C);
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_comma() {
+    unit2_comma(LANG::C);
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_linkage() {
+    unit2_linkage(LANG::C);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_quoted_fixture() {
+    unit2_quoted_fixture(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_gather_tail() {
+    unit2_gather_tail(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_comma() {
+    unit2_comma(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_linkage() {
+    unit2_linkage(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_template() {
+    unit2_template(LANG::Cpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_quoted_fixture() {
+    unit2_quoted_fixture(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_gather_tail() {
+    unit2_gather_tail(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_comma() {
+    unit2_comma(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_linkage() {
+    unit2_linkage(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_template() {
+    unit2_template(LANG::Mozcpp);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_quoted_fixture() {
+    unit2_quoted_fixture(LANG::Objc);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_gather_tail() {
+    unit2_gather_tail(LANG::Objc);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_comma() {
+    unit2_comma(LANG::Objc);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_linkage() {
+    unit2_linkage(LANG::Objc);
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_recovered_enumerator() {
+    unit2_recovered_enumerator(LANG::C);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_recovered_enumerator() {
+    unit2_recovered_enumerator(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_recovered_wrappers() {
+    unit2_recovered_wrappers(LANG::Cpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_recovered_enumerator() {
+    unit2_recovered_enumerator(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_recovered_wrappers() {
+    unit2_recovered_wrappers(LANG::Mozcpp);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_recovered_enumerator() {
+    unit2_recovered_enumerator(LANG::Objc);
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::C);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::Cpp);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_cpp_raw_literal() {
+    unit2_cpp_raw_literal(LANG::Cpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::Mozcpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_cpp_raw_literal() {
+    unit2_cpp_raw_literal(LANG::Mozcpp);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_literal_boundaries() {
+    unit2_literal_boundaries(LANG::Objc);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_objc_literal() {
+    unit2_objc_literal();
+}
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_line_gatherer_keeps_tail() {
+    unit2_line_gatherer_keeps_tail(LANG::C);
+}
+#[cfg(feature = "cpp")]
+#[test]
+fn cpp_unit2_line_gatherer_keeps_tail() {
+    unit2_line_gatherer_keeps_tail(LANG::Cpp);
+}
+#[cfg(feature = "mozcpp")]
+#[test]
+fn mozcpp_unit2_line_gatherer_keeps_tail() {
+    unit2_line_gatherer_keeps_tail(LANG::Mozcpp);
+}
+#[cfg(feature = "objc")]
+#[test]
+fn objc_unit2_line_gatherer_keeps_tail() {
+    unit2_line_gatherer_keeps_tail(LANG::Objc);
+}
+
+// Count each new source-selection budget route apart from collection's other work.
+#[cfg(feature = "c")]
+#[derive(Default)]
+struct Unit2SelectionCounting {
+    steps: std::cell::Cell<usize>,
+    byte_charges: std::cell::Cell<usize>,
+    fail_at: Option<usize>,
+}
+
+#[cfg(feature = "c")]
+impl crate::documentation::budget::WorkBudget for Unit2SelectionCounting {
+    type Error = SourceError;
+    // test-lang-gates: hand-written(c) — this method belongs to the c-only budget.
+    #[cfg(feature = "c")]
+    fn checkpoint(&self) -> Result<(), SourceError> {
+        Ok(())
+    }
+    // test-lang-gates: hand-written(c) — this method belongs to the c-only budget.
+    #[cfg(feature = "c")]
+    fn step(&self) -> Result<(), SourceError> {
+        self.steps.set(self.steps.get() + 1);
+        if self.fail_at == Some(self.steps.get()) {
+            Err(SourceError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+    // test-lang-gates: hand-written(c) — this method belongs to the c-only budget.
+    #[cfg(feature = "c")]
+    fn bytes(&self, count: usize) -> Result<(), SourceError> {
+        self.byte_charges.set(self.byte_charges.get() + count);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "c")]
+fn unit2_selection_with_budget<'s>(
+    parser: &'s AnyParser,
+    context: &SourceContext<'s>,
+    budget: &Unit2SelectionCounting,
+) -> Result<Vec<crate::documentation::streaming::markers::MarkerRun<'s>>, SourceError> {
+    let root = parser.root_node();
+    let comment = root
+        .children()
+        .filter(|n| n.kind() == "comment")
+        .last()
+        .unwrap();
+    let chain = [root];
+    let ancestors = crate::Ancestors::known(&chain);
+    let mut output = Vec::new();
+    crate::documentation::streaming::markers::source_comment_with_budget::<
+        crate::documentation::recognition::NativeRules<crate::CCode>,
+        _,
+    >(
+        &comment,
+        ancestors,
+        &mut crate::documentation::streaming::markers::SourceRequest {
+            context,
+            retain_unbound: false,
+            sink: &mut |run| output.push(run),
+        },
+        budget,
+    )?;
+    Ok(output)
+}
+
+#[cfg(feature = "c")]
+#[test]
+fn c_unit2_selection_budget_has_two_sides_and_cancels_each_step() {
+    for source in [
+        b"/** head */\n/** @file */\n/** tail */\nint f(void);\n".as_slice(),
+        b"/// head\n/// @file\n/// after\n/** tail */\nint f(void);\n".as_slice(),
+    ] {
+        let parser = AnyParser::parse(LANG::C, source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error());
+        let context = SourceContext::new(parser.ts_tree(), parser.code());
+        let budget = Unit2SelectionCounting::default();
+        let result = unit2_selection_with_budget(&parser, &context, &budget).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].target.unwrap().node().kind(), "declaration");
+        let steps = budget.steps.get();
+        // expected: block form charges 41 steps, line continuation charges 70:
+        // The block's 41 = target check 2 + backward stretch 6 + reverse 1
+        // + gather-call 1 + gather probes 2 + gathered 2 + offset search 2
+        // + bound-selection 1 + member/coverage/classification 24;
+        // the contiguous line form's 70 adds 29 for one more gathered
+        // member, its line adjacency check and the longer source scan.
+        let expected = if source.starts_with(b"///") { 70 } else { 41 };
+        assert!(steps >= expected, "{steps}");
+        assert!(steps <= expected, "{steps}");
+        assert!(budget.byte_charges.get() > 0);
+        for fail_at in 1..=steps {
+            let probe = Unit2SelectionCounting {
+                fail_at: Some(fail_at),
+                ..Unit2SelectionCounting::default()
+            };
+            assert!(
+                matches!(
+                    unit2_selection_with_budget(&parser, &context, &probe),
+                    Err(SourceError::Cancelled)
+                ),
+                "{fail_at}"
+            );
+            assert_eq!(probe.steps.get(), fail_at);
+        }
+    }
 }

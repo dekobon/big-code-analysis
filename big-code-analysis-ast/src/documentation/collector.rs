@@ -577,6 +577,7 @@ impl<'s> Builder<'s> {
         id
     }
 
+    #[allow(clippy::too_many_lines)]
     fn marker_run(
         &mut self,
         run: markers::MarkerRun<'s>,
@@ -663,9 +664,29 @@ impl<'s> Builder<'s> {
                 if self.index.profile == Profile::Doxygen {
                     let raw = &self.index.source.bytes()[member.node.node().byte_range()];
                     if matches!(raw.get(..4), Some(b"///<" | b"//!<" | b"/**<" | b"/*!<")) {
-                        draft.target = code_before;
-                        draft.binding = run.code_before;
-                        draft.pending = code_before.is_none();
+                        let mut trailing = code_before;
+                        if let Some(comma) = code_before {
+                            let node = self.index.canonical.nodes[comma.0].evidence.node();
+                            if node.kind() == ","
+                                && node
+                                    .parent()
+                                    .is_some_and(|parent| parent.kind() == "enumerator_list")
+                            {
+                                let (preceding, gap) =
+                                    enum_comma_predecessor(&self.index.source, node, budget)?;
+                                if gap {
+                                    draft.gap = true;
+                                    draft.unresolved = Some(UnresolvedReason::ExcludedGap);
+                                    trailing = None;
+                                } else if let Some(sibling) = preceding {
+                                    trailing = Some(self.index.canonical.lookup(sibling)?);
+                                }
+                            }
+                        }
+                        draft.target = trailing;
+                        draft.binding =
+                            trailing.map(|id| self.index.canonical.nodes[id.0].evidence);
+                        draft.pending = trailing.is_none();
                     }
                 }
                 if let Some(gatherer) = gatherer {
@@ -1121,8 +1142,44 @@ fn ts_await_using<'s, B: WorkBudget>(
     }
 }
 
+fn enum_comma_predecessor<'s, B: WorkBudget>(
+    source: &SourceContext<'s>,
+    comma: tree_sitter::Node<'s>,
+    budget: &B,
+) -> Result<(Option<tree_sitter::Node<'s>>, bool), B::Error> {
+    let mut before = comma.prev_sibling();
+    while let Some(sibling) = before {
+        budget.step()?;
+        if !source.covers_with_budget(sibling.end_byte()..comma.start_byte(), budget)? {
+            return Ok((None, true));
+        }
+        if sibling.kind() != "comment" {
+            if sibling.kind() == "enumerator" {
+                if sibling.has_error() {
+                    return Ok((None, false));
+                }
+                let mut earlier = sibling.prev_sibling();
+                while let Some(previous) = earlier {
+                    budget.step()?;
+                    if previous.kind() != "comment" {
+                        if previous.is_error() {
+                            return Ok((None, false));
+                        }
+                        break;
+                    }
+                    earlier = previous.prev_sibling();
+                }
+            }
+            return Ok(((sibling.kind() == "enumerator").then_some(sibling), false));
+        }
+        before = sibling.prev_sibling();
+    }
+    Ok((None, false))
+}
+
 fn is_wrapper(profile: Profile, kind: &str) -> bool {
     match profile {
+        Profile::Doxygen => matches!(kind, "template_declaration" | "linkage_specification"),
         Profile::Jsdoc => matches!(kind, "export_statement" | "ambient_declaration"),
         Profile::BcaTypescriptSource => matches!(
             kind,

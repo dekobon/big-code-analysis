@@ -359,19 +359,25 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1159.0
+value = 1215.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "<file>"
+metric = "loc.sloc"
+value = 1257.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "nom"
-value = 29.0
+value = 31.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>"
 metric = "wmc"
-value = 155.0
+value = 162.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -413,31 +419,31 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "abc"
-value = 52.478567053607705
+value = 66.79820356865893
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "cognitive"
-value = 43.0
+value = 63.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "cyclomatic"
-value = 19.0
+value = 24.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "halstead.effort"
-value = 223259.64032932615
+value = 291217.11269100575
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "Builder<'s>::marker_run"
 metric = "nexits"
-value = 6.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
@@ -567,6 +573,18 @@ value = 14.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "enum_comma_predecessor"
+metric = "cognitive"
+value = 27.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
+qualified = "enum_comma_predecessor"
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/collector.rs"
 qualified = "ts_await_using"
 metric = "nexits"
 value = 6.0
@@ -659,13 +677,13 @@ value = 5.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "<file>"
 metric = "loc.ploc"
-value = 1082.0
+value = 1102.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>"
 metric = "wmc"
-value = 169.0
+value = 178.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
@@ -707,31 +725,31 @@ value = 29.0
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "abc"
-value = 50.309044912421065
+value = 60.73713855624086
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "cognitive"
-value = 33.0
+value = 48.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "cyclomatic"
-value = 34.0
+value = 43.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "halstead.effort"
-value = 216269.75145209677
+value = 263952.5380094496
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
 qualified = "Builder<'_>::finalize_projection"
 metric = "nexits"
-value = 13.0
+value = 14.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/collector/projections.rs"
@@ -994,8 +1012,14 @@ value = 9.0
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
 qualified = "RunSelection<'t>::select"
+metric = "cognitive"
+value = 18.0
+
+[[entry]]
+path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
+qualified = "RunSelection<'t>::select"
 metric = "halstead.effort"
-value = 78266.7217720615
+value = 169280.51408505262
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
@@ -1007,7 +1031,7 @@ value = 6.0
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"
 qualified = "RunSelection<'t>::select"
 metric = "nexits"
-value = 5.0
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-ast/src/documentation/streaming/markers.rs"

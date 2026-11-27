@@ -1,0 +1,26 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "--offline",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_c_family_unit2_legacy_rows_stay_independent"
+  ],
+  "record": "../../legacy-perturb-results.json",
+  "cases": [
+    {
+      "name": "legacy-marker-flags-do-not-count",
+      "file": "big-code-analysis-ast/src/checker/doxygen_doc_binding.rs",
+      "old": "            ..DocBinding::new(KeptDocs::All)",
+      "new": "            ..DocBinding::new(KeptDocs::Last { joins: |_, _, _| false })",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_c_family_unit2_legacy_rows_stay_independent"
+      ]
+    }
+  ]
+}

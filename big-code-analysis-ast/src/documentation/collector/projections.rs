@@ -3,6 +3,7 @@
 use super::*;
 
 impl Builder<'_> {
+    #[allow(clippy::too_many_lines)]
     pub(super) fn finalize_projection(
         &mut self,
         id: NodeId,
@@ -51,6 +52,23 @@ impl Builder<'_> {
         for &child in &self.index.canonical.children[range] {
             budget.step()?;
             let record = &self.index.canonical.nodes[child.0];
+            if self.index.profile == Profile::Doxygen {
+                let kind = record.evidence.node().kind();
+                if node.kind() == "linkage_specification" && kind == "declaration_list" {
+                    return Ok(());
+                }
+                if kind == "comment"
+                    || (node.kind() == "template_declaration"
+                        && matches!(
+                            kind,
+                            "template" | "template_parameter_list" | "requires_clause"
+                        ))
+                    || (node.kind() == "linkage_specification"
+                        && matches!(kind, "extern" | "string_literal"))
+                {
+                    continue;
+                }
+            }
             if matches!(
                 self.index.profile,
                 Profile::Jsdoc | Profile::BcaTypescriptSource
@@ -97,7 +115,9 @@ impl Builder<'_> {
                     return Ok(());
                 }
                 Projection::Unsupported => {
-                    self.index.canonical.nodes[id.0].projection = Projection::Unsupported;
+                    if self.index.profile != Profile::Doxygen {
+                        self.index.canonical.nodes[id.0].projection = Projection::Unsupported;
+                    }
                     return Ok(());
                 }
             }

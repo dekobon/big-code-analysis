@@ -133,12 +133,14 @@ struct RunSelection<'t> {
     target: Option<Node<'t>>,
     gatherer: Option<Node<'t>>,
     bound: Option<doc_comment::BoundSelection<'t>>,
+    bound_offset: usize,
     gap: bool,
     suffix_gap: bool,
     prefix_gap_row: Option<usize>,
 }
 
 impl<'t> RunSelection<'t> {
+    #[allow(clippy::too_many_lines)]
     fn select<R: SourceRules, B: WorkBudget>(
         collected: &doc_comment::CollectedStretch<'t>,
         end: StretchEnd<'t>,
@@ -157,6 +159,38 @@ impl<'t> RunSelection<'t> {
             Ok(marker(n)? && R::forward(n, context, ancestors, budget)? == Some(true))
         };
         if let StretchEnd::AtTarget { next, target } = end {
+            let gathered = if binding.gathers.is_some() {
+                budget.step()?;
+                doc_comment::bind_gathered_with_budget(
+                    stretch,
+                    code,
+                    |node| R::gathers(node, code, budget),
+                    marker,
+                    forward,
+                    budget,
+                )?
+            } else {
+                doc_comment::Gathered {
+                    kept: Vec::new(),
+                    gatherer: None,
+                }
+            };
+            let mut bound_offset = 0;
+            if let Some(gatherer) = gathered.gatherer {
+                let end_gathered = gathered
+                    .kept
+                    .last()
+                    .copied()
+                    .filter(|node| node.start_byte() > gatherer.start_byte())
+                    .unwrap_or(gatherer);
+                for (at, node) in stretch.iter().enumerate() {
+                    budget.step()?;
+                    if node.id() == end_gathered.id() {
+                        bound_offset = at + 1;
+                        break;
+                    }
+                }
+            }
             // Only a leading-trivia policy that rejects after-code comments
             // needs the missing prefix; later rows already have a line break.
             let prefix_gap_row = match binding.kept {
@@ -168,7 +202,7 @@ impl<'t> RunSelection<'t> {
                 _ => None,
             };
             let mut bound = doc_comment::select_bound_with_budget::<R::Checker, B>(
-                stretch,
+                &stretch[bound_offset..],
                 code,
                 binding.kept,
                 doc_comment::StretchBounds {
@@ -179,11 +213,14 @@ impl<'t> RunSelection<'t> {
                 forward,
                 budget,
             )?;
+            let mut kept = gathered.kept;
+            kept.append(&mut bound.nodes);
             return Ok(Self {
-                kept: std::mem::take(&mut bound.nodes),
+                kept,
                 target: Some(target),
-                gatherer: None,
+                gatherer: gathered.gatherer,
                 bound: Some(bound),
+                bound_offset,
                 gap: false,
                 suffix_gap: false,
                 prefix_gap_row,
@@ -210,6 +247,7 @@ impl<'t> RunSelection<'t> {
             target: None,
             gatherer,
             bound: None,
+            bound_offset: 0,
             gap: matches!(end, StretchEnd::ExcludedGap),
             suffix_gap: matches!(end, StretchEnd::SuffixGap),
             prefix_gap_row: None,
@@ -276,11 +314,14 @@ impl<'t> RunSelection<'t> {
             };
             let selection = if kept || !forward {
                 MarkerSelection::Selected
-            } else if self
-                .bound
-                .as_ref()
-                .is_some_and(|bound| bound.eligible(index, stretch, code))
-                && !self.kept.is_empty()
+            } else if self.bound.as_ref().is_some_and(|bound| {
+                index >= self.bound_offset
+                    && bound.eligible(
+                        index - self.bound_offset,
+                        &stretch[self.bound_offset..],
+                        code,
+                    )
+            }) && !self.kept.is_empty()
             {
                 MarkerSelection::Superseded
             } else {
@@ -297,7 +338,9 @@ impl<'t> RunSelection<'t> {
                     MarkerPlacement::Gatherer
                 }
                 (false, _, _) => MarkerPlacement::Local,
-                (true, true, Some(gatherer)) => {
+                (true, true, Some(gatherer))
+                    if self.bound.is_none() || index < self.bound_offset =>
+                {
                     MarkerPlacement::Gathered(request.context.node(gatherer.as_tree_sitter())?)
                 }
                 _ => MarkerPlacement::Forward,

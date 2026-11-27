@@ -139,8 +139,8 @@
     {
       "name": "detached-block-is-superseded",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": "                && !self.kept.is_empty()\n",
-      "new": "                && self.kept.is_empty()\n",
+      "old": "&& !self.kept.is_empty()\n",
+      "new": "&& self.kept.is_empty()\n",
       "expect": ["documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches"]
     },
     {

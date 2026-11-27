@@ -104,8 +104,8 @@
     {
       "name": "rejected-placement-is-not-supersession",
       "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
-      "old": ".is_some_and(|bound| bound.eligible(index, stretch, code))",
-      "new": ".is_some_and(|bound| true || bound.eligible(index, stretch, code))",
+      "old": ".is_some_and(|bound| {\n                index >= self.bound_offset\n                    && bound.eligible(\n                        index - self.bound_offset,\n                        &stretch[self.bound_offset..],\n                        code,\n                    )\n            })",
+      "new": ".is_some_and(|bound| {\n                true || index >= self.bound_offset\n                    && bound.eligible(\n                        index - self.bound_offset,\n                        &stretch[self.bound_offset..],\n                        code,\n                    )\n            })",
       "expect": ["documentation::streaming::markers::regressions::typescript_mixed_rejections_are_not_superseded", "documentation::streaming::markers::regressions::tsx_mixed_rejections_are_not_superseded", "documentation::streaming::markers::regressions::groovy_hidden_doc_is_unattached_beside_selected_doc"]
     },
     {
