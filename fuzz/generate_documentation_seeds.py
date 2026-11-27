@@ -38,7 +38,7 @@ LANGUAGES = [
     "ccomment",
     "preproc",
 ]
-DEFERRED = {"python", "bash", "irules"}
+DEFERRED = {"bash", "irules"}
 # The default profile gives these one document that belongs to the file.
 FILE_DOCUMENT = {"perl"}
 

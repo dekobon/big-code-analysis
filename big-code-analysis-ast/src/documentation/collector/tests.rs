@@ -670,24 +670,31 @@ fn mismatched_raw_grammar_is_rejected_before_predicates() {
     ));
 }
 
-#[cfg(feature = "python")]
+#[cfg(feature = "ruby")]
 #[test]
-fn deferred_python_adapter_is_not_an_empty_success() {
-    let parser = AnyParser::parse(
-        LANG::Python,
-        b"def f():\n    \"audit\"\n    pass".to_vec(),
-        None,
-        None,
-    )
-    .unwrap();
+fn unavailable_adapter_is_not_an_empty_success() {
+    // A documented source under a profile whose adapter does not exist is rejected.
+    // RDoc for Ruby is such a profile whichever language adapters are switched on.
+    let parser =
+        AnyParser::parse(LANG::Ruby, b"# audit\ndef f\nend\n".to_vec(), None, None).unwrap();
+    let context = DocumentationContext::default();
+    assert_eq!(
+        parser
+            .documentation(&context, &DocumentationOptions::default())
+            .unwrap()
+            .documents()
+            .len(),
+        1
+    );
+    let options = DocumentationOptions {
+        profile: Profile::Rdoc,
+        ..DocumentationOptions::default()
+    };
     assert!(matches!(
-        parser.documentation(
-            &DocumentationContext::default(),
-            &DocumentationOptions::default()
-        ),
+        parser.documentation(&context, &options),
         Err(CollectionError::AdapterUnavailable {
-            language: LANG::Python,
-            profile: Profile::Python
+            language: LANG::Ruby,
+            profile: Profile::Rdoc
         })
     ));
 }
@@ -1131,7 +1138,7 @@ fn named_profiles_distinguish_deferred_incompatible_and_available() {
                 || (language == LANG::Php && profile == Profile::PhpDocumentor);
             let expected = if profile != default && !alternate {
                 Err(CollectionError::UnsupportedProfile { language, profile })
-            } else if alternate || [LANG::Python, LANG::Bash, LANG::Irules].contains(&language) {
+            } else if alternate || [LANG::Bash, LANG::Irules].contains(&language) {
                 Err(CollectionError::AdapterUnavailable { language, profile })
             } else {
                 Ok(profile)

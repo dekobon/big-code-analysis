@@ -14,6 +14,7 @@ mod pod_doubt;
 mod pod_format;
 mod pod_literal;
 mod projections;
+mod python;
 pub(super) mod qualifications;
 mod rust;
 mod tcl;
@@ -502,6 +503,9 @@ impl<'s> Builder<'s> {
             return self.pod_node(id, node, budget);
         }
         if !T::is_comment(node) {
+            if self.index.profile == Profile::Python {
+                self.python_string(node, ancestors, budget)?;
+            }
             return Ok(());
         }
         if let super::forms::CommentAssessment::Pending(reason) = super::forms::assess(
@@ -1232,6 +1236,8 @@ mod perl_tests;
 mod php_tests;
 #[cfg(test)]
 mod projection_tests;
+#[cfg(test)]
+mod python_tests;
 #[cfg(test)]
 mod remediation_tests;
 #[cfg(test)]

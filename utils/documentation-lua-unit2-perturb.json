@@ -155,8 +155,8 @@
     {
       "name": "lua-pending-recovery-drops-document",
       "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
-      "old": "        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
-      "new": "        if draft.target.is_some_and(|target| matches!(self.index.canonical.nodes[target.0].projection, Projection::Pending)) { return Ok(()); }\n        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
+      "old": "        let literal = self.literal_draft(&draft);",
+      "new": "        if draft.target.is_some_and(|target| matches!(self.index.canonical.nodes[target.0].projection, Projection::Pending)) { return Ok(()); }\n        let literal = self.literal_draft(&draft);",
       "expect": [
         "documentation::collector::form_tests::lua_assignment_with_missing_value_is_pending_in_default_queries"
       ]

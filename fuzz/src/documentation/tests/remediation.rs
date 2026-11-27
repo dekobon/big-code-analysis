@@ -221,10 +221,11 @@ fn observation_scope_restores_on_rejection_skip_and_unwind() {
         assert!(matches!(result, Ok(Outcome::Skipped(_))));
         assert_eq!(events, []);
     }
-    let (result, events) = observation::capture(|| exercise(&[1, 0, 0]));
+    // RDoc for Ruby is rejected whichever language adapters are switched on.
+    let (result, events) = observation::capture(|| exercise(&[16, 0, 14]));
     let error = CollectionError::AdapterUnavailable {
-        language: LANG::Python,
-        profile: Profile::Python,
+        language: LANG::Ruby,
+        profile: Profile::Rdoc,
     };
     assert_eq!(result, Ok(Outcome::Rejected(error)));
     assert_eq!(events, [Event::Parse, Event::Collection(Err(error))]);
@@ -233,7 +234,7 @@ fn observation_scope_restores_on_rejection_skip_and_unwind() {
             std::panic::catch_unwind(|| observation::capture(|| panic!("recorder unwind control")))
                 .is_err()
         );
-        exercise(&[1, 0, 0]).unwrap();
+        exercise(&[16, 0, 14]).unwrap();
     });
     assert_eq!(outer, events);
 }

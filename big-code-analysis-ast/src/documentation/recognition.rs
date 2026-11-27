@@ -132,6 +132,9 @@ impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
                 crate::LANG::Tsx => {
                     crate::roles::tsx::doc_target_with_budget(node, code, ancestors, budget)
                 }
+                crate::LANG::Python => {
+                    Ok(crate::lang_helpers::python::python_is_docstring_owner(node))
+                }
                 _ => PublicRules::<T>::target(node, code, ancestors, budget),
             }
         })

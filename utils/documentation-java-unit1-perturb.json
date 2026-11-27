@@ -340,8 +340,8 @@
     {
       "name": "java-package-text-not-rendered",
       "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
-      "old": "        let (content, attribute) = self.render_draft(&mut draft, budget)?;",
-      "new": "        let (content, attribute) = (Content::PendingAdapter, false);",
+      "old": "            self.render_draft(&mut draft, budget)?",
+      "new": "            (Content::PendingAdapter, false)",
       "expect": [
         "documentation::collector::java_tests::java_forms_fixtures_and_four_star_document_keep_their_text"
       ]

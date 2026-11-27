@@ -26,6 +26,17 @@ for historical reference.
 
 ### Added
 
+- The unstable AST documentation collector now accepts Python. PEP 257 body
+  docstrings of modules, classes and functions become primary and additional
+  documents with their owners, raw literal fragments, decoded and
+  `inspect.cleandoc`-style cleaned text and exact forward origins; an implicit
+  concatenation is one document. Named `\N{...}` escapes and lone surrogates
+  give explicit unavailable text. A literal holding a carriage return and a
+  string after an assignment stay visible as pending assessments. In a
+  restricted parse, a docstring after an excluded range is reported as
+  unresolved. Binding owners and Sphinx `#:` comments follow separately. Legacy
+  documentation rows are unchanged. (#1665, Unit1)
+
 - TypeScript and TSX documentation collection now resolves anonymous default exports,
   namespaces, named variable declarators, and `using`/`await using` assignment owners.
   `declare` wrappers skip comment children. Parameter slots remain pending; legacy

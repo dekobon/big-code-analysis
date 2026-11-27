@@ -351,7 +351,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
     for lang in LANG::into_enum_iter().filter(LANG::is_enabled) {
         let expected = match lang {
             LANG::Rust => Row(Profile::Rust),
-            LANG::Python => Rejected(Profile::Python),
+            LANG::Python => Row(Profile::Python),
             LANG::Java => Row(Profile::Javadoc),
             LANG::Kotlin => Row(Profile::Kdoc),
             LANG::Groovy => Row(Profile::Groovydoc),
@@ -400,7 +400,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
     assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
     assert!(ran > 0);
     #[cfg(feature = "all-languages")]
-    assert_eq!(counts, (19, 3, 2, 1));
+    assert_eq!(counts, (20, 2, 2, 1));
 }
 
 #[cfg(feature = "rust")]
@@ -792,7 +792,6 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                 };
                 let result = ast.documentation(&DocumentationContext::default(), &options);
                 let unavailable = match path.rsplit('.').next().unwrap() {
-                    "py" => Some(Profile::Python),
                     "irule" => Some(Profile::Irules),
                     _ => None,
                 };
@@ -829,6 +828,79 @@ fn promised_form_fixtures_match_their_expected_outcomes() {
                 match path {
                     // These promises are pending or differ at the evidence base. Keep the
                     // distinction visible rather than treating missing docs as conformance.
+                    "python-chained.py" => {
+                        assert_eq!(promised.len(), 1, "{path}: binding-owner promise remains");
+                        assert_eq!(index.documents().len(), 0, "{path}");
+                        assert_eq!(index.associations().len(), 0, "{path}");
+                        let assessments: Vec<_> = index.assessments().collect();
+                        let [assessment] = assessments.as_slice() else {
+                            panic!("{path}: one pending attribute-run assessment")
+                        };
+                        assert_eq!(
+                            assessment.get().axis,
+                            big_code_analysis_ast::documentation::AssessmentAxis::Owner,
+                            "{path}"
+                        );
+                        assert_eq!(
+                            assessment.get().reason,
+                            "Python attribute docstring awaits binding-owner projection",
+                            "{path}"
+                        );
+                        assert_eq!(
+                            assessment.get().node.map(|node| node.node().byte_range()),
+                            Some(10..17),
+                            "{path}"
+                        );
+                    }
+                    "python-chained-comment.py" => {
+                        assert_eq!(promised.len(), 1, "{path}: Sphinx promise remains");
+                        assert_eq!(index.documents().len(), 0, "{path}");
+                        assert_eq!(index.associations().len(), 0, "{path}");
+                        assert_eq!(index.assessments().len(), 0, "{path}");
+                    }
+                    "python-runs.py"
+                    | "python-extras.py"
+                    | "python-paren.py"
+                    | "python-named.py"
+                    | "python-continuation.py" => {
+                        let body = if path == "python-runs.py" {
+                            assert_eq!(promised.len(), 4, "{path}: later forms remain promised");
+                            assert_eq!(promised[2]["role"], "Sphinx", "{path}");
+                            assert_eq!(promised[3]["role"], "attribute-binding", "{path}");
+                            &promised[..2]
+                        } else {
+                            promised.as_slice()
+                        };
+                        // The fixture calls the function owner "f"; the index owns the whole
+                        // function_definition, which starts with "def f".
+                        let mut unit1 = body.to_vec();
+                        for expected in &mut unit1 {
+                            assert_eq!(expected["owner"], "f", "{path}");
+                            expected["owner"] = serde_json::json!("def f");
+                        }
+                        check_form_documents(&index, &bytes, &unit1, path);
+                        if path == "python-runs.py" {
+                            let assessments: Vec<_> = index.assessments().collect();
+                            let [assessment] = assessments.as_slice() else {
+                                panic!("{path}: one pending attribute-run assessment")
+                            };
+                            assert_eq!(
+                                assessment.get().axis,
+                                big_code_analysis_ast::documentation::AssessmentAxis::Owner,
+                                "{path}"
+                            );
+                            assert_eq!(
+                                assessment.get().reason,
+                                "Python attribute docstring awaits binding-owner projection",
+                                "{path}"
+                            );
+                            assert_eq!(
+                                assessment.get().node.map(|node| node.node().byte_range()),
+                                Some(103..114),
+                                "{path}"
+                            );
+                        }
+                    }
                     "perl-mixed.pl" => {
                         assert_eq!(index.profile(), Profile::Pod, "{path}");
                         let documents: Vec<_> = index.documents().collect();
