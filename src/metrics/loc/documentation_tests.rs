@@ -8345,3 +8345,54 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
     }
     assert!(rendered > 0);
 }
+
+#[cfg(feature = "python")]
+#[test]
+fn documentation_python_semicolon_rows_are_characterized() {
+    // The legacy view only: a `;` between two statements is an unnamed sibling, and the
+    // statement after it is still "directly after" the one before it.
+    let sources: [(&[u8], [u64; 6], &[usize]); 5] = [
+        // Two module docstrings, the first with a `;` after it.
+        (b"\"a\";\n\"b\"\nx = 1\n", [3, 2, 3, 2, 0, 2], &[0, 1]),
+        // An attribute docstring after an assignment that ends with `;`.
+        (b"x = 1;\n\"x doc\"\n", [2, 1, 2, 1, 0, 1], &[1]),
+        // The same on one row.
+        (b"x = 1; \"attribute\"\n", [1, 1, 2, 1, 0, 1], &[0]),
+        // Two triple-quoted strings that share the row of the `;`.
+        (
+            b"\"\"\"a\nA\"\"\"; \"\"\"b\nB\"\"\"\n",
+            [3, 1, 2, 3, 0, 3],
+            &[0, 1, 2],
+        ),
+        // The control without a `;`.
+        (b"\"a\"\n\"b\"\nx = 1\n", [3, 1, 3, 2, 0, 2], &[0, 1]),
+    ];
+    for (source, expected, rows) in sources {
+        let name = source.escape_ascii();
+        let space = analyze(
+            Source::new(LANG::Python, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            expected,
+            "{name}"
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            rows,
+            "{name}"
+        );
+    }
+}
