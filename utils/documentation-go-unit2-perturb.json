@@ -11,13 +11,6 @@
       "expect": ["documentation::collector::go_tests::go_names_of_a_field_declaration_each_own_a_field_slot", "documentation::collector::go_tests::go_inventory_row_gives_one_document_to_both_names", "documentation::collector::go_tests::go_interface_elements_own_as_their_nodes", "documentation::collector::go_tests::go_undocumented_members_have_owners_and_no_assessment", "documentation::collector::go_tests::go_members_over_several_rows_keep_their_owners"]
     },
     {
-      "name": "go-member-projection-reaches-groovy",
-      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if self.index.profile == Profile::GoDoc {",
-      "new": "        if matches!(self.index.profile, Profile::GoDoc | Profile::Groovydoc) {",
-      "expect": ["documentation::collector::form_tests::groovy_field_form_is_pending_in_default_queries"]
-    },
-    {
       "name": "go-field-declaration-not-projected",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
       "old": "                \"field_declaration\" | \"method_elem\" | \"type_elem\"",

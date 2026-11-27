@@ -8339,3 +8339,89 @@ fn documentation_ts_unit2_owners_do_not_change_legacy_rows() {
     }
     assert!(rendered > 0);
 }
+
+#[cfg(feature = "groovy")]
+#[test]
+fn documentation_groovy_new_field_spellings_keep_legacy_rows() {
+    use big_code_analysis_ast::documentation::streaming::markers::evidence_built;
+    use big_code_analysis_ast::{AnyParser, documentation::*};
+    let rows: [(&[u8], [u64; 6], &[usize]); 5] = [
+        (
+            b"class C {\n/**audit*/\nint a = 1, b = 2\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"class C {\n/**audit*/\nstatic final int X = 1\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"trait T {\n/**audit*/\ndef x\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"enum E { A;\n/**audit*/\nint x\n}\n",
+            [4, 3, 0, 1, 0, 1],
+            &[1],
+        ),
+        (
+            b"class C {\n/**audit*/\nint a, /* plain */ b\n}\n",
+            [4, 3, 0, 2, 0, 1],
+            &[1],
+        ),
+    ];
+    for (source, expected, doc_rows) in rows {
+        let parser = AnyParser::parse(LANG::Groovy, source.to_vec(), None, None).unwrap();
+        assert!(!parser.ts_tree().root_node().has_error());
+        let before = observations();
+        let unbuilt = evidence_built::observed();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = observations();
+        let built = evidence_built::observed();
+        assert_eq!(index.documents().len(), 1, "{}", source.escape_ascii());
+        assert_eq!(
+            collected.visits - before.visits,
+            parser.root_node().preorder().count()
+        );
+        assert_eq!(collected.renders - before.renders, 1);
+        assert_eq!(built - unbuilt, 1);
+        let space = analyze(
+            Source::new(LANG::Groovy, source),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .unwrap();
+        let loc = &space.metrics.loc;
+        assert_eq!(
+            [
+                loc.sloc(),
+                loc.ploc(),
+                loc.lloc(),
+                loc.cloc(),
+                loc.blank(),
+                loc.dloc()
+            ],
+            expected,
+            "{}",
+            source.escape_ascii()
+        );
+        assert_eq!(
+            (0..source.len())
+                .filter(|row| loc.dloc.lines.contains(*row))
+                .collect::<Vec<_>>(),
+            doc_rows,
+            "{}",
+            source.escape_ascii()
+        );
+        let after = observations();
+        assert_eq!(after.visits - collected.visits, 0);
+        assert_eq!(after.renders - collected.renders, 0);
+        assert_eq!(evidence_built::observed() - built, 0);
+    }
+}

@@ -1,0 +1,234 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "groovy-projection-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)",
+      "new": "if self.index.profile == Profile::Javadoc",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_spaces_fixture_resolves_all_five_documents",
+        "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot",
+        "documentation::collector::groovy_tests::groovy_enum_and_trait_fields_have_slots_in_their_own_scope",
+        "documentation::collector::groovy_tests::groovy_undocumented_field_still_gets_both_slots",
+        "documentation::collector::groovy_tests::groovy_literal_and_comment_lines_do_not_make_field_documents",
+        "documentation::collector::groovy_tests::groovy_field_excluded_bytes_remain_pending_and_gap_blocks_attachment",
+        "documentation::collector::groovy_tests::groovy_same_row_field_block_is_unselected_but_the_field_has_a_slot",
+        "documentation::collector::groovy_tests::groovy_slashy_recovery_field_is_pending_and_clean_fields_beside_errors_have_slots",
+        "documentation::collector::form_tests::groovy_field_form_has_a_slot_in_default_queries"
+      ]
+    },
+    {
+      "name": "groovy-later-name-lost",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                names.push(name);\n            }",
+      "new": "                if names.is_empty() { names.push(name); }\n            }",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_and_property_slots_cover_positive_forms",
+        "documentation::collector::groovy_tests::groovy_field_declarator_scan_charges_each_child_once"
+      ]
+    },
+    {
+      "name": "groovy-name-is-declarator",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                names.push(name);",
+      "new": "                names.push(child);",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_and_property_slots_cover_positive_forms"
+      ]
+    },
+    {
+      "name": "groovy-comment-blocks-field-projection",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "new": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() == \"block_comment\" { return Ok(None); }\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_comments_inside_fields_are_not_new_documents"
+      ]
+    },
+    {
+      "name": "groovy-slot-ordinal-shift",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                ordinal: fields.len(),",
+      "new": "                ordinal: fields.len() + 1,",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_and_property_slots_cover_positive_forms"
+      ]
+    },
+    {
+      "name": "groovy-slot-truncates-name-end",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;\n            let field = OwnerId(self.index.facts.owners.len());",
+      "new": "            let source = self.index.source.pieces_with_budget(spelling.start..spelling.end - 1, budget)?;\n            let field = OwnerId(self.index.facts.owners.len());",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_and_property_slots_cover_positive_forms"
+      ]
+    },
+    {
+      "name": "groovy-slot-role-changed",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                enclosing: declaration,\n                role: SlotRole::Field,",
+      "new": "                enclosing: declaration,\n                role: SlotRole::Binding,",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"
+      ]
+    },
+    {
+      "name": "groovy-slot-is-file-child",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let declaration = OwnerId(self.index.facts.owners.len());",
+      "new": "        let declaration = OwnerId(0);",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_spaces_fixture_resolves_all_five_documents"
+      ]
+    },
+    {
+      "name": "groovy-slot-loop-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let mut fields = Vec::new();\n        for name in names {\n            budget.step()?;",
+      "new": "        let mut fields = Vec::new();\n        for name in names {",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_width_has_linear_collection_cost_and_cancellation"
+      ]
+    },
+    {
+      "name": "groovy-slot-pieces-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let source = self.index.source.pieces_with_budget(spelling, budget)?;",
+      "new": "            let source = self.index.source.pieces_with_budget(spelling, &crate::documentation::budget::NoBudget)?;",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_width_has_linear_collection_cost_and_cancellation"
+      ]
+    },
+    {
+      "name": "groovy-declarator-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": ") -> Result<Option<Vec<NodeId>>, B::Error> {\n    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];",
+      "new": ") -> Result<Option<Vec<NodeId>>, B::Error> {\n    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        let _ = budget;\n        let declarator = &canonical.nodes[child.0];",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_declarator_scan_charges_each_child_once"
+      ]
+    },
+    {
+      "name": "groovy-declarator-scan-quadratic",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": ") -> Result<Option<Vec<NodeId>>, B::Error> {\n    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];",
+      "new": ") -> Result<Option<Vec<NodeId>>, B::Error> {\n    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?; budget.step()?;\n        let declarator = &canonical.nodes[child.0];",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_declarator_scan_charges_each_child_once"
+      ]
+    },
+    {
+      "name": "groovy-declarator-call-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(names) = java_declarator_names(&self.index.canonical, id, budget)? else {",
+      "new": "        let Some(names) = crate::documentation::budget::infallible(java_declarator_names(&self.index.canonical, id, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_width_has_linear_collection_cost_and_cancellation"
+      ]
+    },
+    {
+      "name": "groovy-field-not-pending-on-entry",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "Profile::Groovydoc => matches!(node.kind(), \"field_declaration\"),",
+      "new": "Profile::Groovydoc => matches!(node.kind(), \"constant_declaration\"),",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"
+      ]
+    },
+    {
+      "name": "groovy-field-is-not-recognized",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            FieldDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"
+      ]
+    },
+    {
+      "name": "groovy-same-row-is-attached",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "next.start_row() == comment.end_row()",
+      "new": "next.start_row() > comment.end_row() + 1",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach",
+        "documentation::collector::groovy_tests::groovy_same_row_field_block_is_unselected_but_the_field_has_a_slot"
+      ]
+    },
+    {
+      "name": "groovy-retained-candidates-reversed",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.index.evidence.push(CandidateEvidence {\n                    fragment,\n                    disposition: if member.selection == markers::MarkerSelection::Superseded {\n                        CandidateDisposition::Superseded\n                    } else {\n                        CandidateDisposition::Unattached\n                    },\n                });",
+      "new": "                self.index.evidence.insert(0, CandidateEvidence {\n                    fragment,\n                    disposition: if member.selection == markers::MarkerSelection::Superseded {\n                        CandidateDisposition::Superseded\n                    } else {\n                        CandidateDisposition::Unattached\n                    },\n                });",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_two_superseded_field_blocks_keep_source_order"
+      ]
+    },
+    {
+      "name": "groovy-error-field-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()",
+      "new": "        if (node.has_error() && self.index.profile != Profile::Groovydoc)\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_slashy_recovery_field_is_pending_and_clean_fields_beside_errors_have_slots",
+        "documentation::collector::groovy_tests::groovy_literal_and_comment_lines_do_not_make_field_documents"
+      ]
+    },
+    {
+      "name": "groovy-pending-assessments-are-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.index.assessments.push(Assessment {\n                    axis: AssessmentAxis::Owner,\n                    reason: \"Recognized declaration requires a semantic projection\",",
+      "new": "                self.index.assessments.push(Assessment {\n                    axis: AssessmentAxis::Composition,\n                    reason: \"Recognized declaration requires a semantic projection\",",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_literal_and_comment_lines_do_not_make_field_documents",
+        "documentation::collector::groovy_tests::groovy_slashy_recovery_field_is_pending_and_clean_fields_beside_errors_have_slots"
+      ]
+    },
+    {
+      "name": "groovy-uncovered-field-is-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                .covers_with_budget(node.byte_range(), budget)?\n        {\n            return Ok(());",
+      "new": "                .covers_with_budget(node.byte_range(), budget)?\n            && self.index.profile != Profile::Groovydoc\n        {\n            return Ok(());",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_field_excluded_bytes_remain_pending_and_gap_blocks_attachment"
+      ]
+    },
+    {
+      "name": "groovy-enum-body-field-is-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && node.parent().is_none_or(|parent| parent.kind() != \"enum_body\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_enum_and_trait_fields_have_slots_in_their_own_scope"
+      ]
+    },
+    {
+      "name": "groovy-clean-literal-field-is-not-projected",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            return self.java_field_slots(id, budget);",
+      "new": "            if self.index.profile == Profile::Groovydoc && node.start_position().row < node.end_position().row { return Ok(()); }\n            return self.java_field_slots(id, budget);",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_literal_and_comment_lines_do_not_make_field_documents"
+      ]
+    },
+    {
+      "name": "groovy-local-declarations-become-document-targets",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            ConstructorDeclaration,\n            FieldDeclaration,\n            EnumConstant,",
+      "new": "            ConstructorDeclaration,\n            FieldDeclaration,\n            LocalVariableDeclaration,\n            EnumConstant,",
+      "expect": [
+        "documentation::collector::groovy_tests::groovy_local_variable_forms_are_not_field_targets"
+      ]
+    }
+  ]
+}

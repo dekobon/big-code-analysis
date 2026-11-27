@@ -14,22 +14,9 @@
     {
       "name": "java-field-projection-disabled",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "new": "        if false\n            && self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "expect": [
-        "documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot",
-        "documentation::collector::java_tests::java_undocumented_fields_have_slots_and_no_assessment",
-        "documentation::collector::java_tests::java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved"
-      ]
-    },
-    {
-      "name": "java-field-projection-reaches-groovy",
-      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "new": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "expect": [
-        "documentation::collector::form_tests::groovy_field_form_is_pending_in_default_queries"
-      ]
+      "old": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if false && matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_field_declarators_each_own_a_field_slot", "documentation::collector::java_tests::java_undocumented_fields_have_slots_and_no_assessment", "documentation::collector::java_tests::java_field_comment_with_a_raw_unicode_escape_lists_its_slot_unresolved"]
     },
     {
       "name": "java-constant-declaration-not-projected",
@@ -237,31 +224,23 @@
     {
       "name": "java-enum-body-fields-are-not-projected",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "new": "        if self.index.profile == Profile::Javadoc\n            && node\n                .parent()\n                .is_none_or(|parent| parent.kind() != \"enum_body_declarations\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "expect": [
-        "documentation::collector::java_tests::java_enum_constants_and_enum_field_have_their_own_owners"
-      ]
+      "old": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && node\n                .parent()\n                .is_none_or(|parent| parent.kind() != \"enum_body_declarations\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_enum_constants_and_enum_field_have_their_own_owners"]
     },
     {
       "name": "java-anonymous-class-fields-are-not-projected",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
-      "old": "        if self.index.profile == Profile::Javadoc\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "new": "        if self.index.profile == Profile::Javadoc\n            && node\n                .parent()\n                .and_then(|body| body.parent())\n                .is_none_or(|outer| outer.kind() != \"object_creation_expression\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
-      "expect": [
-        "documentation::collector::java_tests::java_fields_of_records_anonymous_and_local_classes_own_field_slots"
-      ]
+      "old": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && node\n                .parent()\n                .and_then(|body| body.parent())\n                .is_none_or(|outer| outer.kind() != \"object_creation_expression\")\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["documentation::collector::java_tests::java_fields_of_records_anonymous_and_local_classes_own_field_slots"]
     },
     {
       "name": "java-comment-child-keeps-the-declaration-pending",
       "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
       "old": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
       "new": "    let mut names = Vec::new();\n    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {\n        budget.step()?;\n        let declarator = &canonical.nodes[child.0];\n        if declarator.evidence.node().kind() == \"block_comment\" {\n            return Ok(None);\n        }\n        if declarator.evidence.node().kind() != \"variable_declarator\" {\n            continue;\n        }",
-      "expect": [
-        "documentation::collector::java_tests::java_second_comment_inside_a_field_declaration_is_not_documentation",
-        "documentation::collector::java_tests::java_comment_inside_a_field_declaration_does_not_document_it",
-        "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"
-      ]
+      "expect": ["documentation::collector::java_tests::java_second_comment_inside_a_field_declaration_is_not_documentation", "documentation::collector::java_tests::java_comment_inside_a_field_declaration_does_not_document_it", "documentation::collector::java_tests::java_declarator_scan_charges_one_step_per_child"]
     },
     {
       "name": "java-constant-with-an-error-is-projected",
