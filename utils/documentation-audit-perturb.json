@@ -27,8 +27,8 @@
     {
       "name": "deferred-python-is-empty-success",
       "file": "big-code-analysis-ast/src/documentation/options.rs",
-      "old": "Self::Python | Self::Shdoc | Self::Irules",
-      "new": "Self::Shdoc | Self::Irules",
+      "old": "Self::Python | Self::Irules",
+      "new": "Self::Irules",
       "expect": ["documentation::collector::tests::deferred_python_adapter_is_not_an_empty_success", "documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
     },
     {

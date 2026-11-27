@@ -89,6 +89,7 @@ pub(crate) fn collect_typed<'s, T: Checker + crate::traits::LanguageInfo>(
         pod_doubt: pod_doubt::Doubt::default(),
         pod_hidden: pod::Hidden::default(),
         tcl_scan: tcl::CommandScan::default(),
+        shdoc: crate::lang_helpers::shdoc::Reading::default(),
     };
     let root_id = builder
         .index
@@ -136,6 +137,7 @@ struct Builder<'s> {
     pod_doubt: pod_doubt::Doubt,
     pod_hidden: pod::Hidden,
     tcl_scan: tcl::CommandScan<'s>,
+    shdoc: crate::lang_helpers::shdoc::Reading<'s>,
 }
 
 trait OwnerCandidates: Checker {
@@ -187,6 +189,7 @@ impl<'s> Builder<'s> {
         self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![owner_id]);
     }
 
+    #[allow(clippy::too_many_lines)]
     fn walk<T: Checker + crate::traits::LanguageInfo>(
         &mut self,
         budget: &CollectionBudget,
@@ -199,11 +202,33 @@ impl<'s> Builder<'s> {
         let mut cursor = root.as_tree_sitter().walk();
         let mut children = Vec::new();
         let mut fields = Vec::new();
+        let mut substitutions = 0usize;
         while let Some(visit) = stack.pop() {
             budget.step()?;
             match visit {
                 Visit::Exit(id, depth) => {
                     chain.truncate(depth);
+                    if self.index.profile == Profile::Shdoc
+                        && matches!(
+                            self.index.canonical.nodes[id.0].evidence.node().kind(),
+                            "command_substitution" | "process_substitution"
+                        )
+                    {
+                        substitutions -= 1;
+                    }
+                    if self.index.profile == Profile::Shdoc {
+                        let node = Node::from_tree_sitter(
+                            self.index.canonical.nodes[id.0].evidence.node(),
+                        );
+                        // A function that Bash does not end here, or
+                        // that holds the place where the shdoc scan
+                        // stopped: its end is not confirmed.
+                        if let Some(reason) = self.shdoc.leave(&node, budget)? {
+                            self.index.canonical.nodes[id.0]
+                                .qualification
+                                .insert(reason);
+                        }
+                    }
                     if self.index.profile != Profile::Helper {
                         self.finalize_projection(id, budget)?;
                     }
@@ -241,6 +266,14 @@ impl<'s> Builder<'s> {
                         Node::from_tree_sitter(self.index.canonical.nodes[id.0].evidence.node());
                     bounds(node.as_tree_sitter(), self.index.source.bytes().len())?;
                     self.inherit_context(id, &node);
+                    if self.index.profile == Profile::Shdoc {
+                        if matches!(node.kind(), "command_substitution" | "process_substitution") {
+                            substitutions += 1;
+                        }
+                        let comment = T::is_comment(&node);
+                        self.shdoc
+                            .enter(&self.index.source, &node, comment, budget)?;
+                    }
                     if transparent_doc_context(self.index.profile, node.kind())
                         && let Some(parent) = self.index.canonical.nodes[id.0].parent
                     {
@@ -255,7 +288,7 @@ impl<'s> Builder<'s> {
                             if self.index.profile == Profile::Helper {
                                 return Ok(());
                             }
-                            self.register::<T>(id, &node, ancestors, budget)?;
+                            self.register::<T>(id, &node, ancestors, substitutions > 0, budget)?;
                             self.recognize::<T>(id, &node, ancestors, budget)
                         },
                     )?;
@@ -357,9 +390,10 @@ impl<'s> Builder<'s> {
         id: NodeId,
         node: &Node<'s>,
         ancestors: Ancestors<'s, '_>,
+        in_substitution: bool,
         budget: &CollectionBudget,
     ) -> Result<(), CollectionError> {
-        if id.0 == 0 {
+        if id.0 == 0 || self.shdoc.text() {
             return Ok(());
         }
         budget.step()?;
@@ -449,6 +483,8 @@ impl<'s> Builder<'s> {
                 || node.has_error()
                 || conditional_kind(node.kind())
                 || node.is_missing()
+                || (self.index.profile == Profile::Shdoc && self.shdoc.waits())
+                || (self.index.profile == Profile::Shdoc && in_substitution)
             {
                 self.index.canonical.nodes[id.0].projection = Projection::Pending;
             } else {
@@ -490,6 +526,43 @@ impl<'s> Builder<'s> {
         }
     }
 
+    // A comment row behind the place where the shdoc scan stopped is not
+    // read: it is no document and no candidate. If the rules would select its
+    // run, the run is withheld: one assessment on its first row says so.
+    fn shdoc_withhold<T: Checker + crate::traits::LanguageInfo>(
+        &mut self,
+        id: NodeId,
+        node: &Node<'s>,
+        ancestors: Ancestors<'s, '_>,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        let mut first = None;
+        positional::source_comment_with_budget::<NativeRules<T>, CollectionBudget>(
+            node,
+            ancestors,
+            &mut positional::SourceRequest {
+                context: &self.index.source,
+                retain_unbound: false,
+                retain_directives: true,
+                sink: &mut |run| first = run.members.first().map(|member| member.node),
+            },
+            budget,
+        )?;
+        if let Some(first) = first {
+            let assessment = self.index.assessments.len();
+            self.index.assessments.push(Assessment {
+                axis: AssessmentAxis::Selection,
+                reason: "Rows without a confirmed reading may be literal text",
+                node: Some(first),
+                document: None,
+            });
+            let parent = self.index.canonical.nodes[id.0].parent.unwrap_or(NodeId(0));
+            let scope = self.index.canonical.nodes[parent.0].owner_context;
+            self.index.canonical.nodes[scope.0].pending.push(assessment);
+        }
+        Ok(())
+    }
+
     fn recognize<T: Checker + crate::traits::LanguageInfo>(
         &mut self,
         id: NodeId,
@@ -501,8 +574,11 @@ impl<'s> Builder<'s> {
         if self.index.profile == Profile::Pod {
             return self.pod_node(id, node, budget);
         }
-        if !T::is_comment(node) {
+        if !T::is_comment(node) || self.shdoc.unread() {
             return Ok(());
+        }
+        if self.shdoc.withheld() {
+            return self.shdoc_withhold::<T>(id, node, ancestors, budget);
         }
         if let super::forms::CommentAssessment::Pending(reason) = super::forms::assess(
             self.index.profile,
@@ -549,7 +625,10 @@ impl<'s> Builder<'s> {
             budget,
         )?;
         for run in positional_runs {
-            self.positional_run(run, budget)?;
+            let retain = self.index.options.retain_unbound;
+            if let Some(run) = self.shdoc.confirm(run, retain, budget)? {
+                self.positional_run(run, budget)?;
+            }
         }
         Ok(())
     }

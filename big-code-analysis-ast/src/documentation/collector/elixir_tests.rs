@@ -382,6 +382,7 @@ fn charged(source: &[u8]) -> [usize; 3] {
         pod_doubt: super::pod_doubt::Doubt::default(),
         pod_hidden: super::pod::Hidden::default(),
         tcl_scan: crate::lang_helpers::tcl_scan::CommandScan::default(),
+        shdoc: crate::lang_helpers::shdoc::Reading::default(),
     };
     let budget = Counting::default();
     builder.elixir_attributes(&budget).unwrap();

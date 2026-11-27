@@ -945,6 +945,7 @@ pub(super) fn ruby_slot_cost<B: WorkBudget<Error = SourceError>>(
         pod_doubt: crate::documentation::collector::pod_doubt::Doubt::default(),
         pod_hidden: crate::documentation::collector::pod::Hidden::default(),
         tcl_scan: crate::lang_helpers::tcl_scan::CommandScan::default(),
+        shdoc: crate::lang_helpers::shdoc::Reading::default(),
     };
     builder.index.canonical.nodes[id.0].projection = Projection::Pending;
     builder.ruby_call_owners(id, budget)?;

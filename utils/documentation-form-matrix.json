@@ -97,12 +97,13 @@
       "ineligible": ["# comments", "POD-like text in strings, heredocs, word lists and patterns that the grammar reads"],
       "pending": ["data-section POD", "text of a block that mixes prose and comment regions", "blocks that perl and POD processors read differently", "blocks beside excluded bytes", "blocks where perl may read literal text: after a recovery node, in a format or after one whose end is not known, beside a here-document or a quote-like literal that perl reads differently from the grammar", "POD that the grammar hides behind a recovery node: one assessment for the file", "unique-heading inference and sub or package owners", "publication"]
     },
+    "Bash": {"implemented": ["tagged run above a function, both spellings", "file-level and function-body owner positions", "shebang and ShellCheck directive evidence", "one forward scan by Bash's quoting rules", "local row text and maps"], "ineligible": ["run without a tag line", "blank row or command between run and function", "comment after code or joined to it", "text of a here-document, a quoted string or a substitution"], "pending": ["file tags (@name, @file, @brief)", "run opened by a plain row", "functions in other positions and behind wrappers", "function spellings the grammar gives an error", "runs and functions behind a form the scan does not read or a recovery node (withheld)", "leading-comment inference", "continuation rows", "publication"]},
     "Tcl": {
       "implemented": ["top-level proc body lead block", "#ruff marked blocks", "#ruffopt directive evidence", "dynamic-name procedure uncertainty", "procedure uncertainty where Tcl's reading of the file's bytes lists no such command", "excluded-gap procedure uncertainty", "brace-count procedure and text uncertainty", "local row text and maps"],
       "ineligible": ["ordinary comments after a command or a blank row", "comments on the line of the child above them", "comments outside a proc body"],
       "pending": ["procedures in other scopes", "procedures in a bracket's script", "quoted, braced and multi-part names", "other spellings of the proc command: ::proc, quoted, braced, escaped, expanded, eval words, a quoted parameter list, a bracket glued before proc", "proc commands that earlier text hides from the grammar", "rows nested in commands or hidden by recovery", "TclOO methods, constructors and destructors", "namespace preambles", "publication"]
     }
   },
-  "deferred": ["Python", "Bash", "Irules"],
+  "deferred": ["Python", "Irules"],
   "helpers": ["Ccomment", "Preproc"]
 }

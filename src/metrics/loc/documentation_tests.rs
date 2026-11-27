@@ -10157,3 +10157,361 @@ fn documentation_bash_legacy_rows_hold_no_shdoc_documentation() {
         check_bash_legacy_row(row);
     }
 }
+
+// Per source of the shdoc view tests: its name; the comment runs that its collection
+// reads; the documents and associations it publishes under default options; the
+// comment nodes it does not read; the rows of its withheld runs; and the rows of the
+// runs that it selects and then drops. A run is a maximal sequence of sibling
+// comments, each starting on the row where the one before ends or on the next row. A
+// run is read at its last comment; where Bash reads no comment there (the text of a
+// here-document, a quoted string, a form), no comment of the run is read.
+#[cfg(feature = "bash")]
+const BASH_SHDOC_VIEWS: [(&str, usize, usize, usize, usize, usize, usize); 233] = [
+    ("a01_primary", 1, 1, 1, 0, 0, 0),
+    ("a02_function_keyword", 1, 1, 1, 0, 0, 0),
+    ("a03_function_keyword_parens", 1, 1, 1, 0, 0, 0),
+    ("a04_brace_on_next_row", 1, 1, 1, 0, 0, 0),
+    ("a05_file_redirect", 1, 1, 1, 0, 0, 0),
+    ("a06_background", 1, 1, 1, 0, 0, 0),
+    ("a07_rows", 1, 1, 1, 0, 0, 0),
+    ("a08_two_functions", 2, 2, 2, 0, 0, 0),
+    ("a09_nested", 2, 2, 2, 0, 0, 0),
+    ("a10_undocumented", 0, 0, 0, 0, 0, 0),
+    ("a11_backslash_ends_a_row", 1, 1, 1, 0, 0, 0),
+    ("a12_indent_and_trailing_blanks", 1, 1, 1, 0, 0, 0),
+    ("a13_two_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("t01_tag", 1, 1, 1, 0, 0, 0),
+    ("t02_tag", 1, 1, 1, 0, 0, 0),
+    ("t03_tag", 1, 1, 1, 0, 0, 0),
+    ("t04_tag", 1, 1, 1, 0, 0, 0),
+    ("t05_tag", 1, 1, 1, 0, 0, 0),
+    ("t06_tag", 1, 1, 1, 0, 0, 0),
+    ("t07_tag", 1, 1, 1, 0, 0, 0),
+    ("t08_tag", 1, 1, 1, 0, 0, 0),
+    ("t09_tag", 1, 1, 1, 0, 0, 0),
+    ("t10_tag", 1, 1, 1, 0, 0, 0),
+    ("t11_tag", 1, 1, 1, 0, 0, 0),
+    ("t12_tag", 1, 1, 1, 0, 0, 0),
+    ("t13_tag", 1, 1, 1, 0, 0, 0),
+    ("t14_tag", 1, 1, 1, 0, 0, 0),
+    ("t15_tag", 1, 1, 1, 0, 0, 0),
+    ("t16_tag", 1, 1, 1, 0, 0, 0),
+    ("t17_tag", 1, 1, 1, 0, 0, 0),
+    ("t18_tag", 1, 1, 1, 0, 0, 0),
+    ("t21_text", 1, 0, 0, 0, 0, 0),
+    ("t22_text", 1, 0, 0, 0, 0, 0),
+    ("t23_text", 1, 0, 0, 0, 0, 0),
+    ("t24_text", 1, 0, 0, 0, 0, 0),
+    ("t25_text", 1, 0, 0, 0, 0, 0),
+    ("t26_text", 1, 0, 0, 0, 0, 0),
+    ("t27_text", 1, 0, 0, 0, 0, 0),
+    ("t28_text", 1, 0, 0, 0, 0, 0),
+    ("t29_text", 1, 0, 0, 0, 0, 0),
+    ("t30_text", 1, 0, 0, 0, 0, 0),
+    ("t31_text", 1, 0, 0, 0, 0, 0),
+    ("t32_text", 1, 0, 0, 0, 0, 0),
+    ("t41_file_tag", 1, 1, 0, 0, 0, 0),
+    ("t42_file_tag", 1, 1, 0, 0, 0, 0),
+    ("t43_file_tag", 1, 1, 0, 0, 0, 0),
+    ("t44_file_tag", 1, 1, 0, 0, 0, 0),
+    ("u01_unmarked", 1, 0, 0, 0, 0, 0),
+    ("u02_address", 1, 0, 0, 0, 0, 0),
+    ("d01_blank_row", 1, 0, 0, 0, 0, 0),
+    ("d02_command_between", 1, 0, 0, 0, 0, 0),
+    ("d03_command_on_the_row", 1, 0, 0, 0, 0, 0),
+    ("d04_end_of_file", 1, 0, 0, 0, 0, 0),
+    ("d05_above_a_command", 1, 0, 0, 0, 0, 0),
+    ("r01_trailing_then_run", 1, 1, 1, 0, 0, 0),
+    ("r02_trailing_tag_then_plain", 1, 0, 0, 0, 0, 0),
+    ("r03_in_a_body", 1, 0, 0, 0, 0, 0),
+    ("r04_trailing_tag_then_tag", 1, 1, 1, 0, 0, 0),
+    ("s01_shebang", 1, 1, 1, 0, 0, 0),
+    ("s02_shellcheck_below", 1, 1, 1, 0, 0, 0),
+    ("s03_shellcheck_above", 1, 1, 1, 0, 0, 0),
+    ("s04_mention", 1, 1, 1, 0, 0, 0),
+    ("s05_only_directives", 1, 0, 0, 0, 0, 0),
+    ("s06_shebang_not_first", 1, 1, 0, 0, 0, 0),
+    ("s07_shellcheck_spellings", 1, 1, 1, 0, 0, 0),
+    ("s08_broken_directives", 1, 1, 1, 0, 0, 0),
+    ("p01_file", 1, 1, 0, 0, 0, 0),
+    ("p02_file_then_function", 2, 2, 1, 0, 0, 0),
+    ("p03_name_above_function", 1, 1, 0, 0, 0, 0),
+    ("p04_plain_first", 1, 1, 0, 0, 0, 0),
+    ("p05_for_body", 1, 1, 1, 0, 0, 0),
+    ("p06_keyword_without_body", 1, 1, 1, 0, 0, 0),
+    ("p07_brief", 1, 1, 0, 0, 0, 0),
+    ("o01_subshell", 1, 1, 0, 0, 0, 0),
+    ("o02_group", 1, 1, 0, 0, 0, 0),
+    ("o03_if", 1, 1, 0, 0, 0, 0),
+    ("o04_loop", 1, 1, 0, 0, 0, 0),
+    ("o05_case_arm", 1, 1, 0, 0, 0, 0),
+    ("o07_after_a_pipe", 1, 1, 0, 0, 0, 0),
+    ("o06_substitution", 1, 0, 0, 0, 1, 0),
+    ("o12_back_quotes", 0, 0, 0, 1, 0, 0),
+    ("o08_list", 1, 0, 0, 0, 0, 0),
+    ("o09_pipeline", 1, 0, 0, 0, 0, 0),
+    ("o10_heredoc_redirect", 1, 0, 0, 0, 0, 0),
+    ("o11_body_of_a_pending_function", 1, 1, 1, 0, 0, 0),
+    ("h01_quoted", 0, 0, 0, 0, 0, 0),
+    ("h06_substitution_in_text", 0, 0, 0, 1, 0, 0),
+    ("h07_comment_rows_in_text", 1, 0, 0, 1, 0, 0),
+    ("v01_plain", 1, 1, 1, 0, 0, 0),
+    ("v02_single_quotes", 1, 1, 1, 0, 0, 0),
+    ("v03_double_quotes", 1, 1, 1, 0, 0, 0),
+    ("v04_backslash", 1, 1, 1, 0, 0, 0),
+    ("v05_dash_tabs", 1, 1, 1, 0, 0, 0),
+    ("v06_pipe_on_the_row", 1, 1, 1, 0, 0, 0),
+    ("v07_redirect_on_the_row", 1, 1, 1, 0, 0, 0),
+    ("v08_in_a_function", 1, 1, 1, 0, 0, 0),
+    ("v09_empty_body", 1, 1, 1, 0, 0, 0),
+    ("v10_shift", 1, 1, 1, 0, 0, 0),
+    ("v11_loop", 1, 1, 1, 0, 0, 0),
+    ("v12_blank_in_delimiter", 1, 1, 1, 0, 0, 0),
+    ("v13_blank_first_row", 1, 1, 1, 0, 0, 0),
+    ("v14_blank_rows_only", 1, 1, 1, 0, 0, 0),
+    ("v15_double_quoted_tail", 1, 1, 1, 0, 0, 0),
+    ("v16_single_quoted_tail", 1, 1, 1, 0, 0, 0),
+    ("v17_braced_name_in_tail", 1, 1, 1, 0, 0, 0),
+    ("v18_comment_in_tail", 2, 1, 1, 0, 0, 0),
+    ("v19_escaped_byte_in_tail", 1, 1, 1, 0, 0, 0),
+    ("v20_list_on_the_row", 1, 1, 1, 0, 0, 0),
+    ("v21_operator_in_the_text", 1, 1, 1, 0, 0, 0),
+    ("w01_indented_end", 1, 1, 1, 1, 0, 0),
+    ("w02_blank_after_end", 0, 0, 0, 1, 0, 0),
+    ("w03_dash_spaces", 0, 0, 0, 1, 0, 0),
+    ("w04_split_word", 0, 0, 0, 1, 0, 0),
+    ("w05_two_operators", 1, 0, 0, 0, 1, 0),
+    ("w06_background", 1, 0, 0, 0, 1, 0),
+    ("w07_dollar", 1, 1, 1, 0, 0, 0),
+    ("w08_inner_backslash", 1, 1, 1, 0, 0, 0),
+    ("w09_continued_row", 1, 1, 1, 0, 0, 0),
+    ("w10_empty_word", 1, 0, 0, 0, 1, 0),
+    ("w11_earlier_delimiter_row", 1, 1, 1, 0, 0, 0),
+    ("w12_semicolon", 1, 0, 0, 0, 1, 0),
+    ("w13_open_quote", 0, 0, 0, 0, 0, 0),
+    ("w14_substitution_in_tail", 1, 1, 1, 0, 0, 0),
+    ("w15_back_quote_in_tail", 1, 1, 1, 0, 0, 0),
+    ("w16_ansi_string_in_tail", 1, 1, 1, 0, 0, 0),
+    ("w17_expansion_in_tail", 1, 1, 1, 0, 0, 0),
+    ("w18_subshell_in_tail", 1, 1, 1, 0, 0, 0),
+    ("w19_or_ends_the_row", 1, 1, 1, 0, 0, 0),
+    ("w20_comment_after_a_pipe", 2, 1, 1, 0, 0, 0),
+    ("w21_hash_in_a_word", 1, 1, 1, 0, 0, 0),
+    ("w24_directive_row_first", 1, 1, 1, 0, 0, 0),
+    ("w23_text_after_the_boundary", 0, 0, 0, 1, 0, 0),
+    ("w22_function_holds_the_operator", 1, 1, 1, 1, 0, 0),
+    ("h02_pipe", 0, 0, 0, 1, 0, 0),
+    ("h03_pipe_group", 0, 0, 0, 1, 0, 0),
+    ("h04_pipe_file_tag", 0, 0, 0, 2, 0, 0),
+    ("h05_and", 0, 0, 0, 1, 0, 0),
+    ("q01_trailing_space", 0, 0, 0, 1, 0, 0),
+    ("q02_indented", 0, 0, 0, 1, 0, 0),
+    ("q03_dash_spaces", 0, 0, 0, 1, 0, 0),
+    ("q04_two_operators", 1, 0, 0, 0, 1, 0),
+    ("c01_joined_word", 0, 0, 0, 1, 0, 0),
+    ("c02_joined_row", 1, 0, 0, 0, 0, 1),
+    ("c03_escaped_blank_in_run", 0, 0, 0, 2, 0, 0),
+    ("c04_escaped_blank_at_function", 1, 0, 0, 0, 0, 1),
+    ("c05_form_feed", 0, 0, 0, 2, 0, 0),
+    ("c06_bare_row_below", 1, 0, 0, 0, 0, 0),
+    ("c07_bare_row_first", 1, 1, 1, 0, 0, 0),
+    ("c08_bare_row_above", 1, 1, 1, 0, 0, 0),
+    ("c09_escaped_blank_at_run", 0, 0, 0, 1, 0, 0),
+    ("a14_section_row", 1, 1, 1, 0, 0, 0),
+    ("e01_error_in_the_function", 2, 2, 2, 0, 0, 0),
+    ("e02_inside_an_error", 1, 0, 0, 0, 1, 0),
+    ("e03_error_beside", 1, 1, 1, 0, 0, 0),
+    ("e04_after_a_recovery_node", 1, 0, 0, 0, 1, 0),
+    ("e06_after_a_missing_node", 1, 0, 0, 0, 1, 0),
+    ("e05_root_error", 1, 0, 0, 0, 1, 0),
+    ("l02_subscript_plain_first", 1, 0, 0, 0, 2, 0),
+    ("l03_arithmetic_plain_first", 1, 0, 0, 0, 2, 0),
+    ("l04_arithmetic_command", 1, 0, 0, 0, 2, 0),
+    ("i01_astra1_cont_delim", 1, 1, 1, 1, 0, 0),
+    ("i02_astra1_cont_delim_dash", 1, 1, 1, 1, 0, 0),
+    ("i03_fable1_three_backslashes", 0, 0, 0, 1, 0, 0),
+    ("i04_ctl_no_cont", 1, 1, 1, 0, 0, 0),
+    ("i05_ctl_quoted", 1, 1, 1, 0, 0, 0),
+    ("i06_ctl_two_backslashes", 1, 1, 1, 0, 0, 0),
+    ("i07_astra2_sub_nested", 1, 0, 0, 0, 1, 0),
+    ("i08_astra2_sub_nested_backquote", 0, 0, 0, 1, 0, 0),
+    ("i09_astra2_sub_nested_process", 1, 0, 0, 0, 1, 0),
+    ("i10_ctl_nested_plain", 1, 1, 1, 0, 0, 0),
+    ("i11_argon1_two_ops_pipe", 0, 0, 0, 1, 0, 0),
+    ("i12_argon1_two_ops_and", 0, 0, 0, 1, 0, 0),
+    ("i13_argon1_two_ops_or", 0, 0, 0, 1, 0, 0),
+    ("i14_argon1_two_ops_pipe_amp", 0, 0, 0, 1, 0, 0),
+    ("i15_ctl_two_ops_in_order", 0, 0, 0, 0, 0, 0),
+    ("i16_argon2_ansi_c", 0, 0, 0, 1, 0, 0),
+    ("i17_argon2_backquote", 0, 0, 0, 1, 0, 0),
+    ("i18_argon2_subscript_heredoc", 1, 0, 0, 0, 1, 0),
+    ("i19_argon2_subscript", 1, 0, 0, 0, 1, 0),
+    ("i20_argon2_r15_subscript", 1, 0, 0, 0, 1, 0),
+    ("i21_argon2_r15_dollar_bracket", 1, 0, 0, 0, 1, 0),
+    ("i22_ctl_ansi_c_closed", 1, 1, 1, 0, 0, 0),
+    ("i23_fable2_mirror", 0, 0, 0, 0, 0, 0),
+    ("i24_fable3_let_shift", 1, 0, 0, 0, 1, 0),
+    ("m01_substitutions_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m02_expansions_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m03_arithmetic_command_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m04_subscript_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m05_pattern_word_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m06_extended_pattern_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m07_back_quotes_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("m08_compound_assignment", 1, 1, 1, 0, 0, 0),
+    ("m09_single_quote_in_braces", 1, 1, 1, 0, 0, 0),
+    ("m11_command_substitution_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m12_process_substitution_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m13_output_substitution_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m14_arithmetic_command_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m15_arithmetic_expansion_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m16_braces_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m17_dollar_bracket_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m18_subscript_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m19_pattern_word_over_rows", 1, 0, 0, 0, 1, 0),
+    ("m21_back_quotes_over_rows", 1, 1, 1, 0, 0, 0),
+    ("m22_back_quotes_in_a_string", 1, 1, 1, 0, 0, 0),
+    ("m31_comment_in_a_substitution", 2, 0, 0, 0, 1, 0),
+    ("m32_here_document_in_a_substitution", 1, 0, 0, 0, 1, 0),
+    ("m33_case_in_a_substitution", 1, 0, 0, 0, 1, 0),
+    ("m34_shift_in_an_arithmetic_command", 1, 0, 0, 0, 1, 0),
+    ("m36_bar_in_a_pattern_word", 1, 0, 0, 0, 1, 0),
+    ("m37_hash_behind_an_extended_pattern", 1, 0, 0, 0, 1, 0),
+    ("m38_brace_in_braces", 1, 0, 0, 0, 1, 0),
+    ("m23_plain_quote_in_quoted_braces", 1, 1, 1, 0, 0, 0),
+    ("m42_quoted_close_in_quoted_braces", 1, 0, 0, 0, 1, 0),
+    ("m44_directive_row_opens_a_withheld_run", 1, 0, 0, 0, 2, 0),
+    ("m45_unselected_run_behind_the_stop", 2, 0, 0, 0, 1, 0),
+    ("m39_hash_behind_a_compound_assignment", 1, 0, 0, 0, 1, 0),
+    ("m40_delimiter_with_a_substitution", 1, 0, 0, 0, 1, 0),
+    ("m41_nul_byte", 1, 0, 0, 0, 1, 0),
+    ("n01_text_row_opens_the_run", 1, 0, 0, 0, 0, 2),
+    ("n02_text_behind_code_above_the_run", 1, 1, 1, 0, 0, 0),
+    ("n03_function_ends_in_a_string", 1, 1, 1, 0, 0, 0),
+    ("n05_function_holds_the_stop", 2, 1, 1, 0, 1, 0),
+    ("n04_comment_in_back_quotes", 1, 1, 0, 0, 0, 0),
+    ("b01_nested_function_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("b02_nested_function_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("b03_nested_function_on_a_row", 1, 1, 1, 0, 0, 0),
+    ("b04_nested_function_plain", 1, 1, 1, 0, 0, 0),
+    ("b05_process_substitution_ast_ancestor", 1, 1, 1, 0, 0, 0),
+    ("b06_process_substitution_command_reading", 2, 0, 0, 0, 1, 0),
+    ("b07_output_substitution_command_reading", 2, 0, 0, 0, 1, 0),
+    ("b08_duplicated_output_in_a_form", 2, 0, 0, 0, 1, 0),
+    ("b09_duplicated_input_in_a_form", 2, 0, 0, 0, 1, 0),
+    ("g01_crlf", 1, 1, 1, 0, 0, 0),
+];
+
+#[cfg(feature = "bash")]
+fn bash_documentation_counters() -> [usize; 6] {
+    use big_code_analysis_ast::documentation::streaming::positional::{
+        evidence_built, members_materialized, positional_runs_collected,
+    };
+    use big_code_analysis_ast::documentation::{included_range_visits, observations};
+    [
+        observations().visits,
+        observations().renders,
+        evidence_built::observed(),
+        members_materialized::observed(),
+        positional_runs_collected::observed(),
+        included_range_visits::observed(),
+    ]
+}
+
+#[cfg(feature = "bash")]
+#[test]
+#[allow(clippy::arithmetic_side_effects)]
+fn documentation_bash_source_and_legacy_views_are_independent() {
+    use big_code_analysis_ast::documentation::{DocumentationContext, DocumentationOptions};
+    let mut totals = [0; 3];
+    for (name, comment_runs, documents, associations, unread, withheld_rows, dropped_rows) in
+        BASH_SHDOC_VIEWS
+    {
+        let row = BASH_SHDOC_SOURCES
+            .iter()
+            .find(|row| row.name == name)
+            .unwrap();
+        let parser =
+            crate::langs::AnyParser::parse(LANG::Bash, row.source.to_vec(), None, None).unwrap();
+        let idle = bash_documentation_counters();
+        let index = parser
+            .documentation(
+                &DocumentationContext::default(),
+                &DocumentationOptions::default(),
+            )
+            .unwrap();
+        let collected = bash_documentation_counters();
+        check_bash_legacy_row(row);
+        let analyzed = bash_documentation_counters();
+
+        assert_eq!(index.documents().len(), documents, "{name}");
+        assert_eq!(index.associations().len(), associations, "{name}");
+        let [visits, renders, built, materialized, scanned, covered] =
+            std::array::from_fn(|at| collected[at] - idle[at]);
+        // expected: the collector's walk enters every node exactly once.
+        assert_eq!(visits, parser.root_node().preorder().count(), "{name}");
+        // expected: one render per document published by the collection.
+        assert_eq!(renders, documents, "{name}");
+        // expected: default options build one member for every fragment of a document;
+        // one for every row of a withheld run, which the shared rules read to tell
+        // that they would select it; and one for every row of a run that they select
+        // and the unit does not confirm. None for another comment.
+        assert_eq!(
+            built,
+            index
+                .documents()
+                .map(|document| document.get().fragment_count())
+                .sum::<usize>()
+                + withheld_rows
+                + dropped_rows,
+            "{name}"
+        );
+        // expected: each comment of a run that is read is a member of that run,
+        // materialized once; no other comment is.
+        assert_eq!(
+            materialized + unread,
+            parser
+                .root_node()
+                .preorder()
+                .filter(|node| node.kind() == "comment")
+                .count(),
+            "{name}"
+        );
+        // expected: the source view scans every run it reads once, at its last
+        // comment.
+        assert_eq!(scanned, comment_runs, "{name}");
+        // The coverage counter counts the collector's questions and has no closed form
+        // from the tree; the collection must move it on this thread.
+        assert_ne!(covered, 0, "{name}");
+
+        // expected: `analyze` builds no documentation index, no source evidence and no
+        // member buffer, asks no coverage question, and runs no positional scan: the
+        // Bash LOC arm bills its comments through the marker stream.
+        let moved: [usize; 6] = std::array::from_fn(|at| analyzed[at] - collected[at]);
+        assert_eq!(moved, [0; 6], "{name}");
+        totals[0] += scanned;
+        totals[1] += renders;
+        totals[2] += built;
+    }
+    // expected: the sums of the table above; each is the positive control of a counter
+    // that a row without a comment or without a document leaves at zero.
+    assert_eq!(
+        totals[..2],
+        [
+            BASH_SHDOC_VIEWS.iter().map(|view| view.1).sum::<usize>(),
+            BASH_SHDOC_VIEWS.iter().map(|view| view.2).sum::<usize>(),
+        ]
+    );
+    assert_eq!(totals[..2], [216, 131]);
+    assert_ne!(totals[2], 0);
+    // expected: the sums of the last three columns; each is the positive control of a
+    // term that most rows leave at zero.
+    assert_eq!(
+        [
+            BASH_SHDOC_VIEWS.iter().map(|view| view.4).sum::<usize>(),
+            BASH_SHDOC_VIEWS.iter().map(|view| view.5).sum::<usize>(),
+            BASH_SHDOC_VIEWS.iter().map(|view| view.6).sum::<usize>(),
+        ],
+        [33, 51, 4]
+    );
+}

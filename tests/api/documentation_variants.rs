@@ -365,7 +365,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
             LANG::Lua => Row(Profile::Ldoc),
             LANG::Perl => FileDocument(Profile::Pod),
             LANG::Elixir => Row(Profile::Elixir),
-            LANG::Bash => Rejected(Profile::Shdoc),
+            LANG::Bash => Row(Profile::Shdoc),
             LANG::Tcl => Row(Profile::Ruff),
             LANG::Irules => Rejected(Profile::Irules),
             LANG::Ccomment | LANG::Preproc => Helper,
@@ -400,7 +400,7 @@ fn every_language_variant_meets_its_documentation_policy_through_the_root_ast() 
     assert_eq!(ran, LANG::into_enum_iter().filter(LANG::is_enabled).count());
     assert!(ran > 0);
     #[cfg(feature = "all-languages")]
-    assert_eq!(counts, (19, 3, 2, 1));
+    assert_eq!(counts, (20, 2, 2, 1));
 }
 
 #[cfg(feature = "rust")]

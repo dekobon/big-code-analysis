@@ -1,0 +1,1920 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "--",
+    "documentation::",
+    "lang_helpers::doc_text::"
+  ],
+  "cases": [
+    {
+      "name": "bash-is-rejected-again",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Shdoc {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tagged_run_documents_the_function_below",
+        "documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available",
+        "documentation::text::literals::tests::bash_comment_projection_preserves_literal_backslash_newline",
+        "documentation::collector::shdoc_tests::bash_functions_are_owners_without_documentation"
+      ]
+    },
+    {
+      "name": "bash-positional-path-off",
+      "file": "big-code-analysis-ast/src/checker/bash.rs",
+      "old": "    const SOURCE_POSITIONAL_DOCS: bool = true;",
+      "new": "    const SOURCE_POSITIONAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tagged_run_documents_the_function_below",
+        "documentation::collector::shdoc_tests::bash_rows_of_a_run_form_one_text",
+        "documentation::collector::shdoc_tests::bash_documents_follow_source_order_and_keep_their_scope",
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text",
+        "documentation::collector::shdoc_tests::bash_run_width_costs_linear_work"
+      ]
+    },
+    {
+      "name": "bash-adjacency-selects",
+      "file": "big-code-analysis-ast/src/checker/bash.rs",
+      "old": "    const SOURCE_POSITIONAL_DOCS: bool = true;",
+      "new": "    const SOURCE_POSITIONAL_DOCS: bool = true;\n    const SOURCE_POSITIONAL_TARGETS: bool = true;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run"
+      ]
+    },
+    {
+      "name": "tag-without-a-blank-after-the-hash",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    if let Some(row) = rest.strip_prefix(b\" @\").and_then(shdoc_fixed_tag) {",
+      "new": "    if let Some(row) = rest\n        .strip_prefix(b\" @\")\n        .or_else(|| rest.strip_prefix(b\"@\"))\n        .and_then(shdoc_fixed_tag)\n    {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "any-at-word-is-a-tag",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        Some(name) if blanks > 0 && shdoc_value_tag(name, budget)? => ShdocRow::Tag,\n        _ => ShdocRow::Text,",
+      "new": "        Some(name) if blanks > 0 => {\n            let _ = shdoc_value_tag(name, budget)?;\n            ShdocRow::Tag\n        }\n        _ => ShdocRow::Text,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "file-tag-is-an-ordinary-tag",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        Some(ShdocRow::FileTag)",
+      "new": "        Some(ShdocRow::Tag)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "brief-is-no-file-tag",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "const SHDOC_FILE_TAGS: [&[u8]; 3] = [b\"name\", b\"file\", b\"brief\"];",
+      "new": "const SHDOC_FILE_TAGS: [&[u8]; 3] = [b\"name\", b\"file\", b\"name\"];",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "line-tag-table-loses-see",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    b\"exitcode\",\n    b\"see\",",
+      "new": "    b\"exitcode\",\n    b\"set\",",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tag_lines_open_a_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "value-tag-needs-no-value",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            if blanks > 0 && blanks < after.len() {",
+      "new": "            if blanks > 0 && blanks <= after.len() || after.is_empty() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "value-tag-needs-no-blank",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            if blanks > 0 && blanks < after.len() {",
+      "new": "            if blanks < after.len() {",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "noargs-allows-text-after-it",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        && shdoc_blanks(after, budget)? == after.len()",
+      "new": "        && shdoc_blanks(after, budget)? <= after.len()",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "value-tag-table-loses-arg",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "const SHDOC_VALUE_TAGS: [&[u8]; 5] = [b\"option\", b\"arg\", b\"stdin\", b\"stdout\", b\"stderr\"];",
+      "new": "const SHDOC_VALUE_TAGS: [&[u8]; 5] = [b\"option\", b\"option\", b\"stdin\", b\"stdout\", b\"stderr\"];",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tag_lines_open_a_run",
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "shellcheck-row-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    Ok((node.start_byte() == 0 && comment.starts_with(b\"#!\"))\n        || shellcheck_directive_with_budget(comment, budget)?)",
+      "new": "    let _ = shellcheck_directive_with_budget(comment, budget)?;\n    Ok(node.start_byte() == 0 && comment.starts_with(b\"#!\"))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text",
+        "documentation::collector::shdoc_tests::bash_rows_of_a_run_form_one_text"
+      ]
+    },
+    {
+      "name": "shebang-row-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    Ok((node.start_byte() == 0 && comment.starts_with(b\"#!\"))",
+      "new": "    Ok((node.start_byte() == usize::MAX && comment.starts_with(b\"#!\"))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text"
+      ]
+    },
+    {
+      "name": "shebang-anywhere-is-a-directive",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    Ok((node.start_byte() == 0 && comment.starts_with(b\"#!\"))",
+      "new": "    Ok(comment.starts_with(b\"#!\")",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document"
+      ]
+    },
+    {
+      "name": "shellcheck-word-anywhere",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(rest[shdoc_blanks(rest, budget)?..].starts_with(b\"shellcheck\"))",
+      "new": "    let _ = shdoc_blanks(rest, budget)?;\n    Ok(rest.windows(10).any(|window| window == b\"shellcheck\"))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_of_a_run_form_one_text",
+        "lang_helpers::doc_text::tests::shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives"
+      ]
+    },
+    {
+      "name": "shellcheck-needs-one-blank",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(rest[shdoc_blanks(rest, budget)?..].starts_with(b\"shellcheck\"))",
+      "new": "    let _ = shdoc_blanks(rest, budget)?;\n    Ok(rest.starts_with(b\" shellcheck\"))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text",
+        "lang_helpers::doc_text::tests::shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives"
+      ]
+    },
+    {
+      "name": "directive-row-counts-as-the-first-row",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        if !directive_with_budget(member, comment, budget)? {",
+      "new": "        let _ = directive_with_budget(member, comment, budget)?;\n        {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text"
+      ]
+    },
+    {
+      "name": "first-row-is-the-last-row",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            rows.opening.get_or_insert(row);",
+      "new": "            rows.opening = Some(row);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document",
+        "documentation::collector::shdoc_tests::bash_rows_of_a_run_form_one_text"
+      ]
+    },
+    {
+      "name": "file-tag-run-documents-the-function",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    if rows.file || rows.opening == Some(ShdocRow::Text) {",
+      "new": "    if rows.opening == Some(ShdocRow::Text) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document"
+      ]
+    },
+    {
+      "name": "plain-first-run-documents-the-function",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    if rows.file || rows.opening == Some(ShdocRow::Text) {",
+      "new": "    if rows.file {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document"
+      ]
+    },
+    {
+      "name": "function-anywhere-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                .is_none_or(|(outer, _)| outer.kind() != \"function_definition\"),\n            _ => true,",
+      "new": "                .is_none_or(|(outer, _)| outer.kind() != \"function_definition\"),\n            _ => false,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_functions_outside_the_two_owner_positions_stay_pending"
+      ]
+    },
+    {
+      "name": "group-braces-are-a-function-body",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                .is_none_or(|(outer, _)| outer.kind() != \"function_definition\"),",
+      "new": "                .is_none_or(|(outer, _)| outer.kind() == \"heredoc_redirect\"),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_functions_outside_the_two_owner_positions_stay_pending"
+      ]
+    },
+    {
+      "name": "function-body-is-no-owner-position",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                .is_none_or(|(outer, _)| outer.kind() != \"function_definition\"),",
+      "new": "                .is_none_or(|(outer, _)| outer.kind() == \"function_definition\"),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_documents_follow_source_order_and_keep_their_scope",
+        "documentation::collector::shdoc_tests::bash_functions_outside_the_two_owner_positions_stay_pending"
+      ]
+    },
+    {
+      "name": "file-level-is-no-owner-position",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            Some(\"program\") => false,",
+      "new": "            Some(\"program\") => true,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tagged_run_documents_the_function_below",
+        "documentation::collector::shdoc_tests::bash_functions_are_owners_without_documentation",
+        "documentation::collector::shdoc_tests::bash_here_document_text_is_never_documentation",
+        "documentation::collector::shdoc_tests::bash_text_that_only_the_grammar_reads_gives_no_node_and_no_assessment"
+      ]
+    },
+    {
+      "name": "withheld-run-leaves-no-assessment",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if let Some(first) = first {\n            let assessment = self.index.assessments.len();",
+      "new": "        if let Some(first) = first.filter(|_| false) {\n            let assessment = self.index.assessments.len();",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld",
+        "documentation::collector::shdoc_tests::bash_here_document_text_that_the_grammar_reads_as_code_gives_no_document",
+        "documentation::collector::shdoc_tests::bash_recovery_withholds_what_follows_and_keeps_what_stands_before",
+        "documentation::collector::shdoc_tests::bash_withheld_run_costs_linear_work_and_keeps_nothing"
+      ]
+    },
+    {
+      "name": "withheld-assessment-names-the-last-row",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                sink: &mut |run| first = run.members.first().map(|member| member.node),",
+      "new": "                sink: &mut |run| first = run.members.last().map(|member| member.node),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld",
+        "documentation::collector::shdoc_tests::bash_withheld_run_costs_linear_work_and_keeps_nothing"
+      ]
+    },
+    {
+      "name": "withheld-assessment-skips-a-directive-row",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                retain_unbound: false,\n                retain_directives: true,\n                sink: &mut |run| first",
+      "new": "                retain_unbound: false,\n                retain_directives: false,\n                sink: &mut |run| first",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "unselected-run-after-the-boundary-is-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                retain_unbound: false,\n                retain_directives: true,\n                sink: &mut |run| first",
+      "new": "                retain_unbound: self.index.options.retain_unbound,\n                retain_directives: true,\n                sink: &mut |run| first",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "function-with-an-error-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                || node.has_error()\n                || conditional_kind(node.kind())",
+      "new": "                || conditional_kind(node.kind())",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_above_a_syntax_error_keeps_its_document_unresolved"
+      ]
+    },
+    {
+      "name": "comment-after-code-opens-a-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {\n                run.first_eligible = clean_first;\n            }",
+      "new": "            if prev.end_row() > row_first.start_row() {\n                run.first_eligible = clean_first;\n            }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_comments_after_code_open_no_run"
+      ]
+    },
+    {
+      "name": "blanks-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(scan::position(s, |b| !matches!(b, b' ' | b'\\t'), budget)?.unwrap_or(s.len()))",
+      "new": "    let _ = budget;\n    Ok(infallible(scan::position(s, |b| !matches!(b, b' ' | b'\\t'), &NoBudget)).unwrap_or(s.len()))",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads",
+        "lang_helpers::doc_text::tests::shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives"
+      ]
+    },
+    {
+      "name": "row-class-blanks-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    let blanks = shdoc_blanks(rest, budget)?;\n    Ok(match rest[blanks..].strip_prefix(b\"@\") {",
+      "new": "    let blanks = infallible(shdoc_blanks(rest, &NoBudget));\n    Ok(match rest[blanks..].strip_prefix(b\"@\") {",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "value-tag-call-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        Some(name) if blanks > 0 && shdoc_value_tag(name, budget)? => ShdocRow::Tag,",
+      "new": "        Some(name) if blanks > 0 && infallible(shdoc_value_tag(name, &NoBudget)) => ShdocRow::Tag,",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "noargs-blanks-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        && shdoc_blanks(after, budget)? == after.len()",
+      "new": "        && infallible(shdoc_blanks(after, &NoBudget)) == after.len()",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "value-blanks-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            let blanks = shdoc_blanks(after, budget)?;",
+      "new": "            let blanks = infallible(shdoc_blanks(after, &NoBudget));",
+      "expect": [
+        "lang_helpers::doc_text::tests::shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads"
+      ]
+    },
+    {
+      "name": "shellcheck-blanks-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    Ok(rest[shdoc_blanks(rest, budget)?..].starts_with(b\"shellcheck\"))",
+      "new": "    let _ = budget;\n    Ok(rest[infallible(shdoc_blanks(rest, &NoBudget))..].starts_with(b\"shellcheck\"))",
+      "expect": [
+        "lang_helpers::doc_text::tests::shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives"
+      ]
+    },
+    {
+      "name": "directive-arm-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "                crate::lang_helpers::shdoc::directive_with_budget(node, bytes, budget)",
+      "new": "                Ok(crate::documentation::budget::infallible(\n                    crate::lang_helpers::shdoc::directive_with_budget(node, bytes, &crate::documentation::budget::NoBudget),\n                ))",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "directive-test-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        || shellcheck_directive_with_budget(comment, budget)?)",
+      "new": "        || crate::documentation::budget::infallible(shellcheck_directive_with_budget(comment, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "row-loop-step-removed",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    for member in run.members {\n        budget.step()?;",
+      "new": "    for member in run.members {",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "row-directive-test-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        if !directive_with_budget(member, comment, budget)? {",
+      "new": "        if !crate::documentation::budget::infallible(directive_with_budget(member, comment, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "row-class-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            let row = shdoc_row_with_budget(comment, budget)?;",
+      "new": "            let row = crate::documentation::budget::infallible(shdoc_row_with_budget(comment, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "opener-rows-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    let rows = run_rows(run, budget)?;",
+      "new": "    let rows = crate::documentation::budget::infallible(run_rows(run, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "opener-arm-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "            crate::LANG::Bash => Ok(Ok(crate::lang_helpers::shdoc::opener_with_budget(\n                run, budget,\n            )?)),",
+      "new": "            crate::LANG::Bash => Ok(Ok(crate::documentation::budget::infallible(\n                crate::lang_helpers::shdoc::opener_with_budget(run, &crate::documentation::budget::NoBudget),\n            ))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "withheld-scan-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        positional::source_comment_with_budget::<NativeRules<T>, CollectionBudget>(\n            node,\n            ancestors,\n            &mut positional::SourceRequest {\n                context: &self.index.source,\n                retain_unbound: false,\n                retain_directives: true,\n                sink: &mut |run| first = run.members.first().map(|member| member.node),\n            },\n            budget,\n        )?;",
+      "new": "        positional::source_comment_with_budget::<NativeRules<T>, _>(\n            node,\n            ancestors,\n            &mut positional::SourceRequest {\n                context: &self.index.source,\n                retain_unbound: false,\n                retain_directives: true,\n                sink: &mut |run| first = run.members.first().map(|member| member.node),\n            },\n            &crate::documentation::budget::NoBudget,\n        )?;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_withheld_run_charges_its_scan_to_the_collection_budget"
+      ]
+    },
+    {
+      "name": "run-without-a-tag-is-selected",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "    if !rows.tagged {\n        return Ok(None);\n    }",
+      "new": "    if !rows.tagged && run.members.is_empty() {\n        return Ok(None);\n    }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_shdoc_reads_as_text_open_no_run",
+        "documentation::collector::shdoc_tests::bash_comments_after_code_open_no_run",
+        "documentation::collector::shdoc_tests::bash_directive_rows_are_candidates_and_not_text",
+        "documentation::collector::shdoc_tests::shdoc_rules_charge_the_budget_they_are_given"
+      ]
+    },
+    {
+      "name": "pending-run-needs-a-node-below",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        return Ok(Some(OpenerReason::Explicit));\n    }\n    Ok(match &run.below {",
+      "new": "        return Ok(run.below.as_ref().map(|_| OpenerReason::Explicit));\n    }\n    Ok(match &run.below {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_file_tags_and_plain_first_rows_keep_a_pending_document"
+      ]
+    },
+    {
+      "name": "error-below-drops-the-document",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        Some(below) if below.has_error() || below.is_missing() => Some(OpenerReason::Explicit),",
+      "new": "        Some(below) if below.kind().is_empty() => Some(OpenerReason::Explicit),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_above_a_syntax_error_keeps_its_document_unresolved"
+      ]
+    },
+    {
+      "name": "any-node-below-keeps-a-document",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        Some(below) if below.has_error() || below.is_missing() => Some(OpenerReason::Explicit),",
+      "new": "        Some(_) => Some(OpenerReason::Explicit),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_detached_runs_are_not_selected"
+      ]
+    },
+    {
+      "name": "selection-ignores-the-function",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        Some(below) if target(below) => Some(OpenerReason::FollowingItem),",
+      "new": "        Some(below) if target(below) => Some(OpenerReason::Explicit),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_tagged_run_documents_the_function_below",
+        "documentation::collector::shdoc_tests::bash_documents_follow_source_order_and_keep_their_scope",
+        "documentation::collector::shdoc_tests::bash_crlf_rows_give_an_owner_that_bash_does_not_read"
+      ]
+    },
+    {
+      "name": "node-in-a-text-is-registered",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if id.0 == 0 || self.shdoc.text() {",
+      "new": "        if id.0 == 0 {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_here_document_text_is_never_documentation"
+      ]
+    },
+    {
+      "name": "text-row-among-the-rows-is-left-out",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "                _ if started => return Ok(None),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_with_a_node_that_is_no_comment_for_bash_is_not_read"
+      ]
+    },
+    {
+      "name": "text-row-stays-a-member",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "                _ => continue,\n            }\n            members.push(member);",
+      "new": "                _ => {}\n            }\n            members.push(member);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_with_a_node_that_is_no_comment_for_bash_is_not_read",
+        "documentation::collector::shdoc_tests::bash_functions_outside_the_two_owner_positions_stay_pending"
+      ]
+    },
+    {
+      "name": "row-that-opens-no-line-is-selected",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "                Place::Comment { line, .. } => loose |= member.selected && !line,",
+      "new": "                Place::Comment { .. } => {}",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "row-behind-excluded-bytes-is-selected",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "                Place::Unknown => loose |= member.selected,",
+      "new": "                Place::Unknown => {}",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "function-that-opens-no-line-is-the-owner",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            loose |= !self.opens_line(function.node().start_byte(), budget)?;",
+      "new": "            let _ = self.opens_line(function.node().start_byte(), budget)?;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "loose-run-keeps-its-rows",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            for member in &mut run.members {\n                member.selected = false;\n            }\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "function-end-inside-a-string-is-confirmed",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        let open = target(node) && scan.inside(node.end_byte());",
+      "new": "        let open = target(node) && node.is_missing() && scan.inside(node.end_byte());",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_function_whose_end_is_not_confirmed_is_a_candidate"
+      ]
+    },
+    {
+      "name": "node-that-holds-the-stop-stays-confirmed",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        self.unknown.is_none() && (self.at != at || self.mode != Mode::Code)",
+      "new": "        self.unknown.is_none() && self.stop.is_none() && (self.at != at || self.mode != Mode::Code)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_function_whose_end_is_not_confirmed_is_a_candidate"
+      ]
+    },
+    {
+      "name": "comment-end-is-not-compared",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            if matches!(self.here, Place::Comment { end, .. } if end != node.end_byte()) {\n                self.here = Place::Text;\n            }\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_node_that_ends_elsewhere_than_the_comment_is_no_row"
+      ]
+    },
+    {
+      "name": "error-node-is-no-stop",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        if node.is_error() || node.is_missing() {",
+      "new": "        if node.is_missing() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_recovery_withholds_what_follows_and_keeps_what_stands_before"
+      ]
+    },
+    {
+      "name": "missing-node-is-no-stop",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        if node.is_error() || node.is_missing() {",
+      "new": "        if node.is_error() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_recovery_withholds_what_follows_and_keeps_what_stands_before"
+      ]
+    },
+    {
+      "name": "run-behind-the-stop-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if self.shdoc.withheld() {\n            return self.shdoc_withhold::<T>(id, node, ancestors, budget);\n        }",
+      "new": "        if self.shdoc.withheld() && id.0 == usize::MAX {\n            return self.shdoc_withhold::<T>(id, node, ancestors, budget);\n        }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld",
+        "documentation::collector::shdoc_tests::bash_withheld_run_costs_linear_work_and_keeps_nothing"
+      ]
+    },
+    {
+      "name": "function-that-waits-is-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                || node.is_missing()\n                || (self.index.profile == Profile::Shdoc && self.shdoc.waits())\n                || (self.index.profile == Profile::Shdoc && in_substitution)\n            {",
+      "new": "                || node.is_missing()\n                || (self.index.profile == Profile::Shdoc && in_substitution)\n            {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld",
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "function-behind-the-stop-is-an-owner",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            Place::Form | Place::Unknown | Place::Behind(_) | Place::Code { word: false, .. }",
+      "new": "            Place::Form | Place::Unknown | Place::Code { word: false, .. }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "function-inside-a-word-is-an-owner",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            Place::Form | Place::Unknown | Place::Behind(_) | Place::Code { word: false, .. }",
+      "new": "            Place::Form | Place::Unknown | Place::Behind(_)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "back-quotes-are-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                | (Mode::Back(_), _) => Place::Form,",
+      "new": "                    => Place::Form,\n                (Mode::Back(_), _) => Place::Text,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text"
+      ]
+    },
+    {
+      "name": "backslash-takes-no-byte",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'\\\\' => {\n                self.word = Word::Other;\n                return self.escaped(at, Place::Text, budget);\n            }",
+      "new": "            b'\\\\' => self.word = Word::Other,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_with_a_node_that_is_no_comment_for_bash_is_not_read"
+      ]
+    },
+    {
+      "name": "joined-row-is-a-row-of-its-own",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if byte == b'\\\\' && self.peek(at + 1) == Some(LF) {\n            // The pair is no byte",
+      "new": "        if byte == b'\\\\' && self.peek(at + 1) == Some(LF) && at == usize::MAX {\n            // The pair is no byte",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_rows_that_bash_joins_to_code_open_no_run"
+      ]
+    },
+    {
+      "name": "joined-row-never-opens-a-line",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            // a line of its own only if blanks alone stand before the pair.\n            return self.escaped(at, Place::Text, budget);",
+      "new": "            // a line of its own only if blanks alone stand before the pair.\n            self.line = false;\n            return self.escaped(at, Place::Text, budget);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_bare_continuation_rows_above_a_run_do_not_detach_it"
+      ]
+    },
+    {
+      "name": "escaped-quote-ends-an-ansi-string",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Ansi, b'\\\\') => return self.escaped(at, Place::Text, budget),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "ansi-backslash-takes-only-a-quote",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Ansi, b'\\\\') => return self.escaped(at, Place::Text, budget),",
+      "new": "            (Mode::Ansi, b'\\\\') if self.peek(at + 1) == Some(b'\\'') => {\n                return self.escaped(at, Place::Text, budget);\n            }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "escaped-quote-ends-a-string",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'\\\\' => {\n                // A backslash and line feed are no bytes for Bash: `$` and\n                // `(` around them are `$(`.\n                self.dollar = dollar && self.peek(at + 1) == Some(LF);\n                return self.escaped(at, Place::Text, budget);\n            }",
+      "new": "            b'\\\\' => {}",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "dollar-quote-is-a-plain-quote",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                    Mode::Double\n                } else {\n                    Mode::Ansi\n                };",
+      "new": "                    Mode::Double\n                } else {\n                    Mode::Single\n                };",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "backslash-in-back-quotes-takes-no-byte",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "back-quotes-in-a-string-end-the-string",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Back(true), b'`') => self.mode = Mode::Double,",
+      "new": "            (Mode::Back(true), b'`') => self.mode = Mode::Code,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_forms_on_one_row_and_back_quotes_are_read"
+      ]
+    },
+    {
+      "name": "back-quotes-end-at-the-line-end",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),",
+      "new": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),\n            (Mode::Back(false), LF) => self.mode = Mode::Code,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_rows_inside_a_form_or_a_text_give_no_document_and_no_assessment",
+        "documentation::collector::shdoc_tests::bash_functions_in_a_substitution_stay_pending"
+      ]
+    },
+    {
+      "name": "quote-in-back-quotes-opens-a-string",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),",
+      "new": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),\n            (Mode::Back(_), b'\\'') => self.mode = Mode::Single,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text"
+      ]
+    },
+    {
+      "name": "hash-in-a-word-opens-a-comment",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'#' if word == Word::None => return self.comment(at, line, budget),",
+      "new": "            b'#' => return self.comment(at, line, budget),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_with_a_node_that_is_no_comment_for_bash_is_not_read"
+      ]
+    },
+    {
+      "name": "form-feed-is-a-blank",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b' ' | b'\\t' => self.line = line,",
+      "new": "            b' ' | b'\\t' | 0x0c => self.line = line,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_with_a_node_that_is_no_comment_for_bash_is_not_read"
+      ]
+    },
+    {
+      "name": "hash-opens-no-comment",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'#' if word == Word::None => return self.comment(at, line, budget),",
+      "new": "            b'#' if at == usize::MAX => return self.comment(at, line, budget),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_tagged_run_documents_the_function_below"
+      ]
+    },
+    {
+      "name": "dash-behind-a-duplication-is-a-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Dup, b'-') => {\n                self.word = Word::None;",
+      "new": "            (Prev::Dup, b'-') => {\n                self.word = Word::Other;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "dash-operator-keeps-the-tabs",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::LessLess, b'-') => Prev::Operator(true),",
+      "new": "            (Prev::LessLess, b'-') => Prev::Operator(false),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_rows_behind_a_here_document_are_read_where_bash_ends_it"
+      ]
+    },
+    {
+      "name": "prefix-of-the-delimiter-ends-the-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (false, LF) if text.matched != Some(text.heredoc.word.len()) => {",
+      "new": "            (false, LF) if text.matched.is_none() => {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_here_document_text_is_never_documentation"
+      ]
+    },
+    {
+      "name": "blank-in-the-delimiter-row-is-skipped",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.start && self.heredoc.tabs && byte == b'\\t' {",
+      "new": "        if byte == b' ' || self.start && self.heredoc.tabs && byte == b'\\t' {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_here_document_text_that_the_grammar_reads_as_code_gives_no_document",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "second-text-is-read-first",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            LF => match self.waiting.pop_front() {",
+      "new": "            LF => match self.waiting.pop_back() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "triple-less-opens-a-here-document",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.prev == Prev::LessLess && !matches!(byte, b'<' | b'-') {",
+      "new": "        if self.prev == Prev::LessLess && byte != b'-' {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "backslash-row-is-not-joined",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (false, b'\\\\') if !text.heredoc.quoted => text.slash = true,",
+      "new": "            (false, b'\\\\') if text.heredoc.word.is_empty() => text.slash = true,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "quoted-text-joins-rows",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (false, b'\\\\') if !text.heredoc.quoted => text.slash = true,",
+      "new": "            (false, b'\\\\') => text.slash = true,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "two-backslashes-join",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                text.feed(b'\\\\');\n                text.feed(byte);\n",
+      "new": "                text.feed(b'\\\\');\n                text.feed(byte);\n                text.slash = byte == b'\\\\';\n",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_inputs_of_review_round_one_publish_no_text",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "quotes-do-not-nest-in-a-form",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            _ => quote(byte, dollar, false),\n        };",
+      "new": "            _ => None,\n        };",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "joined-row-splits-a-dollar-form",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                self.dollar = dollar && self.peek(at + 1) == Some(LF);",
+      "new": "                self.dollar = false;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "arithmetic-expansion-is-read-as-commands",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'(' if self.peek(at + 1) == Some(b'(') => Frame::Balanced,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_forms_on_one_row_and_back_quotes_are_read"
+      ]
+    },
+    {
+      "name": "quote-in-quoted-braces-is-a-string",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "        b'\\'' if plain => Some(Frame::Plain),",
+      "new": "        b'\\'' if plain && dollar => Some(Frame::Plain),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "unpaired-double-parenthesis-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.peek(end) != Some(b')') {\n            return Ok(self.halt(at));\n        }",
+      "new": "        if self.peek(end).is_none() {\n            return Ok(self.halt(at));\n        }",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "shift-in-a-form-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                _ => Step::Halt,\n            },",
+      "new": "                _ => Step::Break(Before::Other),\n            },",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "subscript-is-read-as-a-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'[' if word == Word::Name || (word == Word::None && self.array) => {",
+      "new": "            b'[' if at == usize::MAX => {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "bracket-behind-any-word-opens-a-subscript",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                    Word::Name if name(byte, false) => Word::Name,",
+      "new": "                    Word::Name => Word::Name,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "compound-assignment-is-a-subshell",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                (self.array, self.word) = (true, Word::None);",
+      "new": "                (self.array, self.word) = (false, Word::None);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "hash-behind-a-closing-parenthesis-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Shut, b'#') => Ok(self.halt(at)),\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "extended-pattern-is-read-as-commands",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Pattern, b'(') => {",
+      "new": "            (Prev::Pattern, b'(') if at == usize::MAX => {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "extended-pattern-ends-a-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                (self.word, self.prev) = (Word::Other, Prev::Shut);",
+      "new": "                (self.word, self.prev) = (Word::Other, Prev::None);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "bar-in-the-pattern-word-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'|' => Step::Halt,",
+      "new": "            b'|' => Step::Word(Before::Other),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "assignment-in-the-pattern-word-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'(' if named && self.code[at - 1] == b'=' => Step::Halt,",
+      "new": "            b'(' if named && self.code[at - 1] == b'~' => Step::Halt,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "hash-behind-the-pattern-parenthesis-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                    if frame == Frame::Guarded && self.peek(end) == Some(b'#') {",
+      "new": "                    if frame == Frame::Guarded && self.peek(end) == Some(0) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "form-may-go-over-rows",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            Some(LF) => self.halt(opener),",
+      "new": "            Some(LF) => return self.take(at, budget),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld",
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once"
+      ]
+    },
+    {
+      "name": "comment-in-a-substitution-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'#' if !top.word => Step::Halt,",
+      "new": "            b'#' if !top.word && at == usize::MAX => Step::Halt,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "case-in-a-substitution-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'c' | b'e' if !top.word && !subscript && self.case_word(at) => Step::Halt,",
+      "new": "            b'c' | b'e' if !top.word && subscript && self.case_word(at) => Step::Halt,",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "brace-in-braces-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'{' => Step::Halt,",
+      "new": "            b'{' => Step::Word(Before::Other),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "quote-in-brackets-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                return halt_if(parenthesis || b\"'\\\"$[`\".contains(&byte));",
+      "new": "                return halt_if(parenthesis);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "delimiter-with-an-expansion-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                b'$' if matches!(self.peek(next + 1), Some(b'(' | b'{' | b'[' | b'\\'' | b'\"')) => {",
+      "new": "                b'$' if matches!(self.peek(next + 1), Some(b'(' | b'[' | b'\\'' | b'\"')) => {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "quoted-delimiter-with-a-dollar-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            let expands = quote == b'\"' && matches!(byte, b'\\\\' | b'$' | b'`');",
+      "new": "            let expands = quote == b'\"' && matches!(byte, b'\\\\' | b'`');",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "quoting-byte-in-a-delimiter-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                1 | 0x7f | b'`' => return Ok(self.halt(at)),",
+      "new": "                b'`' => return Ok(self.halt(at)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once"
+      ]
+    },
+    {
+      "name": "nul-byte-is-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if byte == 0 {\n            self.stop = Some((at, UnresolvedReason::GrammarBoundary));\n            return Ok(None);\n        }\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_run_behind_the_place_where_the_scan_stops_is_withheld"
+      ]
+    },
+    {
+      "name": "line-feed-behind-unseen-bytes-is-proven",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if byte == LF && seen && slashes.is_multiple_of(2) {",
+      "new": "        if byte == LF {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "open-string-at-an-excluded-byte-is-forgotten",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            && (self.mode != Mode::Code || !self.waiting.is_empty() || self.array || waits)",
+      "new": "            && (!self.waiting.is_empty() || self.array || waits)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "waiting-text-at-an-excluded-byte-is-forgotten",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            && (self.mode != Mode::Code || !self.waiting.is_empty() || self.array || waits)",
+      "new": "            && (self.mode != Mode::Code || self.array || waits)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "open-assignment-at-an-excluded-byte-is-forgotten",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            && (self.mode != Mode::Code || !self.waiting.is_empty() || self.array || waits)",
+      "new": "            && (self.mode != Mode::Code || !self.waiting.is_empty() || waits)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "waiting-operator-at-an-excluded-byte-is-forgotten",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        let waits = matches!(self.prev, Prev::LessLess | Prev::Operator(_));",
+      "new": "        let waits = self.prev == Prev::Dollar;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "form-cut-by-excluded-bytes-is-a-grammar-boundary",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.end < self.code.len() {\n            self.stop = Some((self.end, UnresolvedReason::ExcludedGap));\n            None\n        } else {\n            self.halt(opener)\n        }",
+      "new": "        self.halt(opener)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "excluded-bytes-are-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        Ok(Scan::new(code, ranges))",
+      "new": "        let _ = ranges;\n        Ok(Scan::new(code, vec![0..code.len()]))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "duplication-dash-in-a-form-is-a-word",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'-' if before == Before::Dup => Step::Break(Before::Other),",
+      "new": "            b'-' if before == Before::Dup => Step::Word(Before::Other),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_functions_in_a_substitution_stay_pending"
+      ]
+    },
+    {
+      "name": "post-gap-opener-is-forgotten",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.stop.is_some() || next.is_none() || self.opened_tentative {",
+      "new": "        if self.stop.is_some() || next.is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "stale-unknown-unit-is-reused",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            _ if at < self.at && self.unit.0.contains(&at) => match self.unit.1 {",
+      "new": "            _ if at < self.at => match self.unit.1 {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_excluded_ranges_are_barriers"
+      ]
+    },
+    {
+      "name": "scan-byte-uncharged",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        budget.bytes(1)?;\n        bytes_scanned::record();",
+      "new": "        let _ = budget;\n        bytes_scanned::record();",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "comment-row-is-read-twice",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            if self.take(end, budget)?.is_none() {\n                return Ok(None);\n            }\n            end += 1;\n        }\n        self.unit = (at..end, Place::Comment { end, line });",
+      "new": "            if self.take(end, budget)?.is_none() || self.take(end, budget)?.is_none() {\n                return Ok(None);\n            }\n            end += 1;\n        }\n        self.unit = (at..end, Place::Comment { end, line });",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_run_width_costs_linear_work",
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "form-entry-uncharged",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "        budget.step()?;\n        forms_opened::record();\n        self.guards",
+      "new": "        let _ = budget;\n        forms_opened::record();\n        self.guards",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "here-document-entry-uncharged",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "        budget.step()?;\n        forms_opened::record();\n        let tabs",
+      "new": "        forms_opened::record();\n        let tabs",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once"
+      ]
+    },
+    {
+      "name": "included-ranges-lookup-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        match source.pieces_with_budget(0..code.len(), budget) {",
+      "new": "        match source.pieces_with_budget(0..code.len(), &crate::documentation::budget::NoBudget) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "piece-step-removed",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "                    budget.step().map_err(Into::into)?;\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "scan-start-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            unopened => unopened.insert(Self::open(source, budget)?),",
+      "new": "            unopened => unopened.insert(Self::open(source, &crate::documentation::budget::NoBudget)?),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "comment-read-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            scan.read(start, budget).map_err(Into::into)?;",
+      "new": "            crate::documentation::budget::infallible(scan.read(start, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "advance-to-a-node-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            scan.advance(start, budget).map_err(Into::into)?;",
+      "new": "            crate::documentation::budget::infallible(scan.advance(start, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "advance-to-a-node-end-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        scan.advance(node.end_byte(), budget)?;",
+      "new": "        crate::documentation::budget::infallible(scan.advance(node.end_byte(), &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "member-step-removed",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        for member in std::mem::take(&mut run.members) {\n            budget.step()?;\n",
+      "new": "        for member in std::mem::take(&mut run.members) {\n",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "row-search-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            match self.row(member.node.node().start_byte(), budget)? {",
+      "new": "            match crate::documentation::budget::infallible(self.row(member.node.node().start_byte(), &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "row-search-steps-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            |at| self.rows[at].0 < start,\n            budget,\n        )?;",
+      "new": "            |at| self.rows[at].0 < start,\n            &crate::documentation::budget::NoBudget,\n        )\n        .unwrap_or_else(|never| match never {});\n        let _ = budget;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "rows-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        let Some(mut loose) = self.rows(&mut run, budget)? else {",
+      "new": "        let Some(mut loose) = crate::documentation::budget::infallible(self.rows(&mut run, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "function-line-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "            loose |= !self.opens_line(function.node().start_byte(), budget)?;",
+      "new": "            loose |= !crate::documentation::budget::infallible(self.opens_line(function.node().start_byte(), &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "advance-to-the-function-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc.rs",
+      "old": "        scan.advance(start, budget)?;\n        let (word, line) = (true, true);",
+      "new": "        crate::documentation::budget::infallible(scan.advance(start, &crate::documentation::budget::NoBudget));\n        let _ = budget;\n        let (word, line) = (true, true);",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "walk-enter-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                            .enter(&self.index.source, &node, comment, budget)?;",
+      "new": "                            .enter(&self.index.source, &node, comment, &crate::documentation::budget::NoBudget)?;",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "walk-leave-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                        if let Some(reason) = self.shdoc.leave(&node, budget)? {",
+      "new": "                        if let Some(reason) = crate::documentation::budget::infallible(self.shdoc.leave(&node, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "confirmation-unbudgeted",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            if let Some(run) = self.shdoc.confirm(run, retain, budget)? {",
+      "new": "            if let Some(run) = crate::documentation::budget::infallible(self.shdoc.confirm(run, retain, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "scan-runs-for-every-profile",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                    if self.index.profile == Profile::Shdoc {\n                        if matches!(node.kind(),",
+      "new": "                    if self.index.profile != Profile::Helper {\n                        if matches!(node.kind(),",
+      "expect": [
+        "documentation::collector::c_family_tests::c_comment_forms_are_cleaned_to_their_text"
+      ]
+    },
+    {
+      "name": "advance-call-1-of-step-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        while self.at < to && self.at < self.end && self.stop.is_none() {\n            self.step(budget)?;",
+      "new": "        while self.at < to && self.at < self.end && self.stop.is_none() {\n            crate::documentation::budget::infallible(self.step(&crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "read-call-1-of-advance-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        self.advance(at, budget)?;",
+      "new": "        crate::documentation::budget::infallible(self.advance(at, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "read-call-2-of-step-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if self.at == at && self.at < self.end && self.stop.is_none() {\n            self.step(budget)?;",
+      "new": "        if self.at == at && self.at < self.end && self.stop.is_none() {\n            crate::documentation::budget::infallible(self.step(&crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "step-call-1-of-resume-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (true, _) => self.resume(at, budget)?,",
+      "new": "            (true, _) => crate::documentation::budget::infallible(self.resume(at, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "step-call-2-of-command-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (_, Mode::Code) => self.command(at, budget)?,",
+      "new": "            (_, Mode::Code) => crate::documentation::budget::infallible(self.command(at, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "step-call-3-of-text-byte-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (_, Mode::Text) => self.text_byte(at, budget)?,",
+      "new": "            (_, Mode::Text) => crate::documentation::budget::infallible(self.text_byte(at, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "step-call-4-of-double-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (_, Mode::Double) => self.double(at, budget)?,",
+      "new": "            (_, Mode::Double) => crate::documentation::budget::infallible(self.double(at, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "step-call-5-of-literal-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            _ => self.literal(at, budget)?,",
+      "new": "            _ => crate::documentation::budget::infallible(self.literal(at, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "resume-call-1-of-command-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        let next = self.command(at, budget)?;",
+      "new": "        let next = crate::documentation::budget::infallible(self.command(at, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte"
+      ]
+    },
+    {
+      "name": "escaped-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        if at + 1 < self.end && self.take(at + 1, budget)?.is_none() {",
+      "new": "        if at + 1 < self.end && crate::documentation::budget::infallible(self.take(at + 1, &crate::documentation::budget::NoBudget)).is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "literal-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "    fn literal<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = self.take(at, budget)? else {",
+      "new": "    fn literal<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = crate::documentation::budget::infallible(self.take(at, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "literal-call-2-of-escaped-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Back(_), b'\\\\') => return self.escaped(at, Place::Form, budget),",
+      "new": "            (Mode::Back(_), b'\\\\') => return Ok(crate::documentation::budget::infallible(self.escaped(at, Place::Form, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "literal-call-3-of-escaped-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Mode::Ansi, b'\\\\') => return self.escaped(at, Place::Text, budget),",
+      "new": "            (Mode::Ansi, b'\\\\') => return Ok(crate::documentation::budget::infallible(self.escaped(at, Place::Text, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "double-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "    fn double<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = self.take(at, budget)? else {",
+      "new": "    fn double<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = crate::documentation::budget::infallible(self.take(at, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "double-call-2-of-escaped-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                self.dollar = dollar && self.peek(at + 1) == Some(LF);\n                return self.escaped(at, Place::Text, budget);",
+      "new": "                self.dollar = dollar && self.peek(at + 1) == Some(LF);\n                return Ok(crate::documentation::budget::infallible(self.escaped(at, Place::Text, &crate::documentation::budget::NoBudget)));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "double-call-3-of-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                return self.form(at, frame, budget);",
+      "new": "                return Ok(crate::documentation::budget::infallible(self.form(at, frame, &crate::documentation::budget::NoBudget)));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "command-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "    fn command<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = self.take(at, budget)? else {",
+      "new": "    fn command<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = crate::documentation::budget::infallible(self.take(at, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "command-call-2-of-escaped-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            // a line of its own only if blanks alone stand before the pair.\n            return self.escaped(at, Place::Text, budget);",
+      "new": "            // a line of its own only if blanks alone stand before the pair.\n            return Ok(crate::documentation::budget::infallible(self.escaped(at, Place::Text, &crate::documentation::budget::NoBudget)));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "command-call-3-of-combined-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        self.combined(at, byte, budget)",
+      "new": "        Ok(crate::documentation::budget::infallible(self.combined(at, byte, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "combined-call-1-of-opened-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            _ => return self.opened(at, byte, budget),",
+      "new": "            _ => return Ok(crate::documentation::budget::infallible(self.opened(at, byte, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "opened-call-1-of-delimiter-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Operator(tabs), _) => self.delimiter(at, byte, tabs, budget),",
+      "new": "            (Prev::Operator(tabs), _) => Ok(crate::documentation::budget::infallible(self.delimiter(at, byte, tabs, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-2-of-pattern-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Tilde, b'(' | b'|') => self.pattern(at, byte, budget),",
+      "new": "            (Prev::Tilde, b'(' | b'|') => Ok(crate::documentation::budget::infallible(self.pattern(at, byte, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-3-of-pattern-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                self.pattern(at, byte, budget)",
+      "new": "                Ok(crate::documentation::budget::infallible(self.pattern(at, byte, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-4-of-word-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Less | Prev::Greater, b'(') => self.word_form(at, Frame::Command, budget),",
+      "new": "            (Prev::Less | Prev::Greater, b'(') => Ok(crate::documentation::budget::infallible(self.word_form(at, Frame::Command, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-5-of-word-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                self.word_form(at, frame, budget)",
+      "new": "                Ok(crate::documentation::budget::infallible(self.word_form(at, frame, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "opened-call-6-of-arithmetic-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            (Prev::Open, b'(') => self.arithmetic(at, budget),",
+      "new": "            (Prev::Open, b'(') => Ok(crate::documentation::budget::infallible(self.arithmetic(at, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-7-of-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                let end = self.form(at, Frame::Guarded, budget)?;",
+      "new": "                let end = crate::documentation::budget::infallible(self.form(at, Frame::Guarded, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "opened-call-8-of-plain-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            _ => self.plain(at, byte, budget),",
+      "new": "            _ => Ok(crate::documentation::budget::infallible(self.plain(at, byte, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "plain-call-1-of-comment-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            b'#' if word == Word::None => return self.comment(at, line, budget),",
+      "new": "            b'#' if word == Word::None => return Ok(crate::documentation::budget::infallible(self.comment(at, line, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "plain-call-2-of-escaped-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                self.word = Word::Other;\n                return self.escaped(at, Place::Text, budget);",
+      "new": "                self.word = Word::Other;\n                return Ok(crate::documentation::budget::infallible(self.escaped(at, Place::Text, &crate::documentation::budget::NoBudget)));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "plain-call-3-of-word-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "                return self.word_form(at, Frame::Subscript, budget);",
+      "new": "                return Ok(crate::documentation::budget::infallible(self.word_form(at, Frame::Subscript, &crate::documentation::budget::NoBudget)));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "word-form-call-1-of-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        let end = self.form(at, frame, budget)?;",
+      "new": "        let end = crate::documentation::budget::infallible(self.form(at, frame, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "comment-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "            if self.take(end, budget)?.is_none() {",
+      "new": "            if crate::documentation::budget::infallible(self.take(end, &crate::documentation::budget::NoBudget)).is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_reads_no_excluded_byte",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "arithmetic-call-1-of-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        let Some(end) = self.form(at, Frame::Guarded, budget)? else {",
+      "new": "        let Some(end) = crate::documentation::budget::infallible(self.form(at, Frame::Guarded, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "arithmetic-call-2-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "        }\n        if self.take(end, budget)?.is_none() {",
+      "new": "        }\n        if crate::documentation::budget::infallible(self.take(end, &crate::documentation::budget::NoBudget)).is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "text-byte-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "    fn text_byte<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = self.take(at, budget)? else {",
+      "new": "    fn text_byte<B: WorkBudget>(&mut self, at: usize, budget: &B) -> Read<B::Error> {\n        let Some(byte) = crate::documentation::budget::infallible(self.take(at, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_collection_charges_the_scan_to_its_budget"
+      ]
+    },
+    {
+      "name": "on-row-call-1-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            Some(_) => return self.take(at, budget),",
+      "new": "            Some(_) => return Ok(crate::documentation::budget::infallible(self.take(at, &crate::documentation::budget::NoBudget))),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "form-call-1-of-push-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "        self.push(frame, self.mode == Mode::Double, budget)?;",
+      "new": "        crate::documentation::budget::infallible(self.push(frame, self.mode == Mode::Double, &crate::documentation::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "form-call-2-of-on-row-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            let Some(byte) = self.on_row(at, next, budget)? else {",
+      "new": "            let Some(byte) = crate::documentation::budget::infallible(self.on_row(at, next, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form",
+        "documentation::collector::shdoc_tests::bash_reading_charges_the_budget_it_is_given"
+      ]
+    },
+    {
+      "name": "form-call-3-of-on-row-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                        if self.on_row(at, next + ahead, budget)?.is_none() {",
+      "new": "                        if crate::documentation::budget::infallible(self.on_row(at, next + ahead, &crate::documentation::budget::NoBudget)).is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "form-call-4-of-push-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                Step::Open(frame) => self.push(frame, top.quoted, budget)?,",
+      "new": "                Step::Open(frame) => crate::documentation::budget::infallible(self.push(frame, top.quoted, &crate::documentation::budget::NoBudget)),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_nesting_costs_one_stack_entry_per_open_form"
+      ]
+    },
+    {
+      "name": "pattern-call-1-of-form-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                    let Some(end) = self.form(next - 1, frame, budget)? else {",
+      "new": "                    let Some(end) = crate::documentation::budget::infallible(self.form(next - 1, frame, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "pattern-call-2-of-on-row-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                    if self.on_row(at, next, budget)?.is_none() {",
+      "new": "                    if crate::documentation::budget::infallible(self.on_row(at, next, &crate::documentation::budget::NoBudget)).is_none() {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "pattern-call-3-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                Some(_) => {}\n            }\n            match self.take(next, budget)? {",
+      "new": "                Some(_) => {}\n            }\n            match crate::documentation::budget::infallible(self.take(next, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "delimiter-quote-call-1-of-on-row-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            let Some(byte) = self.on_row(opener, next, budget)? else {",
+      "new": "            let Some(byte) = crate::documentation::budget::infallible(self.on_row(opener, next, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "delimiter-call-1-of-delimiter-quote-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                    let Some(close) = self.delimiter_quote(at, next, &mut word, budget)? else {",
+      "new": "                    let Some(close) = crate::documentation::budget::infallible(self.delimiter_quote(at, next, &mut word, &crate::documentation::budget::NoBudget)) else {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "delimiter-call-2-of-on-row-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                b'\\\\' => match self.on_row(at, next + 1, budget)? {",
+      "new": "                b'\\\\' => match crate::documentation::budget::infallible(self.on_row(at, next + 1, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "delimiter-call-3-of-take-unbudgeted",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "                _ => break,\n            }\n            match self.take(next, budget)? {",
+      "new": "                _ => break,\n            }\n            match crate::documentation::budget::infallible(self.take(next, &crate::documentation::budget::NoBudget)) {",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_charges_each_byte_once_and_each_open_form_once",
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "b27-a-process-substitution-is-balanced",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan.rs",
+      "old": "(Prev::Less | Prev::Greater, b'(') => self.word_form(at, Frame::Command, budget),",
+      "new": "(Prev::Less | Prev::Greater, b'(') => self.word_form(at, Frame::Balanced, budget),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_scan_reads_rows_as_bash_does"
+      ]
+    },
+    {
+      "name": "b27-b-duplication-does-not-break-a-form",
+      "file": "big-code-analysis-ast/src/lang_helpers/shdoc/scan/forms.rs",
+      "old": "            b'&' if before == Before::Angle => Step::Break(Before::Dup),",
+      "new": "            b'&' if before == Before::Angle => Step::Word(Before::Other),",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_functions_in_a_substitution_stay_pending"
+      ]
+    },
+    {
+      "name": "b27-c-substitution-ancestor-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                || (self.index.profile == Profile::Shdoc && in_substitution)",
+      "new": "                || (self.index.profile == Profile::Shdoc && false && in_substitution)",
+      "expect": [
+        "documentation::collector::shdoc_tests::bash_functions_in_a_substitution_stay_pending"
+      ]
+    }
+  ]
+}

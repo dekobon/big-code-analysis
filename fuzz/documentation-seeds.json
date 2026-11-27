@@ -287,7 +287,7 @@
       0
     ],
     "sha256": "2f4d69dff498ec26d68d6a0bace15205533009b103ff69f4eda22e0fb05fa6cc",
-    "class": "deferred",
+    "class": "positive",
     "provenance": "tests/fixtures/documentation/inventory.json",
     "inventory": "bash",
     "fixture": "primary.bash",

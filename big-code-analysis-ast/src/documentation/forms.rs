@@ -139,6 +139,16 @@ pub(super) fn owner_pending(
             node.kind(),
             "assignment_statement" | "variable_declaration" | "return_statement" | "field"
         ),
+        // A function owns documentation at file level and directly in the
+        // braces of another function's body; any other place stays pending.
+        Profile::Shdoc => match parent {
+            Some("program") => false,
+            Some("compound_statement") => ancestors
+                .iter(node)
+                .nth(1)
+                .is_none_or(|(outer, _)| outer.kind() != "function_definition"),
+            _ => true,
+        },
         _ => false,
     }
 }
