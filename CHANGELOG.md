@@ -26,6 +26,11 @@ for historical reference.
 
 ### Added
 
+- TypeScript and TSX documentation collection now resolves anonymous default exports,
+  namespaces, named variable declarators, and `using`/`await using` assignment owners.
+  `declare` wrappers skip comment children. Parameter slots remain pending; legacy
+  documentation metrics are unchanged.
+
 - The unstable PHP source documentation collector gives a single-name property
   declaration a property slot and a single-name constant declaration a binding
   slot, each enclosed by its declaration. Multi-name declarations, promoted

@@ -154,8 +154,8 @@
     {
       "name": "export-statement-is-no-wrapper",
       "file": "big-code-analysis-ast/src/documentation/collector.rs",
-      "old": "            matches!(kind, \"export_statement\" | \"ambient_declaration\")",
-      "new": "            matches!(kind, \"ambient_declaration\")",
+      "old": "Profile::Jsdoc => matches!(kind, \"export_statement\" | \"ambient_declaration\"),",
+      "new": "Profile::Jsdoc => matches!(kind, \"ambient_declaration\"),",
       "expect": [
         "documentation::collector::js_tests::javascript_exported_declaration_owns_the_block_and_the_export_is_the_binding",
         "documentation::collector::js_tests::mozjs_exported_declaration_owns_the_block_and_the_export_is_the_binding",

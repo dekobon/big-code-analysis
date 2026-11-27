@@ -41,6 +41,12 @@ impl Builder<'_> {
             return Ok(());
         }
         let range = self.index.canonical.nodes[id.0].children.clone();
+        if self.index.profile == Profile::BcaTypescriptSource
+            && node.kind() == "ambient_declaration"
+            && !self.ts_ambient_continues(id, budget)?
+        {
+            return Ok(());
+        }
         let mut owners = Vec::new();
         for &child in &self.index.canonical.children[range] {
             budget.step()?;
@@ -50,6 +56,20 @@ impl Builder<'_> {
                 Profile::Jsdoc | Profile::BcaTypescriptSource
             ) && node.kind() == "export_statement"
                 && !matches!(record.field, Some("declaration" | "value"))
+            {
+                continue;
+            }
+            if self.index.profile == Profile::BcaTypescriptSource
+                && matches!(record.evidence.node().kind(), "comment" | "html_comment")
+            {
+                continue;
+            }
+            if self.index.profile == Profile::BcaTypescriptSource
+                && matches!(node.kind(), "expression_statement" | "await_expression")
+                && !matches!(
+                    record.evidence.node().kind(),
+                    "internal_module" | "assignment_expression" | "await_expression"
+                )
             {
                 continue;
             }
@@ -87,6 +107,34 @@ impl Builder<'_> {
             self.index.canonical.nodes[id.0].projection = Projection::Ready(owners);
         }
         Ok(())
+    }
+
+    pub(super) fn ts_ambient_continues<B: WorkBudget>(
+        &self,
+        id: NodeId,
+        budget: &B,
+    ) -> Result<bool, B::Error> {
+        let mut keyword_end = None;
+        for &child in
+            &self.index.canonical.children[self.index.canonical.nodes[id.0].children.clone()]
+        {
+            budget.step()?;
+            let node = self.index.canonical.nodes[child.0].evidence.node();
+            if node.kind() == "declare" {
+                keyword_end = Some(node.end_byte());
+            } else if !matches!(node.kind(), "comment" | "html_comment") && node.is_named() {
+                return match keyword_end {
+                    Some(end) => super::ts_line_continues(
+                        self.index.source.bytes(),
+                        end,
+                        node.start_byte(),
+                        budget,
+                    ),
+                    None => Ok(false),
+                };
+            }
+        }
+        Ok(false)
     }
 
     // The owners of a node that is no wrapper: one arm per profile that gives a
@@ -142,6 +190,15 @@ impl Builder<'_> {
             )
         {
             return self.js_first_declarator_owner(id, budget);
+        }
+        if self.index.profile == Profile::BcaTypescriptSource
+            && matches!(node.kind(), "lexical_declaration" | "variable_declaration")
+            && matches!(
+                self.index.canonical.nodes[id.0].projection,
+                Projection::Pending
+            )
+        {
+            return self.ts_binding_owner(id, budget);
         }
         if self.index.profile == Profile::Kdoc
             && node.kind() == "property_declaration"
@@ -214,6 +271,24 @@ impl Builder<'_> {
         self.index.qualifications_by_owner.push(Vec::new());
         self.index.owner_nodes.push(id);
         self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![slot]);
+        Ok(())
+    }
+
+    fn ts_binding_owner(
+        &mut self,
+        id: NodeId,
+        budget: &CollectionBudget,
+    ) -> Result<(), CollectionError> {
+        if let Some(child) = budget::in_phase(budget, budget::WorkPhase::Projection, || {
+            ts_binding_declarator(&self.index.canonical, id, budget)
+        })? {
+            let owner = OwnerId(self.index.facts.owners.len());
+            self.add_owner(
+                child,
+                Owner::Node(self.index.canonical.nodes[child.0].evidence),
+            );
+            self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![owner]);
+        }
         Ok(())
     }
 
@@ -899,6 +974,28 @@ pub(super) fn ruby_call_comment_cost<B: WorkBudget<Error = SourceError>>(
     }
     index.canonical.nodes[call_id.0].children = start..index.canonical.children.len();
     ruby_slot_cost(index, call, budget)
+}
+
+pub(super) fn ts_binding_declarator<B: WorkBudget>(
+    canonical: &CanonicalNodes<'_>,
+    declaration: NodeId,
+    budget: &B,
+) -> Result<Option<NodeId>, B::Error> {
+    for &child in &canonical.children[canonical.nodes[declaration.0].children.clone()] {
+        budget.step()?;
+        let record = &canonical.nodes[child.0];
+        if record.evidence.node().kind() != "variable_declarator" {
+            continue;
+        }
+        budget.step()?;
+        return Ok(record
+            .evidence
+            .node()
+            .child(0)
+            .filter(|name| name.kind() == "identifier")
+            .map(|_| child));
+    }
+    Ok(None)
 }
 
 // A destructuring property has no single declaration name. Comment nodes are trivia,
