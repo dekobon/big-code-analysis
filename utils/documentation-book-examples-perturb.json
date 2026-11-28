@@ -1,0 +1,70 @@
+{
+  "cwd": ".",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--test",
+    "api",
+    "book_documentation_examples"
+  ],
+  "cases": [
+    {
+      "name": "raw-fragment-byte-spelling",
+      "file": "big-code-analysis-ast/src/documentation/source.rs",
+      "old": "/// Raw bytes, without UTF-8 conversion or replacement characters.\n    #[must_use]\n    pub fn bytes(&self) -> &'s [u8] {\n        self.bytes\n    }",
+      "new": "/// Raw bytes, without UTF-8 conversion or replacement characters.\n    #[must_use]\n    pub fn bytes(&self) -> &'s [u8] {\n        &self.bytes[..0]\n    }",
+      "expect": [
+        "book_documentation_examples::collect_and_read"
+      ]
+    },
+    {
+      "name": "mapped-source-range",
+      "file": "big-code-analysis-ast/src/documentation/source.rs",
+      "old": "pub fn range(&self) -> Range<usize> {\n        self.range.clone()\n    }",
+      "new": "pub fn range(&self) -> Range<usize> {\n        self.range.start..self.range.start\n    }",
+      "expect": [
+        "book_documentation_examples::owners_and_origins",
+        "book_documentation_examples::normalized_path_coordinates"
+      ]
+    },
+    {
+      "name": "resolved-owner-count",
+      "file": "big-code-analysis-ast/src/documentation/owners.rs",
+      "old": "pub fn owner_count(&self) -> usize {\n        self.owners.len()\n    }",
+      "new": "pub fn owner_count(&self) -> usize {\n        self.owners.len().saturating_sub(1)\n    }",
+      "expect": [
+        "book_documentation_examples::owners_and_origins"
+      ]
+    },
+    {
+      "name": "accept-foreign-profile",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "if profile != default && !alternate {",
+      "new": "if profile != default && alternate {",
+      "expect": [
+        "book_documentation_examples::empty_and_errors"
+      ]
+    },
+    {
+      "name": "empty-complete-is-not-missing",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "Content::Complete { text, mappings } => Some(CompleteText { text, mappings }),",
+      "new": "Content::Complete { text, mappings } if !text.is_empty() => Some(CompleteText { text, mappings }),",
+      "expect": [
+        "book_documentation_examples::present_empty_and_unavailable"
+      ]
+    },
+    {
+      "name": "path-provenance-is-not-display-name",
+      "file": "src/spaces/ast.rs",
+      "old": "self.inner.documentation(context, options)",
+      "new": "self.inner.documentation(&DocumentationContext::default(), options)",
+      "expect": [
+        "book_documentation_examples::normalized_path_coordinates"
+      ]
+    }
+  ]
+}

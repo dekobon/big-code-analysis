@@ -4,6 +4,7 @@
 //! Tested in the parent module's `tests`.
 
 use super::Ancestors;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
 use crate::node::Node;
 
 impl<'tree, 'chain> Ancestors<'tree, 'chain> {
@@ -93,12 +94,20 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         self,
         node: &Node<'tree>,
     ) -> impl Iterator<Item = Node<'tree>> + use<'tree, 'chain> {
-        let (wide, narrow) = match self.lookup(node) {
+        infallible(self.siblings_after_with_budget(node, &NoBudget))
+    }
+
+    pub(crate) fn siblings_after_with_budget<B: WorkBudget>(
+        self,
+        node: &Node<'tree>,
+        budget: &B,
+    ) -> Result<impl Iterator<Item = Node<'tree>> + use<'tree, 'chain, B>, B::Error> {
+        let (wide, narrow) = match self.lookup_with_budget(node, budget)? {
             Lookup::Wide(children, index) => (index.map(|index| &children[index + 1..]), None),
             Lookup::Narrow(parent) => (None, parent.map(|parent| parent.children_after(node))),
         };
         let wide = wide.into_iter().flatten().copied();
-        wide.chain(narrow.into_iter().flatten())
+        Ok(wide.chain(narrow.into_iter().flatten()))
     }
 
     /// The siblings before `node`, nearest first: what
@@ -120,18 +129,34 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         self,
         node: &Node<'tree>,
     ) -> impl Iterator<Item = Node<'tree>> + use<'tree, 'chain> {
-        let (wide, narrow) = match self.lookup(node) {
+        infallible(self.siblings_before_with_budget(node, &NoBudget))
+    }
+
+    pub(crate) fn siblings_before_with_budget<B: WorkBudget>(
+        self,
+        node: &Node<'tree>,
+        budget: &B,
+    ) -> Result<impl Iterator<Item = Node<'tree>> + use<'tree, 'chain, B>, B::Error> {
+        let (wide, narrow) = match self.lookup_with_budget(node, budget)? {
             Lookup::Wide(children, index) => (index.map(|index| &children[..index]), None),
             Lookup::Narrow(parent) => (None, parent.map(|parent| parent.children_before(node))),
         };
         let wide = wide.into_iter().flatten().rev().copied();
-        wide.chain(narrow.into_iter().flatten())
+        Ok(wide.chain(narrow.into_iter().flatten()))
     }
 
     // Where `node`'s siblings are read from: its parent's children as the
     // walk recorded them and `node`'s index among them, or the parent to
     // seek in when the walk recorded none.
     pub(super) fn lookup(self, node: &Node<'tree>) -> Lookup<'tree, 'chain> {
+        infallible(self.lookup_with_budget(node, &NoBudget))
+    }
+
+    fn lookup_with_budget<B: WorkBudget>(
+        self,
+        node: &Node<'tree>,
+        budget: &B,
+    ) -> Result<Lookup<'tree, 'chain>, B::Error> {
         let parent = self.parent(node);
         let recorded = match (self.siblings, self.chain, parent) {
             (Some(cache), Some(chain), Some(parent)) => {
@@ -153,12 +178,15 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         };
         if let Some(children) = recorded {
             sibling_cache_reads::record();
-            return Lookup::Wide(children, position_by_start(children, node));
+            return Ok(Lookup::Wide(
+                children,
+                position_with_budget(children, node, budget)?,
+            ));
         }
         if self.chain.is_some() && parent.is_some() {
             sibling_seeks::record();
         }
-        Lookup::Narrow(parent)
+        Ok(Lookup::Narrow(parent))
     }
 }
 
@@ -181,14 +209,45 @@ pub const WIDE_PARENT: usize = 64;
 // bytes never decrease, so a binary search lands on the first child
 // starting where `node` does; only zero-width children, which recovery
 // inserts, can share that byte with it.
+#[cfg(test)]
 pub(super) fn position_by_start(children: &[Node], node: &Node) -> Option<usize> {
-    let first = children.partition_point(|child| child.start_byte() < node.start_byte());
-    children[first..]
-        .iter()
-        .take_while(|child| child.start_byte() == node.start_byte())
-        .position(|child| child.id() == node.id())
-        .map(|offset| first + offset)
+    infallible(position_with_budget(children, node, &NoBudget))
 }
+
+fn position_with_budget<B: WorkBudget>(
+    children: &[Node],
+    node: &Node,
+    budget: &B,
+) -> Result<Option<usize>, B::Error> {
+    let mut first = 0;
+    let mut end = children.len();
+    while first < end {
+        budget.step()?;
+        sibling_slot_probes::record();
+        let middle = first + (end - first) / 2;
+        if children[middle].start_byte() < node.start_byte() {
+            first = middle + 1;
+        } else {
+            end = middle;
+        }
+    }
+    for (at, child) in children.iter().enumerate().skip(first) {
+        budget.step()?;
+        sibling_slot_probes::record();
+        if child.start_byte() != node.start_byte() {
+            break;
+        }
+        if child.id() == node.id() {
+            return Ok(Some(at));
+        }
+    }
+    Ok(None)
+}
+
+crate::observation::counter!(
+    sibling_slot_probes,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// The children of each wide node on a walk's chain, recorded as the
 /// walk pushes them, so that [`Ancestors::siblings_after`] and
@@ -227,24 +286,59 @@ impl<'tree> SiblingCache<'tree> {
         depth: usize,
         children: impl IntoIterator<Item = Node<'tree>>,
     ) {
+        crate::documentation::budget::infallible(self.record_with_budget(
+            node,
+            depth,
+            children,
+            &crate::documentation::budget::NoBudget,
+        ));
+    }
+
+    pub(crate) fn record_with_budget<B: crate::documentation::budget::WorkBudget>(
+        &mut self,
+        node: &Node<'tree>,
+        depth: usize,
+        children: impl IntoIterator<Item = Node<'tree>>,
+        budget: &B,
+    ) -> Result<(), B::Error> {
+        crate::documentation::budget::in_phase(
+            budget,
+            crate::documentation::budget::WorkPhase::Batch,
+            || self.record_batch(node, depth, children, budget),
+        )
+    }
+
+    fn record_batch<B: crate::documentation::budget::WorkBudget>(
+        &mut self,
+        node: &Node<'tree>,
+        depth: usize,
+        children: impl IntoIterator<Item = Node<'tree>>,
+        budget: &B,
+    ) -> Result<(), B::Error> {
         if node.child_count() <= WIDE_PARENT {
-            return;
+            return Ok(());
         }
-        if self.0.len() <= depth {
-            self.0.resize_with(depth + 1, Default::default);
+        while self.0.len() <= depth {
+            budget.step()?;
+            self.0.push(Default::default());
         }
         // An unused slot's id is 0, which no node has: tree-sitter's id
         // is the address of the node's subtree.
         let (id, recorded) = &mut self.0[depth];
-        *id = node.id();
+        *id = 0;
         recorded.clear();
-        recorded.extend(children);
+        for child in children {
+            budget.step()?;
+            recorded.push(child);
+        }
         debug_assert_eq!(
             recorded.len(),
             node.child_count(),
             "a walk must record every child of a wide {}, in one batch (#1871)",
             node.kind()
         );
+        *id = node.id();
+        Ok(())
     }
 
     /// Whether no node is recorded. Test-only: the record is otherwise

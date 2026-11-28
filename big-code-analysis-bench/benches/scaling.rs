@@ -1,49 +1,14 @@
-//! Complexity-class gate for the metric walk (#1068).
-//!
-//! Measures every probe in `shapes::PROBES` at three doubling sizes,
-//! fits `time ~ size^k`, and fails when a probe's `k` exceeds the
-//! bound it declared. This is where the wall-clock assertions that used
-//! to live in `cognitive_deep_nesting_is_tractable` and
-//! `tokens_deep_nesting_is_tractable` went: the unit suite keeps the
-//! value assertions, which are host-independent, and the timing half
-//! moved here, where it runs under the bench profile on a host the
-//! operator chose.
-//!
-//! ```text
-//! cargo bench -p big-code-analysis-bench --bench scaling
-//! cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11
-//! ```
-//!
-//! Argument handling lives in `big_code_analysis_bench::cli`, where it
-//! is covered by tests that actually run: a `harness = false` bench
-//! target executes `main` instead of libtest, so a `#[cfg(test)]`
-//! module in this file would compile and never be exercised.
-//!
-//! See `docs/development/benchmarking.md`.
+//! Combined legacy and source class gate. Arguments and reductions are library-tested.
 
 use std::process::ExitCode;
 
-use big_code_analysis_bench::cli::{Action, Mode, USAGE, parse_args};
-use big_code_analysis_bench::scaling;
-use big_code_analysis_bench::shapes::{PROBES, Probe};
-use big_code_analysis_bench::vcs::{self, VCS_PROBES, VcsProbe};
-
-/// Exit code for "a probe left its complexity class".
-///
-/// Distinct from [`HARNESS_ERROR`] because
-/// `.github/workflows/benchmark.yml` reacts to the two differently: a
-/// regression is re-measured and then filed as an issue, while a
-/// harness that could not run is an infrastructure failure and must
-/// not open one. Collapsing both onto a bare failure meant any error
-/// that reproduced on the retry filed an issue claiming a complexity
-/// regression.
-const GATE_FAILURE: u8 = 1;
-
-/// Exit code for "the harness could not produce a measurement".
-///
-/// Bad arguments, or a `MetricsError` from a language that is not
-/// compiled into this build.
-const HARNESS_ERROR: u8 = 2;
+use big_code_analysis_bench::cli::{Action, Mode, Scope, USAGE, parse_args};
+use big_code_analysis_bench::documentation::{REGISTRY, combined::CombinedReport, runner};
+use big_code_analysis_bench::{
+    scaling,
+    shapes::PROBES,
+    vcs::{self, VCS_PROBES},
+};
 
 fn main() -> ExitCode {
     let args = match parse_args(std::env::args().skip(1)) {
@@ -52,90 +17,74 @@ fn main() -> ExitCode {
             print!("{USAGE}");
             return ExitCode::SUCCESS;
         }
-        Err(message) => {
-            eprintln!("{message}\n\n{USAGE}");
-            return ExitCode::from(HARNESS_ERROR);
+        Err(error) => {
+            eprintln!("{error}\n{USAGE}");
+            return ExitCode::from(2);
         }
     };
-
-    // An unoptimised build measures the walk through overflow checks
-    // and unelided bounds checks, which perturbs the constant factor
-    // enough that the exponent is not worth a verdict.
     let optimized = !cfg!(debug_assertions);
-    if !optimized {
-        eprintln!(
-            "note: built with debug assertions, so nothing here is gated. \
-             Use `cargo bench` for a measurement worth quoting."
-        );
-    }
-
-    let smoke_set;
-    let smoke_ranking;
-    let (probes, ranking): (&[Probe], &[VcsProbe]) = if args.mode == Mode::Smoke {
-        eprintln!(
-            "note: smoke run at small sizes. Use `cargo bench -p \
-             big-code-analysis-bench --bench scaling` for the real gate."
-        );
-        smoke_set = scaling::smoke_probes(PROBES);
-        smoke_ranking = vcs::smoke_probes(VCS_PROBES);
-        (&smoke_set, &smoke_ranking)
-    } else {
-        (PROBES, VCS_PROBES)
-    };
-
-    let mut report = match scaling::run(probes, args.rounds) {
-        Ok(report) => report,
+    let mode = if optimized { args.mode } else { Mode::Smoke };
+    eprintln!(
+        "scope {:?}, mode {:?}; legacy {} workloads, source {} workloads",
+        args.scope,
+        mode,
+        if args.scope == Scope::Source {
+            0
+        } else {
+            PROBES.len() + VCS_PROBES.len()
+        },
+        if args.scope == Scope::Legacy {
+            0
+        } else {
+            REGISTRY.len()
+        }
+    );
+    let result = (|| {
+        let legacy = if args.scope == Scope::Source {
+            None
+        } else {
+            let probes = if mode == Mode::Smoke {
+                scaling::smoke_probes(PROBES)
+            } else {
+                PROBES.to_vec()
+            };
+            let ranking = if mode == Mode::Smoke {
+                vcs::smoke_probes(VCS_PROBES)
+            } else {
+                VCS_PROBES.to_vec()
+            };
+            let mut report = scaling::run(&probes, args.rounds).map_err(|e| e.to_string())?;
+            report.probes.extend(vcs::run(&ranking, args.rounds).probes);
+            print!("{report}");
+            Some(report)
+        };
+        let source = if args.scope == Scope::Legacy {
+            None
+        } else {
+            let report = runner::run(REGISTRY, args.rounds, mode).map_err(|e| e.to_string())?;
+            print!("{report}");
+            Some(report)
+        };
+        let report = CombinedReport { legacy, source };
+        let legacy_ids: Vec<_> = PROBES
+            .iter()
+            .map(|p| p.name)
+            .chain(VCS_PROBES.iter().map(|p| p.name))
+            .collect();
+        let source_ids: Vec<_> = REGISTRY.iter().map(|p| p.id).collect();
+        report
+            .validate(args.scope, &legacy_ids, &source_ids)
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>(report)
+    })();
+    match result {
         Err(error) => {
             eprintln!("scaling harness could not run: {error}");
-            return ExitCode::from(HARNESS_ERROR);
+            ExitCode::from(2)
         }
-    };
-    // The ranking probes grow a `Vec<Stats>` rather than a tree, so
-    // they are measured by their own runner and joined here, where one
-    // report carries the whole gate.
-    report.probes.extend(vcs::run(ranking, args.rounds).probes);
-    print!("{report}");
-
-    if args.mode != Mode::Gate || !optimized {
-        return ExitCode::SUCCESS;
-    }
-
-    let failures = report.failures();
-    if failures.is_empty() {
-        println!(
-            "\nall {} probes within their complexity bound",
-            report.probes.len()
-        );
-        return ExitCode::SUCCESS;
-    }
-    eprintln!("\n{} probe(s) failed:", failures.len());
-    for probe in failures {
-        // An abandoned probe is reported by the budget it blew, not by
-        // its exponent: it was fitted over the cells that finished, so
-        // that number is flattering and quoting it reads as a harness
-        // bug rather than as the worst regression the gate can see.
-        if let Some((size, elapsed)) = probe.over_budget {
-            eprintln!(
-                "  {name}: one walk at size {size} took {elapsed:?}, over the \
-                 {budget:?} per-walk budget\n    {rationale}",
-                name = probe.name,
-                budget = scaling::MAX_CELL_WALK,
-                rationale = probe.rationale,
-            );
-        } else {
-            eprintln!(
-                "  {name}: fitted exponent {exp:.2} > {bound:.2}\n    {rationale}",
-                name = probe.name,
-                exp = probe.exponent,
-                bound = probe.max_exponent,
-                rationale = probe.rationale,
-            );
+        Ok(report) => {
+            print!("{}", report.final_summary(mode));
+            ExitCode::from(report.exit_code(mode, optimized))
         }
     }
-    eprintln!(
-        "\nRe-run on an idle host before treating this as a regression; a wide \
-         min-max spread in the table above means the measurement, not the code, \
-         is what changed."
-    );
-    ExitCode::from(GATE_FAILURE)
 }

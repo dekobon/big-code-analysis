@@ -1,0 +1,34 @@
+{
+  "scope": "TypeScript and TSX source documentation owner projections, issue 1670 unit 2",
+  "base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "grammar": {
+    "runtime": "0.26.13",
+    "typescript": "tree-sitter-typescript 0.23.2",
+    "tsx": "tree-sitter-typescript 0.23.2"
+  },
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/ts_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": [
+    "utils/documentation-ts-unit2-perturb.json",
+    "utils/documentation-ts-unit2-legacy-perturb.json"
+  ],
+  "reference": {
+    "source": "TypeScript 5.9.3 parser examples of restricted await, using, declare, and async keyword continuations in the design review",
+    "status": "Source-view grammar and collector evidence; the unit does not claim complete TypeScript compiler or TypeDoc parity",
+    "await_using": "ECMA-262 specifies await [no LineTerminator here] using; tsc 5.9.3 does not enforce the line-break check between await and using"
+  },
+  "pending": [
+    "parameter and parameter-property owners",
+    "export lists and virtual references",
+    "multi-binding using statements",
+    "typed using recovery",
+    "computed enum member interpretation",
+    "publication eligibility"
+  ],
+  "limitations": [
+    "let followed by a newline and x = 1 is parsed as two expression statements by the pinned grammar",
+    "destructuring bindings are unattached under the default TypeScript source profile",
+    "a variable statement with several declarators projects only its first eligible identifier",
+    "recovery and JSX/text boundaries follow the pinned TypeScript and TSX grammar shapes"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "evidence_base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "profile": "Doxygen",
+  "variants": [
+    "c",
+    "cpp",
+    "mozcpp",
+    "objc"
+  ],
+  "reference_tools": [
+    "Doxygen 1.9.1",
+    "clang 14.0.0-1ubuntu1.1"
+  ],
+  "fixtures": [
+    "doxygen-quoted.h",
+    "doxygen-quote.h",
+    "doxygen-cdata.h"
+  ],
+  "test_sources": [
+    "enum E { A, /**< ta */ B };\\n",
+    "/** e */\\nextern \"C\" void f(void);\\n",
+    "/** t */\\ntemplate <typename T> void f(T x);\\n"
+  ],
+  "out_of_scope": [
+    "multi-declaration linkage blocks remain pending",
+    "ill-formed multi-line quoted literals are not parsed as C strings",
+    "conditional branch projections are not inferred"
+  ],
+  "evidence": "prototype source tests, tree-dumps, and scratch/reference.py under the run directory"
+}

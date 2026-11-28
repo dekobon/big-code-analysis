@@ -1,0 +1,405 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "php-function-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            FunctionDefinition,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach",
+        "documentation::collector::php_tests::php_docblock_in_a_function_body",
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-class-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            ClassDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach"
+      ]
+    },
+    {
+      "name": "php-interface-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            InterfaceDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it"
+      ]
+    },
+    {
+      "name": "php-trait-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            TraitDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it"
+      ]
+    },
+    {
+      "name": "php-enum-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            EnumDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration"
+      ]
+    },
+    {
+      "name": "php-enum-case-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            EnumCase,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it"
+      ]
+    },
+    {
+      "name": "php-method-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            MethodDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach"
+      ]
+    },
+    {
+      "name": "php-property-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            PropertyDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
+      ]
+    },
+    {
+      "name": "php-constant-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            ConstDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
+      ]
+    },
+    {
+      "name": "php-define-call-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "            Php::Name => node_bytes(&callee, code) == b\"define\",",
+      "new": "            Php::Name => node_bytes(&callee, code) == b\"defined\",",
+      "expect": [
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration"
+      ]
+    },
+    {
+      "name": "php-attribute-detaches-the-block",
+      "file": "big-code-analysis-ast/src/roles/php.rs",
+      "old": "        Ok(doc_target::owns(node, code, ancestors))\n",
+      "new": "        Ok(doc_target::owns(node, code, ancestors)\n            && !node.children().any(|child| child.kind() == \"attribute_list\"))\n",
+      "expect": [
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach"
+      ]
+    },
+    {
+      "name": "php-file-rule-counts-three-blocks",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                docs == 2\n",
+      "new": "                docs == 3\n",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-first-function-is-not-restricted",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                        | Php::FunctionDefinition\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-first-class-is-not-restricted",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                    Php::ClassDeclaration\n                        | Php::FunctionDefinition\n",
+      "new": "                    Php::FunctionDefinition\n",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace"
+      ]
+    },
+    {
+      "name": "php-first-namespace-is-restricted",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                    node.kind_id().into(),\n                    Php::ClassDeclaration\n",
+      "new": "                    node.kind_id().into(),\n                    Php::NamespaceDefinition\n                        | Php::ClassDeclaration\n",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace"
+      ]
+    },
+    {
+      "name": "php-inline-html-is-not-preamble",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "Php::PhpTag | Php::Text | Php::TextInterpolation | Php::DeclareStatement",
+      "new": "Php::PhpTag | Php::TextInterpolation | Php::DeclareStatement",
+      "expect": [
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-no-block-is-the-files",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "    .map(|file| !file))",
+      "new": "    .map(|_| true))",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-every-block-is-the-files",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "    .map(|file| !file))",
+      "new": "    .map(|_| false))",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach",
+        "documentation::collector::php_tests::php_docblock_in_a_function_body",
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble",
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots"
+      ]
+    },
+    {
+      "name": "php-enum-block-stays-with-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if matches!(kind, \"enum_declaration\" | \"expression_statement\") {",
+      "new": "if matches!(kind, \"expression_statement\") {",
+      "expect": [
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration"
+      ]
+    },
+    {
+      "name": "php-define-block-stays-with-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if matches!(kind, \"enum_declaration\" | \"expression_statement\") {",
+      "new": "if matches!(kind, \"enum_declaration\") {",
+      "expect": [
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration"
+      ]
+    },
+    {
+      "name": "php-file-block-follows-every-declaration",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if matches!(kind, \"enum_declaration\" | \"expression_statement\") {",
+      "new": "if !kind.is_empty() {",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-root-block-is-not-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            Profile::BcaPhpSource if draft.scope.0 == 0 => {",
+      "new": "            Profile::BcaPhpSource if draft.scope.0 == usize::MAX => {",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble"
+      ]
+    },
+    {
+      "name": "php-every-local-block-is-the-files",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            Profile::BcaPhpSource if draft.scope.0 == 0 => {",
+      "new": "            Profile::BcaPhpSource if draft.scope.0 != usize::MAX => {",
+      "expect": [
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "php-parameter-list-block-binds-forward",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "                | Php::FormalParameters\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "php-local-blocks-are-not-collected",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "    const SOURCE_LOCAL_DOCS: bool = true;",
+      "new": "    const SOURCE_LOCAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "superseded-block-is-unattached",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                MarkerSelection::Superseded\n            } else {",
+      "new": "                MarkerSelection::Unattached\n            } else {",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace"
+      ]
+    },
+    {
+      "name": "php-adjacent-blocks-join",
+      "file": "big-code-analysis-ast/src/checker/php.rs",
+      "old": "            joins: never_joins,",
+      "new": "            joins: |a, b, c| !never_joins(a, b, c),",
+      "expect": [
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace"
+      ]
+    },
+    {
+      "name": "target-less-block-is-selected",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                MarkerSelection::Unattached\n            };\n",
+      "new": "                MarkerSelection::Selected\n            };\n",
+      "expect": [
+        "documentation::collector::php_tests::php_docblock_in_a_function_body"
+      ]
+    },
+    {
+      "name": "php-every-comment-is-a-docblock",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    s.starts_with(b\"/**\") && s.get(3).is_some_and(u8::is_ascii_whitespace)",
+      "new": "    s.starts_with(b\"/\") || s.starts_with(b\"#\")",
+      "expect": [
+        "documentation::collector::php_tests::php_plain_comments_are_no_documentation"
+      ]
+    },
+    {
+      "name": "php-define-statement-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                | \"expression_statement\"\n                | \"property_declaration\"\n",
+      "new": "                | \"property_declaration\"\n",
+      "expect": [
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration"
+      ]
+    },
+    {
+      "name": "php-property-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                | \"expression_statement\"\n                | \"property_declaration\"\n",
+      "new": "                | \"expression_statement\"\n",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
+      ]
+    },
+    {
+      "name": "php-constant-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                | \"property_declaration\"\n                | \"const_declaration\"\n",
+      "new": "                | \"property_declaration\"\n",
+      "expect": [
+        "documentation::collector::php_tests::php_unit2_single_property_and_constant_slots",
+        "documentation::collector::php_tests::php_unit2_multiple_names_and_neighbors_stay_as_before"
+      ]
+    },
+    {
+      "name": "php-promoted-parameter-is-no-slot-candidate",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"property_promotion_parameter\" | \"simple_parameter\" | \"variadic_parameter\"",
+      "new": "            \"simple_parameter\" | \"variadic_parameter\"",
+      "expect": [
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "php-parameter-list-block-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                        \"formal_parameters\"\n                            | \"property_promotion_parameter\"\n",
+      "new": "                        \"property_promotion_parameter\"\n",
+      "expect": [
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": [
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "space-after-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "bytes[line.content.start] == b' ' {\n                        line.content.start += 1;",
+      "new": "bytes[line.content.start] == b' ' {\n                        line.content.start += 0;",
+      "expect": [
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "empty-first-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while first < end && block.lines[first].content.is_empty() {",
+      "new": "            while first > end && block.lines[first].content.is_empty() {",
+      "expect": [
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "crlf-inside-block-is-copied",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
+      "expect": [
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::php_tests::php_leading_docblock_documents_the_declaration_after_it",
+        "documentation::collector::php_tests::php_first_file_rule_before_a_class_a_function_and_a_namespace",
+        "documentation::collector::php_tests::php_one_docblock_before_a_first_enum_or_define_goes_to_the_declaration",
+        "documentation::collector::php_tests::php_attribute_between_docblock_and_declaration_does_not_detach",
+        "documentation::collector::php_tests::php_docblock_in_a_function_body",
+        "documentation::collector::php_tests::php_docblock_text_over_several_lines",
+        "documentation::collector::php_tests::php_docblock_with_crlf_line_endings",
+        "documentation::collector::php_tests::php_inline_html_before_the_opening_tag_is_preamble",
+        "documentation::collector::php_tests::php_promoted_parameter_keeps_a_document_without_an_owner"
+      ]
+    }
+  ]
+}

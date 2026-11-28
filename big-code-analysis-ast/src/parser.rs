@@ -24,6 +24,19 @@ use crate::node::{Node, Tree};
 use crate::preproc::{PreprocResults, visible_macros};
 use crate::traits::*;
 
+/// Provenance of the held parse, independent of its shape or syntax errors.
+/// This direct-AST plumbing is not a stable root-library API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParseCompletion {
+    /// The parser returned a tree for the supplied input.
+    Complete,
+    /// The progress callback stopped parsing; metrics see the legacy empty tree.
+    Cancelled,
+    /// The caller supplied the tree and is responsible for completeness.
+    Adopted,
+}
+
 /// Parsed source plus the tree-sitter `Tree` for a given language `T`.
 ///
 /// Construct with [`Parser::new`] and feed the result into the metric,
@@ -234,6 +247,8 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> Parser<T> {
     /// not `unsafe`, but metric values will be nonsensical because
     /// the tree's `kind_id` values will not correspond to the per-
     /// language enum the metric `compute` functions match on.
+    /// Documentation consumers additionally require a complete parse; adoption
+    /// records caller-supplied provenance rather than verifying completeness.
     #[must_use]
     pub fn from_tree(tree: tree_sitter::Tree, code: Vec<u8>) -> Self {
         Self {
@@ -252,6 +267,30 @@ impl<T: 'static + LanguageInfo + Alterator + Checker + Getter> Parser<T> {
     #[must_use]
     pub fn ts_tree(&self) -> &tree_sitter::Tree {
         self.tree.as_ts_tree()
+    }
+
+    /// The outcome retained when this tree was parsed or adopted.
+    /// An active cancellation flag does not change an earlier outcome.
+    #[must_use]
+    pub fn parse_completion(&self) -> ParseCompletion {
+        self.tree.completion()
+    }
+
+    /// Collect a borrowed immutable documentation index from this parse.
+    /// Adopted trees retain the matching-source and complete-parse preconditions.
+    ///
+    /// # Errors
+    /// Rejects retained parse cancellation and every raw collection failure.
+    pub fn documentation(
+        &self,
+        context: &crate::documentation::DocumentationContext,
+        options: &crate::documentation::DocumentationOptions,
+    ) -> Result<crate::documentation::DocumentationIndex<'_>, crate::documentation::CollectionError>
+    {
+        if self.parse_completion() == ParseCompletion::Cancelled {
+            return Err(crate::documentation::CollectionError::Cancelled);
+        }
+        crate::documentation::collect(T::lang(), self.ts_tree(), &self.code, context, options)
     }
 }
 

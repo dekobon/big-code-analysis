@@ -18,19 +18,34 @@ use crate::{Ancestors, FoldLane, Go, Node};
 /// the walk's cache, so nested struct types cost one step each rather
 /// than a climb per field (#1597).
 fn outside_function_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
+    crate::documentation::budget::infallible(outside_function_body_with_budget(
+        node,
+        ancestors,
+        &crate::documentation::budget::NoBudget,
+    ))
+}
+
+fn outside_function_body_with_budget<'a, B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // role-bypass: allow(Container) — the doc scope's top, not whether
     // the file opens a space
-    ancestors.fold_down(
+    Ok(ancestors.fold_down_with_budget(
         node,
         0,
         FoldLane::DocScope,
         0,
-        |outside, ancestor, _, _| match ancestor.kind_id().into() {
-            Go::SourceFile => 1,
-            Go::StatementList | Go::Block => 0,
-            _ => outside,
+        |outside, ancestor, _, _| {
+            Ok(match ancestor.kind_id().into() {
+                Go::SourceFile => 1,
+                Go::StatementList | Go::Block => 0,
+                _ => outside,
+            })
         },
-    ) == 1
+        budget,
+    )? == 1)
 }
 
 /// Whether an interface's `type_elem` is one go/doc documents: an
@@ -42,14 +57,41 @@ fn outside_function_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> b
 /// documents, so only an interface's own elements qualify — and only
 /// outside a function body.
 fn interface_element_opens_with_a_name<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
-    ancestors.parent_has_kind(node, Go::InterfaceType as u16)
+    crate::documentation::budget::infallible(interface_element_with_budget(
+        node,
+        ancestors,
+        &crate::documentation::budget::NoBudget,
+    ))
+}
+
+fn interface_element_with_budget<'a, B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(ancestors.parent_has_kind(node, Go::InterfaceType as u16)
         && node.child(0).is_some_and(|first| {
             matches!(
                 first.kind_id().into(),
                 Go::TypeIdentifier | Go::QualifiedType | Go::GenericType
             )
         })
-        && outside_function_body(node, ancestors)
+        && outside_function_body_with_budget(node, ancestors, budget)?)
+}
+
+pub(crate) fn doc_target_with_budget<'a, B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if !doc_target::lists_kind(node.kind_id()) {
+        return Ok(false);
+    }
+    match node.kind_id().into() {
+        Go::PackageClause | Go::FunctionDeclaration | Go::MethodDeclaration => Ok(true),
+        Go::TypeElem => interface_element_with_budget(node, ancestors, budget),
+        _ => outside_function_body_with_budget(node, ancestors, budget),
+    }
 }
 
 // Whether a comment is a go/doc directive (`//go:generate`, `//line`,

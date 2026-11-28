@@ -15,11 +15,15 @@ mod folds;
 mod siblings;
 
 use chain::{Chain, HeldChain};
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use folds::memo_probes;
 pub use folds::{
     FoldCache, GateLane, KindLane, LevelQuestion, NodeQuestion, fold_slot_probes, fold_steps,
 };
 pub(crate) use folds::{FoldLane, MemoQuestion, NodeMemo, WordSlot};
 use siblings::NOTHING_RECORDED;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use siblings::sibling_slot_probes;
 pub use siblings::{SiblingCache, WIDE_PARENT, sibling_cache_reads, sibling_seeks};
 
 /// The chain of a node's children, held by a consumer that reads them

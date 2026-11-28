@@ -1,0 +1,469 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "kotlin-class-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            ClassDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-object-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            ObjectDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it"
+      ]
+    },
+    {
+      "name": "kotlin-companion-object-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            CompanionObject,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class"
+      ]
+    },
+    {
+      "name": "kotlin-function-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            FunctionDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-type-alias-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            TypeAlias,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it"
+      ]
+    },
+    {
+      "name": "kotlin-secondary-constructor-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            SecondaryConstructor,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class"
+      ]
+    },
+    {
+      "name": "kotlin-enum-entry-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            EnumEntry,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class"
+      ]
+    },
+    {
+      "name": "kotlin-property-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            PropertyDeclaration,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-parameter-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            Parameter,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-class-parameter-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "            ClassParameter,\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-property-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "new": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_destructuring_stays_pending_and_plain_comment_publishes_nothing"
+      ]
+    },
+    {
+      "name": "kotlin-class-parameter-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "new": "            \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-parameter-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "new": "            \"class_parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-primary-constructor-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\" | \"property_declaration\"\n",
+      "new": "            \"class_parameter\" | \"parameter\" | \"property_declaration\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-primary-constructor-is-no-slot-candidate",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "            \"class_parameter\" | \"parameter\" | \"primary_constructor\"\n",
+      "new": "            \"class_parameter\" | \"parameter\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-class-parameter-list-block-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                        \"class_parameters\"\n                            | \"class_parameter\"\n",
+      "new": "                        \"class_parameter\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-function-parameter-list-block-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                            | \"function_value_parameters\"\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "kotlin-primary-constructor-block-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                            | \"primary_constructor\"\n                            | \"modifiers\"\n",
+      "new": "                            | \"modifiers\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-modifier-list-block-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "                            | \"primary_constructor\"\n                            | \"modifiers\"\n",
+      "new": "                            | \"primary_constructor\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-local-docs-off",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "    const SOURCE_LOCAL_DOCS: bool = true;",
+      "new": "    const SOURCE_LOCAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-modifier-list-block-binds-forward",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "                            | Kotlin::Setter\n                            | Kotlin::Modifiers\n",
+      "new": "                            | Kotlin::Setter\n",
+      "expect": [
+        "documentation::collector::remediation_tests::kotlin_signature_context_exposes_document_linked_owner_assessment"
+      ]
+    },
+    {
+      "name": "kotlin-primary-constructor-block-binds-forward",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "                        Kotlin::PrimaryConstructor\n                            | Kotlin::Getter\n",
+      "new": "                        Kotlin::Getter\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-declaration-child-block-binds-forward",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "                crate::roles::kotlin::doc_target::lists_kind(kind)\n",
+      "new": "                false\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-forward-direction-inverted",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "            !ancestors.parent(comment).is_some_and(|parent| {",
+      "new": "            ancestors.parent(comment).is_some_and(|parent| {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-adjacent-blocks-join",
+      "file": "big-code-analysis-ast/src/checker/kotlin.rs",
+      "old": "        ..DocBinding::new(KeptDocs::Last { joins: never_joins })",
+      "new": "        ..DocBinding::new(KeptDocs::Last { joins: |a, b, c| !never_joins(a, b, c) })",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded"
+      ]
+    },
+    {
+      "name": "first-block-before-the-declaration-wins",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "    for (at, node) in before.iter().enumerate().rev() {",
+      "new": "    for (at, node) in before.iter().enumerate() {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded"
+      ]
+    },
+    {
+      "name": "superseded-block-is-unattached",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                MarkerSelection::Superseded\n            } else {",
+      "new": "                MarkerSelection::Unattached\n            } else {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded"
+      ]
+    },
+    {
+      "name": "unbound-candidates-are-retained-without-the-option",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "            if selection != MarkerSelection::Selected && !request.retain_unbound {",
+      "new": "            if selection != MarkerSelection::Selected && request.retain_unbound {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded"
+      ]
+    },
+    {
+      "name": "kotlin-every-block-comment-is-kdoc",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    s.starts_with(b\"/**\") && s != b\"/**/\"",
+      "new": "    s.starts_with(b\"/*\") && s != b\"/**/\"",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_plain_comments_are_no_documentation"
+      ]
+    },
+    {
+      "name": "kotlin-line-comment-is-kdoc",
+      "file": "big-code-analysis-ast/src/roles/kotlin.rs",
+      "old": "    DocComment { owns [BlockComment(text_gated_by opens_with_kdoc_marker no_chain)] }",
+      "new": "    DocComment { owns [LineComment, BlockComment(text_gated_by opens_with_kdoc_marker no_chain)] }",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_plain_comments_are_no_documentation"
+      ]
+    },
+    {
+      "name": "local-block-without-a-target-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            _ => draft.pending = true,",
+      "new": "            _ => {}",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "pending-target-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                Projection::Pending | Projection::Unsupported => pending = true,",
+      "new": "                Projection::Pending | Projection::Unsupported => {}",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "pending-node-is-not-assessed",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                Projection::Pending\n            ) {\n                let assessment = self.index.assessments.len();",
+      "new": "                Projection::Pending\n            ) && id == usize::MAX {\n                let assessment = self.index.assessments.len();",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "kotlin-primary-constructor-keeps-its-owner-context",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "matches!(kind, \"primary_constructor\" | \"getter\" | \"setter\")",
+      "new": "matches!(kind, \"getter\" | \"setter\")",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "modifier-list-keeps-its-owner-context",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            | \"property_promotion_parameter\"\n            | \"modifiers\"\n",
+      "new": "            | \"property_promotion_parameter\"\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    },
+    {
+      "name": "function-parameter-list-keeps-its-owner-context",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            | \"function_value_parameters\"\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "class-parameter-list-keeps-its-owner-context",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            | \"class_parameters\"\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "space-after-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "bytes[line.content.start] == b' ' {\n                        line.content.start += 1;",
+      "new": "bytes[line.content.start] == b' ' {\n                        line.content.start += 0;",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "empty-first-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while first < end && block.lines[first].content.is_empty() {",
+      "new": "            while first > end && block.lines[first].content.is_empty() {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "empty-last-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while end > first && block.lines[end - 1].content.is_empty() {",
+      "new": "            while end < first && block.lines[end - 1].content.is_empty() {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "crlf-inside-block-is-copied",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "last-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            last.content.end -= 1;\n",
+      "new": "            last.content.end -= 0;\n",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct"
+      ]
+    },
+    {
+      "name": "block-opener-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let prefix = if profile == Profile::GoDoc { 2 } else { 3 };",
+      "new": "        let prefix = if profile == Profile::GoDoc { 2 } else { 2 };",
+      "expect": [
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_top_level_declaration_documents_it",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_before_a_member_documents_the_member_not_the_class",
+        "documentation::collector::kotlin_tests::kotlin_annotation_in_the_modifier_list_does_not_detach_the_kdoc",
+        "documentation::collector::kotlin_tests::kotlin_last_kdoc_before_a_declaration_wins_and_older_blocks_are_superseded",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_text_over_several_lines",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_with_crlf_line_endings",
+        "documentation::collector::kotlin_tests::kotlin_property_slots_and_pending_parameters_are_distinct",
+        "documentation::collector::kotlin_tests::kotlin_kdoc_inside_a_declaration_is_a_document_with_pending_assessments"
+      ]
+    }
+  ]
+}

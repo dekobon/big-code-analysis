@@ -1,0 +1,51 @@
+{
+  "scope": "Python PEP 257 body docstrings of modules, classes and functions as Primary and Additional documents through the production collector: owners, raw Literal fragments, decoded and cleaned text with forward origins, and pending assessments for attribute runs and for literals that hold a carriage return; Unit 1 of #1665",
+  "base": "1ef77ce1930c0a9fbadba57ef57c56ceabb682bd",
+  "grammar": {
+    "runtime": "0.26.13",
+    "python": "0.25.0"
+  },
+  "grammar_evidence": "big-code-analysis-ast/tests/python_documentation_grammar.rs",
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/python_tests.rs",
+  "reader_oracles": "big-code-analysis-ast/src/lang_helpers/python.rs (mod tests)",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": [
+    "utils/documentation-python-unit1-perturb.json",
+    "utils/documentation-python-unit1-legacy-perturb.json"
+  ],
+  "reference": {
+    "tool": "CPython",
+    "version": "3.12.13",
+    "configuration": "python3.12 -I -S -B under env -i with HOME and TMPDIR in a scratch directory, on sources written for the check; ast.get_docstring(node, clean=False) for the module and every class and function node, then inspect.cleandoc",
+    "qualification": "Source reading only. No Sphinx or pydoc run; publication is not claimed."
+  },
+  "legacy_measurement": {
+    "binary": "the root crate of 1ef77ce1930c0a9fbadba57ef57c56ceabb682bd, debug profile, through analyze() on the raw bytes",
+    "qualification": "The LOC tuple [sloc, ploc, lloc, cloc, blank, dloc] and the documentation rows of each source of the legacy oracles were asserted by a test that passed before any adapter code existed."
+  },
+  "known_differences": [
+    "A named escape \\N{...} is not decoded: the document has unavailable text. CPython decodes it.",
+    "A lone surrogate escape gives unavailable text. CPython stores the surrogate.",
+    "A literal with a carriage return byte in its interior (CRLF, a lone CR, or a backslash before CR) has pending text and one pending assessment. CPython normalizes line endings before it reads the literal.",
+    "U+001C to U+001F are not stripped as whitespace by the cleanup. inspect.cleandoc strips them.",
+    "A literal that CPython rejects is still a document where the pinned grammar gives a string node: a short \\x escape gives unavailable text, and a literal with a long run of prefix letters is read as a raw literal.",
+    "The string of a statement like (1 . \"b\"), which the grammar recovers with an ERROR inside the parentheses, gives nothing in the source view. The legacy role row still answers Docstring for it, and the legacy LOC view credits no documentation row. The three views differed on this shape before this unit, which changes neither legacy answer."
+  ],
+  "named_limitations": [
+    {
+      "name": "an excluded range directly after a value",
+      "detail": "In a parse with excluded ranges, the position check covers the bytes before a docstring and the bytes of its value, not the bytes after the value up to the end of its statement. A statement that is longer in the full source, such as \"doc\" .upper() with the call excluded, is read as a docstring of the module, and its association is resolved. A definition whose body ends in the excluded gap is also a resolved owner; a definition whose body continues after the gap is pending.",
+      "oracle": "python_excluded_gap_after_a_value_is_a_named_limitation",
+      "reference": "CPython reads the full source: no docstring."
+    }
+  ],
+  "pending": [
+    "Binding owners and attribute documents: a string run after an assignment gives one pending assessment and no document",
+    "Sphinx #: comments",
+    "Line-ending normalization for literals that hold a carriage return",
+    "Named \\N{...} escapes",
+    "Attachment of a docstring after an excluded range, which is reported as unresolved",
+    "Benchmark workloads and new fuzz seeds for Python documentation",
+    "Publication"
+  ]
+}

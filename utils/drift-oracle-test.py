@@ -19,9 +19,11 @@ import json
 import os
 import pathlib
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 UTILS_DIR = pathlib.Path(__file__).resolve().parent
 
@@ -38,6 +40,30 @@ def _load(name: str, filename: str):
 oracle = _load("drift_oracle", "drift-oracle.py")
 dc = oracle.dc
 
+EXPECTED_MI_OPTIONS = {
+    "metrics_mi_charges_docs_false": ["--mi-charges-docs=false"],
+    "metrics_mi_charges_docs_true": ["--mi-charges-docs=true"],
+    "metrics_exclude_tests_mi_charges_docs_false": ["--exclude-tests", "--mi-charges-docs=false"],
+    "metrics_exclude_tests_mi_charges_docs_true": ["--exclude-tests", "--mi-charges-docs=true"],
+    "metrics_only_mi_mi_charges_docs_false": ["--metrics", "mi", "--mi-charges-docs=false"],
+    "metrics_only_mi_mi_charges_docs_true": ["--metrics", "mi", "--mi-charges-docs=true"],
+    "metrics_only_mi_exclude_tests_mi_charges_docs_false": ["--metrics", "mi", "--exclude-tests", "--mi-charges-docs=false"],
+    "metrics_only_mi_exclude_tests_mi_charges_docs_true": ["--metrics", "mi", "--exclude-tests", "--mi-charges-docs=true"],
+    "metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_false": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false", "--mi-charges-docs=false"],
+    "metrics_only_mi_exclude_tests_no_count_try_mi_charges_docs_true": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false", "--mi-charges-docs=true"],
+}
+
+EXPECTED_METRICS_OPTIONS = {
+    "metrics": [],
+    "metrics_exclude_tests": ["--exclude-tests"],
+    "metrics_no_count_try": ["--cyclomatic-count-try=false"],
+    "metrics_exclude_tests_no_count_try": ["--exclude-tests", "--cyclomatic-count-try=false"],
+    "metrics_only_cyclomatic": ["--metrics", "cyclomatic"],
+    "metrics_only_cognitive": ["--metrics", "cognitive"],
+    "metrics_only_nexits": ["--metrics", "nexits"],
+    **EXPECTED_MI_OPTIONS,
+}
+
 
 def _stub(path: pathlib.Path, body: str) -> pathlib.Path:
     path.write_text(f"#!{sys.executable}\nimport sys\n{body}\n")
@@ -47,6 +73,11 @@ def _stub(path: pathlib.Path, body: str) -> pathlib.Path:
 
 class DriftOracleTests(unittest.TestCase):
     def setUp(self) -> None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        self._git_env = patch.dict(os.environ, env, clear=True)
+        self._git_env.start()
+        self.addCleanup(self._git_env.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name)
         self.bca = _stub(self.root / "bca", "sys.stdout.write(' '.join(sys.argv[1:]) + '\\n')")
@@ -75,8 +106,8 @@ class DriftOracleTests(unittest.TestCase):
         rc, _, _, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust", "--lang", "python")
         self.assertEqual(rc, 0)
         self.assertTrue(m["complete"])
-        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *oracle.METRICS_OPTIONS, "verbatim"])
-        self.assertEqual(m["outputs_per_file"], len(m["views"]))
+        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *EXPECTED_METRICS_OPTIONS, "verbatim", *oracle.VERBATIM_OPTIONS])
+        self.assertEqual(m["outputs_per_file"], 34)
         self.assertEqual(sorted(m["keys"]), ["python/fx/b.py", "rust/fx/a.rs"])
         self.assertEqual(m["verbatim"]["path"], str(self.verbatim))
         self.assertEqual(m["version"], dc.MANIFEST_VERSION)
@@ -91,6 +122,42 @@ class DriftOracleTests(unittest.TestCase):
         )
         self.assertTrue(key.with_name("a.rs.ops.txt").is_file())
         self.assertIn("--language rust", key.with_name("a.rs.metrics_exclude_tests.txt").read_text())
+
+    def test_mi_matrix_and_every_argv_are_symmetric_and_explicit(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        rc, out, _, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust")
+        self.assertEqual(rc, 0)
+        expected_verbatim = {
+            f"verbatim_{name}": ["--metrics-view", *extra, "--"]
+            for name, extra in EXPECTED_MI_OPTIONS.items()
+        }
+        self.assertEqual(oracle.METRICS_OPTIONS, EXPECTED_METRICS_OPTIONS)
+        self.assertEqual(oracle.VERBATIM_OPTIONS, expected_verbatim)
+        self.assertEqual(m["metrics_options"], {**EXPECTED_METRICS_OPTIONS, **expected_verbatim})
+        self.assertEqual(m["views"], [*oracle.CLI_CMDS, *EXPECTED_METRICS_OPTIONS, "verbatim", *expected_verbatim])
+        self.assertEqual(json.loads(out)["outputs"], 34)
+        path = str(self.fixtures / "a.rs")
+        key = self.out / "rust" / "fx" / "a.rs"
+        for name, extra in EXPECTED_METRICS_OPTIONS.items():
+            with self.subTest(view=name):
+                self.assertEqual(
+                    json.loads(key.with_name(f"a.rs.{name}.txt").read_text()),
+                    ["metrics", "-O", "json", *extra, "--no-config", "--language", "rust", "-p", path],
+                )
+        for name, extra in expected_verbatim.items():
+            with self.subTest(view=name):
+                self.assertEqual(
+                    json.loads(key.with_name(f"a.rs.{name}.txt").read_text()),
+                    {"v": [*extra, "rust", path]},
+                )
+
+    def test_a_failed_mi_verbatim_view_is_not_a_baseline(self) -> None:
+        _stub(self.verbatim, "sys.exit(4 if '--mi-charges-docs=true' in sys.argv else 0)")
+        rc, _, err, m = self._run("--verbatim", str(self.verbatim), "--lang", "rust")
+        self.assertEqual(rc, 1)
+        self.assertFalse(m["complete"])
+        self.assertEqual(m["failed_executions"], 5)
+        self.assertIn("not a baseline", err)
 
     def test_outputs_are_captured_as_bytes(self) -> None:
         # A text capture would fold b"\xff\r\n" and b"\xfe\n" to the same
@@ -129,6 +196,7 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertNotIn("verbatim", m["views"])
         self.assertIsNone(m["verbatim"])
+        self.assertEqual(m["metrics_options"], EXPECTED_METRICS_OPTIONS)
         self.assertEqual(m["outputs_per_file"], len(oracle.CLI_CMDS) + len(oracle.METRICS_OPTIONS))
         self.assertFalse((self.out / "rust" / "fx" / "a.rs.verbatim.jsonl").exists())
 
@@ -163,6 +231,146 @@ class DriftOracleTests(unittest.TestCase):
         self.assertEqual(m["keys"], ["rust/fx/a.rs"])
         self.assertEqual(m["skipped_symlinks"], [str(self.fixtures / "link.rs")])
         self.assertIn("skipped 1 symlink", err)
+
+    def test_explicit_selection_is_tracked_exact_and_can_force_a_dialect(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text(json.dumps(["mozcpp/fx/a.rs"]))
+        view = "verbatim_metrics_only_mi_mi_charges_docs_true"
+        rc, out, _, m = self._run("--selection", str(selection), "--verbatim", str(self.verbatim), "--view", view)
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["mozcpp/fx/a.rs"])
+        self.assertEqual(m["populations"], {"mozcpp": 1})
+        self.assertEqual(m["views"], [view])
+        self.assertEqual(m["cli_cmds"], {})
+        self.assertEqual(m["outputs_per_file"], 1)
+        self.assertEqual(json.loads(out)["outputs"], 1)
+        self.assertEqual(m["metrics_options"], {view: ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=true", "--"]})
+        self.assertEqual(json.loads((self.out / f"mozcpp/fx/a.rs.{view}.txt").read_text()),
+                         {"v": ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=true", "--", "mozcpp", str(self.fixtures / "a.rs")]})
+
+    def test_selection_rejects_empty_duplicate_missing_untracked_and_escape_keys(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        for keys in [[], {}, [1], ["rust/fx/a.rs"] * 2, ["rust/fx/missing.rs"],
+                     ["python/fx/b.py"], ["rust/fx/../a.rs"], ["rust/fx//a.rs"],
+                     ["unknown/fx/a.rs"], ["rust/other/a.rs"]]:
+            with self.subTest(keys=keys):
+                selection.write_text(json.dumps(keys))
+                rc, _, _, m = self._run("--selection", str(selection))
+                self.assertNotEqual(rc, 0)
+                self.assertEqual(m, {})
+        os.symlink(self.fixtures / "a.rs", self.fixtures / "link.rs")
+        selection.write_text('["rust/fx/link.rs"]')
+        rc, _, _, _ = self._run("--selection", str(selection))
+        self.assertIn("symlink", str(rc))
+
+    def test_view_validation_and_requested_empty_population_fail(self) -> None:
+        for options in [("--view", "missing"), ("--view", "verbatim"),
+                        ("--view", "metrics", "--view", "metrics")]:
+            rc, _, _, m = self._run("--lang", "rust", *options)
+            self.assertEqual(rc, "duplicate or unavailable --view")
+            self.assertEqual(m, {})
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/a.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--lang", "python")
+        self.assertEqual(rc, "population python is empty")
+        self.assertEqual(m, {})
+
+    def test_relative_paths_reach_binary_without_output_rewriting(self) -> None:
+        old = pathlib.Path.cwd()
+        try:
+            os.chdir(self.root)
+            rc, _, _, m = self._run("--lang", "rust", "--view", "metrics", "--relative-paths")
+        finally:
+            os.chdir(old)
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["rust/fx/a.rs"])
+        self.assertEqual((self.out / "rust/fx/a.rs.metrics.txt").read_bytes(),
+                         b"metrics -O json --no-config --language rust -p fx/a.rs\n")
+
+    def test_selected_filename_is_a_literal_git_pathspec(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        (self.fixtures / "*.rs").write_text("fn untracked() {}")
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/*.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection))
+        self.assertEqual(rc, "selected input is not tracked: 'rust/fx/*.rs'")
+        self.assertEqual(m, {})
+
+    def test_selection_rejects_directory_prefix_impostor(self) -> None:
+        directory = self.fixtures / "dir"
+        directory.mkdir()
+        child = directory / "child.rs"
+        child.write_text("fn child() {}")
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "dir/child.rs"], check=True)
+        child.unlink()
+        directory.rmdir()
+        directory.write_text("fn impostor() {}")
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/dir"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--view", "metrics")
+        self.assertEqual(rc, "selected input is not tracked: 'rust/fx/dir'")
+        self.assertEqual(m, {})
+
+    def test_selection_accepts_exact_odd_paths_in_nested_root(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        names = ["*.rs", ":(glob)*.rs", "quote\"\tline\n.rs", "café.rs"]
+        if os.name == "posix":
+            names.append(os.fsdecode(b"nonutf8-\xff.rs"))
+        for name in names:
+            (self.fixtures / name).write_text("fn exact() {}")
+        subprocess.run(["git", "-C", str(self.root), "add", "fx"], check=True)
+        selection = self.root / "selection.json"
+        keys = [f"rust/fx/{name}" for name in names]
+        selection.write_text(json.dumps(keys))
+        rc, _, err, m = self._run("--selection", str(selection), "--view", "metrics")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(m["keys"], sorted(keys))
+        for name in names:
+            args = json.loads((self.out / f"rust/fx/{name}.metrics.txt").read_text())
+            self.assertEqual(os.fsencode(args[-1]), os.fsencode(self.fixtures / name))
+
+    def test_leading_hyphen_relative_path_is_disambiguated_for_every_binary(self) -> None:
+        _stub(self.bca, "import json; print(json.dumps(sys.argv[1:]))")
+        (self.fixtures / "--help").write_text("fn f() {}")
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "--", "--help"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/fx/--help"]')
+        with contextlib.chdir(self.fixtures):
+            rc, _, _, m = self._run("--selection", str(selection), "--relative-paths",
+                                     "--verbatim", str(self.verbatim))
+        self.assertEqual(rc, 0)
+        self.assertTrue(m["complete"])
+        for view in m["views"]:
+            suffix = ".verbatim.jsonl" if view == "verbatim" else f".{view}.txt"
+            args = json.loads((self.out / f"rust/fx/--help{suffix}").read_text())
+            if view.startswith("verbatim"):
+                args = args["v"]
+                expected = [*oracle.VERBATIM_OPTIONS.get(view, []), "rust", "./--help"]
+            else:
+                head = oracle.CLI_CMDS.get(view, ["metrics", "-O", "json", *EXPECTED_METRICS_OPTIONS.get(view, [])])
+                expected = [*head, "--no-config", "--language", "rust", "-p", "./--help"]
+            self.assertEqual(args, expected, view)
+
+    def test_explicit_selection_keeps_root_identity_and_selected_helpers(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.fixtures)], check=True)
+        subprocess.run(["git", "-C", str(self.fixtures), "add", "a.rs"], check=True)
+        selection = self.root / "selection.json"
+        selection.write_text('["rust/alias/a.rs", "ccomment/corpus/a.rs"]')
+        rc, _, _, m = self._run("--selection", str(selection), "--root", f"alias={self.fixtures}",
+                                "--corpus", str(self.fixtures), "--view", "metrics")
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["keys"], ["ccomment/corpus/a.rs", "rust/alias/a.rs"])
+        self.assertEqual(m["populations"], {"rust": 1, "ccomment": 1})
 
 
 if __name__ == "__main__":

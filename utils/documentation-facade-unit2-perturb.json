@@ -1,0 +1,78 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "facade_type_tests"
+  ],
+  "cases": [
+    {
+      "name": "fact-error-display-collapses",
+      "file": "big-code-analysis-ast/src/documentation.rs",
+      "old": "            Self::ForeignIndex => \"documentation handle belongs to another index\",",
+      "new": "            Self::ForeignIndex => \"documentation record is missing\",",
+      "expect": [
+        "documentation::facade_type_tests::error_displays_and_sources_are_available_without_debug_formatting"
+      ]
+    },
+    {
+      "name": "text-range-display-collapses",
+      "file": "big-code-analysis-ast/src/documentation/content.rs",
+      "old": "            Self::ScalarBoundary => \"documentation text range splits a UTF-8 scalar\",",
+      "new": "            Self::ScalarBoundary => \"documentation text range is outside the text\",",
+      "expect": [
+        "documentation::facade_type_tests::error_displays_and_sources_are_available_without_debug_formatting"
+      ]
+    },
+    {
+      "name": "owner-error-loses-source",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "            Self::Fact(error) => Some(error),",
+      "new": "            Self::Fact(_) => None,",
+      "expect": [
+        "documentation::facade_type_tests::error_displays_and_sources_are_available_without_debug_formatting"
+      ]
+    },
+    {
+      "name": "context-builder-drops-filename",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.logical_filename = Some(filename.into());",
+      "new": "        self.logical_filename = None;",
+      "expect": [
+        "documentation::facade_type_tests::builders_are_chainable_and_preserve_independent_choices"
+      ]
+    },
+    {
+      "name": "profile-builder-ignores-selection",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.profile = profile;",
+      "new": "        self.profile = Profile::Default;",
+      "expect": [
+        "documentation::facade_type_tests::builders_are_chainable_and_preserve_independent_choices"
+      ]
+    },
+    {
+      "name": "unbound-builder-refuses-disable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.retain_unbound = retain;",
+      "new": "        self.retain_unbound = true;",
+      "expect": [
+        "documentation::facade_type_tests::builders_are_chainable_and_preserve_independent_choices"
+      ]
+    },
+    {
+      "name": "directives-builder-ignores-selection",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        self.retain_directives = retain;",
+      "new": "        self.retain_directives = false;",
+      "expect": [
+        "documentation::facade_type_tests::builders_are_chainable_and_preserve_independent_choices"
+      ]
+    }
+  ]
+}

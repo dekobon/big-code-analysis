@@ -49,6 +49,7 @@ use std::sync::LazyLock;
 
 use big_code_analysis::{Ast, AstCfg, LANG, MetricsOptions, Source};
 
+pub mod documentation;
 pub mod nested;
 
 /// Node-kind filters handed to [`Ast::count`] and [`Ast::find`].
@@ -102,7 +103,12 @@ pub fn walk_all(lang: LANG, data: Vec<u8>) {
 /// Split out from [`walk_all`] so a target that builds its own
 /// [`Source`] — the preprocessor one has to — reuses the same fan-out
 /// rather than keeping a second copy of it in step.
+///
+/// # Panics
+/// Panics when a documentation property fails, so libFuzzer preserves the input.
 pub fn walk_parsed(ast: &Ast) {
+    let documentation = documentation::check_ast(ast);
+    assert!(documentation.is_ok(), "{documentation:?}");
     // Each result is handed to `black_box` whole rather than reduced to
     // a bool or a length first: the reduction would let the optimizer
     // drop the value the walk produced while still looking like a

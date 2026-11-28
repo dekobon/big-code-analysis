@@ -409,6 +409,51 @@ pub trait Checker {
     fn is_doc_comment(_: &Node, _code: &[u8]) -> bool {
         false
     }
+    /// Native source marker before selection, independent of the legacy gate.
+    #[must_use]
+    fn is_source_doc_comment(node: &Node, code: &[u8]) -> bool {
+        Self::is_doc_comment(node, code)
+    }
+    /// Native source binding, before owner normalization or publication policy.
+    #[must_use]
+    fn source_doc_binding() -> Option<DocBinding> {
+        Self::DOC_BINDING
+    }
+    /// Source-only direction test. Overrides must respect included-range barriers
+    /// when inspecting comments beyond the current continuous spelling. `None`
+    /// means an excluded gap prevents deciding between forward and local binding.
+    #[must_use]
+    fn source_doc_binds_forward<'a>(
+        node: &Node<'a>,
+        context: &crate::documentation::SourceContext<'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Option<bool> {
+        Some(
+            Self::source_doc_binding()
+                .is_some_and(|binding| (binding.forward)(node, context.bytes(), ancestors)),
+        )
+    }
+    /// Whether a marker can document locally without a following target.
+    const SOURCE_LOCAL_DOCS: bool = false;
+    /// Source target through the shared role/context inventory.
+    #[must_use]
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::is_doc_target(node, code, ancestors)
+    }
+    /// Uncertainty in a local source marker, before owner normalization.
+    #[must_use]
+    fn source_doc_uncertainty<'a>(
+        node: &Node<'a>,
+        _: &[u8],
+        _: Ancestors<'a, '_>,
+    ) -> Option<crate::documentation::UnresolvedReason> {
+        node.is_error()
+            .then_some(crate::documentation::UnresolvedReason::GrammarBoundary)
+    }
     /// Whether a doc comment inside a function or closure body is still
     /// documentation. `false` where it is better read as a working note,
     /// so a note spelled `/// …` stays a charged comment: rustc lints one
@@ -532,6 +577,27 @@ pub trait Checker {
     #[must_use]
     fn is_doc_run_directive(_: &Node, _code: &[u8]) -> bool {
         false
+    }
+    /// Whether the native source profile uses positional comment runs.
+    const SOURCE_POSITIONAL_DOCS: bool = false;
+    /// Whether bare adjacency suffices, independently of an explicit opener.
+    const SOURCE_POSITIONAL_TARGETS: bool = false;
+    /// Source opener evidence from the completed run, before owner normalization.
+    ///
+    /// # Errors
+    /// Returns uncertainty when excluded source prevents the content decision.
+    fn source_doc_run_opener<'a>(
+        run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    > {
+        Ok(run
+            .members
+            .first()
+            .filter(|first| Self::is_doc_run_opener(first, run.below.as_ref(), run.code, ancestors))
+            .map(|_| crate::documentation::streaming::positional::OpenerReason::Explicit))
     }
     /// Whether `node` opens a space by its kind alone: a function,
     /// closure, or one of the containers (class, struct, trait, impl,
@@ -921,15 +987,15 @@ mod irules;
 mod java;
 mod javascript;
 mod kotlin;
-mod lua;
+pub(crate) mod lua;
 mod mozcpp;
 mod mozjs;
 mod objc;
 mod perl;
-mod php;
+pub(crate) mod php;
 mod preproc;
 mod python;
-mod ruby;
+pub(crate) mod ruby;
 mod rust;
 mod tcl;
 mod tsx;

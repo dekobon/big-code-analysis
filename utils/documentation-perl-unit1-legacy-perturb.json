@@ -1,0 +1,63 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_perl"],
+  "cases": [
+    {
+      "name": "perl-whitespace-line-does-not-end-a-comment-paragraph",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "            if scan::position(line, |byte| !byte.is_ascii_whitespace(), budget)?.is_none() {",
+      "new": "            if scan::position(line, |_| true, budget)?.is_none() {",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_pod_legacy_rows", "metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-data-section-opener-takes-digits",
+      "file": "big-code-analysis-ast/src/lang_helpers/perl.rs",
+      "old": "    Ok(command.first().is_some_and(u8::is_ascii_alphabetic)\n",
+      "new": "    Ok(command.first().is_some_and(u8::is_ascii_alphanumeric)\n",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_pod_legacy_rows", "metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-pod-rows-are-not-documentation",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        stats.dloc.lines.insert_range(start, end);",
+      "new": "        let _ = (start, end);",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_pod_legacy_rows", "metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-documentation-rows-move-down-one-row",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        stats.dloc.lines.insert_range(start, end);",
+      "new": "        let shift = usize::from(start == 7);\n        stats.dloc.lines.insert_range(start + shift, end + shift);",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_pod_legacy_rows", "metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "observation-counters-do-not-count",
+      "file": "big-code-analysis-ast/src/observation.rs",
+      "old": "                COUNT.with(|count| count.set(count.get() + 1));",
+      "new": "                COUNT.with(|count| count.set(count.get()));",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-pod-profile-is-unavailable",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "        let profile = if self == Self::Default { default } else { self };",
+      "new": "        let profile = if self == Self::Default { default } else { self };\n        if profile == Self::Pod {\n            return Err(CollectionError::AdapterUnavailable { language, profile });\n        }",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-comment-only-block-is-a-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod.rs",
+      "old": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? {",
+      "new": "    } else if pod_comment_region_with_budget(&code[start..end], budget)? && false {",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "perl-block-in-a-format-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector/pod_doubt.rs",
+      "old": "        } else if start < self.format.end {\n            Some(FORMAT)\n",
+      "new": "        } else if false {\n            Some(FORMAT)\n",
+      "expect": ["metrics::loc::documentation_tests::documentation_perl_source_and_legacy_views_are_independent"]
+    }
+  ]
+}

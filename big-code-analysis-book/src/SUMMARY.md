@@ -30,6 +30,7 @@
   - [Reusing an existing tree-sitter Tree](library/reuse-tree.md)
   - [Parse once, run metrics many times](library/parse-once.md)
   - [Walking the AST directly](library/ast-traversal.md)
+  - [Extracting source documentation](library/documentation.md)
   - [Selecting metrics](library/selecting-metrics.md)
   - [Per-language Cargo features](library/cargo-features.md)
   - [Walking FuncSpace results](library/walking-funcspace.md)

@@ -1,0 +1,298 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::csharp_tests::"
+  ],
+  "cases": [
+    {
+      "name": "skip-csharp-dispatch",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "new": "        if self.index.profile == Profile::Helper\n            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot",
+        "documentation::collector::csharp_tests::csharp_field_modifiers_fixed_buffers_comments_and_unicode_keep_name_slots",
+        "documentation::collector::csharp_tests::csharp_field_width_has_linear_owner_and_name_work"
+      ]
+    },
+    {
+      "name": "skip-event-field-kind",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "new": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"field_declaration\")",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "skip-field-kind",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "new": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"event_field_declaration\")",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "forget-slot-registration",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "return self.field_slots(id, names, budget);",
+      "new": "return Ok(());",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "skip-variable-declaration",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if canonical.nodes[child.0].evidence.node().kind() == \"variable_declaration\" {",
+      "new": "if canonical.nodes[child.0].evidence.node().kind() == \"never_variable_declaration\" {",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "skip-first-declarator",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if !matches!(declarator.evidence.node().kind(), \"variable_declarator\") {",
+      "new": "if matches!(declarator.evidence.node().kind(), \"variable_declarator\") {",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "reverse-name-order",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if canonical.nodes[name.0].evidence.node().kind() != \"identifier\" {\n            return Ok(None);\n        }\n        names.push(name);",
+      "new": "        if canonical.nodes[name.0].evidence.node().kind() != \"identifier\" {\n            return Ok(None);\n        }\n        names.insert(0, name);",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "drop-second-slot",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if canonical.nodes[name.0].evidence.node().kind() != \"identifier\" {\n            return Ok(None);\n        }\n        names.push(name);",
+      "new": "        if canonical.nodes[name.0].evidence.node().kind() != \"identifier\" {\n            return Ok(None);\n        }\n        if names.is_empty() { names.push(name); }",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "wrong-slot-role",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            self.index.facts.owners.push(Owner::Slot(Slot {\n                enclosing: declaration,\n                role: SlotRole::Field,",
+      "new": "            self.index.facts.owners.push(Owner::Slot(Slot {\n                enclosing: declaration,\n                role: SlotRole::Parameter,",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "wrong-slot-ordinal",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "ordinal: fields.len(),",
+      "new": "ordinal: 0,",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "skip-outer-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[outer] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[outer] {\n        let _ = budget;",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_declarator_scan_charges_every_structural_child"
+      ]
+    },
+    {
+      "name": "skip-inner-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[variables.0].children.clone()] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[canonical.nodes[variables.0].children.clone()] {\n        let _ = budget;",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_declarator_scan_charges_every_structural_child"
+      ]
+    },
+    {
+      "name": "overcharge-inner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for &child in &canonical.children[canonical.nodes[variables.0].children.clone()] {\n        budget.step()?;",
+      "new": "for &child in &canonical.children[canonical.nodes[variables.0].children.clone()] {\n        budget.step()?;\n        budget.step()?;",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_declarator_scan_charges_every_structural_child"
+      ]
+    },
+    {
+      "name": "skip-field-slot-charge",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "for name in names {\n            budget.step()?;\n            let spelling = self.index.canonical.nodes[name.0]",
+      "new": "for name in names {\n            let _ = budget;\n            let spelling = self.index.canonical.nodes[name.0]",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_wide_fields_cancel_in_both_the_name_scan_and_slot_loop"
+      ]
+    },
+    {
+      "name": "wrong-name-child",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        let Some(&name) = canonical.children[declarator.children.clone()].first() else {\n            return Ok(None);\n        };",
+      "new": "        let Some(&name) = canonical.children[declarator.children.clone()].last() else {\n            return Ok(None);\n        };",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_modifiers_fixed_buffers_comments_and_unicode_keep_name_slots"
+      ]
+    },
+    {
+      "name": "treat-comments-as-declarators",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if !matches!(declarator.evidence.node().kind(), \"variable_declarator\") {",
+      "new": "if !matches!(declarator.evidence.node().kind(), \"variable_declarator\" | \"comment\") {",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_declarator_scan_charges_every_structural_child"
+      ]
+    },
+    {
+      "name": "error-field-unblocked",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()\n            || !self",
+      "new": "        if (node.has_error() && self.index.profile != Profile::CsharpXml)\n            || node.is_missing()\n            || !self",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_error_field_constant_and_event_declarations_stay_pending",
+        "documentation::collector::csharp_tests::csharp_broken_field_does_not_erase_the_next_documented_field"
+      ]
+    },
+    {
+      "name": "uncovered-field-unblocked",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                .covers_with_budget(node.byte_range(), budget)?\n        {\n            return Ok(());",
+      "new": "                .covers_with_budget(node.byte_range(), budget)?\n            && self.index.profile != Profile::CsharpXml\n        {\n            return Ok(());",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_slot_projection_requires_the_whole_declaration_included"
+      ]
+    },
+    {
+      "name": "slot-name-uses-whole-declarator",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            let spelling = self.index.canonical.nodes[name.0]\n                .evidence\n                .node()\n                .byte_range();",
+      "new": "            let spelling = self.index.canonical.nodes[id.0]\n                .evidence\n                .node()\n                .byte_range();",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "leave-one-owner-under-declaration",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields);",
+      "new": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![declaration]);",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_slot_and_declaration_queries_keep_distinct_owner_identities"
+      ]
+    },
+    {
+      "name": "reverse-slots-at-projection",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields);",
+      "new": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(fields.into_iter().rev().collect());",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_const_and_event_names_each_own_one_field_slot"
+      ]
+    },
+    {
+      "name": "skip-enclosing-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));\n        let mut fields = Vec::new();",
+      "new": "        let _ = id;\n        let mut fields = Vec::new();",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_slot_and_declaration_queries_keep_distinct_owner_identities"
+      ]
+    },
+    {
+      "name": "drop-undocumented-field-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "new": "        if self.index.profile == Profile::CsharpXml\n            && matches!(node.kind(), \"event_field_declaration\")",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_undocumented_field_still_has_slots_without_a_document"
+      ]
+    },
+    {
+      "name": "csharp-declarator-scan-ignores-the-collection-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "csharp_declarator_names(&self.index.canonical, id, budget)?",
+      "new": "super::super::budget::infallible(csharp_declarator_names(&self.index.canonical, id, &super::super::budget::NoBudget))",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_wide_fields_cancel_in_both_the_name_scan_and_slot_loop"
+      ]
+    },
+    {
+      "name": "csharp-tuple-pattern-mistaken-for-name",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if canonical.nodes[name.0].evidence.node().kind() != \"identifier\" {\n            return Ok(None);\n        }",
+      "new": "",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_tuple_pattern_field_declarator_stays_pending_without_slots"
+      ]
+    },
+    {
+      "name": "csharp-reverse-two-document-order",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        for key in super::ordering::ordered(keys, budget)? {",
+      "new": "        for key in super::ordering::ordered(keys, budget)?.into_iter().rev() {",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_and_event_documents_remain_distinct_in_one_class"
+      ]
+    },
+    {
+      "name": "csharp-reverse-retained-candidate-order",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        self.pending_scopes(budget)?;\n        self.order_results(budget)",
+      "new": "        self.pending_scopes(budget)?;\n        self.index.evidence.reverse();\n        self.order_results(budget)",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_two_unattached_fragments_keep_their_source_order"
+      ]
+    },
+    {
+      "name": "csharp-conditional-association-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                    .or(named_resolution)\n                    .unwrap_or(Resolution::Resolved),",
+      "new": "                    .or(named_resolution)\n                    .filter(|_| self.index.profile != Profile::CsharpXml)\n                    .unwrap_or(Resolution::Resolved),",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_field_inside_conditional_keeps_conditional_uncertainty",
+        "documentation::collector::csharp_tests::csharp_skipped_nested_class_field_keeps_the_existing_conditional_association"
+      ]
+    },
+    {
+      "name": "csharp-attach-wrapper-leading-document",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                Projection::Pending | Projection::Unsupported => pending = true,",
+      "new": "                Projection::Pending | Projection::Unsupported => {\n                    pending = true;\n                    if self.index.profile == Profile::CsharpXml {\n                        draft.unresolved = Some(UnresolvedReason::Conditional);\n                    }\n                },",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_document_before_a_conditional_wrapper_stays_pending_while_field_has_slots"
+      ]
+    },
+    {
+      "name": "csharp-error-sibling-spoils-field-projection",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()",
+      "new": "        if node.has_error()\n            || (self.index.profile == Profile::CsharpXml && node.parent().is_some_and(|parent| parent.has_error()))\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_error_beside_an_intact_field_does_not_erase_its_slot"
+      ]
+    },
+    {
+      "name": "csharp-skip-verbatim-field-kind",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            && matches!(node.kind(), \"field_declaration\" | \"event_field_declaration\")",
+      "new": "            && matches!(node.kind(), \"event_field_declaration\")",
+      "expect": [
+        "documentation::collector::csharp_tests::csharp_verbatim_backslash_does_not_swallow_the_following_field"
+      ]
+    }
+  ]
+}

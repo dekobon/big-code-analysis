@@ -1,0 +1,23 @@
+{
+  "scope": "Groovydoc field declaration slots; issue 1666 Unit 2",
+  "base": "3c281ad2c966b72502e4ca86b2642514cbfb2e0e",
+  "grammar": "dekobon-tree-sitter-groovy 0.6.0",
+  "reference_tree_sitter_groovy_pin": "0.6.0",
+  "tree_sitter_runtime_pin": "0.26.13",
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/groovy_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifest": "utils/documentation-groovy-unit2-perturb.json",
+  "reference": {
+    "version": "Groovy 4.0.32",
+    "status": "Source reading only; no Groovy tool installed or run",
+    "sources": ["GroovyLexer.g4:189-195,368-372,981-982", "SemanticPredicates.java:58-66", "GroovydocManager.java:118-185"],
+    "same_row": "The lexer hides block comments followed by code on the same row. Inventory groovy-constructor and groovy-field use that placement and ask for a document; their wording is not what the cited Groovy sources attach.",
+    "inventory": "docs/development/documentation_extraction_cases.md:131-132"
+  },
+  "limitations": [
+    "The pinned grammar 0.6.0 requires a same-line slashy closer; multi-line slashy openers recover with ERROR nodes. Groovy 4.0.32's lexer instead closes the slashy token at the first slash in /** doc */, so the apparent Groovydoc is not literal content of that first string.",
+    "l08-slashy-first-line.groovy: grammar recovery exposes /** doc */ and int x as a Groovydoc and clean field, and the collector resolves one document to field slot x. Groovy 4.0.32 reads the text as two slashy strings with intervening operators and no Groovydoc or x field. The resolved association is a pinned grammar/lexer limitation, not confirmed Groovy attachment.",
+    "A multi-line slashy string before a documented field can also swallow or withhold that later documentation when the grammar recovers differently (l09-slashy-before-field.groovy).",
+    "No Groovy runtime or GroovydocManager was executed"
+  ]
+}

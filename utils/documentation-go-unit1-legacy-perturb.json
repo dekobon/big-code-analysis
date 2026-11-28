@@ -1,0 +1,28 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_go_source_and_legacy_views_are_independent"],
+  "cases": [
+    {
+      "name": "go-function-body-gate-open",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::StatementList | Go::Block => 0,",
+      "new": "                Go::StatementList | Go::Block => 1,",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "go-colon-directive-not-recognized",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        && rest.get(word) == Some(&b':')",
+      "new": "        && rest.get(word) == Some(&b';')",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_source_and_legacy_views_are_independent"]
+    },
+    {
+      "name": "trailing-comment-seeds-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {",
+      "new": "            if prev.end_row() > row_first.start_row() {",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_source_and_legacy_views_are_independent"]
+    }
+  ]
+}

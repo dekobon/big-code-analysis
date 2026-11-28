@@ -7,6 +7,10 @@
 
 use super::*;
 
+use big_code_analysis_ast::documentation::{
+    CollectionError, DocumentationContext, DocumentationIndex, DocumentationOptions,
+};
+
 use crate::langs::AnyParser;
 use crate::macros::with_any_parser;
 use crate::ops::ops_inner;
@@ -44,7 +48,11 @@ impl Ast {
             preproc,
         } = source;
         let inner = AnyParser::parse(lang, code.into_owned(), preproc_path, preproc)?;
-        Ok(Self { inner, name })
+        Ok(Self {
+            inner,
+            name,
+            provenance: None,
+        })
     }
 
     /// Adopt a caller-built [`tree_sitter::Tree`], reusing it instead of
@@ -71,7 +79,11 @@ impl Ast {
         name: Option<String>,
     ) -> Result<Self, MetricsError> {
         let inner = AnyParser::from_tree(lang, tree, code)?;
-        Ok(Self { inner, name })
+        Ok(Self {
+            inner,
+            name,
+            provenance: None,
+        })
     }
 
     /// Read `path`, detect its language, and parse it into a reusable
@@ -109,15 +121,70 @@ impl Ast {
         // lossy conversion rather than corrupting it, matching `analyze`'s
         // strict default.
         let name = path.to_str().ok_or(FromPathError::NonUtf8Path)?.to_owned();
+        let provenance = PathProvenance::of(&name);
         let code = crate::read_file_with_eol_classified(path)
             .map_err(FromPathError::Io)?
             .map_err(FromPathError::Skipped)?;
         let lang = crate::guess_language(&code, path)
             .0
             .ok_or(FromPathError::UnknownLanguage)?;
-        Ok(Self::parse(
-            Source::from_bytes(lang, code).with_name(Some(name)),
-        )?)
+        let mut ast = Self::parse(Source::from_bytes(lang, code).with_name(Some(name)))?;
+        ast.provenance = provenance;
+        Ok(ast)
+    }
+
+    /// Collect source documentation from the held parse.
+    ///
+    /// The index borrows this `Ast`, and its offsets refer to [`Ast::source`]. A
+    /// `context` that names a logical filename is passed on as it is. One that
+    /// names none receives the final component of the path [`Ast::from_path`]
+    /// read this `Ast` from. An `Ast` built any other way has no such path, and
+    /// its display name is never used in its place.
+    ///
+    /// Excluded parse ranges are not part of the returned source spelling. The
+    /// selected profile may report pending assessments or an unavailable adapter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rust")]
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use big_code_analysis::{Ast, LANG, Source, documentation::{DocumentationContext, DocumentationOptions}};
+    /// let ast = Ast::parse(Source::new(LANG::Rust, b"///audit\nfn f() {}"))?;
+    /// let index = ast.documentation(&DocumentationContext::default(), &DocumentationOptions::default())?;
+    /// assert_eq!(index.source(), ast.source());
+    /// assert_eq!(index.documents().len(), 1);
+    /// let document = index.documents().next().ok_or("missing document")?;
+    /// assert_eq!(index.complete_text(document)?.ok_or("missing text")?.text(), "audit");
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rust"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// ```compile_fail,E0505
+    /// use big_code_analysis::{Ast, LANG, Source, documentation::{DocumentationContext, DocumentationOptions}};
+    /// let ast = Ast::parse(Source::new(LANG::Rust, b"///audit\nfn f() {}")).unwrap();
+    /// let index = ast.documentation(&DocumentationContext::default(), &DocumentationOptions::default()).unwrap();
+    /// drop(ast); // the borrowed index must not outlive its Ast
+    /// assert_eq!(index.documents().len(), 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// The error of the typed parser's documentation method, unchanged: a
+    /// cancelled parse or collection, a profile that does not belong to the
+    /// language or has no adapter, and the detectable faults of an adopted tree.
+    pub fn documentation(
+        &self,
+        context: &DocumentationContext,
+        options: &DocumentationOptions,
+    ) -> Result<DocumentationIndex<'_>, CollectionError> {
+        let context = match &self.provenance {
+            Some(PathProvenance(read_from)) if context.logical_filename.is_none() => read_from,
+            _ => context,
+        };
+        self.inner.documentation(context, options)
     }
 
     /// Run the metric walker against the held parse. Safe to call
@@ -403,5 +470,17 @@ impl Ast {
     #[inline]
     pub fn root_node(&self) -> Node<'_> {
         self.inner.root_node()
+    }
+}
+
+impl PathProvenance {
+    /// `None` where the path has no final component, as `..` and a root have
+    /// none. `utf8_path` is the string [`Ast::from_path`] has already converted
+    /// with an error, so its final component converts as well.
+    fn of(utf8_path: &str) -> Option<Self> {
+        let filename = Path::new(utf8_path).file_name()?.to_str()?;
+        Some(Self(
+            DocumentationContext::default().with_logical_filename(filename),
+        ))
     }
 }

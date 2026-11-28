@@ -34,15 +34,14 @@ workspace = true
 # `vcs` is on so the harness can time `vcs::score::apply_percentile`
 # (#1267), the one hot path here that is not a walk over an AST.
 big-code-analysis = { path = "..", features = ["vcs"] }
+# Ordinary dependency: prepared render state is used by the library runner.
+# Workspace feature unification exposes readers; production recording is unconditional.
+big-code-analysis-ast = { path = "../big-code-analysis-ast", default-features = false, features = ["test-support"] }
 # For the `verbatim-oracle` record lines (#1744); the root's own
 # serialisers are what the record carries.
 serde_json.workspace = true
 
 [dev-dependencies]
-# Test-only, path-only like the root dependency above: the shape tests
-# read `node::WIDE_PARENT` so a fixture sized to the walk's sibling-cache
-# threshold cannot go narrow if the threshold is raised.
-big-code-analysis-ast = { path = "../big-code-analysis-ast", default-features = false }
 # `html_reports` writes `target/criterion/report/index.html`, which is
 # what makes a measurement reviewable after the fact rather than a
 # number pasted into a commit message.
@@ -50,6 +49,7 @@ criterion = { version = "^0.8", features = ["html_reports"] }
 # Test-only: the corpus-selection tests build symlinked fixture trees
 # rather than depending on the shape of the checked-out submodules.
 tempfile.workspace = true
+sha2.workspace = true
 
 # The library-level zero-drift oracle (#1744): `cargo build -p
 # big-code-analysis-bench --bin verbatim-oracle`, driven by
@@ -65,4 +65,8 @@ harness = false
 
 [[bench]]
 name = "scaling"
+harness = false
+
+[[bench]]
+name = "documentation"
 harness = false

@@ -1,0 +1,49 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "cancelled-comparator-returns-equal",
+      "file": "big-code-analysis-ast/src/documentation/ordering.rs",
+      "old": "        left.cmp(right)",
+      "new": "        if self.error.borrow().is_some() { std::cmp::Ordering::Equal } else { left.cmp(right) }",
+      "expect": ["documentation::ordering::tests::chunk_sort_cancellation_latches_without_corrupting_comparator_order"]
+    },
+    {
+      "name": "normalization-loop-does-not-poll",
+      "file": "big-code-analysis-ast/src/documentation/source.rs",
+      "old": "        for range in raw {\n            budget.step()?;",
+      "new": "        for range in raw {",
+      "expect": ["documentation::collector::cancellation_tests::many_included_ranges_cancel_inside_normalization"]
+    },
+    {
+      "name": "pending-owner-documents-are-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "        let literal = self.literal_draft(&draft);",
+      "new": "        if draft.target.is_some_and(|target| matches!(self.index.canonical.nodes[target.0].projection, Projection::Pending)) { return Ok(()); }\n        let literal = self.literal_draft(&draft);",
+      "expect": ["documentation::collector::form_tests::java_unnamed_field_form_is_pending_in_default_queries", "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome"]
+    },
+    {
+      "name": "deferred-irules-is-empty-success",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "matches!(profile, Self::Irules)",
+      "new": "matches!(profile, Self::Shdoc)",
+      "expect": ["documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
+    },
+    {
+      "name": "rdoc-alternate-becomes-incompatible",
+      "file": "big-code-analysis-ast/src/documentation/options.rs",
+      "old": "(LANG::Php, Self::PhpDocumentor) | (LANG::Ruby, Self::Rdoc)",
+      "new": "(LANG::Php, Self::PhpDocumentor)",
+      "expect": ["documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
+    },
+    {
+      "name": "text-copied-twice",
+      "file": "big-code-analysis-ast/src/documentation/text.rs",
+      "old": "            self.text.push_str(valid);",
+      "new": "            self.text.push_str(valid);\n            self.text.push_str(valid);",
+      "expect": ["documentation::collector::cost_tests::growing_text_at_fixed_fanout_is_built_once_in_bounded_chunks"]
+    }
+  ]
+}

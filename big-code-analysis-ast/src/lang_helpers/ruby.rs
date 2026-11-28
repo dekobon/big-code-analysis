@@ -10,8 +10,47 @@
 //! a reader of the comparison expects, but nothing checks it (#1701).
 
 use crate::Ruby;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
 use crate::lang_helpers::doc_comment::node_bytes;
 use crate::node::{Ancestors, FoldLane, Node};
+
+/// YARD 0.9.45 `META_MATCH` after `on_comment` hash-line cleanup: remove
+/// the hash run and at most one whitespace byte, then require `@!((\w\.?)+)`
+/// followed by whitespace or end of line. Indented examples remain prose.
+pub(crate) fn source_yard_directive_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let bytes = node_bytes(node, code);
+    let hashes = crate::documentation::byte_scan::position(bytes, |byte| byte != b'#', budget)?
+        .unwrap_or(bytes.len());
+    if hashes == 0 {
+        return Ok(false);
+    }
+    let body = &bytes[hashes..];
+    let body = if body.first().is_some_and(u8::is_ascii_whitespace) {
+        &body[1..]
+    } else {
+        body
+    };
+    let Some(mut identifier) = body.strip_prefix(b"@!") else {
+        return Ok(false);
+    };
+    let mut found = false;
+    while let Some(byte) = identifier.first() {
+        budget.bytes(2)?;
+        if !byte.is_ascii_alphanumeric() && *byte != b'_' {
+            break;
+        }
+        found = true;
+        identifier = &identifier[1..];
+        if identifier.first() == Some(&b'.') {
+            identifier = &identifier[1..];
+        }
+    }
+    Ok(found && identifier.first().is_none_or(u8::is_ascii_whitespace))
+}
 
 /// Whether `node` — a `Block` / `DoBlock` — is the body of a stabby
 /// lambda (`->(z) { … }` / `->(z) do … end`), which parses as a `Lambda`
@@ -49,10 +88,18 @@ pub(crate) fn is_stabby_lambda_body<'a>(node: &Node<'a>, ancestors: Ancestors<'a
 /// run; `private :m` re-scopes a method documented at its `def`, so a
 /// comment above it is not documentation either.
 pub(crate) fn ruby_documented_call(node: &Node, code: &[u8]) -> bool {
+    infallible(ruby_documented_call_with_budget(node, code, &NoBudget))
+}
+
+pub(crate) fn ruby_documented_call_with_budget<B: WorkBudget>(
+    node: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     let Some(method) = node.child_by_field_name("method") else {
-        return false;
+        return Ok(false);
     };
-    match node_bytes(&method, code) {
+    Ok(match node_bytes(&method, code) {
         // `alias_method :new, :old` is the call form of `alias`, which the
         // same YARD handler documents.
         b"attr" | b"attr_reader" | b"attr_writer" | b"attr_accessor" | b"alias_method" => true,
@@ -62,23 +109,25 @@ pub(crate) fn ruby_documented_call(node: &Node, code: &[u8]) -> bool {
         | b"module_function"
         | b"private_class_method"
         | b"public_class_method" => {
+            let argument = if let Some(arguments) = node.child_by_field_name("arguments") {
+                crate::documentation::budget::child(&arguments, Node::is_named, budget)?
+            } else {
+                None
+            };
             node.child_by_field_name("receiver").is_none()
-                && node
-                    .child_by_field_name("arguments")
-                    .and_then(|arguments| arguments.children().find(Node::is_named))
-                    .is_some_and(|argument| {
-                        // role-bypass: allow(FuncOpener, DocTarget) — whether a visibility
-                        // call's argument is a `def` (not a class or an alias, which
-                        // `private` does not take): the call's shape, read by the
-                        // `DocTarget` row's gate, not membership
-                        matches!(
-                            argument.kind_id().into(),
-                            Ruby::Method | Ruby::SingletonMethod
-                        )
-                    })
+                && argument.is_some_and(|argument| {
+                    // role-bypass: allow(FuncOpener, DocTarget) — whether a visibility
+                    // call's argument is a `def` (not a class or an alias, which
+                    // `private` does not take): the call's shape, read by the
+                    // `DocTarget` row's gate, not membership
+                    matches!(
+                        argument.kind_id().into(),
+                        Ruby::Method | Ruby::SingletonMethod
+                    )
+                })
         }
         _ => false,
-    }
+    })
 }
 
 /// The scope a documented statement needs to sit in for YARD to read
@@ -129,6 +178,27 @@ pub(crate) fn ruby_yard_reads<'a>(
     scope: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    yard_reads(needs, scope, ancestors, false)
+}
+
+fn yard_reads<'a>(
+    needs: YardScope,
+    scope: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+) -> bool {
+    infallible(yard_reads_with_budget(
+        needs, scope, ancestors, source, &NoBudget,
+    ))
+}
+
+pub(crate) fn yard_reads_with_budget<'a, B: WorkBudget>(
+    needs: YardScope,
+    scope: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    source: bool,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // Read upward, the rule is: the nearest namespace admits the
     // statement; a method body met first rejects it if it needs a
     // namespace; a singleton class or conditional on the way makes it
@@ -139,48 +209,61 @@ pub(crate) fn ruby_yard_reads<'a>(
     const DEF_READS: u8 = 0b01;
     const NAMESPACED_READS: u8 = 0b10;
     const BOTH: u8 = DEF_READS | NAMESPACED_READS;
-    let reads = ancestors.fold_down(
+    let reads = ancestors.fold_down_with_budget(
         scope,
         0,
-        FoldLane::DocScope,
+        if source {
+            FoldLane::SourceDocScope
+        } else {
+            FoldLane::DocScope
+        },
         BOTH,
         // Where YARD reads a doc comment, not whether a node opens a space:
         // each arm below that names a space opener is exempt for that.
-        |above, ancestor, _, _| match ancestor.kind_id().into() {
-            // role-bypass: allow(Container) — the file, where YARD reads
-            Ruby::Program => BOTH,
-            // Each opens a namespace only where one already reads it. For a
-            // class or module — Ruby rejects one in a method body — that
-            // closes it only under a `case`, `begin` or loop, whose bodies
-            // YARD never parses; a singleton class or conditional in a
-            // method body closes as before.
-            // role-bypass: allow(Container, Branch, ElseIf, DocTarget) — the namespaces
-            // and the conditionals, where YARD reads: the scope a target is read in,
-            // context over the `DocTarget` row, not membership
-            Ruby::Class
-            | Ruby::Module
-            | Ruby::SingletonClass
-            | Ruby::If
-            | Ruby::Unless
-            | Ruby::Elsif => {
-                if above & NAMESPACED_READS == 0 {
-                    0
-                } else {
-                    BOTH
+        |above, ancestor, outer, _| {
+            Ok(match ancestor.kind_id().into() {
+                _ if source && crate::roles::ruby::closure::owns(ancestor, &[], outer) => 0,
+                // role-bypass: allow(Container) — the file, where YARD reads
+                Ruby::Program => BOTH,
+                // Each opens a namespace only where one already reads it. For a
+                // class or module — Ruby rejects one in a method body — that
+                // closes it only under a `case`, `begin` or loop, whose bodies
+                // YARD never parses; a singleton class or conditional in a
+                // method body closes as before.
+                // role-bypass: allow(Container, Branch, ElseIf, DocTarget) — the namespaces
+                // and the conditionals, where YARD reads: the scope a target is read in,
+                // context over the `DocTarget` row, not membership
+                Ruby::Class
+                | Ruby::Module
+                | Ruby::SingletonClass
+                | Ruby::If
+                | Ruby::Unless
+                | Ruby::Elsif => {
+                    if above & NAMESPACED_READS == 0 {
+                        0
+                    } else {
+                        BOTH
+                    }
                 }
-            }
-            // role-bypass: allow(FuncOpener, DocTarget) — a `def` body, where YARD
-            // reads a `def` and nothing else: context over the row, not membership
-            Ruby::Method | Ruby::SingletonMethod => above & DEF_READS,
-            // role-bypass: allow(Switch, Loop) — the bodies YARD never parses;
-            // doc attachment, not membership
-            Ruby::Case | Ruby::CaseMatch | Ruby::Begin | Ruby::While | Ruby::Until | Ruby::For => 0,
-            _ => above,
+                // role-bypass: allow(FuncOpener, DocTarget) — a `def` body, where YARD
+                // reads a `def` and nothing else: context over the row, not membership
+                Ruby::Method | Ruby::SingletonMethod => above & DEF_READS,
+                // role-bypass: allow(Switch, Loop) — the bodies YARD never parses;
+                // doc attachment, not membership
+                Ruby::Case
+                | Ruby::CaseMatch
+                | Ruby::Begin
+                | Ruby::While
+                | Ruby::Until
+                | Ruby::For => 0,
+                _ => above,
+            })
         },
-    );
+        budget,
+    )?;
     let need = match needs {
         YardScope::DefBody => DEF_READS,
         YardScope::Namespace => NAMESPACED_READS,
     };
-    reads & need != 0
+    Ok(reads & need != 0)
 }

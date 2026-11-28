@@ -1,0 +1,114 @@
+{
+  "contract": "documentation_extraction_cases.md plus PROPOSAL_V3 and approved Kotlin erratum",
+  "publication": "Java Javadoc package declarations: Eligible for explicit package-info.java, Ineligible for a different explicit filename, Unknown without a logical filename; all other implemented targets remain Unknown; Rust doc/cfg_attr additionally retains pending publication assessment",
+  "variants": {
+    "Rust": {
+      "implemented": ["basic outer line/block", "same-target outer/inner composition", "root/module FilePackage and other target Primary roles", "inner root/module/function", "macro Expansion", "comments across ordinary attributes", "raw fragments and exact local comment maps"],
+      "ineligible": ["plain comments", "document/test/rustfmt::skip attribute paths"],
+      "pending": ["doc assignment/raw/cooked/metadata attributes", "cfg_attr", "mixed comment/attribute composition", "field/variant/tuple slots", "other local contexts"]
+    },
+    "Python": {
+      "implemented": ["module, class and function body docstring as Primary", "string statements directly after it as Additional", "implicit concatenation as one document", "raw and cooked literals", "cleandoc-style margin and tab cleanup with local maps", "statements joined by a semicolon"],
+      "ineligible": ["f-string, template-string and bytes literals", "strings outside a documenting position", "plain # comments", "strings past a recovered syntax error inside parentheses"],
+      "pending": ["attribute docstrings and binding owners", "Sphinx #: comments", "text of a literal that holds a carriage return", "named \\N{...} escapes", "attachment after an excluded range", "publication"]
+    },
+    "Java": {
+      "implemented": ["traditional/Markdown basic declaration", "empty block", "four-slash Markdown", "last selection", "annotation-bearing declaration", "prelex unavailable plus source-cleaned evidence", "field/constant declarator slots", "package publication from explicit logical filename"],
+      "ineligible": ["ordinary comments", "signature/accessor trivia without a target", "body working notes"],
+      "pending": ["module publication and non-package filename policy", "unnamed-declarator and recovered field declarations", "semantic Unicode prelexing"]
+    },
+    "Kotlin": {
+      "implemented": ["basic KDoc function", "last selection across plain comments", "annotation-bearing function", "selected Local raw/text/maps", "single-name val/var/const property declaration and Property slot"],
+      "ineligible": ["ordinary comments", "line-comment documentation"],
+      "pending": ["Local signature/modifier/accessor/constructor projection", "class/function parameter slots and destructuring properties", "publication"]
+    },
+    "Groovy": {
+      "implemented": ["basic Groovydoc type", "nearest selection", "annotation-bearing type", "field declarator slots"],
+      "ineligible": ["ordinary comments", "plain comment detaches nearest block", "Local placement is not emitted"],
+      "pending": ["same-row block/declaration source selection", "recovered field declarations", "publication"]
+    },
+    "Csharp": {
+      "implemented": ["basic XML type", "leading trivia selection", "attribute-bearing declaration", "literal XML markup", "field/constant/event-field slots"],
+      "ineligible": ["ordinary comments", "four-slash banner", "accessor trivia", "Local placement is not emitted"],
+      "pending": ["invalid or partly excluded field/event declaration", "conditional member projections", "publication"]
+    },
+    "Php": {
+      "implemented": ["basic function/class", "one/two/three-block precedence", "enum declaration-before-file", "file preamble", "last selection", "single-name property and constant slots"],
+      "ineligible": ["non-PHPDoc markers", "superseded blocks", "unsupported qualified call spellings"],
+      "pending": ["signature/promoted and multi-name property/constant slots", "define constant slots and imported callees", "PhpDocumentor alternate", "publication"]
+    },
+    "Javascript": {
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection", "first identifier-bound variable declarator"],
+      "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
+      "pending": ["virtual naming directives", "assignment/member slots", "full export/member inventory", "publication"]
+    },
+    "Mozjs": {
+      "implemented": ["basic function/class", "export declaration projection", "nested forward docs", "file/fileoverview/overview/module", "leading selection", "first identifier-bound variable declarator"],
+      "ineligible": ["ordinary comments", "body working notes without a target", "destructuring declaration"],
+      "pending": ["virtual naming directives", "assignment/member slots", "full export/member inventory", "publication"]
+    },
+    "Typescript": {
+      "implemented": ["basic function", "export/ambient declaration projection", "module/packageDocumentation file precedence", "leading selection", "anonymous defaults, namespace and first named binding owners", "using/await using assignment owners", "ambient comment-skipping"],
+      "ineligible": ["ordinary comments", "after-code non-parameter comments", "destructuring declarations", "unsupported assignments"],
+      "pending": ["parameter slots", "virtual forms", "publication"]
+    },
+    "Tsx": {
+      "implemented": ["basic JSX-returning function", "export/ambient declaration projection", "module/packageDocumentation file precedence", "leading selection", "anonymous defaults, namespace and first named binding owners", "using/await using assignment owners", "ambient comment-skipping"],
+      "ineligible": ["ordinary comments", "after-code non-parameter comments", "destructuring declarations", "unsupported assignments"],
+      "pending": ["parameter slots", "virtual forms", "publication"]
+    },
+    "C": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "enumerator comma trailing block", "file gathering", "file gathering before a target", "single-declaration linkage projection", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "complex declarators", "publication"]
+    },
+    "Cpp": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "enumerator comma trailing block", "file gathering", "file gathering before a target", "single-declaration linkage projection", "template projection including requires clauses and partial specializations", "exact fn names/signatures including definitions", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "forward/concept template wrappers awaiting owner projection", "complex declarators and exact default-expression signatures", "qualified/unsupported reference grammar", "publication"]
+    },
+    "Mozcpp": {
+      "implemented": ["basic definition", "simple multi-declarator slots", "simple trailing field", "enumerator comma trailing block", "file gathering", "file gathering before a target", "single-declaration linkage projection", "template projection including requires clauses and partial specializations", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "forward/concept template wrappers awaiting owner projection", "complex declarators", "publication"]
+    },
+    "Objc": {
+      "implemented": ["basic C definition", "simple multi-declarator slots", "simple trailing field", "enumerator comma trailing block", "file gathering", "file gathering before a target", "single-declaration linkage projection", "exact fn names/signatures", "line/block phase-two splicing"],
+      "ineligible": ["ordinary comments", "quoted/CDATA structural lookalikes", "banner markers"],
+      "pending": ["page/group/other structural targets", "signature/in-body ownership", "conditional/recovery projections", "complex declarators", "publication"]
+    },
+    "Go": {
+      "implemented": ["basic function/package", "declaration group and spec", "positional runs", "directive filtering", "literal block stars", "field name slots", "embedded field and interface element owners"],
+      "ineligible": ["local declarations", "ordinary trailing comments", "source blank-line-separated run", "directive-only prose"],
+      "pending": ["members with a syntax error, a line-ending comment among their children, or a line end at which Go ends them early", "publication"]
+    },
+    "Ruby": {
+      "implemented": ["basic method/type", "modifier/body wrapper projections", "native YARD scope", "magic/directive filtering", "begin/end block cleanup", "visibility-wrapped method projection", "attribute property slots"],
+      "ineligible": ["call-block source scope", "magic/shebang prose", "source blank-line-separated run"],
+      "pending": ["Explicit virtual/## owners", "alias and constant owners", "RDoc alternate", "publication"]
+    },
+    "Lua": {
+      "implemented": ["basic following function", "block wrapper", "FirstFile opener", "marked lines and long comments", "local text/maps", "tagged annotation runs with a following item", "single-name assignment/local and return function/table owners", "named table field slots for leading marked comments"],
+      "ineligible": ["ordinary standalone leading run", "empty marked block", "function-body annotation"],
+      "pending": ["tagged virtual/table forms", "native trailing table-field and parameter comments", "bare local declarations and return of an identifier have no documentation selection", "publication"]
+    },
+    "Elixir": {
+      "implemented": ["@moduledoc and @doc with one plain string", "defmodule do-block module owner", "def/defp/defmacro/defmacrop clause groups by kind, name and written arity", "private-definition ineligible publication", "excluded-gap and recovery uncertainty"],
+      "ineligible": ["attribute reads", "other module attributes", "ordinary comments"],
+      "pending": ["heredoc, escape, sigil, interpolation, false/nil and metadata values", "several attributes for one owner", "@typedoc and callbacks", "statements between an attribute and its definition", "defguard/defdelegate and operator, unquote or unparenthesized heads", "defprotocol, defimpl and keyword-form modules", "attributes outside a module body", "quote templates"]
+    },
+    "Perl": {
+      "implemented": ["inline POD block as file documentation", "several blocks in source order", "local POD text and maps without the =cut line", "comment-only blocks as directive evidence"],
+      "ineligible": ["# comments", "POD-like text in strings, heredocs, word lists and patterns that the grammar reads"],
+      "pending": ["data-section POD", "text of a block that mixes prose and comment regions", "blocks that perl and POD processors read differently", "blocks beside excluded bytes", "blocks where perl may read literal text: after a recovery node, in a format or after one whose end is not known, beside a here-document or a quote-like literal that perl reads differently from the grammar", "POD that the grammar hides behind a recovery node: one assessment for the file", "unique-heading inference and sub or package owners", "publication"]
+    },
+    "Bash": {"implemented": ["tagged run above a function, both spellings", "file-level and function-body owner positions", "shebang and ShellCheck directive evidence", "one forward scan by Bash's quoting rules", "local row text and maps"], "ineligible": ["run without a tag line", "blank row or command between run and function", "comment after code or joined to it", "text of a here-document, a quoted string or a substitution"], "pending": ["file tags (@name, @file, @brief)", "run opened by a plain row", "functions in other positions and behind wrappers", "function spellings the grammar gives an error", "runs and functions behind a form the scan does not read or a recovery node (withheld)", "leading-comment inference", "continuation rows", "publication"]},
+    "Tcl": {
+      "implemented": ["top-level proc body lead block", "#ruff marked blocks", "#ruffopt directive evidence", "dynamic-name procedure uncertainty", "procedure uncertainty where Tcl's reading of the file's bytes lists no such command", "excluded-gap procedure uncertainty", "brace-count procedure and text uncertainty", "local row text and maps"],
+      "ineligible": ["ordinary comments after a command or a blank row", "comments on the line of the child above them", "comments outside a proc body"],
+      "pending": ["procedures in other scopes", "procedures in a bracket's script", "quoted, braced and multi-part names", "other spellings of the proc command: ::proc, quoted, braced, escaped, expanded, eval words, a quoted parameter list, a bracket glued before proc", "proc commands that earlier text hides from the grammar", "rows nested in commands or hidden by recovery", "TclOO methods, constructors and destructors", "namespace preambles", "publication"]
+    }
+  },
+  "deferred": ["Irules"],
+  "helpers": ["Ccomment", "Preproc"]
+}

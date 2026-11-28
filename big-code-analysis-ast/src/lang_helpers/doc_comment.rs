@@ -6,10 +6,13 @@
 
 pub(crate) use super::doc_text::{
     csharp_doc, doxygen, go_directive, java_doc, javadoc_block, jsdoc_virtual, kotlin_doc,
-    ldoc_opener, lua_long_comment, phpdoc, pod_comment_region, ruby_directive_opener,
-    ruby_magic_comment, tsdoc_block, tsdoc_module,
+    lua_long_comment, phpdoc, pod_comment_region, ruby_directive_opener, ruby_magic_comment,
+    tsdoc_block, tsdoc_module,
 };
 use crate::checker::Checker;
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::recognition::{PublicRules, SourceRules, source_target};
+use crate::documentation::streaming::markers::CandidateView;
 use crate::node::{Ancestors, FoldLane, Node};
 
 /// How a language's tool attaches a doc comment to the declaration after
@@ -177,7 +180,20 @@ pub(crate) fn outside_function_bodies<'a, T: Checker>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    !held_in_body::<T>(comment, code, 0, ancestors)
+    infallible(outside_function_bodies_with_budget::<T, _>(
+        comment, code, ancestors, &NoBudget,
+    ))
+}
+
+pub(crate) fn outside_function_bodies_with_budget<'a, T: Checker, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(!held_in_body_with_budget::<T, _>(
+        comment, code, 0, ancestors, budget,
+    )?)
 }
 
 /// Whether an ancestor of `node`, past the `skip` nearest ones, holds it
@@ -191,15 +207,30 @@ fn held_in_body<'a, T: Checker>(
     skip: usize,
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    ancestors.fold_down(
+    infallible(held_in_body_with_budget::<T, _>(
+        node, code, skip, ancestors, &NoBudget,
+    ))
+}
+
+fn held_in_body_with_budget<'a, T: Checker, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    skip: usize,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(ancestors.fold_down_with_budget(
         node,
         skip,
         FoldLane::DocInBody,
         0,
         |held, ancestor, outer, below| {
-            u8::from(held != 0 || T::holds_doc_comment_in_body(ancestor, code, outer, below))
+            Ok(u8::from(
+                held != 0 || T::holds_doc_comment_in_body(ancestor, code, outer, below),
+            ))
         },
-    ) != 0
+        budget,
+    )? != 0)
 }
 
 // ---------------------------------------------------------------------
@@ -287,7 +318,8 @@ pub fn bound_doc_run<'a, T: Checker>(
     let Some(binding) = T::DOC_BINDING else {
         return;
     };
-    let end = match stretch_end::<T>(comment, code, ancestors, binding.skips) {
+    let view = CandidateView::Legacy;
+    let end = match stretch_end::<T>(comment, code, ancestors, binding.skips, view) {
         // A later member decides.
         StretchEnd::Undecided => return,
         // Nothing documents, and no block gathers the stretch either.
@@ -297,23 +329,131 @@ pub fn bound_doc_run<'a, T: Checker>(
     if !documents_where_it_sits::<T>(comment, code, ancestors) {
         return;
     }
-    let (stretch, code_before) = collect_stretch::<T>(comment, code, ancestors, binding.skips);
-    let forward =
-        |n: &Node<'a>| T::is_doc_comment(n, code) && (binding.forward)(n, code, ancestors);
+    let CollectedStretch {
+        members: stretch,
+        code_before,
+        ..
+    } = collect_stretch::<T>(comment, code, ancestors, binding.skips, view);
+    let forward = |n: &Node<'a>| {
+        view.marker::<T>(n, code, ancestors) && (binding.forward)(n, code, ancestors)
+    };
     let StretchEnd::AtTarget { next, target } = end else {
         if let Some(gathers) = binding.gathers {
-            bind_gathered::<T>(&stretch, code, gathers, forward)
-                .iter()
-                .for_each(&mut credit);
+            bind_gathered(
+                &stretch,
+                code,
+                gathers,
+                |n| view.marker::<T>(n, code, ancestors),
+                forward,
+            )
+            .kept
+            .iter()
+            .for_each(&mut credit);
         }
         return;
     };
-    let kept = match binding.kept {
-        KeptDocs::All => stretch.iter().copied().filter(forward).collect(),
-        KeptDocs::Last { joins } => bind_last::<T>(&stretch, code, joins, forward),
-        KeptDocs::Nearest { hidden } => bind_nearest::<T>(&stretch, next, hidden, forward)
-            .into_iter()
-            .collect(),
+    let kept = select_bound::<T>(
+        &stretch,
+        code,
+        binding.kept,
+        StretchBounds {
+            code_before,
+            next,
+            target,
+        },
+        forward,
+    );
+    kept.nodes.iter().for_each(&mut credit);
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct StretchBounds<'a> {
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) next: Node<'a>,
+    pub(crate) target: Node<'a>,
+}
+
+pub(crate) struct BoundSelection<'a> {
+    pub(crate) nodes: Vec<Node<'a>>,
+    eligible_end: usize,
+    after_code_row: Option<usize>,
+    policy: KeptDocs,
+    next: Node<'a>,
+}
+
+impl BoundSelection<'_> {
+    pub(crate) fn eligible(&self, index: usize, stretch: &[Node], code: &[u8]) -> bool {
+        let node = &stretch[index];
+        index < self.eligible_end
+            && Some(node.start_row()) != self.after_code_row
+            && match self.policy {
+                KeptDocs::Nearest { hidden } => {
+                    !hidden(node, stretch.get(index + 1).unwrap_or(&self.next))
+                }
+                KeptDocs::Leading { hidden, .. } => !hidden(node, code),
+                _ => true,
+            }
+    }
+}
+
+pub(crate) fn select_bound<'a, T: Checker>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    kept: KeptDocs,
+    boundaries: StretchBounds<'a>,
+    forward: impl Fn(&Node<'a>) -> bool,
+) -> BoundSelection<'a> {
+    infallible(select_bound_with_budget::<T, _>(
+        stretch,
+        code,
+        kept,
+        boundaries,
+        |node| Ok(forward(node)),
+        &NoBudget,
+    ))
+}
+
+pub(crate) fn select_bound_with_budget<'a, T: Checker, B: WorkBudget>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    kept: KeptDocs,
+    boundaries: StretchBounds<'a>,
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<BoundSelection<'a>, B::Error> {
+    let StretchBounds {
+        code_before,
+        next,
+        target,
+    } = boundaries;
+    let mut selection = BoundSelection {
+        nodes: Vec::new(),
+        eligible_end: stretch.len(),
+        after_code_row: None,
+        policy: kept,
+        next,
+    };
+    selection.nodes = match kept {
+        KeptDocs::All => {
+            let mut nodes = Vec::new();
+            for node in stretch {
+                budget.step()?;
+                if forward(node)? {
+                    nodes.push(*node);
+                }
+            }
+            nodes
+        }
+        KeptDocs::Last { joins } => {
+            let (nodes, eligible_end) = bind_last::<T, B>(stretch, code, joins, forward, budget)?;
+            selection.eligible_end = eligible_end;
+            nodes
+        }
+        KeptDocs::Nearest { hidden } => {
+            bind_nearest::<T, B>(stretch, next, hidden, forward, budget)?
+                .into_iter()
+                .collect()
+        }
         KeptDocs::Leading {
             hidden,
             joins,
@@ -322,18 +462,23 @@ pub fn bound_doc_run<'a, T: Checker>(
             // A member on the row the code before the stretch ends on is
             // after that code, where a scan from the next line break does
             // not reach.
-            let after_code_row = code_before
+            selection.after_code_row = code_before
                 .filter(|_| !after_code(&target))
                 .map(|before| before.end_row());
-            let attaches = |n: &Node<'a>| forward(n) && Some(n.start_row()) != after_code_row;
-            bind_leading::<T>(&stretch, code, hidden, joins, attaches)
+            let attaches =
+                |n: &Node<'a>| Ok(forward(n)? && Some(n.start_row()) != selection.after_code_row);
+            let (nodes, eligible_end) =
+                bind_leading::<T, B>(stretch, code, hidden, joins, attaches, budget)?;
+            selection.eligible_end = eligible_end;
+            nodes
         }
     };
-    kept.iter().for_each(&mut credit);
+    Ok(selection)
 }
 
 /// Where a stretch of comments ends, asked of its last comment.
-enum StretchEnd<'a> {
+#[derive(Clone, Copy)]
+pub(crate) enum StretchEnd<'a> {
     /// A later comment of the stretch decides.
     Undecided,
     /// At `target`, an [`Checker::is_doc_target`] or a parse error holding
@@ -343,6 +488,10 @@ enum StretchEnd<'a> {
     /// At a statement, a closing brace, the end of the file — anything
     /// that documents nothing.
     Elsewhere,
+    /// Excluded bytes interrupt the source stretch or target spelling.
+    ExcludedGap,
+    /// Parsed siblings are exhausted but excluded source remains in this scope.
+    SuffixGap,
 }
 
 /// Where the stretch `comment` belongs to ends. The scan stops at the
@@ -351,27 +500,150 @@ enum StretchEnd<'a> {
 /// whether it is read past, and only once the binding's own `skips` and
 /// [`Checker::is_doc_target`] have passed on it, so a binding that decides
 /// errors itself (Doxygen's) keeps its reading.
-fn stretch_end<'a, T: Checker>(
+pub(crate) fn stretch_end<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
+    view: CandidateView,
 ) -> StretchEnd<'a> {
-    let mut after = ancestors.siblings_after(comment).peekable();
+    infallible(stretch_end_with_budget::<PublicRules<T>, _>(
+        comment,
+        code,
+        ancestors,
+        |node, ancestors| Ok(skips(node, ancestors)),
+        view,
+        &NoBudget,
+    ))
+}
+
+pub(crate) fn stretch_end_with_budget<'a, R: SourceRules, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    skips: impl Fn(&Node<'a>, Ancestors<'a, '_>) -> Result<bool, B::Error>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<StretchEnd<'a>, B::Error> {
+    let mut after = ancestors
+        .siblings_after_with_budget(comment, budget)?
+        .peekable();
     let Some(&next) = after.peek() else {
-        return StretchEnd::Elsewhere;
+        return Ok(
+            if view.covers_with_budget(comment.start_byte()..comment.end_byte(), budget)? {
+                exhausted_stretch(comment, comment.end_byte(), code, ancestors, view, budget)?
+            } else {
+                StretchEnd::ExcludedGap
+            },
+        );
     };
-    match after.find(|n| !skips(n, ancestors) && !read_past_error::<T>(n, code, ancestors)) {
-        Some(target) if T::is_comment(&target) => StretchEnd::Undecided,
+    let mut boundary = comment.start_byte();
+    let mut continuous = true;
+    let mut target = None;
+    for n in after {
+        budget.step()?;
+        let end = if matches!(view, CandidateView::Source(_)) && R::separately_assessed_trivia(&n) {
+            n.start_byte()
+        } else {
+            n.end_byte()
+        };
+        continuous = view.covers_with_budget(boundary..end, budget)?;
+        boundary = n.end_byte();
+        if !continuous
+            || (!skips(&n, ancestors)?
+                && !read_past_error_with_budget::<R, _>(&n, code, ancestors, view, budget)?)
+        {
+            target = Some(n);
+            break;
+        }
+    }
+    if !continuous {
+        return Ok(StretchEnd::ExcludedGap);
+    }
+    Ok(match target {
+        Some(target) if R::Checker::is_comment(&target) => StretchEnd::Undecided,
         Some(target)
-            if T::is_doc_target(&target, code, ancestors)
-                || (target.is_error() && error_holds_target::<T>(&target, code, ancestors)) =>
+            if source_target::<R, _>(view, &target, code, ancestors, budget)?
+                || (target.is_error()
+                    && error_holds_target_with_budget::<R, _>(
+                        &target, code, ancestors, view, budget,
+                    )?) =>
         {
             StretchEnd::AtTarget { next, target }
         }
+        None => exhausted_stretch(comment, boundary, code, ancestors, view, budget)?,
         _ => StretchEnd::Elsewhere,
-    }
+    })
 }
+
+fn exhausted_stretch<'a, B: WorkBudget>(
+    comment: &Node<'a>,
+    last_examined_end: usize,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<StretchEnd<'a>, B::Error> {
+    Ok(
+        if suffix_gap_with_budget(comment, last_examined_end, code, ancestors, view, budget)? {
+            StretchEnd::SuffixGap
+        } else {
+            StretchEnd::Elsewhere
+        },
+    )
+}
+
+#[cfg(all(test, feature = "rust"))]
+fn suffix_gap<'a>(
+    comment: &Node<'a>,
+    last_examined_end: usize,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+) -> bool {
+    infallible(suffix_gap_with_budget(
+        comment,
+        last_examined_end,
+        code,
+        ancestors,
+        view,
+        &NoBudget,
+    ))
+}
+
+fn suffix_gap_with_budget<'a, B: WorkBudget>(
+    comment: &Node<'a>,
+    last_examined_end: usize,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if matches!(view, CandidateView::Legacy) {
+        return Ok(false);
+    }
+    let scope_end = source_scope_bounds(comment, code, ancestors).end;
+    Ok(!view.covers_with_budget(last_examined_end..scope_end, budget)?)
+}
+
+// The caller's chain is authoritative, including an explicitly empty one.
+// Only the unknown fallback resolves physical parents; a restricted root's span
+// cannot substitute for the full source interval.
+fn source_scope_bounds<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> std::ops::Range<usize> {
+    source_scope_reads::record();
+    let scope = match ancestors.depth() {
+        Some(0 | 1) => None,
+        Some(_) => ancestors.parent(node),
+        None => node.parent().filter(|parent| parent.parent().is_some()),
+    };
+    scope.map_or(0..code.len(), |scope| scope.start_byte()..scope.end_byte())
+}
+
+crate::observation::counter!(source_scope_reads, cfg(any(test, feature = "test-support")));
 
 /// The stretch `comment` ends, in source order, and the sibling before it:
 /// `comment` and the siblings before it that are comments or skipped,
@@ -381,32 +653,81 @@ fn stretch_end<'a, T: Checker>(
 /// `safe` of a `safe fn` is between the item's doc comments and its
 /// first token, not that token. An error the scan does not read past —
 /// one holding a target — ends the stretch and is the sibling before it.
-fn collect_stretch<'a, T: Checker>(
+pub(crate) struct CollectedStretch<'a> {
+    pub(crate) members: Vec<Node<'a>>,
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) prefix_gap: bool,
+}
+
+pub(crate) fn collect_stretch<'a, T: Checker>(
     comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
     skips: for<'b> fn(&Node<'a>, Ancestors<'a, 'b>) -> bool,
-) -> (Vec<Node<'a>>, Option<Node<'a>>) {
+    view: CandidateView,
+) -> CollectedStretch<'a> {
+    infallible(collect_stretch_with_budget::<PublicRules<T>, _>(
+        comment,
+        code,
+        ancestors,
+        |node, ancestors| Ok(skips(node, ancestors)),
+        view,
+        &NoBudget,
+    ))
+}
+
+pub(crate) fn collect_stretch_with_budget<'a, R: SourceRules, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    skips: impl Fn(&Node<'a>, Ancestors<'a, '_>) -> Result<bool, B::Error>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<CollectedStretch<'a>, B::Error> {
+    stretches_collected::record();
     let mut stretch = vec![*comment];
     let mut before = None;
+    let mut prefix_gap = false;
+    let mut boundary = comment.end_byte();
     // An error read past is no member of the stretch: neither a comment
     // nor the first token a binder stops at. Left in, a binder that keeps
     // the last doc comment before the first token (tsc's, JSDoc's,
     // javac's) would read the error as that token and keep the comment
     // above it instead of the one the tool attaches.
-    for sibling in ancestors
-        .siblings_before(comment)
-        .filter(|sibling| !read_past_error::<T>(sibling, code, ancestors))
-    {
-        if T::is_comment(&sibling) || skips(&sibling, ancestors) {
+    for sibling in ancestors.siblings_before_with_budget(comment, budget)? {
+        budget.step()?;
+        let start = if matches!(view, CandidateView::Source(_))
+            && R::separately_assessed_trivia(&sibling)
+        {
+            sibling.end_byte()
+        } else {
+            sibling.start_byte()
+        };
+        if !view.covers_with_budget(start..boundary, budget)? {
+            prefix_gap = true;
+            break;
+        }
+        boundary = sibling.start_byte();
+        if read_past_error_with_budget::<R, _>(&sibling, code, ancestors, view, budget)? {
+            continue;
+        }
+        if R::Checker::is_comment(&sibling) || skips(&sibling, ancestors)? {
             stretch.push(sibling);
         } else {
             before = Some(sibling);
             break;
         }
     }
-    stretch.reverse();
-    (stretch, before)
+    if matches!(view, CandidateView::Source(_)) && before.is_none() && !prefix_gap {
+        let start = source_scope_bounds(comment, code, ancestors).start;
+        prefix_gap = !view.covers_with_budget(start..boundary, budget)?;
+    }
+    crate::documentation::budget::reverse(&mut stretch, budget)?;
+    Ok(CollectedStretch {
+        members: stretch,
+        code_before: before,
+        prefix_gap,
+    })
 }
 
 /// Whether a stretch reads past `node`: a parse error that is no doc
@@ -415,14 +736,28 @@ fn collect_stretch<'a, T: Checker>(
 /// error between the item's doc comment and the rest of it. Given the
 /// benefit of the doubt, as Doxygen's binding gives one (`doxygen_skips`),
 /// rather than dropping the doc comment on a parse failure.
-fn read_past_error<'a, T: Checker>(
+#[cfg(all(test, feature = "c"))]
+fn read_past_error_in<'a, T: Checker>(
     node: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
 ) -> bool {
-    node.is_error()
-        && !T::is_doc_target(node, code, ancestors)
-        && !error_holds_target::<T>(node, code, ancestors)
+    infallible(read_past_error_with_budget::<PublicRules<T>, _>(
+        node, code, ancestors, view, &NoBudget,
+    ))
+}
+
+fn read_past_error_with_budget<'a, R: SourceRules, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(node.is_error()
+        && !source_target::<R, _>(view, node, code, ancestors, budget)?
+        && !error_holds_target_with_budget::<R, _>(node, code, ancestors, view, budget)?)
 }
 
 /// Whether a child of the parse error `error` is a doc target: a
@@ -435,17 +770,41 @@ fn read_past_error<'a, T: Checker>(
 /// chain the children are judged with none, which a target test that
 /// climbs pays for at `O(depth)`; every production walk lends one, so
 /// only a test reaches that fallback.
-fn error_holds_target<'a, T: Checker>(
+#[cfg(all(test, feature = "java"))]
+fn error_holds_target_in<'a, T: Checker>(
     error: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
+    view: CandidateView,
 ) -> bool {
+    infallible(error_holds_target_with_budget::<PublicRules<T>, _>(
+        error, code, ancestors, view, &NoBudget,
+    ))
+}
+
+fn error_holds_target_with_budget<'a, R: SourceRules, B: WorkBudget>(
+    error: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     let under = ancestors.of_children(error);
     let inside = under.get();
-    error
-        .children()
-        .any(|child| child.is_named() && T::is_doc_target(&child, code, inside))
+    for child in error.children() {
+        budget.step()?;
+        if child.is_named() && source_target::<R, _>(view, &child, code, inside, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
+
+// Output alone cannot reveal repeated prefix collection or rejected-path work.
+crate::observation::counter!(
+    stretches_collected,
+    cfg(any(test, feature = "test-support"))
+);
 
 /// What a stretch that ends at no target documents: what its last
 /// gathering comment ([`DocBinding::gathers`]) takes — the forward doc
@@ -453,17 +812,52 @@ fn error_holds_target<'a, T: Checker>(
 /// below it, which a line-comment tool reads as one block with it. The
 /// gathering comment does not bind forward, so `forward` drops it; it
 /// documents where it sits.
-fn bind_gathered<'a, T: Checker>(
+pub(crate) struct Gathered<'a> {
+    pub(crate) kept: Vec<Node<'a>>,
+    pub(crate) gatherer: Option<Node<'a>>,
+}
+
+crate::observation::counter!(gatherer_probes, cfg(any(test, feature = "test-support")));
+
+pub(crate) fn bind_gathered<'a>(
     stretch: &[Node<'a>],
     code: &[u8],
     gathers: fn(&Node, &[u8]) -> bool,
+    marker: impl Fn(&Node<'a>) -> bool,
     forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
-    let Some(gatherer) = stretch
-        .iter()
-        .rposition(|n| T::is_doc_comment(n, code) && gathers(n, code))
-    else {
-        return Vec::new();
+) -> Gathered<'a> {
+    infallible(bind_gathered_with_budget(
+        stretch,
+        code,
+        |node| Ok(gathers(node, code)),
+        |node| Ok(marker(node)),
+        |node| Ok(forward(node)),
+        &NoBudget,
+    ))
+}
+
+pub(crate) fn bind_gathered_with_budget<'a, B: WorkBudget>(
+    stretch: &[Node<'a>],
+    code: &[u8],
+    gathers: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    marker: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<Gathered<'a>, B::Error> {
+    let mut gatherer = None;
+    for (at, n) in stretch.iter().enumerate().rev() {
+        budget.step()?;
+        gatherer_probes::record();
+        if marker(n)? && gathers(n)? {
+            gatherer = Some(at);
+            break;
+        }
+    }
+    let Some(gatherer) = gatherer else {
+        return Ok(Gathered {
+            kept: Vec::new(),
+            gatherer: None,
+        });
     };
     let line = |n: &Node| node_bytes(n, code).starts_with(b"//");
     // Only a line-comment gatherer reads the line doc comments below it
@@ -473,97 +867,157 @@ fn bind_gathered<'a, T: Checker>(
     while let Some(below) = stretch.get(last + 1)
         && gathers_below
         && line(below)
-        && T::is_doc_comment(below, code)
+        && marker(below)?
         && below.start_row() == stretch[last].end_row().saturating_add(1)
     {
+        budget.step()?;
         last += 1;
     }
-    stretch[..=last].iter().copied().filter(forward).collect()
+    let mut kept = Vec::new();
+    for node in &stretch[..=last] {
+        budget.step()?;
+        if forward(node)? {
+            kept.push(*node);
+        }
+    }
+    Ok(Gathered {
+        kept,
+        gatherer: Some(stretch[gatherer]),
+    })
 }
 
 /// [`KeptDocs::Last`] over a stretch in source order: the last doc
 /// comment before the first skipped node — the declaration's first token —
 /// with the doc comments it joins, or else the first doc comment after it.
-fn bind_last<'a, T: Checker>(
+fn bind_last<'a, T: Checker, B: WorkBudget>(
     stretch: &[Node<'a>],
     code: &[u8],
     joins: fn(&Node, &Node, &[u8]) -> bool,
-    forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
-    let split = stretch
-        .iter()
-        .position(|n| !T::is_comment(n))
-        .unwrap_or(stretch.len());
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<(Vec<Node<'a>>, usize), B::Error> {
+    let mut split = stretch.len();
+    for (at, n) in stretch.iter().enumerate() {
+        budget.step()?;
+        if !T::is_comment(n) {
+            split = at;
+            break;
+        }
+    }
     let (before, after) = stretch.split_at(split);
-    let Some(last) = before.iter().rposition(&forward) else {
-        return after.iter().copied().find(forward).into_iter().collect();
+    let mut last = None;
+    for (at, node) in before.iter().enumerate().rev() {
+        budget.step()?;
+        if forward(node)? {
+            last = Some(at);
+            break;
+        }
+    }
+    let Some(last) = last else {
+        let mut found = Vec::new();
+        for node in after {
+            budget.step()?;
+            if forward(node)? {
+                found.push(*node);
+                break;
+            }
+        }
+        return Ok((found, stretch.len()));
     };
-    joined_run(before, last, code, joins, forward)
+    Ok((
+        joined_run(before, last, code, joins, forward, budget)?,
+        split,
+    ))
 }
 
 /// [`KeptDocs::Leading`] over a stretch in source order: the members
 /// before the first token, read back past the hidden ones to the nearest
 /// other one, kept if it is a doc comment that binds forward, with the doc
 /// comments directly before it that it joins.
-fn bind_leading<'a, T: Checker>(
+fn bind_leading<'a, T: Checker, B: WorkBudget>(
     stretch: &[Node<'a>],
     code: &[u8],
     hidden: fn(&Node, &[u8]) -> bool,
     joins: fn(&Node, &Node, &[u8]) -> bool,
-    forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
-    let first_token = stretch
-        .iter()
-        .position(|n| !T::is_comment(n) && !hidden(n, code))
-        .unwrap_or(stretch.len());
-    let before = &stretch[..first_token];
-    let Some(last) = before.iter().rposition(|n| !hidden(n, code)) else {
-        return Vec::new();
-    };
-    if !forward(&before[last]) {
-        return Vec::new();
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<(Vec<Node<'a>>, usize), B::Error> {
+    let mut first_token = stretch.len();
+    for (at, n) in stretch.iter().enumerate() {
+        budget.step()?;
+        if !T::is_comment(n) && !hidden(n, code) {
+            first_token = at;
+            break;
+        }
     }
-    joined_run(before, last, code, joins, forward)
+    let before = &stretch[..first_token];
+    let mut last = None;
+    for (at, n) in before.iter().enumerate().rev() {
+        budget.step()?;
+        if !hidden(n, code) {
+            last = Some(at);
+            break;
+        }
+    }
+    let Some(last) = last else {
+        return Ok((Vec::new(), first_token));
+    };
+    if !forward(&before[last])? {
+        return Ok((Vec::new(), first_token));
+    }
+    Ok((
+        joined_run(before, last, code, joins, forward, budget)?,
+        first_token,
+    ))
 }
 
 /// `before[last]` with the doc comments directly before it that it
 /// joins, in source order. `joins` is asked first: for a binding whose
 /// `joins` is [`never_joins`] it answers at once, where `forward`
 /// would scan the comment's bytes for nothing.
-fn joined_run<'a>(
+fn joined_run<'a, B: WorkBudget>(
     before: &[Node<'a>],
     last: usize,
     code: &[u8],
     joins: fn(&Node, &Node, &[u8]) -> bool,
-    forward: impl Fn(&Node<'a>) -> bool,
-) -> Vec<Node<'a>> {
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<Vec<Node<'a>>, B::Error> {
     let mut first = last;
     while first > 0
         && joins(&before[first - 1], &before[first], code)
-        && forward(&before[first - 1])
+        && forward(&before[first - 1])?
     {
+        budget.step()?;
         first -= 1;
     }
-    before[first..=last].to_vec()
+    let mut nodes = Vec::new();
+    for node in &before[first..=last] {
+        budget.step()?;
+        nodes.push(*node);
+    }
+    Ok(nodes)
 }
 
 /// [`KeptDocs::Nearest`] over a stretch in source order whose last
 /// member `next` follows: the comment nearest the declaration that the
 /// tool can see, if it is a doc comment.
-fn bind_nearest<'a, T: Checker>(
+fn bind_nearest<'a, T: Checker, B: WorkBudget>(
     stretch: &[Node<'a>],
     next: Node<'a>,
     hidden: fn(&Node, &Node) -> bool,
-    forward: impl Fn(&Node<'a>) -> bool,
-) -> Option<Node<'a>> {
+    forward: impl Fn(&Node<'a>) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<Option<Node<'a>>, B::Error> {
     let mut later = next;
     for member in stretch.iter().rev() {
+        budget.step()?;
         if T::is_comment(member) && !hidden(member, &later) {
-            return Some(*member).filter(forward);
+            return Ok(forward(member)?.then_some(*member));
         }
         later = *member;
     }
-    None
+    Ok(None)
 }
 
 /// Credits the rows of the comment run that `comment` ends, when the
@@ -592,28 +1046,20 @@ pub fn leading_doc_run<'a, T: Checker>(
     ancestors: Ancestors<'a, '_>,
     mut credit: impl FnMut(usize, usize),
 ) {
-    let next = ancestors.siblings_after(comment).next();
-    if next
-        .as_ref()
-        .is_some_and(|n| run_continues_to::<T>(comment, n, code))
-    {
-        // A later member decides.
-        return;
-    }
-    let Some(first) = run_first_member::<T>(comment, code, ancestors) else {
+    let Some(run) = positional_run::<T>(comment, code, ancestors, CandidateView::Legacy) else {
         return;
     };
-    // `next` is `comment`'s sibling, so `ancestors` is its chain too.
-    let below = next.filter(|n| T::doc_target_start_row(n) == comment.end_row().saturating_add(1));
-    let documents = below.is_some_and(|n| T::is_doc_target(&n, code, ancestors))
-        || T::is_doc_run_opener(&first, below.as_ref(), code, ancestors);
+    let Some(first) = run.first_eligible else {
+        return;
+    };
+    let documents = run
+        .below
+        .is_some_and(|n| T::is_doc_target(&n, code, ancestors))
+        || T::is_doc_run_opener(&first, run.below.as_ref(), code, ancestors);
     if !documents {
         return;
     }
-    for member in std::iter::once(first).chain(ancestors.siblings_after(&first)) {
-        if member.start_byte() > comment.start_byte() {
-            break;
-        }
+    for member in run.members_from(first, ancestors) {
         if !T::is_doc_run_directive(&member, code) {
             credit(member.start_row(), member.end_row());
         }
@@ -627,78 +1073,301 @@ pub fn leading_doc_run<'a, T: Checker>(
 /// one: asked about a code node, it reports that the comment on the row
 /// below continues the code's run, which once let a backward scan run
 /// to the top of the file for every LDoc block (#1597).
-pub(crate) fn run_continues_to<T: Checker>(comment: &Node, next: &Node, code: &[u8]) -> bool {
-    T::is_comment(next)
+pub(crate) fn run_continues_with_budget<R: SourceRules, B: WorkBudget>(
+    comment: &Node,
+    next: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(R::Checker::is_comment(next)
         && (next.start_row() <= comment.end_row()
             || (next.start_row() == comment.end_row().saturating_add(1)
-                && !T::ends_doc_run(comment, code)))
+                && !R::ends(comment, code, budget)?)))
 }
 
-/// The first member of the run `comment` ends: the comment siblings
-/// before it on consecutive rows that hold nothing but comments, so two
-/// comments sharing a row (`/* a */ /* b */`) are one row of the run.
-/// `None` when code precedes `comment` on its own row: a trailing
-/// comment belongs to no run, and a row where code precedes its
-/// comments ends the run below it. One backward pass over one sibling
-/// iterator.
-fn run_first_member<'a, T: Checker>(
-    comment: &Node<'a>,
-    code: &[u8],
-    ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    // `row_first` is the earliest comment found on the row being scanned;
-    // `first` is the first member of the earliest row known to be clean.
-    // Each step moves `row_first` to the sibling just before it, so one
-    // iterator walks the whole run.
-    let mut before = ancestors.siblings_before(comment);
-    let mut first = None;
-    let mut row_first = *comment;
-    loop {
-        match before.next() {
-            // Another token on this row: a comment extends the row, and
-            // code before it makes every comment on the row a trailing one.
-            Some(prev) if prev.end_row() >= row_first.start_row() => {
-                if !T::is_comment(&prev) {
-                    return first;
-                }
-                row_first = prev;
-            }
-            // A comment ending on the row above: this row is clean, and
-            // the run continues upward unless that comment ends a run.
-            Some(prev)
-                if T::is_comment(&prev)
-                    && prev.end_row().saturating_add(1) == row_first.start_row()
-                    && !T::ends_doc_run(&prev, code) =>
-            {
-                first = Some(row_first);
-                row_first = prev;
-            }
-            _ => return Some(row_first),
+/// Constant-sized boundaries from the completed positional run. Members stream
+/// forward only after legacy acceptance, or into source-only storage.
+pub(crate) struct PositionalRun<'a> {
+    pub(crate) first: Node<'a>,
+    pub(crate) last: Node<'a>,
+    pub(crate) first_eligible: Option<Node<'a>>,
+    pub(crate) next: Option<Node<'a>>,
+    pub(crate) below: Option<Node<'a>>,
+    pub(crate) code_before: Option<Node<'a>>,
+    pub(crate) prefix_gap: bool,
+    pub(crate) suffix_gap: bool,
+    pub(crate) end: crate::documentation::streaming::positional::RunEnd,
+}
+
+impl<'a> PositionalRun<'a> {
+    pub(crate) fn materialize_with_budget<B: WorkBudget>(
+        &self,
+        ancestors: Ancestors<'a, '_>,
+        budget: &B,
+    ) -> Result<Vec<Node<'a>>, B::Error> {
+        let mut members = Vec::new();
+        let after = ancestors.siblings_after_with_budget(&self.first, budget)?;
+        for member in std::iter::once(self.first)
+            .chain(after)
+            .take_while(|member| member.start_byte() <= self.last.start_byte())
+        {
+            budget.step()?;
+            members_materialized::record();
+            members.push(member);
         }
+        Ok(members)
+    }
+
+    pub(crate) fn members_from<'c>(
+        &self,
+        first: Node<'a>,
+        ancestors: Ancestors<'a, 'c>,
+    ) -> impl Iterator<Item = Node<'a>> + use<'a, 'c> {
+        let last_start = self.last.start_byte();
+        std::iter::once(first)
+            .chain(ancestors.siblings_after(&first))
+            .take_while(move |member| member.start_byte() <= last_start)
     }
 }
 
-/// The trailing comment that heads `first`'s LDoc group, when `first` sits
-/// directly under a row that ends in one: LDoc lexes a line comment with
-/// its newline and gathers every consecutive comment token into one group
-/// whose first token decides whether it is an LDoc block (`parse.lua`), so
-/// a `---` row under `x = 1 -- note` belongs to that `--` group. The run
-/// `leading_doc_run` hands over leaves such a comment out, as go/doc does,
-/// so it is looked up here.
-pub(crate) fn lua_group_head_above<'a, T: Checker>(
-    first: &Node<'a>,
+crate::observation::counter!(
+    positional_runs_collected,
+    cfg(any(test, feature = "test-support"))
+);
+crate::observation::counter!(
+    positional_predecessors,
+    cfg(any(test, feature = "test-support"))
+);
+// Counts actual node-buffer pushes; legacy boundary and coverage paths never call it.
+crate::observation::counter!(
+    members_materialized,
+    cfg(any(test, feature = "test-support"))
+);
+
+pub(crate) fn positional_run<'a, T: Checker>(
+    comment: &Node<'a>,
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
-) -> Option<Node<'a>> {
-    ancestors
-        .siblings_before(first)
-        .next()
-        .filter(|above| T::is_comment(above) && run_continues_to::<T>(above, first, code))
+    view: CandidateView<'_>,
+) -> Option<PositionalRun<'a>> {
+    infallible(positional_run_with_budget::<PublicRules<T>, _>(
+        comment, code, ancestors, view, &NoBudget,
+    ))
+}
+
+pub(crate) fn positional_run_with_budget<'a, R: SourceRules, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<Option<PositionalRun<'a>>, B::Error> {
+    use crate::documentation::streaming::positional::RunEnd;
+    let next = ancestors
+        .siblings_after_with_budget(comment, budget)?
+        .next();
+    let continuous = view.covers_with_budget(
+        comment.start_byte()..next.map_or(comment.end_byte(), |n| n.end_byte()),
+        budget,
+    )?;
+    if continuous
+        && let Some(next) = next
+        && run_continues_with_budget::<R, _>(comment, &next, code, budget)?
+    {
+        return Ok(None);
+    }
+    let below = if let Some(next) = next
+        && R::start_row(&next, budget)? == comment.end_row().saturating_add(1)
+    {
+        Some(next)
+    } else {
+        None
+    };
+    let end = if !continuous {
+        RunEnd::ExcludedGap
+    } else if R::ends(comment, code, budget)? {
+        RunEnd::Terminator
+    } else if next.is_none() {
+        RunEnd::EndOfScope
+    } else if below.is_none() && next.is_some_and(|n| n.start_row() > comment.end_row()) {
+        RunEnd::BlankLine
+    } else {
+        RunEnd::Token
+    };
+    let mut run = collect_positional_prefix::<R, B>(comment, code, ancestors, view, budget)?;
+    run.next = next;
+    run.below = below.filter(|_| continuous);
+    run.suffix_gap = next.is_none()
+        && suffix_gap_with_budget(comment, comment.end_byte(), code, ancestors, view, budget)?;
+    run.end = end;
+    Ok(Some(run))
+}
+
+fn collect_positional_prefix<'a, R: SourceRules, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    view: CandidateView<'_>,
+    budget: &B,
+) -> Result<PositionalRun<'a>, B::Error> {
+    // bca: suppress(cognitive, halstead) -- one reverse state machine preserves clean rows, same-row comments, trailing rows and excluded boundaries.
+    positional_runs_collected::record();
+    let mut run = PositionalRun {
+        first: *comment,
+        last: *comment,
+        first_eligible: Some(*comment),
+        next: None,
+        below: None,
+        code_before: None,
+        prefix_gap: false,
+        suffix_gap: false,
+        end: crate::documentation::streaming::positional::RunEnd::EndOfScope,
+    };
+    let mut clean_first = None;
+    let mut row_first = *comment;
+    let mut stopped = false;
+    for prev in ancestors.siblings_before_with_budget(comment, budget)? {
+        budget.step()?;
+        positional_predecessors::record();
+        if !view.covers_with_budget(prev.start_byte()..row_first.end_byte(), budget)? {
+            run.prefix_gap = true;
+            stopped = true;
+            break;
+        }
+        if !R::Checker::is_comment(&prev) {
+            run.code_before = Some(prev);
+            if prev.end_row() >= row_first.start_row() {
+                run.first_eligible = clean_first;
+            }
+            stopped = true;
+            break;
+        }
+        if !run_continues_with_budget::<R, _>(&prev, &row_first, code, budget)? {
+            run.code_before = Some(prev);
+            stopped = true;
+            break;
+        }
+        if prev.end_row() < row_first.start_row() {
+            clean_first = Some(row_first);
+        }
+        row_first = prev;
+        run.first_eligible = Some(row_first);
+    }
+    if !stopped && matches!(view, CandidateView::Source(_)) {
+        let start = source_scope_bounds(comment, code, ancestors).start;
+        run.prefix_gap = !view.covers_with_budget(start..row_first.start_byte(), budget)?;
+    }
+    run.first = row_first;
+    Ok(run)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn documentation_scope_bounds_respect_known_and_unknown_context() {
+        use crate::node::node_resolved_parent_lookups;
+        use crate::{AnyParser, LANG, Search};
+        let code = b"\nmod m { //! audit\n}\n";
+        let parser = AnyParser::parse(LANG::Rust, code.to_vec(), None, None).unwrap();
+        let root = parser.root_node();
+        let before = node_resolved_parent_lookups::observed();
+        assert_eq!(
+            source_scope_bounds(&root, code, Ancestors::unknown()),
+            0..21
+        );
+        assert_eq!(node_resolved_parent_lookups::observed() - before, 1);
+        let mut checked = 0;
+        root.act_on_node(&mut |node, ancestors| {
+            let expected = match node.kind() {
+                "mod_item" => 0..21,
+                "line_comment" => 7..20,
+                _ => return,
+            };
+            let before = node_resolved_parent_lookups::observed();
+            assert_eq!(source_scope_bounds(node, code, ancestors), expected);
+            assert_eq!(
+                source_scope_bounds(node, code, Ancestors::known(&[])),
+                0..21
+            );
+            assert_eq!(node_resolved_parent_lookups::observed() - before, 0);
+            assert_eq!(
+                source_scope_bounds(node, code, Ancestors::unknown()),
+                expected
+            );
+            assert_eq!(node_resolved_parent_lookups::observed() - before, 2);
+            checked += 1;
+        });
+        assert_eq!(checked, 2);
+    }
+
+    #[cfg(feature = "rust")]
+    #[test]
+    fn documentation_exhausted_tail_uses_the_current_lexical_scope() {
+        use crate::documentation::SourceContext;
+        use crate::{AnyParser, LANG, RustCode, Search};
+        let source = b"mod m { //! audit\n}\nXXXX";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&LANG::Rust.tree_sitter_language().unwrap())
+            .unwrap();
+        parser
+            .set_included_ranges(&[tree_sitter::Range {
+                start_byte: 0,
+                end_byte: 20,
+                start_point: tree_sitter::Point::new(0, 0),
+                end_point: tree_sitter::Point::new(2, 0),
+            }])
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let parser = AnyParser::from_tree(LANG::Rust, tree, source.to_vec()).unwrap();
+        let context = SourceContext::new(parser.ts_tree(), source);
+        let mut checked = 0;
+        parser.root_node().act_on_node(&mut |node, ancestors| {
+            if RustCode::is_comment(node) {
+                assert_eq!(ancestors.parent(node).unwrap().kind(), "declaration_list");
+                assert_eq!(ancestors.parent(node).unwrap().end_byte(), 19);
+                // Exercise the exhaustion helper directly: the parsed closing
+                // brace normally stops marker scanning before this tail check.
+                assert!(!suffix_gap(
+                    node,
+                    node.end_byte(),
+                    source,
+                    ancestors,
+                    CandidateView::Source(&context)
+                ));
+                assert!(suffix_gap(
+                    &parser.root_node(),
+                    20,
+                    source,
+                    Ancestors::known(&[]),
+                    CandidateView::Source(&context)
+                ));
+                checked += 1;
+            }
+        });
+        assert_eq!(checked, 1);
+    }
+
+    #[cfg(feature = "c")]
+    fn read_past_error<'a, T: Checker>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        read_past_error_in::<T>(node, code, ancestors, CandidateView::Legacy)
+    }
+
+    #[cfg(feature = "java")]
+    fn error_holds_target<'a, T: Checker>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        error_holds_target_in::<T>(node, code, ancestors, CandidateView::Legacy)
+    }
 
     /// Every language's `DOC_BINDING` spreads `..DocBinding::new(kept)`
     /// and relies on its defaults: nothing skipped, every doc comment

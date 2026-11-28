@@ -1,0 +1,155 @@
+{
+  "checkpoint": "a4397339f872647d672e44e056a043502e13527f",
+  "issue_base": "9abf9720cd5d1506455cb94fed5b0009f4fc1a15",
+  "manifest": "documentation.json",
+  "command": [
+    "cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast",
+    "--all-features", "--lib", "documentation", "--no-fail-fast"
+  ],
+  "provenance": {
+    "rustc": "1.99.0 (b940084d7)",
+    "cargo": "1.99.0 (5f94df478)",
+    "python": "3.14.8",
+    "source_manifests": [
+      "/tmp/opencode/bca-performance-mutations.h1m_p9p1.json",
+      "/tmp/opencode/bca-performance-scan-mutations.s9zc2491.json"
+    ],
+    "source_results": [
+      "/tmp/bca-perturb-backup.g905bukb/perturb-results.json",
+      "/tmp/bca-perturb-backup.pm4ta8uy/perturb-results.json"
+    ],
+    "scope": "Archived writer-reported local behavioral mutation results, preserved during source audit. These are not a new run or wall-clock qualification. The added documentation-audit.json cases remain unexecuted."
+  },
+  "results": [
+    {
+      "name": "skip registered cell execution",
+      "verdict": "caught",
+      "detail": "",
+      "failed": [
+        "documentation::runner::tests::source_schedule_executes_calibration_warmup_and_measured_work",
+        "documentation::runner::tests::source_smoke_exercises_every_registered_cell"
+      ],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "ignore wrong cell membership",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "ignore missing samples",
+      "verdict": "caught",
+      "detail": "",
+      "failed": [
+        "documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode",
+        "documentation::runner::tests::report_revalidates_batches_counts_and_statistic"
+      ],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "disable measured batch resolution",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::runner::tests::actual_batches_control_resolution_even_at_iteration_cap"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "floor fractional ns",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "legacy cheap iteration cap",
+      "verdict": "caught",
+      "detail": "",
+      "failed": [
+        "documentation::runner::tests::actual_batches_control_resolution_even_at_iteration_cap",
+        "documentation::runner::tests::calibration_caps_zero_and_preserves_ceiling",
+        "documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"
+      ],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "omit source failures",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "ignore gate exit failure",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "skip association consumption",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::tests::prepared_query_counters_charge_only_declared_output"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "skip qualification consumption",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::tests::prepared_query_counters_charge_only_declared_output"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "drop included scalar intersections",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::render_probe::tests::valid_preparation_borrows_adjacent_range_intersections"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "skip tiny render entry cancellation",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::render_probe::tests::tiny_and_empty_render_poll_cancellation_at_entry"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "skip render identity validation",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::render_probe::tests::preparation_rejects_foreign_and_pending_documents"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "scan all associations",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::tests::prepared_query_counters_charge_only_declared_output"],
+      "missing_expected": [],
+      "rc": 101
+    },
+    {
+      "name": "scan all qualifications",
+      "verdict": "caught",
+      "detail": "",
+      "failed": ["documentation::tests::prepared_query_counters_charge_only_declared_output"],
+      "missing_expected": [],
+      "rc": 101
+    }
+  ]
+}

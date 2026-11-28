@@ -2,7 +2,9 @@
 //! braced-word kind ids.
 
 use crate::Tcl;
+use crate::documentation::budget::WorkBudget;
 use crate::getter::BracedWordKinds;
+use crate::lang_helpers::tcl_family::{BodyRowKinds, RowMark};
 use crate::node::{Ancestors, Node, WordSlot};
 
 /// The braced-word kinds `Getter::is_subsumed_braced_word`,
@@ -36,6 +38,38 @@ pub(crate) const BRACED_WORD_KINDS: BracedWordKinds = BracedWordKinds {
     namespace: Tcl::Namespace as u16,
     open_brace: Tcl::LBRACE as u16,
 };
+
+/// The kinds a reader of a `proc` body's comment rows is instantiated with.
+pub(crate) const BODY_ROW_KINDS: BodyRowKinds = BodyRowKinds {
+    comment: Tcl::Comment as u16,
+    line_feed: Tcl::LF as u16,
+};
+
+/// The directive that opens a Ruff! documentation block.
+pub(crate) const RUFF_MARKER: &[u8] = b"#ruff";
+
+const RUFF_OPTIONS: &[u8] = b"#ruffopt";
+
+/// How Ruff! 3.0.4 reads a comment row, from the row's first word. `#ruff`
+/// and `#ruffopt` are directives only as whole words: the end of the row, a
+/// space or a tab follows. Any other row is an ordinary comment, also one
+/// whose first word only starts with `#ruff`, which Ruff! itself rejects.
+pub(crate) fn ruff_row<B: WorkBudget>(spelling: &[u8], budget: &B) -> Result<RowMark, B::Error> {
+    // The longer directive and the byte after it are all that is read.
+    budget.bytes(spelling.len().min(RUFF_OPTIONS.len() + 1))?;
+    let word = |directive: &[u8]| {
+        spelling
+            .strip_prefix(directive)
+            .is_some_and(|rest| matches!(rest.first(), None | Some(b' ' | b'\t')))
+    };
+    Ok(if word(RUFF_MARKER) {
+        RowMark::Opens
+    } else if word(RUFF_OPTIONS) {
+        RowMark::Silent
+    } else {
+        RowMark::Text
+    })
+}
 
 /// Reads the leading word of a Tcl `command` node when it is a plain
 /// `simple_word` (`switch`, `for`, `puts`, …). Returns `None` for any other

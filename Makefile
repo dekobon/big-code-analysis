@@ -196,6 +196,8 @@ help:
 	@echo "  bench                                bench-scaling + bench-walk (out-of-band; never in ci)"
 	@echo "  bench-scaling                        Complexity-class gate for the metric walk"
 	@echo "  bench-walk                           Criterion metric-walk benchmarks over a corpus slice"
+	@echo "  bench-documentation                  Criterion source-documentation benchmarks"
+	@echo "  bench-source                         Source-only class gate"
 	@echo "  fuzz-check                           Lint, test + build the cargo-fuzz targets (out-of-band)"
 	@echo "  fuzz-smoke                           Short bounded fuzz run over the committed corpora"
 	@echo "  fuzz-replay                          Replay the committed seeds only (regression check)"
@@ -461,9 +463,13 @@ toml-lint:
 	@echo "Linting TOML files..."
 	@taplo lint || { echo "TOML lint found issues"; exit 1; }
 
-makefile-check:
+makefile-check: fuzz-make-test
 	@echo "Linting Makefile with checkmake..."
 	@checkmake --config $(BASE_DIR).checkmake.ini $(BASE_DIR)Makefile || { echo "checkmake found issues"; exit 1; }
+
+.PHONY: fuzz-make-test
+fuzz-make-test:
+	@MAKE="$(MAKE)" python3 -B "$(BASE_DIR)utils/fuzz-make-test.py"
 
 # actionlint scans every workflow under .github/workflows/ and shells
 # out to shellcheck (when present on PATH) for the `run:` blocks. It
@@ -1402,12 +1408,19 @@ BENCH_ARGS ?=
 bench: bench-scaling bench-walk
 
 bench-scaling:
-	@echo "Running the metric-walk complexity-class gate..."
+	@echo "Running the legacy and source complexity-class gates..."
 	@cargo bench -p big-code-analysis-bench --bench scaling -- $(BENCH_ARGS)
 
 bench-walk:
 	@echo "Running criterion metric-walk benchmarks..."
 	@cargo bench -p big-code-analysis-bench --bench metric_walk -- $(BENCH_ARGS)
+
+.PHONY: bench-documentation bench-source
+bench-documentation:
+	@cargo bench -p big-code-analysis-bench --bench documentation -- $(BENCH_ARGS)
+
+bench-source:
+	@cargo bench -p big-code-analysis-bench --bench scaling -- --scope source $(BENCH_ARGS)
 
 # ---------------------------------------------------------------------------
 # Fuzzing harness (#1154)
@@ -1465,6 +1478,10 @@ FUZZ_RUNS ?= 100000
 FUZZ_TIMEOUT ?= 60
 FUZZ_TARGET ?= parse_cpp
 FUZZ_INPUT ?=
+# Shell-quoted libFuzzer arguments; recipe-owned run/timeout limits come last.
+FUZZ_ARGS ?=
+# Read-only corpus root, with one subdirectory per target.
+FUZZ_CORPUS ?= $(BASE_DIR)fuzz/corpus
 
 # ASan on the Rust side is cargo-fuzz's own doing. The tree-sitter
 # grammars are C, compiled by build scripts through the `cc` crate, and
@@ -1525,8 +1542,8 @@ FUZZ_CC_ENV = CFLAGS_$(subst -,_,$(FUZZ_HOST_TRIPLE))="$(FUZZ_SAN_FLAGS)" \
 # the failure this comment exists to prevent.
 FUZZ_SYMBOLIZER = $(shell command -v llvm-symbolizer 2>/dev/null || \
 	  ls -1 /usr/lib/llvm-*/bin/llvm-symbolizer 2>/dev/null | sort -V | tail -1)
-FUZZ_RUN_ENV = LSAN_OPTIONS=suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt \
-	  ASAN_SYMBOLIZER_PATH=$(FUZZ_SYMBOLIZER)
+FUZZ_RUN_ENV = LSAN_OPTIONS="suppressions=$(BASE_DIR)fuzz/lsan-suppressions.txt" \
+	  ASAN_SYMBOLIZER_PATH="$(FUZZ_SYMBOLIZER)"
 
 # Fail with the reason rather than with an unsuppressed leak report.
 # One line, not a `define`: a multi-line define carries embedded newlines
@@ -1606,11 +1623,11 @@ fuzz-replay:
 	  $(FUZZ_REQUIRE_SYMBOLIZER); \
 	  for t in $$(cargo +nightly fuzz list); do \
 	    echo "Replaying committed seeds for $$t..."; \
-	    mkdir -p $(FUZZ_WORK)/"$$t"; \
+	    mkdir -p "$(FUZZ_WORK)/$$t"; \
 	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run \
 	      --target $(FUZZ_HOST_TRIPLE) "$$t" \
-	      $(FUZZ_WORK)/"$$t" $(BASE_DIR)fuzz/corpus/"$$t" \
-	      -- -runs=0 -timeout=$(FUZZ_TIMEOUT); \
+	      "$(FUZZ_WORK)/$$t" "$(FUZZ_CORPUS)/$$t" \
+	      -- $(FUZZ_ARGS) -runs=0 -timeout=$(FUZZ_TIMEOUT); \
 	  done; \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-replay"; \
@@ -1623,13 +1640,13 @@ fuzz-run:
 	  if [ -n "$(FUZZ_INPUT)" ]; then \
 	    echo "Replaying $(FUZZ_TARGET) against $(FUZZ_INPUT)..."; \
 	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
-	      "$(FUZZ_INPUT)" -- -timeout=$(FUZZ_TIMEOUT); \
+	      "$(FUZZ_INPUT)" -- $(FUZZ_ARGS) -timeout=$(FUZZ_TIMEOUT); \
 	  else \
 	    echo "Fuzzing $(FUZZ_TARGET) for $(FUZZ_RUNS) runs..."; \
-	    mkdir -p $(FUZZ_WORK)/$(FUZZ_TARGET); \
+	    mkdir -p "$(FUZZ_WORK)/$(FUZZ_TARGET)"; \
 	    $(FUZZ_CC_ENV) $(FUZZ_RUN_ENV) cargo +nightly fuzz run --target $(FUZZ_HOST_TRIPLE) $(FUZZ_TARGET) \
-	      $(FUZZ_WORK)/$(FUZZ_TARGET) $(BASE_DIR)fuzz/corpus/$(FUZZ_TARGET) \
-	      -- -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
+	      "$(FUZZ_WORK)/$(FUZZ_TARGET)" "$(FUZZ_CORPUS)/$(FUZZ_TARGET)" \
+	      -- $(FUZZ_ARGS) -runs=$(FUZZ_RUNS) -timeout=$(FUZZ_TIMEOUT); \
 	  fi; \
 	else \
 	  echo "nightly toolchain or cargo-fuzz not found; skipping fuzz-run"; \

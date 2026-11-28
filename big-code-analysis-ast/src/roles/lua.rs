@@ -5,9 +5,8 @@
 //! `Catch`, `ElseIf`, `Exit` (#1697) — and
 //! the documentation rows (#1699) are declared.
 
-use crate::lang_helpers::doc_comment::{
-    documents_where_it_sits, ldoc_opener, lua_group_head_above, node_bytes,
-};
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::lang_helpers::doc_comment::node_bytes;
 use crate::role_table;
 use crate::{Ancestors, Lua, LuaCode, Node};
 
@@ -15,33 +14,85 @@ use crate::{Ancestors, Lua, LuaCode, Node};
 /// `M.x = 1`): LDoc's `get_fun_name` stops at `,`, `<` and `[`, so
 /// `local a, b = …`, `local x <const> = …` and `M[1] = …` name no item.
 fn assigns_one_name(node: &Node<'_>) -> bool {
+    infallible(assigns_one_name_with_budget(node, &NoBudget))
+}
+
+fn assigns_one_name_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // The grammar always emits the `variable_list` first, empty when
     // recovery had to invent the target (`= 1` on its own).
-    node.child(0).is_some_and(|targets| {
-        let mut names = targets.children().filter(Node::is_named);
-        names.next().is_some_and(|name| is_dotted_name(&name)) && names.next().is_none()
-    })
+    let Some(targets) = node.child(0) else {
+        return Ok(false);
+    };
+    let mut first = None;
+    for child in targets.children() {
+        budget.step()?;
+        if !child.is_named() {
+            continue;
+        }
+        if first.is_some() {
+            return Ok(false);
+        }
+        if !is_dotted_name(&child, budget)? {
+            return Ok(false);
+        }
+        first = Some(child);
+    }
+    Ok(first.is_some())
 }
 
 /// An identifier, or a `.` index of one (`M.a.b`).
-fn is_dotted_name(node: &Node) -> bool {
-    node.preorder().filter(Node::is_named).all(|part| {
-        matches!(
-            part.kind_id().into(),
-            Lua::Identifier | Lua::DotIndexExpression | Lua::DotIndexExpression2
-        )
-    })
+fn is_dotted_name<B: WorkBudget>(node: &Node, budget: &B) -> Result<bool, B::Error> {
+    let mut cursor = node.as_tree_sitter().walk();
+    loop {
+        budget.step()?;
+        let part = cursor.node();
+        if part.is_named()
+            && !matches!(
+                part.kind_id().into(),
+                Lua::Identifier | Lua::DotIndexExpression | Lua::DotIndexExpression2
+            )
+        {
+            return Ok(false);
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        loop {
+            budget.step()?;
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return Ok(true);
+            }
+        }
+    }
 }
 
 /// Whether a `local` declaration assigns one name (`local x = 1`, not
 /// a bare `local x`).
 fn declares_one_name(node: &Node<'_>) -> bool {
-    node.children().any(|child| {
-        matches!(
+    infallible(declares_one_name_with_budget(node, &NoBudget))
+}
+
+fn declares_one_name_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for child in node.children() {
+        budget.step()?;
+        if matches!(
             child.kind_id().into(),
             Lua::AssignmentStatement | Lua::AssignmentStatement2
-        ) && assigns_one_name(&child)
-    })
+        ) && assigns_one_name_with_budget(&child, budget)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether a table field has a name (`new = function … end`): the
@@ -55,22 +106,53 @@ fn field_has_a_name(node: &Node<'_>) -> bool {
 /// Whether a `return` returns a function or a table — the module
 /// shapes LDoc documents as an item, not an exit.
 fn returns_a_function_or_table(node: &Node<'_>) -> bool {
-    node.children()
-        .find(|child| {
-            matches!(
-                child.kind_id().into(),
-                Lua::ExpressionList | Lua::ExpressionList2
-            )
-        })
-        .and_then(|list| list.children().find(Node::is_named))
-        // role-bypass: allow(Closure) — what a returned value documents
-        // as, not whether it is a closure
-        .is_some_and(|value| {
-            matches!(
+    infallible(returns_with_budget(node, &NoBudget))
+}
+
+fn returns_with_budget<B: WorkBudget>(node: &Node<'_>, budget: &B) -> Result<bool, B::Error> {
+    for list in node.children() {
+        budget.step()?;
+        if !matches!(
+            list.kind_id().into(),
+            Lua::ExpressionList | Lua::ExpressionList2
+        ) {
+            continue;
+        }
+        for value in list.children() {
+            budget.step()?;
+            if !value.is_named() {
+                continue;
+            }
+            // role-bypass: allow(Closure) — what a returned value documents
+            // as, not whether it is a closure
+            return Ok(matches!(
                 value.kind_id().into(),
                 Lua::FunctionDefinition | Lua::TableConstructor
-            )
-        })
+            ));
+        }
+        break;
+    }
+    Ok(false)
+}
+
+pub(crate) fn target_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if !doc_target::lists_kind(node.kind_id()) {
+        return Ok(false);
+    }
+    match node.kind_id().into() {
+        Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
+            assigns_one_name_with_budget(node, budget)
+        }
+        Lua::VariableDeclaration | Lua::VariableDeclaration2 => {
+            declares_one_name_with_budget(node, budget)
+        }
+        Lua::Field => Ok(field_has_a_name(node)),
+        Lua::ReturnStatement => returns_with_budget(node, budget),
+        _ => Ok(true),
+    }
 }
 
 /// Whether a comment opens an LDoc block where LDoc reads one: it opens
@@ -87,10 +169,47 @@ fn opens_an_ldoc_block_where_ldoc_reads<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
-    ldoc_opener(node_bytes(node, code))
-        && documents_where_it_sits::<LuaCode>(node, code, ancestors)
-        && lua_group_head_above::<LuaCode>(node, code, ancestors)
-            .is_none_or(|head| ldoc_opener(node_bytes(&head, code)))
+    infallible(opens_with_budget(node, code, ancestors, &NoBudget))
+}
+
+pub(crate) fn opens_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    use crate::Checker;
+    if !crate::lang_helpers::doc_text::ldoc_opener_with_budget(node_bytes(node, code), budget)? {
+        return Ok(false);
+    }
+    let held = ancestors.fold_down_with_budget(
+        node,
+        0,
+        crate::FoldLane::DocInBody,
+        0,
+        |held, ancestor, outer, below| {
+            Ok(u8::from(
+                held != 0 || LuaCode::holds_doc_comment_in_body(ancestor, code, outer, below),
+            ))
+        },
+        budget,
+    )?;
+    if held != 0 {
+        return Ok(false);
+    }
+    if let Some(head) = ancestors.siblings_before_with_budget(node, budget)?.next()
+        && LuaCode::is_comment(&head)
+        && crate::lang_helpers::doc_comment::run_continues_with_budget::<
+            crate::documentation::recognition::NativeRules<LuaCode>,
+            _,
+        >(&head, node, code, budget)?
+    {
+        return crate::lang_helpers::doc_text::ldoc_opener_with_budget(
+            node_bytes(&head, code),
+            budget,
+        );
+    }
+    Ok(true)
 }
 
 /// Whether a `function_call` is `error(…)` or `os.exit(…)`, by the text

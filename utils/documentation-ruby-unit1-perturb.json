@@ -1,0 +1,368 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "ruby-positional-docs-off",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "    const SOURCE_POSITIONAL_DOCS: bool = true;",
+      "new": "    const SOURCE_POSITIONAL_DOCS: bool = false;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-positional-targets-off",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "    const SOURCE_POSITIONAL_TARGETS: bool = true;",
+      "new": "    const SOURCE_POSITIONAL_TARGETS: bool = false;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-method-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/ruby.rs",
+      "old": "        owns [\n            Method,\n            SingletonMethod,\n            Class,\n            Module,",
+      "new": "        owns [\n            SingletonMethod,\n            Class,\n            Module,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text"
+      ]
+    },
+    {
+      "name": "ruby-singleton-method-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/ruby.rs",
+      "old": "            Method,\n            SingletonMethod,\n            Class,\n            Module,",
+      "new": "            Method,\n            Class,\n            Module,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it"
+      ]
+    },
+    {
+      "name": "ruby-class-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/ruby.rs",
+      "old": "            SingletonMethod,\n            Class,\n            Module,",
+      "new": "            SingletonMethod,\n            Module,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it"
+      ]
+    },
+    {
+      "name": "ruby-module-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/ruby.rs",
+      "old": "            Class,\n            Module,\n            Alias(gated_by alias_names_a_method no_chain),",
+      "new": "            Class,\n            Alias(gated_by alias_names_a_method no_chain),",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it"
+      ]
+    },
+    {
+      "name": "positional-run-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            target,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.uncertainty,",
+      "new": "            target: None,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.uncertainty,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "positional-run-has-no-binding",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            target,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.uncertainty,",
+      "new": "            target,\n            scope,\n            binding: None,\n            role: DocumentRole::Primary,\n            unresolved: run.uncertainty,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "positional-scope-is-the-root",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        let scope = self.evidence_id(run.containing)?.unwrap_or(NodeId(0));\n        let mut draft = Draft {",
+      "new": "        let scope = NodeId(0);\n        let mut draft = Draft {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class"
+      ]
+    },
+    {
+      "name": "blank-row-joins-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            || (next.start_row() == comment.end_row().saturating_add(1)",
+      "new": "            || (next.start_row() >= comment.end_row().saturating_add(1)",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run"
+      ]
+    },
+    {
+      "name": "trailing-comment-is-eligible",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {\n                run.first_eligible = clean_first;",
+      "new": "            if prev.end_row() > row_first.start_row() {\n                run.first_eligible = clean_first;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document"
+      ]
+    },
+    {
+      "name": "ruby-shebang-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    if s.starts_with(b\"#!\") {\n        return Ok(true);\n    }\n    let Some(body) = s.strip_prefix(b\"#\") else {\n        return Ok(false);\n    };\n    let body = scan::trim(body, budget)?;",
+      "new": "    if s.starts_with(b\"#!\") {\n        return Ok(false);\n    }\n    let Some(body) = s.strip_prefix(b\"#\") else {\n        return Ok(false);\n    };\n    let body = scan::trim(body, budget)?;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text"
+      ]
+    },
+    {
+      "name": "ruby-magic-comment-is-text",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "        b\"frozen_string_literal\",\n        b\"frozen-string-literal\",",
+      "new": "        b\"frozen-string-literal\",",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text"
+      ]
+    },
+    {
+      "name": "directive-selected-when-retained",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "            selected: !ineligible && !directive && selection != RunSelection::Unattached,",
+      "new": "            selected: !ineligible && selection != RunSelection::Unattached,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text"
+      ]
+    },
+    {
+      "name": "ruby-body-statement-not-descended",
+      "file": "big-code-analysis-ast/src/checker/ruby.rs",
+      "old": "            Ruby::BodyStatement | Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0),",
+      "new": "            Ruby::BodyStatement2 | Ruby::BlockBody => node.child(0),",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "yard-body-statement-not-a-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            \"if_modifier\" | \"unless_modifier\" | \"body_statement\" | \"block_body\" | \"then\"",
+      "new": "            \"if_modifier\" | \"unless_modifier\" | \"block_body\" | \"then\"",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-class-body-not-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/ruby.rs",
+      "old": "                Ruby::Class\n                | Ruby::Module\n                | Ruby::SingletonClass\n                | Ruby::If",
+      "new": "                Ruby::Class => 0,\n                Ruby::Module\n                | Ruby::SingletonClass\n                | Ruby::If",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-singleton-class-body-not-read",
+      "file": "big-code-analysis-ast/src/lang_helpers/ruby.rs",
+      "old": "                Ruby::Class\n                | Ruby::Module\n                | Ruby::SingletonClass\n                | Ruby::If",
+      "new": "                Ruby::SingletonClass => 0,\n                Ruby::Class\n                | Ruby::Module\n                | Ruby::If",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class"
+      ]
+    },
+    {
+      "name": "yard-call-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "        Profile::Yard => matches!(node.kind(), \"call\" | \"assignment\" | \"alias\"),",
+      "new": "        Profile::Yard => matches!(node.kind(), \"assignment\" | \"alias\"),",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "yard-assignment-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "        Profile::Yard => matches!(node.kind(), \"call\" | \"assignment\" | \"alias\"),",
+      "new": "        Profile::Yard => matches!(node.kind(), \"call\" | \"alias\"),",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-double-hash-is-no-opener",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "    if s.starts_with(b\"##\") && s.get(2) != Some(&b'#') {\n        return Ok(true);\n    }",
+      "new": "    if s.starts_with(b\"##\") && s.get(2) != Some(&b'#') {\n        return Ok(false);\n    }",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "explicit-opener-keeps-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        positional::RunSelection::Opener(\n            positional::OpenerReason::Explicit | positional::OpenerReason::Tagged,\n        ) => {",
+      "new": "        positional::RunSelection::Opener(positional::OpenerReason::Tagged) => {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-hash-marker-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            if raw.starts_with(b\"##\") && raw.get(2) != Some(&b'#') {\n                2\n            } else {\n                1\n            },",
+      "new": "            if raw.starts_with(b\"##\") && raw.get(2) != Some(&b'#') {\n                2\n            } else {\n                2\n            },",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed"
+      ]
+    },
+    {
+      "name": "ruby-double-hash-marker-one-byte",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            if raw.starts_with(b\"##\") && raw.get(2) != Some(&b'#') {\n                2\n            } else {\n                1\n            },",
+      "new": "            if raw.starts_with(b\"##\") && raw.get(2) != Some(&b'#') {\n                1\n            } else {\n                1\n            },",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_run_documents_the_declaration_below_it",
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_blank_row_splits_a_run",
+        "documentation::collector::ruby_tests::ruby_shebang_and_magic_comment_are_no_text",
+        "documentation::collector::ruby_tests::ruby_comment_on_a_code_row_is_no_document",
+        "documentation::collector::ruby_tests::ruby_run_inside_a_class_body_documents_the_method_below_it",
+        "documentation::collector::ruby_tests::ruby_run_documents_a_method_inside_a_singleton_class",
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text",
+        "documentation::collector::ruby_tests::ruby_pending_forms_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "hash-row-trailing-space-trimmed",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if c_block\n            && let Some(last) = lines.last_mut()",
+      "new": "        if (c_block || !block)\n            && let Some(last) = lines.last_mut()",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_marker_and_one_space_are_removed"
+      ]
+    },
+    {
+      "name": "member-join-is-a-space",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        if position != first_block {\n            builder.transformed(\"\\n\", Origin::Synthetic, budget)?;",
+      "new": "        if position != first_block {\n            builder.transformed(\" \", Origin::Synthetic, budget)?;",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome",
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text"
+      ]
+    },
+    {
+      "name": "leading-empty-member-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        while first_block < last_block && empty_block(&blocks[first_block], budget)? {",
+      "new": "        while first_block > last_block && empty_block(&blocks[first_block], budget)? {",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_hash_rows_on_consecutive_rows_join_into_one_run",
+        "documentation::collector::ruby_tests::ruby_double_hash_rows_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "ruby-begin-row-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            range.start + (first + 1).min(raw.len())..range.start + last,",
+      "new": "            range.start..range.start + last,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it"
+      ]
+    },
+    {
+      "name": "ruby-end-row-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            range.start + (first + 1).min(raw.len())..range.start + last,",
+      "new": "            range.start + (first + 1).min(raw.len())..range.end,",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_begin_block_alone_documents_the_method_below_it"
+      ]
+    },
+    {
+      "name": "hash-row-terminator-kept",
+      "file": "big-code-analysis-ast/src/documentation/streaming/positional.rs",
+      "old": "        || bytes.starts_with(b\"#\")\n",
+      "new": "",
+      "expect": [
+        "documentation::collector::ruby_tests::ruby_crlf_line_endings_stay_out_of_fragments_and_text"
+      ]
+    }
+  ]
+}

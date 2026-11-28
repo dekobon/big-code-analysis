@@ -7,7 +7,13 @@ output, and — when `--verbatim` names the `verbatim-oracle` binary
 (`cargo build -p big-code-analysis-bench --bin verbatim-oracle`) — the
 library-level verbatim record: metrics, ops, the Alterator-built AST
 export, find/count, on the raw bytes, the only path that reaches a
-node ending at EOF.
+node ending at EOF. Paired MI views run through both binaries, with
+selected-metric dependency closure and Rust prune/try combinations.
+The default verbatim record stays compatible with recovery captures;
+additional metrics-only records use `--metrics-view` and spell their
+effective options in the output. `metrics_options` maps each CLI or
+verbatim metric view to its argv; additional views use the usual `.txt`
+suffix even though their payload is JSON.
 
 The verbatim view is optional per side because a base commit older
 than #1744 has no `verbatim-oracle` to build: a base-vs-head run over
@@ -46,6 +52,13 @@ Repairs over the R06 driver (plan §5 Phase 0b):
 usage: drift-oracle.py --bca BIN [--verbatim BIN] --out DIR --root ID=PATH ...
                        [--corpus PATH] [--lang L ...] [--jobs N]
                        [--repo-toml Cargo.toml]
+                       [--selection keys.json] [--view NAME ...] [--relative-paths]
+
+An explicit selection is a nonempty JSON array of language/root-id/relative-path
+keys. Each selected input must be tracked by Git; selection bypasses extension
+inference so dialects and helper inputs can be forced. --relative-paths passes
+input paths relative to the current repository directory before execution. It
+never rewrites returned output. Named views retain the existing option matrix.
 
 Self-tested by `utils/drift-oracle-test.py` (`make drift-oracle-test`),
 which stubs both binaries. Nothing lints `utils/*.py` today (#1477);
@@ -56,7 +69,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -75,8 +90,23 @@ POPULATIONS = dc.populations()
 # what the sweep measures.
 FIXTURE_ONLY = {"ccomment", "preproc"}
 
-# `metrics` option matrix: name -> extra argv. The other commands take
-# no metric-affecting options.
+# Paired MI modes cover documentation, pruning and dependency closure.
+# The last pair combines the Rust axes without multiplying every legacy
+# selection by options that cannot affect it.
+MI_METRICS_OPTIONS = {
+    f"{name}_mi_charges_docs_{mode}": [*extra, f"--mi-charges-docs={mode}"]
+    for name, extra in {
+        "metrics": [],
+        "metrics_exclude_tests": ["--exclude-tests"],
+        "metrics_only_mi": ["--metrics", "mi"],
+        "metrics_only_mi_exclude_tests": ["--metrics", "mi", "--exclude-tests"],
+        "metrics_only_mi_exclude_tests_no_count_try": ["--metrics", "mi", "--exclude-tests", "--cyclomatic-count-try=false"],
+    }.items()
+    for mode in ("false", "true")
+}
+
+# `metrics` option matrix: name -> extra argv. Keep the original views
+# so existing default captures retain their names and commands.
 METRICS_OPTIONS = {
     "metrics": [],
     "metrics_exclude_tests": ["--exclude-tests"],
@@ -85,6 +115,12 @@ METRICS_OPTIONS = {
     "metrics_only_cyclomatic": ["--metrics", "cyclomatic"],
     "metrics_only_cognitive": ["--metrics", "cognitive"],
     "metrics_only_nexits": ["--metrics", "nexits"],
+    **MI_METRICS_OPTIONS,
+}
+
+VERBATIM_OPTIONS = {
+    f"verbatim_{name}": ["--metrics-view", *extra, "--"]
+    for name, extra in MI_METRICS_OPTIONS.items()
 }
 
 CLI_CMDS = {
@@ -112,6 +148,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--corpus", type=pathlib.Path, help="tests/repositories; omit for fixtures only")
     ap.add_argument("--lang", action="append", default=[], help="restrict to these populations")
     ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--selection", type=pathlib.Path, help="JSON array of exact language/root-id/relative-path keys; tracked files only")
+    ap.add_argument("--view", action="append", default=[], help="capture only this named view; repeatable")
+    ap.add_argument("--relative-paths", action="store_true", help="pass repository-relative input paths to binaries without rewriting output")
     ap.add_argument(
         "--repo-toml",
         type=pathlib.Path,
@@ -154,7 +193,39 @@ def run(argv: list[str]) -> bytes:
 def views(verbatim: bool) -> list[str]:
     """The per-file output names a capture carries, in the order
     `drift-compare.py` walks them."""
-    return [*CLI_CMDS, *METRICS_OPTIONS, *(["verbatim"] if verbatim else [])]
+    return [*CLI_CMDS, *METRICS_OPTIONS, *(["verbatim", *VERBATIM_OPTIONS] if verbatim else [])]
+
+
+def selected_inputs(selection: pathlib.Path, roots: dict[str, pathlib.Path]) -> list[tuple[str, str, pathlib.Path, pathlib.Path]]:
+    """Validate every explicit key before capture, including tracking and path containment."""
+    keys = json.loads(selection.read_text())
+    if not isinstance(keys, list) or not keys or any(not isinstance(k, str) for k in keys):
+        sys.exit("selection must be a nonempty JSON array of keys")
+    if len(set(keys)) != len(keys):
+        sys.exit("duplicate selection key")
+    jobs = []
+    for key in keys:
+        parts = key.split("/")
+        if len(parts) < 3 or parts[0] not in POPULATIONS or parts[1] not in roots:
+            sys.exit(f"unknown language/root in selection key {key!r}")
+        if any(p in ("", ".", "..") or "\\" in p for p in parts):
+            sys.exit(f"invalid selection key {key!r}")
+        lang, rid, *relative = parts
+        root = roots[rid]
+        path = root.joinpath(*relative)
+        if any(p.is_symlink() for p in [path, *path.parents] if p.is_relative_to(root)):
+            sys.exit(f"symlink in selection key {key!r}")
+        if not path.is_file():
+            sys.exit(f"missing selected input {key!r}")
+        tracked = subprocess.run(
+            ["git", "--literal-pathspecs", "-C", str(root), "ls-files", "-z", "--error-unmatch", "--", "/".join(relative)],
+            capture_output=True,
+        )
+        # Unmerged index stages may repeat a path; a tracked descendant is not this file.
+        if tracked.returncode or set(tracked.stdout.split(b"\0")[:-1]) != {os.fsencode("/".join(relative))}:
+            sys.exit(f"selected input is not tracked: {key!r}")
+        jobs.append((lang, key, root, path))
+    return jobs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -179,6 +250,13 @@ def main(argv: list[str] | None = None) -> int:
     unknown = only - POPULATIONS.keys()
     if unknown:
         sys.exit(f"unknown language(s) {sorted(unknown)}")
+    available_views = views(args.verbatim is not None)
+    if len(set(args.view)) != len(args.view) or set(args.view) - set(available_views):
+        sys.exit("duplicate or unavailable --view")
+    selected_views = args.view or available_views
+    cli_cmds = {k: v for k, v in CLI_CMDS.items() if k in selected_views}
+    metric_options = {k: v for k, v in METRICS_OPTIONS.items() if k in selected_views}
+    verbatim_options = {k: v for k, v in VERBATIM_OPTIONS.items() if k in selected_views}
 
     # The corpus walk skips the snapshot submodule's own tree and git
     # metadata; a fixture root is walked whole.
@@ -189,14 +267,22 @@ def main(argv: list[str] | None = None) -> int:
     inputs: dict[str, str] = {}
     out = args.out.resolve()
     destinations: set[pathlib.Path] = set()
+    explicit = selected_inputs(args.selection, roots) if args.selection else None
     for lang, exts in POPULATIONS.items():
         if only and lang not in only:
             continue
+        if explicit is not None and not only and not any(job[0] == lang for job in explicit):
+            continue
         n = 0
         for rid, root in roots.items():
-            if rid == "corpus" and lang in FIXTURE_ONLY:
+            if explicit is None and rid == "corpus" and lang in FIXTURE_ONLY:
                 continue
-            for p in dc.walk(root, exts, corpus_skip if rid == "corpus" else (".git",), SKIPPED_LINKS):
+            paths = (
+                [p for l, k, _, p in explicit if l == lang and k.split("/")[1] == rid]
+                if explicit is not None else
+                dc.walk(root, exts, corpus_skip if rid == "corpus" else (".git",), SKIPPED_LINKS)
+            )
+            for p in paths:
                 key = f"{lang}/{rid}/{p.relative_to(root)}"
                 if key in keys:
                     sys.exit(f"duplicate key {key}")
@@ -206,6 +292,11 @@ def main(argv: list[str] | None = None) -> int:
                 destinations.add(dst)
                 keys.add(key)
                 inputs[key] = sha256(p)
+                if args.relative_paths:
+                    try:
+                        p = p.relative_to(pathlib.Path.cwd())
+                    except ValueError:
+                        sys.exit(f"selected input outside current directory: {p}")
                 jobs.append((lang, key, root, p))
                 n += 1
         if n == 0:
@@ -221,10 +312,10 @@ def main(argv: list[str] | None = None) -> int:
             failed_executions=len(FAILURES),
             bca={"path": str(args.bca), "sha256": sha256(args.bca)},
             verbatim=None if args.verbatim is None else {"path": str(args.verbatim), "sha256": sha256(args.verbatim)},
-            views=views(args.verbatim is not None),
+            views=selected_views,
             roots={k: str(v) for k, v in roots.items()},
-            metrics_options=METRICS_OPTIONS,
-            cli_cmds=CLI_CMDS,
+            metrics_options={**metric_options, **verbatim_options},
+            cli_cmds=cli_cmds,
             populations=counts,
             keys=sorted(keys),
             inputs_sha256=inputs,
@@ -242,13 +333,17 @@ def main(argv: list[str] | None = None) -> int:
         dst = out / key
         dst.parent.mkdir(parents=True, exist_ok=True)
         base = [str(args.bca)]
-        tail = ["--no-config", "--language", lang, "-p", str(p)]
-        for name, cmd in CLI_CMDS.items():
+        path_arg = f"./{p}" if str(p).startswith("-") else str(p)
+        tail = ["--no-config", "--language", lang, "-p", path_arg]
+        for name, cmd in cli_cmds.items():
             dst.with_name(dst.name + f".{name}.txt").write_bytes(run([*base, *cmd, *tail]))
-        for name, extra in METRICS_OPTIONS.items():
+        for name, extra in metric_options.items():
             dst.with_name(dst.name + f".{name}.txt").write_bytes(run([*base, "metrics", "-O", "json", *extra, *tail]))
         if args.verbatim is not None:
-            dst.with_name(dst.name + ".verbatim.jsonl").write_bytes(run([str(args.verbatim), lang, str(p)]))
+            if "verbatim" in selected_views:
+                dst.with_name(dst.name + ".verbatim.jsonl").write_bytes(run([str(args.verbatim), lang, path_arg]))
+            for name, extra in verbatim_options.items():
+                dst.with_name(dst.name + f".{name}.txt").write_bytes(run([str(args.verbatim), *extra, lang, path_arg]))
 
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         list(ex.map(one, jobs))

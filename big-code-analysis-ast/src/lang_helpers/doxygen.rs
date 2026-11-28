@@ -6,7 +6,9 @@
 //! differently.
 
 use crate::checker::Checker;
-use crate::lang_helpers::doc_comment::{node_bytes, outside_function_bodies};
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::byte_scan as scan;
+use crate::lang_helpers::doc_comment::node_bytes;
 use crate::node::{Ancestors, MemoQuestion, Node, NodeMemo};
 
 /// A Doxygen block written after the member it documents: `/**<`,
@@ -40,6 +42,35 @@ pub(crate) fn doxygen_member_after(s: &[u8]) -> bool {
 /// does.
 #[must_use]
 pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
+    infallible(doxygen_standalone_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn doxygen_standalone_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(structural_command_at(s, budget)?.is_some())
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn structural_command_with_budget<'s, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &B,
+) -> Result<Option<(&'s [u8], &'s [u8])>, B::Error> {
+    let Some((word, at)) = structural_command_at(s, budget)? else {
+        return Ok(None);
+    };
+    let end =
+        scan::position(&s[at..], |byte| byte == b'\n', budget)?.map_or(s.len(), |end| at + end);
+    let argument = scan::trim(&s[at..end], budget)?;
+    let argument = scan::trim_end(argument.strip_suffix(b"*/").unwrap_or(argument), budget)?;
+    Ok(Some((word, argument)))
+}
+
+fn structural_command_at<'s, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &B,
+) -> Result<Option<(&'s [u8], usize)>, B::Error> {
     const ALWAYS: &[&[u8]] = &[
         b"file",
         b"mainpage",
@@ -70,22 +101,25 @@ pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
         b"idlexcept",
         b"module",
     ];
+    structural_calls::record();
     let mut at = 0;
     while at < s.len() {
-        if let Some(end) = literal_end(s, at) {
+        budget.bytes(1)?;
+        structural_bytes::record();
+        if let Some(end) = literal_end(s, at, budget)? {
             at = end;
             continue;
         }
-        let Some(word) = doxygen_command(s, at) else {
+        let Some(word) = doxygen_command(s, at, budget)? else {
             at += 1;
             continue;
         };
         at += 1 + word.len();
-        if ALWAYS.contains(&word) || (NAMED.contains(&word) && names_something(&s[at..])) {
-            return true;
+        if ALWAYS.contains(&word) || (NAMED.contains(&word) && names_something(&s[at..], budget)?) {
+            return Ok(Some((word, at)));
         }
     }
-    false
+    Ok(None)
 }
 
 /// Where the text Doxygen does not read for commands ends, when such text
@@ -100,51 +134,58 @@ pub(crate) fn doxygen_standalone(s: &[u8]) -> bool {
 /// ([`format_block_end`]). The
 /// fence is asked before the span so ```` ``` ```` is never read as a
 /// backtick span opened on an empty one.
-fn literal_end(s: &[u8], at: usize) -> Option<usize> {
+fn literal_end<B: WorkBudget>(s: &[u8], at: usize, budget: &B) -> Result<Option<usize>, B::Error> {
     let rest = &s[at..];
-    if let Some(end) = delimited_end(s, at) {
-        return Some(end);
+    if let Some(end) = delimited_end(s, at, budget)? {
+        return Ok(Some(end));
     }
     if let Some(span) = rest.strip_prefix(b"`") {
-        return code_span_close(span).map(|close| at + close + 2);
+        return Ok(code_span_close(span, budget)?.map(|close| at + close + 2));
     }
     if let Some(quoted) = rest.strip_prefix(b"\"") {
-        return quoted_text_close(quoted).map(|close| at + close + 2);
+        return Ok(quoted_text_close(quoted, budget)?.map(|close| at + close + 2));
     }
     if matches!(rest, [b'@', b'@', ..] | [b'\\', b'\\', ..]) {
-        return Some(at + 2);
+        return Ok(Some(at + 2));
     }
-    format_block_end(s, at)
+    format_block_end(s, at, budget)
 }
 
 /// Where a literal that runs to a closing delimiter or the end of the
 /// block ends, when one opens at `s[at]`: a ```` ``` ```` fence, an HTML
 /// comment, or a `<![CDATA[` section.
-fn delimited_end(s: &[u8], at: usize) -> Option<usize> {
+fn delimited_end<B: WorkBudget>(
+    s: &[u8],
+    at: usize,
+    budget: &B,
+) -> Result<Option<usize>, B::Error> {
     let rest = &s[at..];
     if rest.starts_with(b"<!--") {
-        return Some(html_comment_end(s, at + 4));
+        return Ok(Some(html_comment_end(s, at + 4, budget)?));
     }
     let (open, close): (&[u8], &[u8]) = if rest.starts_with(b"```") {
         (b"```", b"```")
     } else if rest.starts_with(b"<![CDATA[") {
         (b"<![CDATA[", b"]]>")
     } else {
-        return None;
+        return Ok(None);
     };
     let body = at + open.len();
-    let found = s[body..].windows(close.len()).position(|w| w == close);
-    Some(found.map_or(s.len(), |found| body + found + close.len()))
+    for (found, window) in s[body..].windows(close.len()).enumerate() {
+        budget.bytes(close.len())?;
+        if window == close {
+            return Ok(Some(body + found + close.len()));
+        }
+    }
+    Ok(Some(s.len()))
 }
 
 /// The offset in `quoted` of the `"` closing a quoted text whose opening
 /// `"` precedes `quoted`, or `None` when a newline or the end of the
 /// comment comes first.
-fn quoted_text_close(quoted: &[u8]) -> Option<usize> {
-    quoted
-        .iter()
-        .position(|&b| b == b'"' || b == b'\n')
-        .filter(|&close| quoted[close] == b'"')
+fn quoted_text_close<B: WorkBudget>(quoted: &[u8], budget: &B) -> Result<Option<usize>, B::Error> {
+    Ok(scan::position(quoted, |b| b == b'"' || b == b'\n', budget)?
+        .filter(|&close| quoted[close] == b'"'))
 }
 
 /// The format blocks, each opening command beside the one that closes it.
@@ -167,90 +208,113 @@ const FORMAT_BLOCKS: &[(&[u8], &[u8])] = &[
 
 /// Where a format block opened by the command at `s[at]` ends: after its
 /// end command, or at the end of the comment when it has none.
-fn format_block_end(s: &[u8], at: usize) -> Option<usize> {
-    let word = doxygen_command(s, at)?;
-    let (_, end) = FORMAT_BLOCKS.iter().find(|(open, _)| *open == word)?;
-    Some(block_end(s, at, end))
+fn format_block_end<B: WorkBudget>(
+    s: &[u8],
+    at: usize,
+    budget: &B,
+) -> Result<Option<usize>, B::Error> {
+    let Some(word) = doxygen_command(s, at, budget)? else {
+        return Ok(None);
+    };
+    let Some((_, end)) = FORMAT_BLOCKS.iter().find(|(open, _)| *open == word) else {
+        return Ok(None);
+    };
+    Ok(Some(block_end(s, at, end, budget)?))
 }
 
 /// The offset in `span` of the backtick closing a code span whose opening
 /// backtick precedes `span`, or `None` when a blank line (one holding
 /// nothing but whitespace and a leading `*`) or the end of the comment
 /// comes first.
-fn code_span_close(span: &[u8]) -> Option<usize> {
+fn code_span_close<B: WorkBudget>(span: &[u8], budget: &B) -> Result<Option<usize>, B::Error> {
     let mut start = 0;
-    for (index, line) in span.split(|&b| b == b'\n').enumerate() {
-        if let Some(close) = line.iter().position(|&b| b == b'`') {
-            return Some(start + close);
+    while start < span.len() {
+        budget.step()?;
+        let end = scan::position(&span[start..], |b| matches!(b, b'`' | b'\n'), budget)?
+            .map_or(span.len(), |at| start + at);
+        if span.get(end) == Some(&b'`') {
+            return Ok(Some(end));
         }
-        let text = line.trim_ascii();
-        if index > 0
-            && text
-                .strip_prefix(b"*")
-                .unwrap_or(text)
-                .trim_ascii()
-                .is_empty()
-        {
-            return None;
+        let line = &span[start..end];
+        let text = scan::trim(line, budget)?;
+        if start > 0 && scan::trim(text.strip_prefix(b"*").unwrap_or(text), budget)?.is_empty() {
+            return Ok(None);
         }
-        start += line.len() + 1;
+        start = end + 1;
     }
-    None
+    Ok(None)
 }
+
+crate::observation::counter!(structural_calls, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(structural_bytes, cfg(any(test, feature = "test-support")));
 
 /// Where an HTML comment whose text starts at `s[from]` ends: after its
 /// `-->`, or at the end of the comment when it has none. Doxygen 1.13.2
 /// closes it on neither `--->` nor `--!>`.
-fn html_comment_end(s: &[u8], from: usize) -> usize {
-    (from..s.len())
-        .find(|&at| s[at..].starts_with(b"-->") && (at == from || s[at - 1] != b'-'))
-        .map_or(s.len(), |at| at + 3)
+fn html_comment_end<B: WorkBudget>(s: &[u8], from: usize, budget: &B) -> Result<usize, B::Error> {
+    for at in from..s.len() {
+        budget.bytes(4)?;
+        if s[at..].starts_with(b"-->") && (at == from || s[at - 1] != b'-') {
+            return Ok(at + 3);
+        }
+    }
+    Ok(s.len())
 }
 
 /// Where a format block opened at `s[at]` ends: after its `end` command,
 /// or at the end of the comment when it has none.
-fn block_end(s: &[u8], at: usize, end: &[u8]) -> usize {
-    (at + 1..s.len())
-        .find(|&after| doxygen_command(s, after) == Some(end))
-        .map_or(s.len(), |after| after + 1 + end.len())
+fn block_end<B: WorkBudget>(
+    s: &[u8],
+    at: usize,
+    end: &[u8],
+    budget: &B,
+) -> Result<usize, B::Error> {
+    for after in at + 1..s.len() {
+        budget.bytes(1)?;
+        if doxygen_command(s, after, budget)? == Some(end) {
+            return Ok(after + 1 + end.len());
+        }
+    }
+    Ok(s.len())
 }
 
 /// Whether a naming command has an argument: anything on the rest of its
 /// line but the comment's closing `*/`.
-fn names_something(after: &[u8]) -> bool {
-    let line = after.split(|&b| b == b'\n').next().unwrap_or_default();
-    let line = line.trim_ascii();
-    !line
-        .strip_suffix(b"*/")
-        .unwrap_or(line)
-        .trim_ascii()
-        .is_empty()
+fn names_something<B: WorkBudget>(after: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let end = scan::position(after, |b| b == b'\n', budget)?.unwrap_or(after.len());
+    let line = scan::trim(&after[..end], budget)?;
+    Ok(!scan::trim(line.strip_suffix(b"*/").unwrap_or(line), budget)?.is_empty())
 }
 
 /// The command word at `s[at]` when a Doxygen command starts there: `@` or
 /// `\` followed by letters, the word ending at a non-word byte. An `@` in
 /// a mail address (`a@file.com`) is not a command.
-fn doxygen_command(s: &[u8], at: usize) -> Option<&[u8]> {
+fn doxygen_command<'s, B: WorkBudget>(
+    s: &'s [u8],
+    at: usize,
+    budget: &B,
+) -> Result<Option<&'s [u8]>, B::Error> {
     if !matches!(s.get(at), Some(b'@' | b'\\')) {
-        return None;
+        return Ok(None);
     }
     let rest = &s[at + 1..];
-    let len = rest
-        .iter()
-        .take_while(|b| b.is_ascii_alphabetic() || **b == b'_')
-        .count();
+    let len = scan::position(rest, |b| !b.is_ascii_alphabetic() && b != b'_', budget)?
+        .unwrap_or(rest.len());
     if len == 0 {
-        return None;
+        return Ok(None);
     }
-    let mail = s[at] == b'@'
-        && at > 0
-        && s[at - 1].is_ascii_alphanumeric()
-        && rest
-            .iter()
-            .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.'))
-            .skip(len)
-            .any(|&b| b == b'.');
-    (!mail).then(|| &rest[..len])
+    if s[at] == b'@' && at > 0 && s[at - 1].is_ascii_alphanumeric() {
+        for &byte in &rest[len..] {
+            budget.bytes(1)?;
+            if !byte.is_ascii_alphanumeric() && !matches!(byte, b'-' | b'.') {
+                break;
+            }
+            if byte == b'.' {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(&rest[..len]))
 }
 
 /// A preprocessor conditional or one of its branches, under any alias of
@@ -283,12 +347,22 @@ crate::observation::counter!(conditionals_read);
 /// each is read once per walk; any other caller reads the nest afresh.
 #[must_use]
 pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
+    infallible(conditional_declares_with_budget::<T, _>(
+        node, ancestors, &NoBudget,
+    ))
+}
+
+pub(crate) fn conditional_declares_with_budget<T: DoxygenRow, B: WorkBudget>(
+    node: &Node,
+    ancestors: Ancestors,
+    budget: &B,
+) -> Result<bool, B::Error> {
     let unshared = NodeMemo::default();
     let memo = ancestors
         .node_memo(MemoQuestion::ConditionalDeclares)
         .unwrap_or(&unshared);
     if let Some(answer) = memo.get(node) {
-        return answer;
+        return Ok(answer);
     }
     // Post-order: a conditional's answer is complete once each nested one
     // has folded its own in. `answers[i]` holds the answer, so far, of the
@@ -299,6 +373,7 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
         outer: None,
     }];
     while let Some(visit) = stack.pop() {
+        budget.step()?;
         match visit {
             Visit::Read { conditional, outer } => {
                 conditionals_read::record();
@@ -308,7 +383,7 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
                     outer,
                     own,
                 });
-                answers.push(children_declare::<T>(
+                answers.push(children_declare::<T, B>(
                     &conditional,
                     ancestors,
                     memo,
@@ -318,7 +393,8 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
                             outer: Some(own),
                         });
                     },
-                ));
+                    budget,
+                )?);
             }
             Visit::Answer {
                 conditional,
@@ -332,7 +408,7 @@ pub(crate) fn conditional_declares<T: DoxygenRow>(node: &Node, ancestors: Ancest
             }
         }
     }
-    memo.get(node) == Some(true)
+    Ok(memo.get(node) == Some(true))
 }
 
 /// A step of [`conditional_declares`]'s walk over a nest.
@@ -359,26 +435,28 @@ enum Visit<'a> {
 /// the memo answers `true` for. Each nested conditional the memo has no
 /// answer for is handed to `defer`, so the walk reads it and folds its
 /// answer in later. Each child is classified once, here (#1795).
-fn children_declare<'a, T: DoxygenRow>(
+fn children_declare<'a, T: DoxygenRow, B: WorkBudget>(
     conditional: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
     memo: &NodeMemo,
     mut defer: impl FnMut(Node<'a>),
-) -> bool {
+    budget: &B,
+) -> Result<bool, B::Error> {
     let parent = [*conditional];
     let below = chain_below(ancestors, &parent);
     let mut declares = false;
     for child in conditional.children() {
+        budget.step()?;
         if preproc_conditional::<T>(&child) {
             match memo.get(&child) {
                 Some(answer) => declares |= answer,
                 None => defer(child),
             }
         } else if !declares {
-            declares = non_conditional_entry::<T>(&child, below);
+            declares = non_conditional_entry::<T, B>(&child, below, budget)?;
         }
     }
-    declares
+    Ok(declares)
 }
 
 /// The context a conditional's children are asked with: a chain of one
@@ -470,12 +548,25 @@ pub(crate) const DOXYGEN_SKIP_KINDS: &[&str] = &[
 /// grammar had to end itself ([`unterminated`]).
 #[must_use]
 pub(crate) fn doxygen_skips<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
-    match node.kind() {
+    infallible(doxygen_skips_with_budget::<T, _>(
+        node, ancestors, &NoBudget,
+    ))
+}
+
+pub(crate) fn doxygen_skips_with_budget<T: DoxygenRow, B: WorkBudget>(
+    node: &Node,
+    ancestors: Ancestors,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(match node.kind() {
         kind if DOXYGEN_SKIP_KINDS.contains(&kind) => true,
-        "expression_statement" => !statement_is_macro_call(node),
-        "ERROR" => no_entry_inside::<T>(node, ancestors),
-        _ => preproc_conditional::<T>(node) && !conditional_declares::<T>(node, ancestors),
-    }
+        "expression_statement" => !statement_with_budget(node, budget)?,
+        "ERROR" => no_entry_with_budget::<T, B>(node, ancestors, budget)?,
+        _ => {
+            preproc_conditional::<T>(node)
+                && !conditional_declares_with_budget::<T, B>(node, ancestors, budget)?
+        }
+    })
 }
 
 /// A parse error Doxygen reads no entry from: one holding, past comments
@@ -486,17 +577,37 @@ pub(crate) fn doxygen_skips<T: DoxygenRow>(node: &Node, ancestors: Ancestors) ->
 /// ending in the error, as a conditional's children are
 /// ([`chain_below`]), not with the error's own, under which its
 /// `parent` would be the error's (lesson 103).
+#[cfg(test)]
 pub(crate) fn no_entry_inside<T: DoxygenRow>(error: &Node, ancestors: Ancestors) -> bool {
-    let mut named = error
-        .children()
-        .filter(|child| child.is_named() && !child.is_error() && child.kind() != "comment");
-    match (named.next(), named.next()) {
-        (None, _) => true,
-        (Some(only), None) => {
-            let parent = [*error];
-            !doxygen_entry::<T>(&only, chain_below(ancestors, &parent))
+    infallible(no_entry_with_budget::<T, _>(error, ancestors, &NoBudget))
+}
+
+fn no_entry_with_budget<T: DoxygenRow, B: WorkBudget>(
+    error: &Node,
+    ancestors: Ancestors,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let mut only = None;
+    for child in error.children() {
+        budget.step()?;
+        if !child.is_named() || child.is_error() || child.kind() == "comment" {
+            continue;
         }
-        _ => false,
+        if only.is_some() {
+            return Ok(false);
+        }
+        only = Some(child);
+    }
+    match only {
+        None => Ok(true),
+        Some(only) => {
+            let parent = [*error];
+            Ok(!doxygen_entry::<T, B>(
+                &only,
+                chain_below(ancestors, &parent),
+                budget,
+            )?)
+        }
     }
 }
 
@@ -504,8 +615,13 @@ pub(crate) fn no_entry_inside<T: DoxygenRow>(error: &Node, ancestors: Ancestors)
 /// `end` of `@end` in a `.h` read as C or C++, or a stray `@end` in
 /// Objective-C. Doxygen reads no entry from it and documents the entry
 /// after it; `FOO;` with its `;` is a variable to Doxygen.
-fn unterminated(statement: &Node) -> bool {
-    statement.children().last().is_some_and(|c| c.is_missing())
+fn unterminated_with_budget<B: WorkBudget>(statement: &Node, budget: &B) -> Result<bool, B::Error> {
+    let mut last = None;
+    for child in statement.children() {
+        budget.step()?;
+        last = Some(child);
+    }
+    Ok(last.is_some_and(|child| child.is_missing()))
 }
 
 /// Whether an `expression_statement` outside a body is a macro call
@@ -517,7 +633,11 @@ fn unterminated(statement: &Node) -> bool {
 /// what `doxygen_skips` reads past.
 #[must_use]
 pub(crate) fn statement_is_macro_call(statement: &Node) -> bool {
-    statement.child_count() > 1 && !unterminated(statement)
+    infallible(statement_with_budget(statement, &NoBudget))
+}
+
+fn statement_with_budget<B: WorkBudget>(statement: &Node, budget: &B) -> Result<bool, B::Error> {
+    Ok(statement.child_count() > 1 && !unterminated_with_budget(statement, budget)?)
 }
 
 /// What Doxygen documents from a doc block before it: the dialect's
@@ -533,10 +653,27 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    infallible(doxygen_target_with_budget::<T, _>(
+        node, code, ancestors, &NoBudget,
+    ))
+}
+
+pub(crate) fn doxygen_target_with_budget<'a, T: DoxygenRow, B: WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // role-bypass: allow(DocTarget) — the `ERROR` sentinel holding an
     // entry: recovery, not a kind a row can own
-    T::doc_target_row(node, code, ancestors)
-        || (node.is_error() && !no_entry_inside::<T>(node, ancestors))
+    if preproc_conditional::<T>(node) {
+        return conditional_declares_with_budget::<T, B>(node, ancestors, budget);
+    }
+    if node.kind() == "expression_statement" {
+        return statement_with_budget(node, budget);
+    }
+    Ok(T::doc_target_row(node, code, ancestors)
+        || (node.is_error() && !no_entry_with_budget::<T, B>(node, ancestors, budget)?))
 }
 
 /// What Doxygen documents from a doc block before it, short of a
@@ -554,8 +691,12 @@ pub(crate) fn doxygen_target<'a, T: DoxygenRow>(
 /// preprocessor would expand, is given the benefit of the doubt, as
 /// before #1613, rather than dropping the block on a parse failure; an
 /// error holding no entry is read past (`doxygen_skips`).
-fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
-    !preproc_conditional::<T>(node) && non_conditional_entry::<T>(node, ancestors)
+fn doxygen_entry<T: DoxygenRow, B: WorkBudget>(
+    node: &Node,
+    ancestors: Ancestors,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(!preproc_conditional::<T>(node) && non_conditional_entry::<T, B>(node, ancestors, budget)?)
 }
 
 /// [`doxygen_entry`] of a node its caller has already found is no
@@ -571,11 +712,18 @@ fn doxygen_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
 /// `ERROR` clause this fn already handles, and a dialect that someday
 /// hand-writes a byte-reading `is_doc_target` would otherwise slip past
 /// the row's assertion.
-fn non_conditional_entry<T: DoxygenRow>(node: &Node, ancestors: Ancestors) -> bool {
+fn non_conditional_entry<T: DoxygenRow, B: WorkBudget>(
+    node: &Node,
+    ancestors: Ancestors,
+    budget: &B,
+) -> Result<bool, B::Error> {
     if node.is_error() {
-        return !no_entry_inside::<T>(node, ancestors);
+        return Ok(!no_entry_with_budget::<T, B>(node, ancestors, budget)?);
     }
-    T::doc_target_row(node, &[], ancestors)
+    if node.kind() == "expression_statement" {
+        return statement_with_budget(node, budget);
+    }
+    Ok(T::doc_target_row(node, &[], ancestors))
 }
 
 /// The `DocTarget` row of a C-family dialect, and its conditional owners
@@ -605,13 +753,26 @@ pub(crate) fn doxygen_binds_forward<'a, T: Checker + DoxygenRow>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
+    infallible(doxygen_forward_with_budget::<T, _>(
+        comment, code, ancestors, &NoBudget,
+    ))
+}
+
+pub(crate) fn doxygen_forward_with_budget<'a, T: Checker + DoxygenRow, B: WorkBudget>(
+    comment: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     let bytes = node_bytes(comment, code);
-    !doxygen_member_after(bytes)
-        && !doxygen_standalone(bytes)
+    Ok(!doxygen_member_after(bytes)
+        && !doxygen_standalone_with_budget(bytes, budget)?
         && ancestors
             .parent(comment)
             .is_some_and(|parent| doxygen_container::<T>(&parent))
-        && outside_function_bodies::<T>(comment, code, ancestors)
+        && crate::lang_helpers::doc_comment::outside_function_bodies_with_budget::<T, _>(
+            comment, code, ancestors, budget,
+        )?)
 }
 
 #[cfg(test)]
@@ -894,7 +1055,9 @@ mod tests {
             // climbing context through unchanged.
             for uncached in [Ancestors::known(&[]), Ancestors::unknown()] {
                 let before = conditionals_read::observed();
-                assert!(!doxygen_entry::<crate::langs::CCode>(&outermost, uncached));
+                assert!(!infallible(doxygen_entry::<crate::langs::CCode, _>(
+                    &outermost, uncached, &NoBudget
+                )));
                 assert_eq!(
                     conditionals_read::observed() - before,
                     0,

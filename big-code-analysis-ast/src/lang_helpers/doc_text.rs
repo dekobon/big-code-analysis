@@ -25,6 +25,9 @@
 //! comments they accept document, and what, is the binding walk's
 //! question in [`super::doc_comment`] (#1649).
 
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::byte_scan as scan;
+
 /// `/**` opened by a byte that is neither `*` nor `/`: the Javadoc /
 /// JSDoc / Doxygen block form. Rejects the empty `/**/` and the banner
 /// `/***`, as JSDoc ("more than 3 stars will be ignored"), Doxygen
@@ -101,10 +104,10 @@ pub(crate) fn csharp_doc(s: &[u8]) -> bool {
 
 /// A doc comment's line with the delimiters JSDoc's `unwrap` strips: the
 /// indent, one leading `*` and the space after it.
-fn jsdoc_line(line: &[u8]) -> &[u8] {
-    let line = line.trim_ascii_start();
+fn jsdoc_line<'s, B: WorkBudget>(line: &'s [u8], budget: &B) -> Result<&'s [u8], B::Error> {
+    let line = scan::trim_start(line, budget)?;
     let line = line.strip_prefix(b"*").unwrap_or(line);
-    line.strip_prefix(b" ").unwrap_or(line)
+    Ok(line.strip_prefix(b" ").unwrap_or(line))
 }
 
 /// The lines of a `/** … */` body, delimiters and the extra stars at
@@ -112,48 +115,66 @@ fn jsdoc_line(line: &[u8]) -> &[u8] {
 /// ([`jsdoc_line`]). `Clone`, so a tag's text — every line up to the next
 /// tag, as JSDoc's `toTags` reads it — can be read in place from the line
 /// that opened it.
-fn jsdoc_lines(s: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
+fn jsdoc_lines<'s, 'b, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &'b B,
+) -> Result<impl Iterator<Item = Result<&'s [u8], B::Error>> + Clone + use<'s, 'b, B>, B::Error> {
     let body = s.strip_prefix(b"/**").unwrap_or(s);
     let body = body.strip_suffix(b"*/").unwrap_or(body);
-    let start = body.iter().position(|&b| b != b'*').unwrap_or(body.len());
-    let end = body
-        .iter()
-        .rposition(|&b| b != b'*')
-        .map_or(start, |at| at + 1);
-    body[start..end].split(|&b| b == b'\n').map(jsdoc_line)
+    let start = scan::position(body, |b| b != b'*', budget)?.unwrap_or(body.len());
+    let end = scan::rposition(body, |b| b != b'*', budget)?.map_or(start, |at| at + 1);
+    Ok(scan::lines(&body[start..end], budget).map(move |line| jsdoc_line(line?, budget)))
 }
 
 /// The `(title, text)` a line opens when it starts a tag.
-fn jsdoc_tag_open(line: &[u8]) -> Option<(&[u8], &[u8])> {
-    let tag = line.trim_ascii_start().strip_prefix(b"@")?;
-    let title = tag.iter().take_while(|b| !b.is_ascii_whitespace()).count();
-    (title > 0).then(|| tag.split_at(title))
+#[allow(clippy::type_complexity)]
+fn jsdoc_tag_open<'s, B: WorkBudget>(
+    line: &'s [u8],
+    budget: &B,
+) -> Result<Option<(&'s [u8], &'s [u8])>, B::Error> {
+    let Some(tag) = scan::trim_start(line, budget)?.strip_prefix(b"@") else {
+        return Ok(None);
+    };
+    let title =
+        scan::position(tag, |byte| byte.is_ascii_whitespace(), budget)?.unwrap_or(tag.len());
+    Ok((title > 0).then(|| tag.split_at(title)))
 }
 
 /// Whether a JSDoc tag's text names a symbol: anything left once the
 /// `{type}` that may lead it is set aside.
-fn jsdoc_names<'a>(lines: impl IntoIterator<Item = &'a [u8]>) -> bool {
+fn jsdoc_names<'a, B: WorkBudget>(
+    lines: impl IntoIterator<Item = Result<&'a [u8], B::Error>>,
+    budget: &B,
+) -> Result<bool, B::Error> {
     // The lines joined, read once without joining them: a `{type}` is
     // skipped by brace depth, and anything non-blank after it names.
-    let mut bytes = lines
-        .into_iter()
-        .flat_map(|line| line.iter().copied())
-        .skip_while(u8::is_ascii_whitespace)
-        .peekable();
-    if bytes.peek() == Some(&b'{') {
-        let mut depth = 0_usize;
-        for b in bytes.by_ref() {
-            match b {
-                b'{' => depth += 1,
-                b'}' => depth -= 1,
-                _ => {}
+    let mut leading = true;
+    let mut depth = 0_usize;
+    for line in lines {
+        for &byte in line? {
+            budget.bytes(1)?;
+            if leading && byte.is_ascii_whitespace() {
+                continue;
             }
-            if depth == 0 {
-                break;
+            if leading {
+                leading = false;
+                if byte == b'{' {
+                    depth = 1;
+                    continue;
+                }
+            }
+            if depth > 0 {
+                match byte {
+                    b'{' => depth += 1,
+                    b'}' => depth -= 1,
+                    _ => {}
+                }
+            } else if !byte.is_ascii_whitespace() {
+                return Ok(true);
             }
         }
     }
-    bytes.any(|b| !b.is_ascii_whitespace())
+    Ok(false)
 }
 
 /// A JSDoc *virtual* comment, which stands alone: it documents the symbol
@@ -165,6 +186,13 @@ fn jsdoc_names<'a>(lines: impl IntoIterator<Item = &'a [u8]>) -> bool {
 /// Titles match in any case, as the tag dictionary's `normalize` does.
 #[must_use]
 pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
+    infallible(jsdoc_virtual_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn jsdoc_virtual_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     const ALWAYS: [&[u8]; 4] = [b"file", b"fileoverview", b"overview", b"module"];
     const NAMING: [&[u8]; 18] = [
         b"name",
@@ -187,21 +215,56 @@ pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
         b"callback",
     ];
     let is = |title: &[u8], names: &[&[u8]]| names.iter().any(|n| title.eq_ignore_ascii_case(n));
-    let mut lines = jsdoc_lines(s);
+    let mut lines = jsdoc_lines(s, budget)?;
     while let Some(line) = lines.next() {
-        let Some((title, text)) = jsdoc_tag_open(line) else {
+        budget.step()?;
+        let Some((title, text)) = jsdoc_tag_open(line?, budget)? else {
             continue;
         };
         if is(title, &ALWAYS) {
-            return true;
+            return Ok(true);
         }
         // The tag's text runs over every line up to the next tag.
-        let rest = lines.clone().take_while(|l| jsdoc_tag_open(l).is_none());
-        if is(title, &NAMING) && jsdoc_names(std::iter::once(text).chain(rest)) {
-            return true;
+        if is(title, &NAMING) {
+            let mut ended = false;
+            let rest = lines.clone().scan(&mut ended, |ended, line| {
+                if **ended {
+                    return None;
+                }
+                match line.and_then(|line| Ok((line, jsdoc_tag_open(line, budget)?.is_some()))) {
+                    Ok((_, true)) => {
+                        **ended = true;
+                        None
+                    }
+                    Ok((line, false)) => Some(Ok(line)),
+                    Err(error) => {
+                        **ended = true;
+                        Some(Err(error))
+                    }
+                }
+            });
+            if jsdoc_names(std::iter::once(Ok(text)).chain(rest), budget)? {
+                return Ok(true);
+            }
         }
     }
-    false
+    Ok(false)
+}
+
+pub(crate) fn jsdoc_file_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for line in jsdoc_lines(s, budget)? {
+        if let Some((title, _)) = jsdoc_tag_open(line?, budget)?
+            && [b"file".as_slice(), b"fileoverview", b"overview", b"module"]
+                .iter()
+                .any(|name| title.eq_ignore_ascii_case(name))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A TypeDoc module comment: one carrying `@module` or
@@ -209,9 +272,21 @@ pub(crate) fn jsdoc_virtual(s: &[u8]) -> bool {
 /// declaration and reads as the file's documentation (#1613).
 #[must_use]
 pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
-    jsdoc_lines(s)
-        .filter_map(jsdoc_tag_open)
-        .any(|(title, _)| title == b"module" || title == b"packageDocumentation")
+    infallible(tsdoc_module_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn tsdoc_module_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for line in jsdoc_lines(s, budget)? {
+        if let Some((title, _)) = jsdoc_tag_open(line?, budget)?
+            && (title == b"module" || title == b"packageDocumentation")
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A go/doc directive line, part of a lead comment group but not of
@@ -220,21 +295,30 @@ pub(crate) fn tsdoc_module(s: &[u8]) -> bool {
 /// `//[a-z0-9]+:[a-z0-9]` form. A directive has no space after `//`.
 #[must_use]
 pub(crate) fn go_directive(s: &[u8]) -> bool {
+    infallible(go_directive_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn go_directive_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     let Some(rest) = s.strip_prefix(b"//") else {
-        return false;
+        return Ok(false);
     };
     if rest.starts_with(b"line ") || rest.starts_with(b"extern ") || rest.starts_with(b"export ") {
-        return true;
+        return Ok(true);
     }
-    let word = rest
-        .iter()
-        .take_while(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-        .count();
-    word > 0
+    let word = scan::position(
+        rest,
+        |b| !b.is_ascii_lowercase() && !b.is_ascii_digit(),
+        budget,
+    )?
+    .unwrap_or(rest.len());
+    Ok(word > 0
         && rest.get(word) == Some(&b':')
         && rest
             .get(word.saturating_add(1))
-            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
 /// A Ruby comment that opens a documentation block whatever follows it:
@@ -246,14 +330,21 @@ pub(crate) fn go_directive(s: &[u8]) -> bool {
 /// `####…` banner or a `##### Helpers #####` divider opens nothing.
 #[must_use]
 pub(crate) fn ruby_directive_opener(s: &[u8]) -> bool {
+    infallible(ruby_directive_opener_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn ruby_directive_opener_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     if s.starts_with(b"##") && s.get(2) != Some(&b'#') {
-        return true;
+        return Ok(true);
     }
-    s.strip_prefix(b"#").is_some_and(|rest| {
-        rest.iter()
-            .position(|b| *b != b' ' && *b != b'\t')
-            .is_some_and(|at| rest[at..].starts_with(b"@!"))
-    })
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    Ok(scan::position(rest, |b| b != b' ' && b != b'\t', budget)?
+        .is_some_and(|at| rest[at..].starts_with(b"@!")))
 }
 
 /// The comment lines YARD drops before documenting: a shebang, an
@@ -268,52 +359,63 @@ pub(crate) fn ruby_directive_opener(s: &[u8]) -> bool {
 /// comment that repeats a magic line mid-file.
 #[must_use]
 pub(crate) fn ruby_magic_comment(s: &[u8]) -> bool {
-    if s.starts_with(b"#!") {
-        return true;
-    }
-    s.strip_prefix(b"#")
-        .map(<[u8]>::trim_ascii)
-        .is_some_and(|body| ruby_modeline(body) || ruby_magic_setting(body))
+    infallible(ruby_magic_comment_with_budget(s, &NoBudget))
 }
 
-fn contains_ci(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle))
+pub(crate) fn ruby_magic_comment_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if s.starts_with(b"#!") {
+        return Ok(true);
+    }
+    let Some(body) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    let body = scan::trim(body, budget)?;
+    Ok(ruby_modeline(body, budget)? || ruby_magic_setting(body, budget)?)
 }
 
 /// An Emacs (`-*- … -*-`) or Vim (`vim: …`) modeline that carries the
 /// magic setting among others: an encoding, or for Emacs the
 /// frozen-string flag. A modeline's key is never a magic one, so
 /// `ruby_magic_setting` cannot also match it.
-fn ruby_modeline(body: &[u8]) -> bool {
+fn ruby_modeline<B: WorkBudget>(body: &[u8], budget: &B) -> Result<bool, B::Error> {
     if body.len() >= 6 && body.starts_with(b"-*-") && body.ends_with(b"-*-") {
-        return contains_ci(body, b"coding") || contains_ci(body, b"frozen");
+        return Ok(scan::contains_ci(body, b"coding", budget)?
+            || scan::contains_ci(body, b"frozen", budget)?);
     }
-    body.get(..4)
+    Ok(body
+        .get(..4)
         .is_some_and(|head| head.eq_ignore_ascii_case(b"vim:"))
-        && contains_ci(body, b"coding")
+        && scan::contains_ci(body, b"coding", budget)?)
 }
 
 /// A comment that is one magic setting and nothing else: `key: value`
 /// or `key=value`, the key a magic one and the value a single word.
-fn ruby_magic_setting(body: &[u8]) -> bool {
-    let Some(separator) = body.iter().position(|b| matches!(b, b':' | b'=')) else {
-        return false;
+fn ruby_magic_setting<B: WorkBudget>(body: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let Some(separator) = scan::position(body, |b| matches!(b, b':' | b'='), budget)? else {
+        return Ok(false);
     };
     let (key, value) = body.split_at(separator);
-    let value = value.get(1..).unwrap_or_default().trim_ascii_start();
-    [
+    let value = scan::trim_start(value.get(1..).unwrap_or_default(), budget)?;
+    let key = scan::trim_end(key, budget)?;
+    let known = [
         &b"coding"[..],
         b"encoding",
         b"frozen_string_literal",
         b"frozen-string-literal",
     ]
     .iter()
-    .any(|known| key.trim_ascii_end().eq_ignore_ascii_case(known))
+    .any(|known| key.eq_ignore_ascii_case(known));
+    Ok(known
         && !value.is_empty()
-        && value
-            .iter()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && scan::position(
+            value,
+            |b| !b.is_ascii_alphanumeric() && !matches!(b, b'-' | b'_' | b'.'),
+            budget,
+        )?
+        .is_none())
 }
 
 /// A POD block that is nothing but `comment` regions — `=begin comment`
@@ -325,6 +427,13 @@ fn ruby_magic_setting(body: &[u8]) -> bool {
 /// that goes on to document something (`=head1 NAME` …) is documentation.
 #[must_use]
 pub(crate) fn pod_comment_region(s: &[u8]) -> bool {
+    infallible(pod_comment_region_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn pod_comment_region_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     enum Region {
         Outside,
         Paragraph,
@@ -332,40 +441,73 @@ pub(crate) fn pod_comment_region(s: &[u8]) -> bool {
     }
     let mut region = Region::Outside;
     let mut regions = 0_usize;
-    for line in s.split(|&byte| byte == b'\n') {
-        let blank = line.trim_ascii().is_empty();
-        match region {
-            Region::Paragraph if blank => region = Region::Outside,
-            Region::Begin if pod_command(line, b"=end").is_some_and(is_comment_format) => {
+    for line in scan::lines(s, budget) {
+        let line = line?;
+        match (&region, PodLine::read(line, budget)?) {
+            (Region::Paragraph, PodLine::Blank) | (Region::Begin, PodLine::EndComment) => {
                 region = Region::Outside;
             }
-            Region::Paragraph | Region::Begin => {}
-            Region::Outside if blank => {}
-            Region::Outside => {
-                if pod_command(line, b"=for").is_some_and(is_comment_format) {
-                    region = Region::Paragraph;
-                } else if pod_command(line, b"=begin").is_some_and(is_comment_format) {
-                    region = Region::Begin;
-                } else {
-                    // `=cut` closes the block; any other line documents, or
-                    // opens a block that never was a comment region.
-                    return regions > 0 && line.starts_with(b"=cut");
-                }
+            (Region::Paragraph | Region::Begin, _) | (Region::Outside, PodLine::Blank) => {}
+            (Region::Outside, PodLine::ForComment) => {
+                region = Region::Paragraph;
                 regions += 1;
+            }
+            (Region::Outside, PodLine::BeginComment) => {
+                region = Region::Begin;
+                regions += 1;
+            }
+            // `=cut` closes the block; any other line documents, or
+            // opens a block that never was a comment region.
+            (Region::Outside, PodLine::EndComment | PodLine::Other) => {
+                return Ok(regions > 0 && line.starts_with(b"=cut"));
             }
         }
     }
-    regions > 0
+    Ok(regions > 0)
 }
 
-/// The text after a POD command line's `=<command>` and the whitespace
-/// separating it from its argument, or `None` when `line` is not that
-/// command.
-fn pod_command<'s>(line: &'s [u8], command: &[u8]) -> Option<&'s [u8]> {
-    let rest = line.strip_prefix(command)?;
-    rest.first()
-        .is_some_and(u8::is_ascii_whitespace)
-        .then(|| rest.trim_ascii_start())
+/// What one line of a POD block is to its `comment` regions.
+enum PodLine {
+    Blank,
+    ForComment,
+    BeginComment,
+    EndComment,
+    Other,
+}
+
+impl PodLine {
+    fn read<B: WorkBudget>(line: &[u8], budget: &B) -> Result<Self, B::Error> {
+        Ok(
+            if scan::position(line, |byte| !byte.is_ascii_whitespace(), budget)?.is_none() {
+                Self::Blank
+            } else if pod_comment_command(line, b"=for", budget)? {
+                Self::ForComment
+            } else if pod_comment_command(line, b"=begin", budget)? {
+                Self::BeginComment
+            } else if pod_comment_command(line, b"=end", budget)? {
+                Self::EndComment
+            } else {
+                Self::Other
+            },
+        )
+    }
+}
+
+/// Whether `line` is the POD command `command` (`=begin`, `=end` or
+/// `=for`) with the format name `comment`: the command, whitespace, then
+/// the name.
+pub(crate) fn pod_comment_command<B: WorkBudget>(
+    line: &[u8],
+    command: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(rest) = line.strip_prefix(command) else {
+        return Ok(false);
+    };
+    if !rest.first().is_some_and(u8::is_ascii_whitespace) {
+        return Ok(false);
+    }
+    Ok(is_comment_format(scan::trim_start(rest, budget)?))
 }
 
 /// Whether a POD command's format name is `comment`.
@@ -381,39 +523,145 @@ fn is_comment_format(format: &[u8]) -> bool {
 /// non-dash (`end_comment_ = '[^%-]%-%-+[^-]*\n$'` — `--- x ---` is an
 /// end marker), or a long comment whose body opens with a dash
 /// (`block_comment = '^%-%-%[=*%[%-+'`).
-#[must_use]
-pub(crate) fn ldoc_opener(s: &[u8]) -> bool {
-    if let Some(body) = lua_long_comment_body(s) {
-        return body.first() == Some(&b'-');
+pub(crate) fn ldoc_opener_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if let Some(body) = lua_long_comment_body(s, budget)? {
+        return Ok(body.first() == Some(&b'-'));
     }
-    s.starts_with(b"---") && !ldoc_end_marker(s)
+    Ok(s.starts_with(b"---") && !ldoc_end_marker(s, budget)?)
 }
 
 /// A Lua long comment, `--[[ … ]]` or a levelled `--[==[ … ]==]`, as
 /// opposed to a line comment that merely starts `--[`.
 #[must_use]
 pub(crate) fn lua_long_comment(s: &[u8]) -> bool {
-    lua_long_comment_body(s).is_some()
+    infallible(lua_long_comment_with_budget(s, &NoBudget))
+}
+
+pub(crate) fn lua_long_comment_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    Ok(lua_long_comment_body(s, budget)?.is_some())
 }
 
 /// The text after a long comment's opening bracket, or `None` when `s`
 /// is not a long comment.
-fn lua_long_comment_body(s: &[u8]) -> Option<&[u8]> {
-    let rest = s.strip_prefix(b"--[")?;
-    let levels = rest.iter().take_while(|b| **b == b'=').count();
-    rest.get(levels..)?.strip_prefix(b"[")
+pub(crate) fn lua_long_comment_body<'s, B: WorkBudget>(
+    s: &'s [u8],
+    budget: &B,
+) -> Result<Option<&'s [u8]>, B::Error> {
+    let Some(rest) = s.strip_prefix(b"--[") else {
+        return Ok(None);
+    };
+    let levels = scan::position(rest, |b| b != b'=', budget)?.unwrap_or(rest.len());
+    Ok(rest[levels..].strip_prefix(b"["))
 }
 
 /// `[^-]--+[^-]*$`: the line's final dash run has two or more dashes and
 /// something other than a dash before it.
-fn ldoc_end_marker(s: &[u8]) -> bool {
-    let trimmed = s.len() - s.iter().rev().take_while(|b| **b != b'-').count();
-    let dashes = s[..trimmed]
-        .iter()
-        .rev()
-        .take_while(|b| **b == b'-')
-        .count();
-    dashes >= 2 && trimmed > dashes
+fn ldoc_end_marker<B: WorkBudget>(s: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let trimmed = scan::rposition(s, |b| b == b'-', budget)?.map_or(0, |at| at + 1);
+    let start = scan::rposition(&s[..trimmed], |b| b != b'-', budget)?.map_or(0, |at| at + 1);
+    let dashes = trimmed - start;
+    Ok(dashes >= 2 && trimmed > dashes)
+}
+
+/// How shdoc 1.4 reads one comment row, by the pattern rules of its
+/// program: a tag line, a tag line whose text shdoc gives to the file
+/// (`@name`, `@file`, `@brief`), or text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShdocRow {
+    Text,
+    Tag,
+    FileTag,
+}
+
+// shdoc matches these as `# @name`: exactly one space, and any bytes
+// after the name, so `# @seealso` is its `@see`.
+const SHDOC_FILE_TAGS: [&[u8]; 3] = [b"name", b"file", b"brief"];
+const SHDOC_LINE_TAGS: [&[u8]; 8] = [
+    b"internal",
+    b"description",
+    b"section",
+    b"example",
+    b"set",
+    b"exitcode",
+    b"see",
+    b"deprecated",
+];
+// shdoc matches these after one or more blanks, and wants blanks and
+// then text after the name.
+const SHDOC_VALUE_TAGS: [&[u8]; 5] = [b"option", b"arg", b"stdin", b"stdout", b"stderr"];
+
+/// The class of the comment row `s`, which starts at its `#`.
+pub(crate) fn shdoc_row_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<ShdocRow, B::Error> {
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(ShdocRow::Text);
+    };
+    if let Some(row) = rest.strip_prefix(b" @").and_then(shdoc_fixed_tag) {
+        return Ok(row);
+    }
+    let blanks = shdoc_blanks(rest, budget)?;
+    Ok(match rest[blanks..].strip_prefix(b"@") {
+        Some(name) if blanks > 0 && shdoc_value_tag(name, budget)? => ShdocRow::Tag,
+        _ => ShdocRow::Text,
+    })
+}
+
+/// A tag that shdoc matches as `# @name`, by the name that `name` opens with.
+fn shdoc_fixed_tag(name: &[u8]) -> Option<ShdocRow> {
+    if SHDOC_FILE_TAGS.iter().any(|tag| name.starts_with(tag)) {
+        Some(ShdocRow::FileTag)
+    } else if SHDOC_LINE_TAGS.iter().any(|tag| name.starts_with(tag)) {
+        Some(ShdocRow::Tag)
+    } else {
+        None
+    }
+}
+
+/// A tag that shdoc matches after one or more blanks: `noargs` with
+/// nothing but blanks after it, or one of the five names that want blanks
+/// and then text.
+fn shdoc_value_tag<B: WorkBudget>(name: &[u8], budget: &B) -> Result<bool, B::Error> {
+    if let Some(after) = name.strip_prefix(b"noargs")
+        && shdoc_blanks(after, budget)? == after.len()
+    {
+        return Ok(true);
+    }
+    for tag in SHDOC_VALUE_TAGS {
+        if let Some(after) = name.strip_prefix(tag) {
+            let blanks = shdoc_blanks(after, budget)?;
+            if blanks > 0 && blanks < after.len() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// The length of the run of spaces and tabs that `s` opens with.
+fn shdoc_blanks<B: WorkBudget>(s: &[u8], budget: &B) -> Result<usize, B::Error> {
+    Ok(scan::position(s, |b| !matches!(b, b' ' | b'\t'), budget)?.unwrap_or(s.len()))
+}
+
+/// A row that ShellCheck 0.8.0 reads as a directive: `#`, optional
+/// blanks, then `shellcheck`. It reports a parse error for a row that goes
+/// on in another way (`# shellchecker x`), so such a row is no prose
+/// either.
+pub(crate) fn shellcheck_directive_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    Ok(rest[shdoc_blanks(rest, budget)?..].starts_with(b"shellcheck"))
 }
 
 #[cfg(test)]
@@ -654,6 +902,151 @@ mod tests {
             b"#",
         ] {
             assert!(!ruby_magic_comment(doc), "{}", String::from_utf8_lossy(doc));
+        }
+    }
+
+    /// Sums the bytes a classifier is charged for, and can fail at one charge.
+    #[derive(Default)]
+    struct Charged {
+        bytes: std::cell::Cell<usize>,
+        charges: std::cell::Cell<usize>,
+        fail_at: Option<usize>,
+    }
+
+    impl WorkBudget for Charged {
+        type Error = crate::documentation::SourceError;
+
+        fn checkpoint(&self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn step(&self) -> Result<(), Self::Error> {
+            panic!("the row classifiers charge bytes only")
+        }
+
+        fn bytes(&self, count: usize) -> Result<(), Self::Error> {
+            self.bytes.set(self.bytes.get() + count);
+            self.charges.set(self.charges.get() + 1);
+            if self.fail_at == Some(self.charges.get()) {
+                Err(crate::documentation::SourceError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// The answer of `rule` and the bytes it is charged, after showing that a budget
+    /// which fails at any one of its charges stops it there.
+    fn charged<T>(
+        rule: impl Fn(&Charged) -> Result<T, crate::documentation::SourceError>,
+    ) -> (T, usize) {
+        let budget = Charged::default();
+        let Ok(answer) = rule(&budget) else {
+            panic!("a counting budget does not fail")
+        };
+        for fail_at in 1..=budget.charges.get() {
+            let failing = Charged {
+                fail_at: Some(fail_at),
+                ..Charged::default()
+            };
+            assert!(rule(&failing).is_err(), "charge {fail_at}");
+            assert_eq!(failing.charges.get(), fail_at);
+        }
+        (answer, budget.bytes.get())
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads() {
+        use ShdocRow::{FileTag, Tag, Text};
+        // Each count is the bytes the classifier reads: a run of blanks and the byte
+        // that ends it, once after `#` and once after an `@option`-like name. A row
+        // that matches a `# @name` pattern is told by fixed prefixes and reads none.
+        let rows: [(&[u8], ShdocRow, usize); 46] = [
+            (b"# @internal", Tag, 0),
+            (b"# @description x", Tag, 0),
+            (b"# @description", Tag, 0),
+            (b"# @descriptionx", Tag, 0),
+            (b"# @section s", Tag, 0),
+            (b"# @example", Tag, 0),
+            (b"# @set V string x", Tag, 0),
+            (b"# @exitcode 0 ok", Tag, 0),
+            (b"# @see other", Tag, 0),
+            (b"# @seealso x", Tag, 0),
+            (b"# @deprecated", Tag, 0),
+            (b"# @name x", FileTag, 0),
+            (b"# @file x", FileTag, 0),
+            (b"# @files x", FileTag, 0),
+            (b"# @brief x", FileTag, 0),
+            (b"# @option -h Help", Tag, 4),
+            (b"#  @option -h Help", Tag, 5),
+            (b"#\t@option -h x", Tag, 4),
+            (b"# @arg $1 string Name", Tag, 4),
+            (b"#  @arg $1 x", Tag, 5),
+            (b"# @noargs", Tag, 2),
+            (b"#  @noargs  ", Tag, 5),
+            (b"# @stdin Data", Tag, 4),
+            (b"# @stdout Data", Tag, 4),
+            (b"# @stderr Data", Tag, 4),
+            (b"#@description audit", Text, 1),
+            (b"## @description audit", Text, 1),
+            (b"#  @description x", Text, 3),
+            (b"#\t@description x", Text, 2),
+            (b"# @Description x", Text, 2),
+            (b"# @ description x", Text, 2),
+            (b"#\t@name x", Text, 2),
+            (b"# @arg", Text, 2),
+            (b"# @arg  ", Text, 4),
+            (b"# @argument x", Text, 3),
+            (b"# @option", Text, 2),
+            (b"# @optionx y", Text, 3),
+            (b"# @noargs x", Text, 4),
+            (b"# @stdout", Text, 2),
+            (b"# @stdoutx y", Text, 3),
+            (b"# @todo x", Text, 2),
+            (b"# plain", Text, 2),
+            (b"# mail dev@example.com", Text, 2),
+            (b"#", Text, 0),
+            (b"#!/bin/bash", Text, 1),
+            (b"x", Text, 0),
+        ];
+        for (comment, class, bytes) in rows {
+            assert_eq!(
+                charged(|budget| shdoc_row_with_budget(comment, budget)),
+                (class, bytes),
+                "{}",
+                comment.escape_ascii()
+            );
+        }
+    }
+
+    #[test]
+    fn shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives() {
+        // The thirteen probes of the ShellCheck 0.8.0 run: a row is a directive where
+        // ShellCheck suppressed the warning or reported a parse error for the row.
+        // Each count is the blanks after `#` and the byte that ends them.
+        let rows: [(&[u8], bool, usize); 13] = [
+            (b"# shellcheck disable=SC2086", true, 2),
+            (b"#shellcheck disable=SC2086", true, 1),
+            (b"## shellcheck disable=SC2086", false, 1),
+            (b"#  shellcheck disable=SC2086", true, 3),
+            (b"#\tshellcheck disable=SC2086", true, 2),
+            (b"# ShellCheck disable=SC2086", false, 2),
+            (b"# shellcheck disable=SC2086 # because", true, 2),
+            (b"# shellcheck: disable=SC2086", true, 2),
+            (b"# note shellcheck disable=SC2086", false, 2),
+            (b"# shellcheck is noisy here", true, 2),
+            (b"# shellcheck disable =SC2086", true, 2),
+            (b"# plain comment", false, 2),
+            (b"# shellchecker disable=SC2086", true, 2),
+        ];
+        for (comment, directive, bytes) in rows {
+            assert_eq!(
+                charged(|budget| shellcheck_directive_with_budget(comment, budget)),
+                (directive, bytes),
+                "{}",
+                comment.escape_ascii()
+            );
         }
     }
 }

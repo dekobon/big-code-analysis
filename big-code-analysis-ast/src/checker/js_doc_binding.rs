@@ -30,6 +30,17 @@ macro_rules! impl_js_family_doc_binding {
                 })
             });
 
+        fn source_doc_binding() -> Option<$crate::lang_helpers::DocBinding> {
+            Self::DOC_BINDING.map(|binding| $crate::lang_helpers::DocBinding {
+                forward: |comment, code, _| {
+                    !$standalone($crate::lang_helpers::doc_comment::node_bytes(comment, code))
+                },
+                ..binding
+            })
+        }
+
+        const SOURCE_LOCAL_DOCS: bool = true;
+
         fn is_doc_target<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
             $target(node, code, ancestors)
         }

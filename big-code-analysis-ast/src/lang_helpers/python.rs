@@ -2,8 +2,10 @@
 //! of a docstring.
 
 use crate::Python;
+use crate::documentation::budget::{NoBudget, WorkBudget, child, infallible};
 use crate::lang_helpers::doc_comment::node_bytes;
 use crate::node::{AncestorIter, Ancestors, Cursor, FoldLane, Node};
+use std::ops::Range;
 
 /// Whether `node` is a Python `lambda` expression, under either of the
 /// grammar's two aliased kind_ids: `Lambda` (196, the concrete
@@ -206,26 +208,45 @@ fn enclosing_statement<'a, 'c>(
 /// `node` with at most [`MAX_PARENTHESES`] parentheses around it removed:
 /// the expression inside, skipping the comments a parenthesized
 /// expression may hold. One cursor serves every layer.
-fn unparenthesized(node: Node) -> Node {
+fn unparenthesized_with_budget<'a, B: WorkBudget>(
+    node: Node<'a>,
+    budget: &B,
+) -> Result<Node<'a>, B::Error> {
     let mut cursor = node.cursor();
     let mut value = node;
     for _ in 0..MAX_PARENTHESES {
-        let Some(inner) = unparenthesized_once(&value, &mut cursor) else {
+        let Some(inner) = unparenthesized_once_with_budget(&value, &mut cursor, budget)? else {
             break;
         };
         value = inner;
     }
-    value
+    Ok(value)
 }
 
 /// The expression one `parenthesized_expression` holds, or `None` when
 /// `node` is not one, read with `cursor`: its first named child that is
 /// no extra, so an `ERROR` the grammar recovered to is still its value.
 fn unparenthesized_once<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Option<Node<'a>> {
+    infallible(unparenthesized_once_with_budget(node, cursor, &NoBudget))
+}
+
+/// [`unparenthesized_once`] under a budget: one step for each child read,
+/// the returned one included.
+fn unparenthesized_once_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    cursor: &mut Cursor<'a>,
+    budget: &B,
+) -> Result<Option<Node<'a>>, B::Error> {
     if node.kind_id() != Python::ParenthesizedExpression {
-        return None;
+        return Ok(None);
     }
-    node.children_with(cursor).find(not_extra)
+    for inner in node.children_with(cursor) {
+        budget.step()?;
+        if not_extra(&inner) {
+            return Ok(Some(inner));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether `node` is one of the grammar's two extras, a `#` comment or
@@ -262,15 +283,27 @@ pub fn python_is_bare_string_statement(statement: &Node) -> bool {
 
 /// The string a bare string statement holds, past any parentheses.
 fn statement_string<'a>(statement: &Node<'a>) -> Option<Node<'a>> {
+    infallible(statement_string_with_budget(statement, &NoBudget))
+}
+
+/// [`statement_string`] under a budget, charged by the descent through
+/// the parentheses.
+fn statement_string_with_budget<'a, B: WorkBudget>(
+    statement: &Node<'a>,
+    budget: &B,
+) -> Result<Option<Node<'a>>, B::Error> {
     if !is_bare_statement(statement) {
-        return None;
+        return Ok(None);
     }
-    statement.child(0).map(unparenthesized).filter(|value| {
-        matches!(
-            value.kind_id().into(),
-            Python::String | Python::ConcatenatedString
-        )
-    })
+    let Some(inner) = statement.child(0) else {
+        return Ok(None);
+    };
+    let value = unparenthesized_with_budget(inner, budget)?;
+    Ok(matches!(
+        value.kind_id().into(),
+        Python::String | Python::ConcatenatedString
+    )
+    .then_some(value))
 }
 
 /// Whether `node` is a bare string statement's `string`: the statement's
@@ -355,31 +388,75 @@ fn documentation_run<'a>(
     code: &[u8],
     ancestors: Ancestors<'a, '_>,
 ) -> Option<Node<'a>> {
-    // The literal test is the cheap one; `body_attributes` may read the
+    infallible(docstring_run_with_budget(value, code, ancestors, &NoBudget)).map(|run| run.first)
+}
+
+/// The documentation-string run that the bare string statement holding a
+/// value belongs to, as the one backward scan finds it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DocstringRun<'a> {
+    /// The run's first member statement.
+    pub(crate) first: Node<'a>,
+    /// The statement holding the value the scan started from.
+    pub(crate) last: Node<'a>,
+    /// The `module`, `class_definition` or `function_definition` whose body
+    /// holds the run.
+    pub(crate) owner: Node<'a>,
+    /// The accepted statement an attribute run follows; `None` for a run
+    /// that opens its body.
+    pub(crate) after: Option<Node<'a>>,
+}
+
+/// The one backward scan behind [`documentation_run`], under a budget:
+/// the run of the bare string statement holding `value`, or `None` when
+/// that statement is not documentation. It charges one step for each
+/// sibling it takes, the one that ends the scan included, and the
+/// predicates charge their own loops. With [`NoBudget`] the answer and the
+/// scan count are those of the unbudgeted reader.
+pub(crate) fn docstring_run_with_budget<'a, B: WorkBudget>(
+    value: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<Option<DocstringRun<'a>>, B::Error> {
+    // bca: suppress(nexits) -- the unbudgeted reader's exits and one for each charged call.
+    // The literal test is the cheap one; the body's owner may read the
     // enclosing `__init__`'s name and parameters.
-    if !is_str_literal(value, code) {
-        return None;
+    if !is_str_literal_with_budget(value, code, budget)? {
+        return Ok(None);
     }
-    let ((statement, statement_ancestors), up) = enclosing_statement(value, ancestors)?;
+    let Some(((statement, statement_ancestors), up)) = enclosing_statement(value, ancestors) else {
+        return Ok(None);
+    };
     // A string of a discarded tuple (`"a", "b"`) is no docstring: the
     // statement holds two values. Checked here, the one place, so the
     // row and the run helper cannot differ on it.
     if !is_bare_statement(&statement) {
-        return None;
+        return Ok(None);
     }
     docstring_runs_scanned::record();
-    let attributes = body_attributes(up, code)?;
-    let mut first = statement;
-    for sibling in statement_ancestors
-        .siblings_before(&statement)
-        .filter(not_extra)
-    {
-        if !is_string_statement(&sibling, code) {
-            return attributes.documented_by(&sibling, code).then_some(first);
+    let Some((owner, attributes)) = body_owner_with_budget(up, code, budget)? else {
+        return Ok(None);
+    };
+    let mut run = DocstringRun {
+        first: statement,
+        last: statement,
+        owner,
+        after: None,
+    };
+    for sibling in statement_ancestors.siblings_before_with_budget(&statement, budget)? {
+        budget.step()?;
+        if !not_extra(&sibling) {
+            continue;
         }
-        first = sibling;
+        if !is_string_statement_with_budget(&sibling, code, budget)? {
+            let documented = attributes.documented_by_with_budget(&sibling, code, budget)?;
+            run.after = Some(sibling);
+            return Ok(documented.then_some(run));
+        }
+        run.first = sibling;
     }
-    Some(first)
+    Ok(Some(run))
 }
 
 /// Credits a consecutive run of documentation strings at its last string.
@@ -391,30 +468,79 @@ pub fn python_documentation_string_run(
     ancestors: Ancestors<'_, '_>,
     mut credit: impl FnMut(usize, usize),
 ) {
+    infallible(completed_docstring_run_with_budget(
+        value,
+        code,
+        ancestors,
+        &NoBudget,
+        |statement, _| credit_documentation_rows(statement, &mut credit),
+    ));
+}
+
+/// The run that `value` completes, under a budget: `None` unless `value`
+/// is the value of a run's final member. `member` is called with each
+/// member statement and its value, first to last. One look-ahead decides
+/// whether the statement is the final member, and only then does the one
+/// backward scan run ([`docstring_run_with_budget`]). The look-ahead, the
+/// scan and the walk each charge one step for each sibling they take.
+pub(crate) fn completed_docstring_run_with_budget<'a, B: WorkBudget>(
+    value: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+    mut member: impl FnMut(Node<'a>, Node<'a>),
+) -> Result<Option<DocstringRun<'a>>, B::Error> {
+    // bca: suppress(nargs, nexits) -- the legacy walk's arguments and a budget; a pass can cancel.
     let Some(((statement, outer), _)) = enclosing_statement(value, ancestors) else {
-        return;
+        return Ok(None);
     };
-    if outer
-        .siblings_after(&statement)
-        .find(not_extra)
-        .is_some_and(|next| is_string_statement(&next, code))
-    {
-        return;
+    if !is_bare_statement(&statement) {
+        return Ok(None);
     }
-    // The run's final member. `documentation_run` is the backward scan
-    // the `Docstring` row's gate reads (#1699) and the one this needs for
-    // the run's first member, so it runs once, here: the row's verdict
-    // is `first.is_some()` by construction, the gate being this call.
-    let Some(first) = documentation_run(value, code, ancestors) else {
-        return;
+    if string_statement_follows(&statement, code, outer, budget)? {
+        return Ok(None);
+    }
+    // The run's final member. `docstring_run_with_budget` is the backward
+    // scan the `Docstring` row's gate reads (#1699) and the one this needs
+    // for the run's first member, so it runs once, here: the row's verdict
+    // is `Some` by construction, the gate being this call.
+    let Some(run) = docstring_run_with_budget(value, code, ancestors, budget)? else {
+        return Ok(None);
     };
-    for member in std::iter::once(first)
-        .chain(outer.siblings_after(&first))
-        .take_while(|member| member.start_byte() <= statement.start_byte())
-        .filter(|member| is_string_statement(member, code))
+    for item in
+        std::iter::once(run.first).chain(outer.siblings_after_with_budget(&run.first, budget)?)
     {
-        credit_documentation_rows(member, &mut credit);
+        budget.step()?;
+        if item.start_byte() > run.last.start_byte() {
+            break;
+        }
+        if not_extra(&item)
+            && let Some(string) = statement_string_with_budget(&item, budget)?
+            && is_str_literal_with_budget(&string, code, budget)?
+        {
+            member(item, string);
+        }
     }
+    Ok(Some(run))
+}
+
+/// Whether the next statement after `statement` is a string statement:
+/// the look-ahead that tells a run's final member from an earlier one.
+/// It charges one step for each sibling it takes, the one it tests
+/// included.
+fn string_statement_follows<'a, B: WorkBudget>(
+    statement: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for next in ancestors.siblings_after_with_budget(statement, budget)? {
+        budget.step()?;
+        if not_extra(&next) {
+            return is_string_statement_with_budget(&next, code, budget);
+        }
+    }
+    Ok(false)
 }
 
 /// Credits the rows of a string statement's value and of the `(` and `)`
@@ -462,27 +588,61 @@ impl Attributes<'_> {
     /// Whether `statement`, directly before a string statement, makes that
     /// string an attribute docstring.
     fn documented_by(&self, statement: &Node, code: &[u8]) -> bool {
+        infallible(self.documented_by_with_budget(statement, code, &NoBudget))
+    }
+
+    /// [`Self::documented_by`] under a budget, charged by the walk of the
+    /// target and by the comparison of each receiver spelling.
+    fn documented_by_with_budget<B: WorkBudget>(
+        &self,
+        statement: &Node,
+        code: &[u8],
+        budget: &B,
+    ) -> Result<bool, B::Error> {
         // A `type X = …` alias (PEP 695) declares the name it binds, and
         // Sphinx's `VariableCommentPicker` reads it like an assignment
         // (`AssignmentLikeType` holds `ast.TypeAlias`): a docstring after
         // it or a `#:` comment on or above it documents `X`. It never
         // binds an attribute of `self`.
         if statement.kind_id() == Python::TypeAliasStatement {
-            return matches!(self, Self::Names);
+            return Ok(matches!(self, Self::Names));
         }
         let Some(target) = assignment_target(statement) else {
-            return false;
+            return Ok(false);
         };
         match self {
-            Self::Names => binds(&target, |leaf| leaf.kind_id() == Python::Identifier),
-            Self::OfSelf(name) => binds(&target, |leaf| {
-                leaf.kind_id() == Python::Attribute
-                    && leaf.child_by_field_name("object").is_some_and(|object| {
-                        object.kind_id() == Python::Identifier && node_bytes(&object, code) == *name
-                    })
-            }),
-            Self::Nothing => false,
+            Self::Names => binds_with_budget(
+                &target,
+                |leaf| Ok(leaf.kind_id() == Python::Identifier),
+                budget,
+            ),
+            Self::OfSelf(receiver) => binds_with_budget(
+                &target,
+                |leaf| is_attribute_of(leaf, receiver, code, budget),
+                budget,
+            ),
+            Self::Nothing => Ok(false),
         }
+    }
+}
+
+/// Whether `leaf` is an attribute of the name `receiver` spells:
+/// `self.x` for the receiver `self`. The two spellings are compared under
+/// the budget ([`same_spelling`]).
+fn is_attribute_of<B: WorkBudget>(
+    leaf: &Node,
+    receiver: &[u8],
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if leaf.kind_id() != Python::Attribute {
+        return Ok(false);
+    }
+    match leaf.child_by_field_name("object") {
+        Some(object) if object.kind_id() == Python::Identifier => {
+            same_spelling(node_bytes(&object, code), receiver, budget)
+        }
+        _ => Ok(false),
     }
 }
 
@@ -490,15 +650,30 @@ impl Attributes<'_> {
 /// the statement: `None` when the body holds no documentation at all (an
 /// `if` or loop body).
 fn body_attributes<'code>(
-    mut up: AncestorIter<'_, '_>,
+    up: AncestorIter<'_, '_>,
     code: &'code [u8],
 ) -> Option<Attributes<'code>> {
-    let (container, _) = up.next()?;
+    infallible(body_owner_with_budget(up, code, &NoBudget)).map(|(_, attributes)| attributes)
+}
+
+/// [`body_attributes`] under a budget, with the node that owns the body:
+/// the `module`, or the class or function definition a `block` belongs to.
+fn body_owner_with_budget<'a, 'code, B: WorkBudget>(
+    mut up: AncestorIter<'a, '_>,
+    code: &'code [u8],
+    budget: &B,
+) -> Result<Option<(Node<'a>, Attributes<'code>)>, B::Error> {
+    let Some((container, _)) = up.next() else {
+        return Ok(None);
+    };
     if container.kind_id() == Python::Module {
-        return Some(Attributes::Names);
+        return Ok(Some((container, Attributes::Names)));
     }
-    let (owner, _) = up.next().filter(|_| python_is_block(&container))?;
-    owner_attributes(&owner, up, code)
+    let Some((owner, _)) = up.next().filter(|_| python_is_block(&container)) else {
+        return Ok(None);
+    };
+    Ok(owner_attributes_with_budget(&owner, up, code, budget)?
+        .map(|attributes| (owner, attributes)))
 }
 
 /// What the body of `owner` — a class or function definition — makes of
@@ -509,15 +684,30 @@ fn owner_attributes<'code>(
     up: AncestorIter<'_, '_>,
     code: &'code [u8],
 ) -> Option<Attributes<'code>> {
+    infallible(owner_attributes_with_budget(owner, up, code, &NoBudget))
+}
+
+/// [`owner_attributes`] under a budget, charged by the search for the
+/// receiver of `__init__`.
+fn owner_attributes_with_budget<'code, B: WorkBudget>(
+    owner: &Node,
+    up: AncestorIter<'_, '_>,
+    code: &'code [u8],
+    budget: &B,
+) -> Result<Option<Attributes<'code>>, B::Error> {
     if owner.kind_id() == Python::ClassDefinition {
-        Some(Attributes::Names)
+        Ok(Some(Attributes::Names))
     } else if owner.kind_id() == Python::FunctionDefinition {
-        let receiver = is_class_init(owner, up, code)
-            .then(|| first_parameter_name(owner, code))
-            .flatten();
-        Some(receiver.map_or(Attributes::Nothing, Attributes::OfSelf))
+        let receiver = if is_class_init(owner, up, code) {
+            first_parameter_name_with_budget(owner, code, budget)?
+        } else {
+            None
+        };
+        Ok(Some(
+            receiver.map_or(Attributes::Nothing, Attributes::OfSelf),
+        ))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -545,38 +735,91 @@ fn is_class_init(function: &Node, up: AncestorIter<'_, '_>, code: &[u8]) -> bool
 /// are named, and formatters put a comment right after the `(` of an
 /// exploded signature (`def __init__(  # noqa: PLR0913`), a `\` too
 /// (`def __init__( \`), so both are skipped.
-fn first_parameter_name<'code>(function: &Node, code: &'code [u8]) -> Option<&'code [u8]> {
-    let first = function
-        .child_by_field_name("parameters")?
-        .children()
-        .find(not_extra)?;
-    let name = if first.kind_id() == Python::TypedParameter {
-        first.children().find(Node::is_named)?
-    } else {
-        first
+///
+/// Charged one step for each child read on the way to the name.
+fn first_parameter_name_with_budget<'code, B: WorkBudget>(
+    function: &Node,
+    code: &'code [u8],
+    budget: &B,
+) -> Result<Option<&'code [u8]>, B::Error> {
+    let Some(parameters) = function.child_by_field_name("parameters") else {
+        return Ok(None);
     };
-    (name.kind_id() == Python::Identifier).then(|| node_bytes(&name, code))
+    let Some(first) = child(&parameters, not_extra, budget)? else {
+        return Ok(None);
+    };
+    let name = if first.kind_id() == Python::TypedParameter {
+        child(&first, Node::is_named, budget)?
+    } else {
+        Some(first)
+    };
+    Ok(name
+        .filter(|name| name.kind_id() == Python::Identifier)
+        .map(|name| node_bytes(&name, code)))
+}
+
+/// Whether two spellings are the same bytes, compared under the budget.
+/// Spellings of different length differ at no charge. Otherwise each pair
+/// of bytes is charged before it is compared, and the first pair that
+/// differs ends the comparison. With [`NoBudget`] the answer is that of
+/// `==`.
+fn same_spelling<B: WorkBudget>(left: &[u8], right: &[u8], budget: &B) -> Result<bool, B::Error> {
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        budget.bytes(1)?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Whether `value` is a literal Python stores as a docstring: a `str`, not
 /// an f-string, a template string or bytes — a prefix holding `f`, `t` or
 /// `b` in either case makes the statement none, and one fragment of an
 /// implicit concatenation is enough.
-fn is_str_literal(value: &Node, code: &[u8]) -> bool {
-    let is_str = |literal: &Node| {
-        !node_bytes(literal, code)
-            .iter()
-            .take_while(|byte| byte.is_ascii_alphabetic())
-            .any(|byte| matches!(byte.to_ascii_lowercase(), b'f' | b't' | b'b'))
-    };
+///
+/// Charged one step for each child of a concatenation and one byte for
+/// each prefix letter read.
+fn is_str_literal_with_budget<B: WorkBudget>(
+    value: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
     if value.kind_id() == Python::ConcatenatedString {
-        value
-            .children()
-            .filter(|fragment| fragment.kind_id() == Python::String)
-            .all(|fragment| is_str(&fragment))
+        for fragment in value.children() {
+            budget.step()?;
+            if fragment.kind_id() == Python::String
+                && !has_str_prefix_with_budget(&fragment, code, budget)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     } else {
-        is_str(value)
+        has_str_prefix_with_budget(value, code, budget)
     }
+}
+
+/// Whether the leading ASCII letters of `literal` hold none of `f`, `t`
+/// and `b`, in either case: the prefix of a `str` literal.
+fn has_str_prefix_with_budget<B: WorkBudget>(
+    literal: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    for byte in node_bytes(literal, code) {
+        if !byte.is_ascii_alphabetic() {
+            break;
+        }
+        budget.bytes(1)?;
+        if matches!(byte.to_ascii_lowercase(), b'f' | b't' | b'b') {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// An `expression_statement` holding one value and nothing else: the
@@ -587,8 +830,15 @@ fn is_bare_statement(statement: &Node) -> bool {
 
 /// A bare statement whose value is a `str` literal: a docstring, when it
 /// opens its body.
-fn is_string_statement(statement: &Node, code: &[u8]) -> bool {
-    statement_string(statement).is_some_and(|value| is_str_literal(&value, code))
+fn is_string_statement_with_budget<B: WorkBudget>(
+    statement: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    match statement_string_with_budget(statement, budget)? {
+        Some(value) => is_str_literal_with_budget(&value, code, budget),
+        None => Ok(false),
+    }
 }
 
 /// Whether an assignment target binds what Sphinx records an attribute
@@ -597,19 +847,93 @@ fn is_string_statement(statement: &Node, code: &[u8]) -> bool {
 /// starred target binds when any element does. Walked with an explicit
 /// stack, so a target nested thousands of brackets deep cannot exhaust the
 /// thread's stack (#1597).
-fn binds(target: &Node, leaf: impl Fn(&Node) -> bool) -> bool {
+///
+/// Charged one step for the target and one for each child of every node
+/// the walk expands; `leaf` charges what it reads itself.
+fn binds_with_budget<B: WorkBudget>(
+    target: &Node,
+    leaf: impl Fn(&Node) -> Result<bool, B::Error>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    budget.step()?;
     let mut pending = vec![*target];
     while let Some(node) = pending.pop() {
         match node.kind_id().into() {
             Python::Identifier | Python::Subscript | Python::Attribute => {
-                if leaf(&node) {
-                    return true;
+                if leaf(&node)? {
+                    return Ok(true);
                 }
             }
-            _ => pending.extend(node.children().filter(Node::is_named)),
+            _ => {
+                for inner in node.children() {
+                    budget.step()?;
+                    if inner.is_named() {
+                        pending.push(inner);
+                    }
+                }
+            }
         }
     }
-    false
+    Ok(false)
+}
+
+/// Whether `node` owns a body docstring: a function or class definition.
+/// The module owns one too and is the file's owner already.
+#[must_use]
+pub(crate) fn python_is_docstring_owner(node: &Node) -> bool {
+    matches!(
+        node.kind_id().into(),
+        Python::FunctionDefinition | Python::ClassDefinition
+    )
+}
+
+/// What a `string` node spells between its quotes.
+#[derive(Clone, Debug)]
+pub(crate) struct StringLiteral {
+    /// The bytes between `string_start` and `string_end`.
+    pub(crate) interior: Range<usize>,
+    /// Whether the prefix holds `r` or `R`, so no escape is decoded.
+    pub(crate) raw: bool,
+}
+
+/// The interior and the raw flag of `string`, or `None` when the node is
+/// no clean `string` between a `string_start` and a `string_end` inside
+/// `code`. No parsed source gives the `None` arms on the node's own shape
+/// (a `string` with an error, with fewer than two children or with other
+/// first and last children); they are kept because a tree and a buffer
+/// are separate arguments. Charged one byte for each prefix letter read.
+pub(crate) fn python_string_literal<B: WorkBudget>(
+    string: &Node,
+    code: &[u8],
+    budget: &B,
+) -> Result<Option<StringLiteral>, B::Error> {
+    let children = string.child_count();
+    if string.kind_id() != Python::String || string.has_error() || children < 2 {
+        return Ok(None);
+    }
+    let (Some(start), Some(end)) = (string.child(0), string.child(children - 1)) else {
+        return Ok(None);
+    };
+    let interior = start.end_byte()..end.start_byte();
+    if start.kind_id() != Python::StringStart
+        || end.kind_id() != Python::StringEnd
+        || interior.start > interior.end
+        || code.get(interior.clone()).is_none()
+    {
+        return Ok(None);
+    }
+    let mut raw = false;
+    for byte in node_bytes(&start, code) {
+        if !byte.is_ascii_alphabetic() {
+            break;
+        }
+        budget.bytes(1)?;
+        if byte.eq_ignore_ascii_case(&b'r') {
+            raw = true;
+            break;
+        }
+    }
+    Ok(Some(StringLiteral { interior, raw }))
 }
 
 /// The target of the assignment `statement` holds, annotated or not.
@@ -991,5 +1315,534 @@ mod tests {
             )]
             .into()
         );
+    }
+
+    /// The budgeted docstring reader: what it answers, what it reports and what
+    /// it charges. One gate for the module, as every test here parses Python.
+    #[cfg(feature = "python")]
+    mod reader {
+        use super::*;
+        use crate::documentation::SourceError;
+        use crate::langs::PythonCode;
+        use crate::test_support::for_each_node_with_chain;
+        use std::cell::Cell;
+
+        /// Counts `step` calls and sums `bytes` charges, and can fail on one of either.
+        #[derive(Default)]
+        struct Counting {
+            steps: Cell<usize>,
+            bytes: Cell<usize>,
+            fail_at_step: Option<usize>,
+            fail_at_byte: Option<usize>,
+        }
+
+        impl Counting {
+            fn failing_at_step(step: usize) -> Self {
+                Self {
+                    fail_at_step: Some(step),
+                    ..Self::default()
+                }
+            }
+
+            fn failing_at_byte(byte: usize) -> Self {
+                Self {
+                    fail_at_byte: Some(byte),
+                    ..Self::default()
+                }
+            }
+        }
+
+        impl WorkBudget for Counting {
+            type Error = SourceError;
+
+            fn checkpoint(&self) -> Result<(), SourceError> {
+                Ok(())
+            }
+
+            fn step(&self) -> Result<(), SourceError> {
+                self.steps.set(self.steps.get() + 1);
+                if self.fail_at_step == Some(self.steps.get()) {
+                    Err(SourceError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn bytes(&self, count: usize) -> Result<(), SourceError> {
+                self.bytes.set(self.bytes.get() + count);
+                if self
+                    .fail_at_byte
+                    .is_some_and(|limit| self.bytes.get() >= limit)
+                {
+                    Err(SourceError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        /// A run as `(first start, last start, owner kind, owner start, after start)`.
+        type Run = (usize, usize, &'static str, usize, Option<usize>);
+
+        /// What one completed-run call gave: the run, the members as
+        /// `(statement start, value start)`, the steps, the bytes and the scans.
+        type Completed = (
+            Result<Option<Run>, SourceError>,
+            Vec<(usize, usize)>,
+            usize,
+            usize,
+            usize,
+        );
+
+        fn run_tuple(run: DocstringRun<'_>) -> Run {
+            (
+                run.first.start_byte(),
+                run.last.start_byte(),
+                run.owner.kind(),
+                run.owner.start_byte(),
+                run.after.map(|after| after.start_byte()),
+            )
+        }
+
+        /// Asks `ask` of the one node of `kind` that starts at `start`.
+        fn at_node<R>(
+            source: &[u8],
+            kind: &str,
+            start: usize,
+            mut ask: impl FnMut(&Node<'_>, Ancestors<'_, '_>) -> R,
+        ) -> R {
+            let mut answers = Vec::new();
+            for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+                if node.kind() == kind && node.start_byte() == start {
+                    answers.push(ask(node, Ancestors::known(chain)));
+                }
+            });
+            assert_eq!(answers.len(), 1, "one {kind} at {start}");
+            answers.remove(0)
+        }
+
+        fn completed_with(
+            value: &Node<'_>,
+            code: &[u8],
+            ancestors: Ancestors<'_, '_>,
+            budget: &Counting,
+        ) -> Completed {
+            let mut members = Vec::new();
+            let scans = docstring_runs_scanned::observed();
+            let result = completed_docstring_run_with_budget(
+                value,
+                code,
+                ancestors,
+                budget,
+                |statement, value| {
+                    members.push((statement.start_byte(), value.start_byte()));
+                },
+            )
+            .map(|run| run.map(run_tuple));
+            (
+                result,
+                members,
+                budget.steps.get(),
+                budget.bytes.get(),
+                docstring_runs_scanned::observed() - scans,
+            )
+        }
+
+        /// The completed-run call at the one node of `kind` at `start`, counted.
+        fn completed(source: &[u8], kind: &str, start: usize) -> Completed {
+            at_node(source, kind, start, |value, ancestors| {
+                completed_with(value, source, ancestors, &Counting::default())
+            })
+        }
+
+        /// The same call cancelled at each step from 1 to `steps`, and then one step
+        /// later, where it must give `expected`.
+        fn completed_fails_at_each_step(
+            source: &[u8],
+            kind: &str,
+            start: usize,
+            steps: usize,
+            expected: Option<Run>,
+        ) {
+            at_node(source, kind, start, |value, ancestors| {
+                for step in 1..=steps {
+                    let (result, ..) =
+                        completed_with(value, source, ancestors, &Counting::failing_at_step(step));
+                    assert_eq!(result, Err(SourceError::Cancelled), "step {step}");
+                }
+                let (result, _, counted, ..) = completed_with(
+                    value,
+                    source,
+                    ancestors,
+                    &Counting::failing_at_step(steps + 1),
+                );
+                assert_eq!(result, Ok(expected));
+                assert_eq!(counted, steps);
+            });
+        }
+
+        #[test]
+        fn docstring_run_record_names_owner_members_and_assignment() {
+            let source = concat!(
+                "\"\"\"a\"\"\"\n\"\"\"b\"\"\"\n# c\n\"\"\"c\"\"\"\nx = 1\n\"\"\"d\"\"\"\n",
+                "class C:\n    \"\"\"k\"\"\"\n    def m(self):\n        \"\"\"m\"\"\"\n"
+            )
+            .as_bytes();
+            assert_eq!(source.len(), 96);
+            let mut runs = Vec::new();
+            for_each_node_with_chain::<PythonCode>(source, |node, chain| {
+                if node.kind() == "string" {
+                    let run = infallible(docstring_run_with_budget(
+                        node,
+                        source,
+                        Ancestors::known(chain),
+                        &NoBudget,
+                    ));
+                    runs.push((node.start_byte(), run.map(run_tuple)));
+                }
+            });
+            assert_eq!(
+                runs,
+                [
+                    (0, Some((0, 0, "module", 0, None))),
+                    (8, Some((0, 8, "module", 0, None))),
+                    (20, Some((0, 20, "module", 0, None))),
+                    (34, Some((34, 34, "module", 0, Some(28)))),
+                    (55, Some((55, 55, "class_definition", 42, None))),
+                    (88, Some((88, 88, "function_definition", 67, None))),
+                ]
+            );
+        }
+
+        #[test]
+        fn completed_docstring_run_polls_once_per_sibling_and_reports_members() {
+            let source: &[u8] =
+                b"\"\"\"a\"\"\"\n\"\"\"b\"\"\"\n# c\n\"\"\"c\"\"\"\nx = 1\n\"\"\"d\"\"\"\n";
+            // expected: the look-ahead takes `b`, a string statement.
+            assert_eq!(completed(source, "string", 0), (Ok(None), vec![], 1, 0, 0));
+            // expected: the look-ahead takes `# c` and `c`.
+            assert_eq!(completed(source, "string", 8), (Ok(None), vec![], 2, 0, 0));
+            // expected: 9 = 1 (look-ahead: `x = 1`) + 3 (scan: `# c`, `b`, `a`)
+            //   + 5 (walk: `a`, `b`, `# c`, `c` and the `x = 1` that ends it).
+            let run = Some((0, 20, "module", 0, None));
+            assert_eq!(
+                completed(source, "string", 20),
+                (Ok(run), vec![(0, 0), (8, 8), (20, 20)], 9, 0, 1)
+            );
+            completed_fails_at_each_step(source, "string", 20, 9, run);
+            // expected: 3 = 1 (scan: `x = 1`) + 1 (the assignment target) + 1 (walk: `d`).
+            assert_eq!(
+                completed(source, "string", 34),
+                (
+                    Ok(Some((34, 34, "module", 0, Some(28)))),
+                    vec![(34, 34)],
+                    3,
+                    0,
+                    1
+                )
+            );
+        }
+
+        #[test]
+        fn docstring_run_skips_unnamed_siblings() {
+            // A `;` between two statements is an unnamed sibling: each pass takes it at
+            // the cost of one step and goes on.
+            let source: &[u8] = b"\"a\";\n\"b\"\nx = 1\n";
+            assert_eq!(completed(source, "string", 0), (Ok(None), vec![], 2, 0, 0));
+            // expected: 7 = 1 (look-ahead: `x = 1`) + 2 (scan: `;`, `a`)
+            //   + 4 (walk: `a`, `;`, `b` and the `x = 1` that ends it).
+            assert_eq!(
+                completed(source, "string", 5),
+                (
+                    Ok(Some((0, 5, "module", 0, None))),
+                    vec![(0, 0), (5, 5)],
+                    7,
+                    0,
+                    1
+                )
+            );
+            // expected: 4 = 2 (scan: `;`, `x = 1`) + 1 (the assignment target) + 1 (walk).
+            for source in [&b"x = 1;\n\"x doc\"\n"[..], b"x = 1; \"attribute\"\n"] {
+                assert_eq!(
+                    completed(source, "string", 7),
+                    (
+                        Ok(Some((7, 7, "module", 0, Some(0)))),
+                        vec![(7, 7)],
+                        4,
+                        0,
+                        1
+                    )
+                );
+            }
+            let source: &[u8] = b"def f():\n    \"a\"; \"b\"\n    return 1\n";
+            assert_eq!(completed(source, "string", 13), (Ok(None), vec![], 2, 0, 0));
+            // expected: 7 = 1 (look-ahead: `return 1`) + 2 (scan) + 4 (walk).
+            assert_eq!(
+                completed(source, "string", 18),
+                (
+                    Ok(Some((13, 18, "function_definition", 0, None))),
+                    vec![(13, 13), (18, 18)],
+                    7,
+                    0,
+                    1
+                )
+            );
+            let source: &[u8] = b"\"\"\"a\nA\"\"\"; \"\"\"b\nB\"\"\"\n";
+            assert_eq!(completed(source, "string", 0), (Ok(None), vec![], 2, 0, 0));
+            // expected: 5 = 0 (look-ahead: no sibling) + 2 (scan: `;`, `a`)
+            //   + 3 (walk: `a`, `;`, `b`).
+            assert_eq!(
+                completed(source, "string", 11),
+                (
+                    Ok(Some((0, 11, "module", 0, None))),
+                    vec![(0, 0), (11, 11)],
+                    5,
+                    0,
+                    1
+                )
+            );
+        }
+
+        #[test]
+        fn string_literal_test_polls_per_fragment_and_prefix_letter() {
+            for fragments in [3, 1_500] {
+                let source = format!("{}\n", vec!["\"a\""; fragments].join(" "));
+                let source = source.as_bytes();
+                // expected: 2n + 1 = n (the reader's prefix test: one for each fragment)
+                //   + 1 (walk: the statement) + n (the walk's prefix test).
+                let steps = 2 * fragments + 1;
+                let run = Some((0, 0, "module", 0, None));
+                assert_eq!(
+                    completed(source, "concatenated_string", 0),
+                    (Ok(run), vec![(0, 0)], steps, 0, 1)
+                );
+                completed_fails_at_each_step(source, "concatenated_string", 0, steps, run);
+                // A fragment is not the value of its statement.
+                for fragment in 0..fragments {
+                    assert_eq!(
+                        completed(source, "string", 4 * fragment),
+                        (Ok(None), vec![], 0, 0, 0)
+                    );
+                }
+            }
+            // expected: 2 steps (fragments `"a"` and `Rb"b"`) and 2 bytes (`R`, `b`).
+            assert_eq!(
+                completed(b"\"a\" Rb\"b\" \"c\"\n", "concatenated_string", 0),
+                (Ok(None), vec![], 2, 2, 0)
+            );
+            // expected: 3 steps (look-ahead: `y = 1`; walk: the statement and the
+            //   `y = 1` that ends it) and 16 bytes (8 prefix letters, read by the reader
+            //   and by the walk).
+            assert_eq!(
+                completed(b"rrrruuuu\"x\"\ny = 1\n", "string", 0),
+                (Ok(Some((0, 0, "module", 0, None))), vec![(0, 0)], 3, 16, 1)
+            );
+        }
+
+        #[test]
+        fn rejected_assignment_target_is_traversed_under_the_budget() {
+            for (targets, string) in [(3, 21), (1_500, 12_393)] {
+                let names: Vec<_> = (0..targets).map(|at| format!("a.x{at}")).collect();
+                let source = format!("{} = v\n\"no\"\n", names.join(", "));
+                let source = source.as_bytes();
+                // expected: 2n + 1 = 1 (scan: the assignment) + 1 (the target)
+                //   + (2n - 1) (the children of the `pattern_list`: n attributes and
+                //   n - 1 commas). No attribute is a name, so the run is rejected.
+                let steps = 2 * targets + 1;
+                assert_eq!(
+                    completed(source, "string", string),
+                    (Ok(None), vec![], steps, 0, 1)
+                );
+                completed_fails_at_each_step(source, "string", string, steps, None);
+            }
+        }
+
+        #[test]
+        fn parenthesized_value_is_found_past_extras_under_the_budget() {
+            for (comments, string) in [(3, 14), (1_500, 6_002)] {
+                let source = format!("(\n{}\"doc\"\n)\n", "# c\n".repeat(comments));
+                let source = source.as_bytes();
+                // expected: n + 3 = 1 (walk: the statement) + (n + 2) (the children of
+                //   the parentheses up to the value: `(`, n comments and the string).
+                let steps = comments + 3;
+                let run = Some((0, 0, "module", 0, None));
+                assert_eq!(
+                    completed(source, "string", string),
+                    (Ok(run), vec![(0, 2 + 4 * comments)], steps, 0, 1)
+                );
+                assert_eq!(string, 2 + 4 * comments);
+                completed_fails_at_each_step(source, "string", string, steps, run);
+            }
+        }
+
+        #[test]
+        fn docstring_run_rejects_a_prefixed_literal_before_the_scan() {
+            let read = |source: &[u8], kind: &str, start: usize| {
+                at_node(source, kind, start, |value, ancestors| {
+                    let budget = Counting::default();
+                    let scans = docstring_runs_scanned::observed();
+                    let run = docstring_run_with_budget(value, source, ancestors, &budget)
+                        .map(|run| run.map(run_tuple));
+                    (
+                        run,
+                        budget.steps.get(),
+                        budget.bytes.get(),
+                        docstring_runs_scanned::observed() - scans,
+                    )
+                })
+            };
+            // expected: one prefix letter is read, and no sibling.
+            for source in [
+                &b"def f():\n    b\"audit\"\n    pass"[..],
+                b"def f():\n    f\"audit\"\n    pass",
+            ] {
+                assert_eq!(read(source, "string", 13), (Ok(None), 0, 1, 0));
+            }
+            assert_eq!(
+                read(b"x = 1\nf\"audit\"\n", "string", 6),
+                (Ok(None), 0, 1, 0)
+            );
+            // expected: 2 steps (fragments `"a"` and `b"b"`) and 1 byte (`b`).
+            assert_eq!(
+                read(
+                    b"def f():\n    \"a\" b\"b\"\n    pass\n",
+                    "concatenated_string",
+                    13
+                ),
+                (Ok(None), 2, 1, 0)
+            );
+            // The control: `r` is read and is no rejection.
+            assert_eq!(
+                read(b"def f():\n    r\"audit\"\n    pass", "string", 13),
+                (Ok(Some((13, 13, "function_definition", 0, None))), 0, 1, 1)
+            );
+        }
+
+        #[test]
+        fn init_receiver_is_found_past_extras_under_the_budget() {
+            for (comments, string, assignment) in [(2, 93, 74), (1_500, 18_069, 18_050)] {
+                let source = format!(
+                    "class C:\n    def __init__(\n{}        self):\n{}",
+                    "        # c\n".repeat(comments),
+                    "        self.a = 1\n        \"a doc\"\n"
+                );
+                let source = source.as_bytes();
+                // expected: n + 5 = (n + 2) (the children of `parameters` up to the
+                //   receiver: `(`, n comments and `self`) + 1 (scan: the assignment)
+                //   + 1 (the target) + 1 (walk: the statement).
+                // expected: 4 bytes, the four pairs of `self` and `self`.
+                let steps = comments + 5;
+                let run = Some((string, string, "function_definition", 13, Some(assignment)));
+                assert_eq!(
+                    completed(source, "string", string),
+                    (Ok(run), vec![(string, string)], steps, 4, 1)
+                );
+                completed_fails_at_each_step(source, "string", string, steps, run);
+            }
+            // A typed receiver: its name is the first named child of the parameter.
+            // expected: 6 = 2 (`(` and the typed parameter) + 1 (the name inside it)
+            //   + 1 (scan) + 1 (the target) + 1 (walk).
+            let source: &[u8] =
+            b"class C:\n    def __init__(self: \"C\"):\n        self.a = 1\n        \"a doc\"\n";
+            let string = source.len() - 8;
+            let run = Some((string, string, "function_definition", 13, Some(string - 19)));
+            assert_eq!(
+                completed(source, "string", string),
+                (Ok(run), vec![(string, string)], 6, 4, 1)
+            );
+            completed_fails_at_each_step(source, "string", string, 6, run);
+        }
+
+        #[test]
+        fn init_receiver_spelling_is_compared_under_the_budget() {
+            let receiver = "s".repeat(20_000);
+            // The receiver of `__init__` and the object of the assignment target.
+            let source = |object: &str| {
+                format!(
+                    "class C:\n    def __init__({receiver}):\n        {object}.a = 1\n{}",
+                    "        \"a doc\"\n"
+                )
+            };
+            let ask = |object: &str, budget: &Counting| {
+                let source = source(object);
+                let string = source.len() - 8;
+                let assignment = string - 15 - object.len();
+                let completed = at_node(source.as_bytes(), "string", string, |value, ancestors| {
+                    completed_with(value, source.as_bytes(), ancestors, budget)
+                });
+                (completed, string, assignment)
+            };
+            // Equal spellings: every pair is charged.
+            // expected: 5 steps = 2 (`(` and the receiver) + 1 (scan: the assignment)
+            //   + 1 (the target) + 1 (walk: the statement).
+            let (completed, string, assignment) = ask(&receiver, &Counting::default());
+            let run = Some((string, string, "function_definition", 13, Some(assignment)));
+            assert_eq!(completed, (Ok(run), vec![(string, string)], 5, 20_000, 1));
+            // Both sides of the count: the last pair is charged before it is compared,
+            // and no charge follows it.
+            let (completed, ..) = ask(&receiver, &Counting::failing_at_byte(20_000));
+            assert_eq!(completed.0, Err(SourceError::Cancelled));
+            let (completed, ..) = ask(&receiver, &Counting::failing_at_byte(20_001));
+            assert_eq!((completed.0, completed.3), (Ok(run), 20_000));
+            // A late mismatch: pair 19,999 of 20,000 differs and one equal pair follows.
+            // expected: 19,999 bytes, the pair that differs included and nothing after it;
+            //   4 steps, as the rejected run has no walk.
+            let late = format!("{}x{}", "s".repeat(19_998), "s");
+            assert_eq!(late.len(), receiver.len());
+            let (completed, ..) = ask(&late, &Counting::default());
+            assert_eq!(completed, (Ok(None), vec![], 4, 19_999, 1));
+            let (completed, ..) = ask(&late, &Counting::failing_at_byte(19_999));
+            assert_eq!(completed.0, Err(SourceError::Cancelled));
+            let (completed, ..) = ask(&late, &Counting::failing_at_byte(20_000));
+            assert_eq!((completed.0, completed.3), (Ok(None), 19_999));
+            // Spellings of different length, each a prefix of the other: no pair is
+            // compared and nothing is charged.
+            for object in [format!("{receiver}s"), "s".repeat(19_999)] {
+                let (completed, ..) = ask(&object, &Counting::default());
+                assert_eq!(completed, (Ok(None), vec![], 4, 0, 1));
+            }
+        }
+
+        #[test]
+        fn string_literal_reader_checks_bounds_and_polls_per_prefix_letter() {
+            let read = |source: &[u8], code: &[u8], kind: &str, start: usize| {
+                at_node(source, kind, start, |string, _| {
+                    let budget = Counting::default();
+                    let literal = python_string_literal(string, code, &budget)
+                        .map(|literal| literal.map(|literal| (literal.interior, literal.raw)));
+                    (literal, budget.steps.get(), budget.bytes.get())
+                })
+            };
+            // expected: 4 bytes, all four letters, none of them `r`.
+            let source: &[u8] = b"UuUu\"x\"\ny = 1\n";
+            assert_eq!(
+                read(source, source, "string", 0),
+                (Ok(Some((5..6, false))), 0, 4)
+            );
+            // expected: 1 byte, the reading stops at the first `r`.
+            let source: &[u8] = b"rrrruuuu\"x\"\ny = 1\n";
+            assert_eq!(
+                read(source, source, "string", 0),
+                (Ok(Some((9..10, true))), 0, 1)
+            );
+            let source: &[u8] = b"def f():\n    \"\"\n    \"extra\"\n    return 1\n";
+            assert_eq!(
+                read(source, source, "string", 13),
+                (Ok(Some((14..14, false))), 0, 0)
+            );
+            // A buffer shorter than the tree it is read with: no interior, and no panic.
+            let source: &[u8] = b"def f():\n    \"audit\"\n    pass";
+            assert_eq!(
+                read(source, source, "string", 13),
+                (Ok(Some((14..19, false))), 0, 0)
+            );
+            assert_eq!(read(source, &source[..15], "string", 13), (Ok(None), 0, 0));
+            // A concatenation is no `string`.
+            let source: &[u8] = b"def f():\n    R\"a\\nb\" u\"c\"\n";
+            assert_eq!(
+                read(source, source, "concatenated_string", 13),
+                (Ok(None), 0, 0)
+            );
+        }
     }
 }

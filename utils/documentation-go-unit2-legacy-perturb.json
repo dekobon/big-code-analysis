@@ -1,0 +1,49 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_go_member_sources_keep_their_legacy_rows"],
+  "cases": [
+    {
+      "name": "go-function-body-gate-open",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::StatementList | Go::Block => 0,",
+      "new": "                Go::StatementList | Go::Block => 1,",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    },
+    {
+      "name": "go-negated-element-is-a-target",
+      "file": "big-code-analysis-ast/src/roles/go.rs",
+      "old": "                Go::TypeIdentifier | Go::QualifiedType | Go::GenericType",
+      "new": "                Go::TypeIdentifier | Go::QualifiedType | Go::GenericType | Go::NegatedType",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    },
+    {
+      "name": "leading-run-bills-no-documentation-row",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "            stats.dloc.lines.insert_range(first, last);",
+      "new": "            let _ = (first, last);",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    },
+    {
+      "name": "leading-run-documentation-rows-move-up",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "            stats.dloc.lines.insert_range(first, last);",
+      "new": "            stats\n                .dloc\n                .lines\n                .insert_range(first.saturating_sub(1), last.saturating_sub(1));",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    },
+    {
+      "name": "trailing-comment-seeds-run",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            if prev.end_row() >= row_first.start_row() {",
+      "new": "            if prev.end_row() > row_first.start_row() {",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    },
+    {
+      "name": "observation-counters-do-not-count",
+      "file": "big-code-analysis-ast/src/observation.rs",
+      "old": "                COUNT.with(|count| count.set(count.get() + 1));",
+      "new": "                COUNT.with(|count| count.set(count.get()));",
+      "expect": ["metrics::loc::documentation_tests::documentation_go_member_sources_keep_their_legacy_rows"]
+    }
+  ]
+}

@@ -24,7 +24,197 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- The unstable AST documentation collector now accepts Python. PEP 257 body
+  docstrings of modules, classes and functions become primary and additional
+  documents with their owners, raw literal fragments, decoded and
+  `inspect.cleandoc`-style cleaned text and exact forward origins; an implicit
+  concatenation is one document. Named `\N{...}` escapes and lone surrogates
+  give explicit unavailable text. A literal holding a carriage return and a
+  string after an assignment stay visible as pending assessments. In a
+  restricted parse, a docstring after an excluded range is reported as
+  unresolved. Binding owners and Sphinx `#:` comments follow separately. Legacy
+  documentation rows are unchanged. (#1665, Unit1)
+
+- Doxygen C-family source documentation now gathers file comments before a declaration,
+  attaches trailing enum comments after a comma, and projects single-declaration C++
+  template/linkage wrappers. Braced linkage blocks and initializer commas remain pending.
+
+- Exposed `Ast::documentation` and `big_code_analysis::documentation` as
+  public source-documentation APIs. The AST result model supports additive
+  shape growth, chainable context and option builders, displayable errors,
+  and debug views of owner queries. Added public examples and a lifetime
+  compile-fail example. Documentation values may change with grammar and
+  adapter fixes. (#1680, Unit 2)
+
+- TypeScript and TSX documentation collection now resolves anonymous default exports,
+  namespaces, named variable declarators, and `using`/`await using` assignment owners.
+  `declare` wrappers skip comment children. Parameter slots remain pending; legacy
+  documentation metrics are unchanged.
+
+- The unstable PHP source documentation collector gives a single-name property
+  declaration a property slot and a single-name constant declaration a binding
+  slot, each enclosed by its declaration. Multi-name declarations, promoted
+  parameters and `define()` calls remain pending. Legacy LOC rows do not move.
+  (#1668)
+
+- The unstable Ruby YARD collector now projects visibility-wrapped definitions to
+  their inner method and attribute calls to ordered property slots, with one
+  document shared by all names of a call. Constants and aliases stay pending;
+  legacy documentation metric rows are unchanged. (#1673, Unit 2)
+
+- C# source documentation now associates a field, constant, or event-field comment
+  with one field slot per declared name, keeping the declaration as its enclosing node.
+
+- The unstable AST documentation collector now gives single-name Kotlin `val`,
+  `var` and `const val` properties a `Property` slot enclosed by their property
+  declaration. Destructuring properties and constructor/function parameters
+  remain pending; legacy documentation rows are unchanged. (#1666)
+
+- The unstable AST documentation collector now reads shdoc comments of Bash.
+  A run of `#` rows directly above a function, in either spelling, whose first
+  row is an shdoc tag line is one document of that function, at file level and
+  in the braces of another function's body. A `#!` row at the start of the file
+  and ShellCheck directive rows are directive evidence, not text. A run with a
+  file tag (`@name`, `@file`, `@brief`), a run opened by a plain row, and a
+  function in another position keep a pending document or owner. The collector
+  reads the source once by Bash's quoting rules: the text of a here-document,
+  of a quoted string or of a substitution is never documentation. Behind a
+  form that this reading does not follow over several rows, and behind a
+  syntax error of the grammar, a run is withheld and reported as a pending
+  assessment, and a function is a pending owner. Legacy documentation rows are
+  unchanged. (#1677)
+
+- The unstable Java source-documentation collector now marks package documentation
+  eligible only with the explicit logical filename `package-info.java`, ineligible
+  with a different filename, and unknown without one. Attachment and cleaned text
+  remain available in every case. Legacy documentation metrics are unchanged.
+  (#1666, Unit 2)
+- Lua LDoc source documentation now attaches tagged annotation runs to following items,
+  projects single-name assignments and locals and returned table/function declarations,
+  and gives named table fields a field slot. Standalone tags remain pending. (#1674, Unit 2)
+
+- The unstable Rust AST documentation collector now decodes direct cooked/raw
+  `doc` strings and composes them with comments using Rust 1.99.0 cleanup and
+  exact forward origins. Outer attributes retain their binding when combined with
+  inner comments. Changed fragments receive rustdoc's second CRLF interpretation;
+  Unicode first-line eligibility preserves ASCII-only decoration rules.
+  Invalid encoding, unsupported byte/C prefixes, recovery
+  and excluded source retain explicit unavailable states. Metadata and computed
+  carriers, additional owner projections and publication interpretation remain
+  pending. Legacy documentation rows and test pruning are preserved. (#1664, Unit1)
+
+- Added an unstable borrowed AST documentation collector with prepared canonical
+  owner queries, explicit pending-adapter assessments, and retained local text and
+  forward-origin views. Basic comment paths cover the 17 streamed language
+  variants; deferred source adapters return an explicit availability error.
+  Source recognition uses fallible work-budget kernels shared with legacy
+  wrappers. Kotlin local KDoc retains complete text with pending owner evidence;
+  Java prelexing limitations retain separately labeled source-cleaned spelling.
+  Prepared node projections expose multi-owner and pending forms. Complex
+  declarators remain pending, and gathered Doxygen references use their
+  structural member. Reusable Python/Tcl cleanup preserves token origins.
+  Rust outer/inner contributors coalesce by semantic target; root/module docs use
+  file/package roles. Exact wrapper selection, conditional name provenance, helper
+  node identity, logical boundary trimming and retained-intersection text emission
+  preserve pending results without redirected or partial-complete claims.
+  Exact named matching validates a narrow type/parameter grammar, interns names
+  once, and preserves structured candidate/reference qualifications alongside
+  ambiguity. Token scanning and key emission charge complete byte widths.
+  (#1660, #1661)
+
+- Added unstable AST positional-run evidence for Go, Ruby and Lua, including
+  ordered comments, directive members, candidate targets and opener reasons.
+  Marker and positional runs retain excluded-prefix and suffix composition
+  metadata. Legacy positional coverage streams without buffering members. (#1659)
+
+- The unstable AST documentation collector now gives Java field declarations and
+  interface or annotation-type constant declarations owners: the declaration
+  and one field slot per declarator, spelled by the declarator's name. A
+  documentation comment before such a declaration is one document associated
+  with every slot, as JDK 25 attaches it. A declaration that holds a syntax
+  error, excluded bytes or an unnamed (`_`) declarator stays a pending owner.
+  Legacy documentation rows are unchanged. (#1666)
+
+- The unstable AST documentation collector now gives Groovy fields an enclosing
+  declaration owner and a field slot per declarator, in source order. A
+  Groovydoc block above a field is associated with its slots; same-row blocks
+  remain unselected. Legacy documentation rows are unchanged. (#1666)
+
+- The unstable AST documentation collector now gives Go struct fields and
+  interface elements owners. A field declaration with names has the declaration
+  and one field slot per name, spelled by the name; a comment above it is one
+  document associated with every slot, as go/ast attaches it. A field that
+  embeds a type, a method element and an interface element that opens with a
+  name own as their nodes. A member stays a pending owner when it holds a
+  syntax error, excluded bytes or a comment with a line break among its
+  children, and when Go ends it at a line end before the end of its node, as
+  it ends `X [2]` before a line end. Legacy documentation rows are unchanged.
+  (#1672)
+
+- Added unstable AST-crate source-marker `Checker` hooks and streaming requests
+  that retain selection, source pieces and attachment uncertainty. The separate
+  legacy event stream preserves existing metric behavior. (#1658)
+
+- The unstable AST documentation collector now reads static Ruff! documentation
+  of Tcl. The first comment block of a top-level `proc` body and its later
+  `#ruff` blocks are one body document of that procedure, and `#ruffopt` rows
+  are directive evidence. Whether a `proc` is a command that Tcl would run is
+  read from the file's bytes by Tcl's rules for commands and words, not from
+  the grammar's tokens. A procedure with a computed name, a nested procedure
+  and a `proc` that is no such command keep their document without a resolved
+  owner. A row that continues with a backslash has no complete text, and
+  neither have the rows of a procedure whose braced words Tcl's brace count
+  ends elsewhere than the grammar does. TclOO methods, namespace preambles,
+  procedures in a bracket's script and other spellings of the `proc` command
+  are not read yet. Legacy documentation rows are unchanged. (#1678)
+
+- Added unstable `big-code-analysis-ast::documentation` fact, source and owner
+  primitives, plus retained `Complete` / `Cancelled` / `Adopted` parse provenance
+  on `Parser` and `AnyParser`. The root library's documentation facade follows
+  separately; existing metric behavior is unchanged. (#1656)
+
+- Added `Ast::documentation` to the root library. It hands
+  its context and options to the AST crate's typed documentation collector and
+  returns that collector's index, which borrows the `Ast`. An `Ast` read with
+  `Ast::from_path` supplies the final component of its path as the logical
+  filename when the context names none; a display name is never used for it.
+  It was staged as hidden plumbing before the public facade and root re-exports
+  landed in the same Unreleased series; its stable shape is now covered by
+  `STABILITY.md`. Existing metric behavior is unchanged. (#1680)
+
+- The unstable AST documentation collector now reads Perl POD. A POD block
+  before the data section is one document of the file, with its POD markup as
+  text and without its `=cut` line. A block of `comment` regions only is no
+  document. A block that mixes prose with a `comment` region, a block that
+  perl and POD processors read differently, a block where perl may read
+  literal text (after a syntax error, in a `format` or after one whose end is
+  not known, or beside a here-document or a quote-like literal that perl
+  reads differently from the grammar), and the data section after `__END__`
+  or `__DATA__` are reported as pending. So is a file with a syntax error
+  whose later lines look like POD that the grammar did not read. No `sub` or
+  `package` owns documentation yet. Legacy documentation rows are unchanged.
+  (#1675)
+
+- The unstable AST documentation collector now reads Elixir documentation
+  attributes. A `@moduledoc` with one plain string documents its
+  `defmodule … do … end` module, and a `@doc` with one plain string documents
+  the group of clauses that the next `def`, `defp`, `defmacro` or `defmacrop`
+  of the same module body belongs to: one owner per kind, name and written
+  arity, also for one clause. A documented private definition keeps its source
+  document with ineligible publication. Every other attribute value, a
+  statement between an attribute and its definition, an attribute outside a
+  module body or inside `quote`, and a definition with another head stay
+  visible as pending assessments. A comment changes no outcome, and a statement
+  that no line end and no `;` separates from the one before it is not read.
+  Legacy documentation rows are unchanged. (#1676)
+
 ### Changed
+
+- JavaScript and Mozjs JSDoc variable declarations now associate their documentation
+  with the first identifier-bound declarator, including exported and `using` forms.
+  Legacy LOC rows remain unchanged. (#1669)
 
 - **(breaking), deferred to the next major (3.0):** the MI of a space
   with no code will serialize as `null` (an omitted key in TOML)

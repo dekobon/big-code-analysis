@@ -1,0 +1,35 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis", "--all-features", "--lib", "documentation_java_field_owners_leave_legacy_rows_unchanged"],
+  "cases": [
+    {
+      "name": "java-field-projection-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "new": "        if false && matches!(self.index.profile, Profile::Javadoc | Profile::Groovydoc)\n            && matches!(node.kind(), \"field_declaration\" | \"constant_declaration\")",
+      "expect": ["metrics::loc::documentation_tests::documentation_java_field_owners_leave_legacy_rows_unchanged"]
+    },
+    {
+      "name": "bound-comment-bills-no-documentation-row",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        LegacyEvent::BoundComment(member) => {\n            stats\n                .dloc\n                .lines\n                .insert_range(member.start_row(), member.end_row());\n        }",
+      "new": "        LegacyEvent::BoundComment(member) => {\n            let _ = member;\n        }",
+      "expect": ["metrics::loc::documentation_tests::documentation_java_field_owners_leave_legacy_rows_unchanged"]
+    },
+    {
+      "name": "bound-documentation-row-moves-to-the-next-comment",
+      "file": "src/metrics/loc/shared.rs",
+      "old": "        LegacyEvent::BoundComment(member) => {\n            stats\n                .dloc\n                .lines\n                .insert_range(member.start_row(), member.end_row());\n        }",
+      "new": "        LegacyEvent::BoundComment(member) => {\n            let shift = if member.start_row() == 1 { 2 } else { 0 };\n            stats\n                .dloc\n                .lines\n                .insert_range(member.start_row() + shift, member.end_row() + shift);\n        }",
+      "expect": ["metrics::loc::documentation_tests::documentation_java_field_owners_leave_legacy_rows_unchanged"]
+    },
+    {
+      "name": "observation-counters-do-not-count",
+      "file": "big-code-analysis-ast/src/observation.rs",
+      "old": "                COUNT.with(|count| count.set(count.get() + 1));",
+      "new": "                COUNT.with(|count| count.set(count.get()));",
+      "expect": ["metrics::loc::documentation_tests::documentation_java_field_owners_leave_legacy_rows_unchanged"]
+    }
+  ]
+}

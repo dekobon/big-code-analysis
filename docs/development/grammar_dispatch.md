@@ -9,6 +9,10 @@ reference for the row grammar, what a table emits, how a consumer reads
 a row, and the section "What the mechanism cannot see". Read that
 section first; this checklist is the manual half it describes.
 
+For declaration documentation, also read the
+[extraction contract](documentation_extraction.md#recognition). It defines how
+shared recognition serves source attachment and legacy documentation metrics.
+
 A kind list is a coverage claim, not a specification. The compiler
 cannot tell you it is incomplete, and a metric that scores a valid
 construct as zero looks exactly like a construct that legitimately

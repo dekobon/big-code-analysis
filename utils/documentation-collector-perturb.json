@@ -1,0 +1,133 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "partial-c-declarator-projection-is-not-complete",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "let Some(declared) = self.declared_name(child, budget)? else {\n                    return Ok(());",
+      "new": "let Some(declared) = self.declared_name(child, budget)? else {\n                    continue;",
+      "expect": ["documentation::collector::projection_tests::c_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::cpp_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::mozcpp_incomplete_declarators_and_gathered_names", "documentation::collector::projection_tests::objc_incomplete_declarators_and_gathered_names"]
+    },
+    {
+      "name": "gathered-name-reference-is-not-first-fragment-only",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "for id in self.index.facts.documents[document.0]\n            .fragments\n            .iter()\n            .rev()",
+      "new": "for id in self.index.facts.documents[document.0]\n            .fragments\n            .iter()\n            .take(1)",
+      "expect": ["documentation::collector::projection_tests::c_incomplete_declarators_and_gathered_names"]
+    },
+    {
+      "name": "tcl-hex-is-variable-width",
+      "file": "big-code-analysis-ast/src/documentation/text/literals.rs",
+      "old": "if python && count != width {",
+      "new": "if count != width {",
+      "expect": ["documentation::text::literals::tests::tcl_variable_width_escapes_preserve_token_origins", "documentation::text::literals::tests::irules_variable_width_escapes_preserve_token_origins"]
+    },
+    {
+      "name": "python-cleanup-applies-whole-document-margin",
+      "file": "big-code-analysis-ast/src/documentation/text/cleanup.rs",
+      "old": "if margin != usize::MAX {",
+      "new": "if false && margin != usize::MAX {",
+      "expect": ["documentation::text::cleanup::tests::whole_python_document_cleanup_keeps_escape_and_tab_origins", "documentation::text::cleanup::tests::python_cleanup_counts_unicode_margin_in_characters"]
+    },
+    {
+      "name": "pending-slots-are-not-unsupported",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if qualifies || super::forms::slot_candidate(self.index.profile, node.kind()) {",
+      "new": "if qualifies && !super::forms::slot_candidate(self.index.profile, node.kind()) {",
+      "expect": ["documentation::collector::form_tests::kotlin_parameter_form_is_pending_in_default_queries", "documentation::collector::form_tests::php_promoted_form_is_pending_in_default_queries"]
+    },
+    {
+      "name": "collector-bypasses-fallible-marker-kernel",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "markers::source_comment_with_budget::<NativeRules<T>, _>(",
+      "new": "markers::source_comment_with_budget::<crate::documentation::recognition::PublicRules<T>, _>(",
+      "expect": ["documentation::collector::cancellation_tests::jsdoc_single_line_cancels_inside_virtual_classifier"]
+    },
+    {
+      "name": "collector-bypasses-fallible-positional-kernel",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "positional::source_comment_with_budget::<NativeRules<T>, _>(",
+      "new": "positional::source_comment_with_budget::<crate::documentation::recognition::PublicRules<T>, _>(",
+      "expect": ["documentation::collector::cancellation_tests::lua_single_line_cancels_inside_content_classifier"]
+    },
+    {
+      "name": "source-target-cache-disabled",
+      "file": "big-code-analysis-ast/src/documentation/recognition.rs",
+      "old": "ancestors.try_memoised(crate::node::MemoQuestion::SourceDocTarget, node, || {",
+      "new": "Ancestors::known(&[]).try_memoised(crate::node::MemoQuestion::SourceDocTarget, node, || {",
+      "expect": ["documentation::collector::cost_tests::deep_and_wide_source_walks_visit_every_node_once"]
+    },
+    {
+      "name": "kotlin-owner-pending-hides-text",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "let result = if attribute {",
+      "new": "let result = if draft.pending { Ok(Content::PendingAdapter) } else if attribute {",
+      "expect": ["documentation::collector::assessment_tests::kotlin_local_pending_owner_keeps_complete_text_and_known_leading_association"]
+    },
+    {
+      "name": "definition-name-index-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "if self.index.profile == Profile::Doxygen && node.kind() == \"function_definition\" {",
+      "new": "if false && self.index.profile == Profile::Doxygen && node.kind() == \"function_definition\" {",
+      "expect": ["documentation::collector::tests::doxygen_static_names_resolve_unique_missing_and_ambiguous_targets"]
+    },
+    {
+      "name": "java-prelex-fabricates-resolved-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "draft.unresolved = Some(UnresolvedReason::GrammarBoundary);",
+      "new": "draft.unresolved = None;",
+      "expect": ["documentation::collector::assessment_tests::java_prelex_keeps_source_cleaned_evidence_and_uncertain_association"]
+    },
+    {
+      "name": "raw-grammar-validation-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "if *tree.language() != grammar {",
+      "new": "if false && *tree.language() != grammar {",
+      "expect": ["documentation::collector::tests::mismatched_raw_grammar_is_rejected_before_predicates"]
+    },
+    {
+      "name": "pending-composition-becomes-empty-complete",
+      "file": "big-code-analysis-ast/src/documentation/collector/rust.rs",
+      "old": "Ok(Content::PendingAdapter)",
+      "new": "Ok(Content::Complete { text: String::new(), mappings: Vec::new() })",
+      "expect": ["documentation::collector::tests::rust_pending_attributes_never_report_complete_partial_text"]
+    },
+    {
+      "name": "foreign-document-handles-accepted",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "        self.facts.check_scope(document)?;\n        Ok(match &self.facts.documents[document.ordinal].content {",
+      "new": "        let _ = document;\n        Ok(match &self.facts.documents[document.ordinal].content {",
+      "expect": ["documentation::collector::tests::document_handles_are_index_qualified_even_for_one_shared_parse"]
+    },
+    {
+      "name": "copied-origins-not-clipped",
+      "file": "big-code-analysis-ast/src/documentation/content.rs",
+      "old": "let start = piece.range().start + output.start - mapping.output.0.start;",
+      "new": "let start = piece.range().start;",
+      "expect": ["documentation::text::tests::copied_decoded_expanded_and_synthetic_origins_keep_exact_responsibility"]
+    },
+    {
+      "name": "single-chunk-sort-cancellation-ignored",
+      "file": "big-code-analysis-ast/src/documentation/ordering.rs",
+      "old": "            *self.error.borrow_mut() = self.budget.step().err();",
+      "new": "            let _ = self.budget.step();",
+      "expect": ["documentation::ordering::tests::chunk_sort_cancellation_latches_without_corrupting_comparator_order"]
+    },
+    {
+      "name": "explicit-name-collision-selects-first",
+      "file": "big-code-analysis-ast/src/documentation/names.rs",
+      "old": "            _ => Some(UnresolvedReason::Ambiguous),",
+      "new": "            _ => None,",
+      "expect": ["documentation::collector::tests::doxygen_static_names_resolve_unique_missing_and_ambiguous_targets"]
+    },
+    {
+      "name": "crlf-splice-retained",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "if bytes[at..].starts_with(b\"\\\\\\r\\n\") {\n        3",
+      "new": "if bytes[at..].starts_with(b\"\\\\\\r\\n\") {\n        0",
+      "expect": ["documentation::text::tests::comment_cleanup_preserves_markup_hard_breaks_and_phase_two_splices"]
+    }
+  ]
+}

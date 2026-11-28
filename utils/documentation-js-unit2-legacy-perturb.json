@@ -1,0 +1,24 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_js_variable_projection_does_not_change_legacy_rows"
+  ],
+  "cases": [
+    {
+      "name": "legacy-variable-no-target",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_text.rs",
+      "old": "matches!(s, [b'/', b'*', b'*', b, ..] if *b != b'*' && *b != b'/')",
+      "new": "matches!(s, [b'/', b'*', b'*', b, ..] if *b == b'*' && *b != b'/')",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_js_variable_projection_does_not_change_legacy_rows"
+      ]
+    }
+  ]
+}

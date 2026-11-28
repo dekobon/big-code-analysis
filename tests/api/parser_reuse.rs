@@ -33,6 +33,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use big_code_analysis::{Ast, LANG, Source, tree_sitter};
 
+#[cfg(feature = "rust")]
+#[test]
+fn cancelled_parse_keeps_legacy_metrics_empty_and_next_parse_recovers() {
+    let source = "/// doc\nfn f() {}\n".repeat(200);
+    let cancel = big_code_analysis::ParseCancel::new();
+    cancel.cancel();
+    let stopped = cancel.run(|| Ast::parse(Source::new(LANG::Rust, source.as_bytes())).unwrap());
+    assert_eq!(stopped.as_tree_sitter().root_node().byte_range(), 0..0);
+    assert_eq!(stopped.source(), source.as_bytes());
+    let metrics = stopped
+        .metrics(big_code_analysis::MetricsOptions::default())
+        .unwrap();
+    assert_eq!(metrics.spaces.len(), 0);
+    assert_eq!(metrics.metrics.loc.dloc(), 0);
+    let next = Ast::parse(Source::new(LANG::Rust, b"/// doc\nfn g() {}\n")).unwrap();
+    let metrics = next
+        .metrics(big_code_analysis::MetricsOptions::default())
+        .unwrap();
+    assert_eq!(metrics.spaces.len(), 1);
+    assert_eq!(metrics.metrics.loc.dloc(), 1);
+}
+
 #[cfg(any(feature = "rust", feature = "typescript"))]
 const RUST_SRC: &str = r#"
 fn classify(n: i32) -> &'static str {

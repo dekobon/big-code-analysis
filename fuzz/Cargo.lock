@@ -134,8 +134,11 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "big-code-analysis",
+ "big-code-analysis-ast",
  "libfuzzer-sys",
  "serde_json",
+ "sha2",
+ "tree-sitter",
 ]
 
 [[package]]

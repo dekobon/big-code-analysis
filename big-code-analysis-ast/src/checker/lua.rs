@@ -2,9 +2,9 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use super::*;
-use crate::lang_helpers::doc_comment::{
-    ldoc_opener, lua_long_comment, node_bytes, run_continues_to,
-};
+use crate::documentation::budget::{NoBudget, WorkBudget, infallible};
+use crate::documentation::byte_scan as scan;
+use crate::lang_helpers::doc_comment::{lua_long_comment, node_bytes};
 
 /// What the text of the block `first` opens holds, read over the run
 /// `first` starts, as `leading_doc_run` delimits it.
@@ -19,32 +19,115 @@ struct LdocText {
     tag: bool,
 }
 
+impl LdocText {
+    fn read_with_budget<B: WorkBudget>(
+        &mut self,
+        member: &Node<'_>,
+        code: &[u8],
+        budget: &B,
+    ) -> Result<(), B::Error> {
+        for line in scan::lines(node_bytes(member, code), budget) {
+            budget.step()?;
+            let body = ldoc_line_body(line?, budget)?;
+            self.text |= scan::position(
+                body,
+                |byte| !matches!(byte, b'-' | b'[' | b']' | b'=') && !byte.is_ascii_whitespace(),
+                budget,
+            )?
+            .is_some();
+            self.tag |= matches!(scan::trim_start(body, budget)?, [b'@', tag, ..] if tag.is_ascii_alphanumeric());
+        }
+        Ok(())
+    }
+}
+
 fn lua_block_text<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> LdocText {
+    infallible(lua_block_text_with_budget(
+        first, code, ancestors, &NoBudget,
+    ))
+}
+
+fn lua_block_text_with_budget<'a, B: WorkBudget>(
+    first: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<LdocText, B::Error> {
     let mut found = LdocText::default();
     let mut member = *first;
-    let mut after = ancestors.siblings_after(first);
+    let mut after = ancestors.siblings_after_with_budget(first, budget)?;
     loop {
-        for line in node_bytes(&member, code).split(|&byte| byte == b'\n') {
-            let body = ldoc_line_body(line);
-            found.text |= body.iter().any(|&byte| {
-                !matches!(byte, b'-' | b'[' | b']' | b'=') && !byte.is_ascii_whitespace()
-            });
-            found.tag |=
-                matches!(body.trim_ascii_start(), [b'@', tag, ..] if tag.is_ascii_alphanumeric());
-        }
-        match after.next() {
-            Some(next) if run_continues_to::<LuaCode>(&member, &next, code) => member = next,
-            _ => return found,
+        budget.step()?;
+        found.read_with_budget(&member, code, budget)?;
+        if let Some(next) = after.next()
+            && crate::lang_helpers::doc_comment::run_continues_with_budget::<
+                crate::documentation::recognition::NativeRules<LuaCode>,
+                _,
+            >(&member, &next, code, budget)?
+        {
+            member = next;
+        } else {
+            return Ok(found);
         }
     }
 }
 
 /// A comment line with its leading whitespace and comment dashes
 /// stripped: the text LDoc reads.
-fn ldoc_line_body(line: &[u8]) -> &[u8] {
-    let line = line.trim_ascii_start();
-    let dashes = line.iter().take_while(|&&byte| byte == b'-').count();
-    line.get(dashes..).unwrap_or_default()
+fn ldoc_line_body<'s, B: WorkBudget>(line: &'s [u8], budget: &B) -> Result<&'s [u8], B::Error> {
+    let line = scan::trim_start(line, budget)?;
+    let dashes = scan::position(line, |byte| byte != b'-', budget)?.unwrap_or(line.len());
+    Ok(&line[dashes..])
+}
+
+pub(crate) fn standalone_tag_with_budget<B: WorkBudget>(
+    raw: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let mut found = false;
+    let body = crate::lang_helpers::doc_text::lua_long_comment_body(raw, budget)?.unwrap_or(raw);
+    for line in scan::lines(body, budget) {
+        budget.step()?;
+        found |= standalone_line_tag(line?, budget)?;
+    }
+    Ok(found)
+}
+
+fn standalone_line_tag<B: WorkBudget>(line: &[u8], budget: &B) -> Result<bool, B::Error> {
+    let body = scan::trim_start(ldoc_line_body(line, budget)?, budget)?;
+    let Some(tag) = body.strip_prefix(b"@") else {
+        return Ok(false);
+    };
+    let end =
+        scan::position(tag, |byte| !byte.is_ascii_alphanumeric(), budget)?.unwrap_or(tag.len());
+    standalone_tag_name(&tag[..end], budget)
+}
+
+fn standalone_tag_name<B: WorkBudget>(name: &[u8], budget: &B) -> Result<bool, B::Error> {
+    for structural in [
+        b"module".as_slice(),
+        b"script",
+        b"example",
+        b"topic",
+        b"submodule",
+        b"classmod",
+        b"file",
+        b"function",
+        b"lfunction",
+        b"table",
+        b"section",
+        b"type",
+        b"annotation",
+        b"factory",
+        b"name",
+        b"field",
+    ] {
+        budget.bytes(name.len().max(structural.len()))?;
+        if name == structural {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether the block `first` opens is the file's first LDoc block, which
@@ -57,6 +140,28 @@ fn ldoc_line_body(line: &[u8]) -> &[u8] {
 /// and every block that reaches it qualifies, so the scans of a file cover
 /// disjoint stretches and cost `O(siblings)` in all.
 fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    lua_first_block_in(first, code, ancestors, None).unwrap_or(false)
+}
+
+fn lua_first_block_in<'a>(
+    first: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: Option<&crate::documentation::SourceContext<'a>>,
+) -> Result<bool, crate::documentation::UnresolvedReason> {
+    infallible(lua_first_block_with_budget(
+        first, code, ancestors, source, &NoBudget,
+    ))
+}
+
+fn lua_first_block_with_budget<'a, B: WorkBudget>(
+    first: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    source: Option<&crate::documentation::SourceContext<'a>>,
+    budget: &B,
+) -> Result<Result<bool, crate::documentation::UnresolvedReason>, B::Error> {
+    // bca: suppress(halstead) -- the same reverse first-block decision serves legacy and source, with source-only gap barriers.
     // A fast path, not a separate rule: every other container opens with a
     // token (`if`, `do`, `{`), and the grammar parks a comment above a
     // body's first statement after it, so the first-token test below would
@@ -67,43 +172,167 @@ fn lua_first_ldoc_block<'a>(first: &Node<'a>, code: &[u8], ancestors: Ancestors<
         .parent(first)
         .is_none_or(|parent| parent.kind_id() != Lua::Chunk)
     {
-        return false;
+        return Ok(Ok(false));
     }
     let mut earliest = *first;
-    let mut before = ancestors.siblings_before(first).peekable();
+    let mut before = ancestors
+        .siblings_before_with_budget(first, budget)?
+        .peekable();
     while let Some(sibling) = before.next() {
+        budget.step()?;
+        if let Some(source) = source
+            && !source.covers_with_budget(sibling.start_byte()..earliest.end_byte(), budget)?
+        {
+            return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));
+        }
+        if let Some(source) = source
+            && let Some(above) = before.peek()
+            && !source.covers_with_budget(above.start_byte()..sibling.end_byte(), budget)?
+        {
+            return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));
+        }
         // `run_continues_to` asks only whether `sibling` continues a run
         // from `above`, so a comment directly under code needs the
         // comment test too: it opens its run.
-        let opens_run = before.peek().is_none_or(|above| {
-            !(LuaCode::is_comment(above) && run_continues_to::<LuaCode>(above, &sibling, code))
-        });
+        let opens_run = if let Some(above) = before.peek() {
+            !(LuaCode::is_comment(above)
+                && crate::lang_helpers::doc_comment::run_continues_with_budget::<
+                    crate::documentation::recognition::NativeRules<LuaCode>,
+                    _,
+                >(above, &sibling, code, budget)?)
+        } else {
+            true
+        };
         // role-bypass: allow(Comment, DocRunOpener) — the backward scan for an
         // earlier block: run traversal over the rows, not membership
         if opens_run
             && sibling.kind_id() == Lua::Comment
-            && ldoc_opener(node_bytes(&sibling, code))
-            && lua_block_text(&sibling, code, ancestors).text
+            && crate::lang_helpers::doc_text::ldoc_opener_with_budget(
+                node_bytes(&sibling, code),
+                budget,
+            )?
+            && lua_block_text_with_budget(&sibling, code, ancestors, budget)?.text
         {
-            return false;
+            return Ok(Ok(false));
         }
         earliest = sibling;
     }
+    if let Some(source) = source
+        && !source.covers_with_budget(0..earliest.start_byte(), budget)?
+    {
+        return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));
+    }
     // role-bypass: allow(Comment) — whether the file opens with a comment or
     // a shebang, LDoc's first-token rule; traversal, not membership
-    matches!(earliest.kind_id().into(), Lua::Comment | Lua::HashBangLine)
+    Ok(Ok(matches!(
+        earliest.kind_id().into(),
+        Lua::Comment | Lua::HashBangLine
+    )))
 }
 
 /// The first statement of a `block`, which stands for it: the grammar parks
 /// a comment that precedes the first statement of an `if`, `do` or loop
 /// body outside the `block`.
 fn lua_block_first_statement<'a>(node: &Node<'a>) -> Option<Node<'a>> {
-    (node.kind_id() == Lua::Block)
-        .then(|| node.children().find(Node::is_named))
-        .flatten()
+    infallible(lua_block_first_with_budget(node, &NoBudget))
+}
+
+fn lua_block_first_with_budget<'a, B: WorkBudget>(
+    node: &Node<'a>,
+    budget: &B,
+) -> Result<Option<Node<'a>>, B::Error> {
+    if node.kind_id() == Lua::Block {
+        for child in node.children() {
+            budget.step()?;
+            if child.is_named() {
+                return Ok(Some(child));
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn target_with_budget<B: WorkBudget>(
+    node: &Node<'_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if let Some(item) = lua_block_first_with_budget(node, budget)? {
+        crate::roles::lua::target_with_budget(&item, budget)
+    } else {
+        crate::roles::lua::target_with_budget(node, budget)
+    }
+}
+
+pub(crate) fn source_opener_with_budget<'a, B: WorkBudget>(
+    run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<
+    Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    >,
+    B::Error,
+> {
+    use crate::documentation::streaming::positional::OpenerReason;
+    let Some(first) = run.members.first() else {
+        return Ok(Ok(None));
+    };
+    if let Some(above) = ancestors.siblings_before_with_budget(first, budget)?.next()
+        && LuaCode::is_comment(&above)
+        && let Some(source) = run.source
+        && !source.covers_with_budget(above.start_byte()..first.end_byte(), budget)?
+    {
+        return Ok(Err(crate::documentation::UnresolvedReason::ExcludedGap));
+    }
+    if !crate::roles::lua::opens_with_budget(first, run.code, ancestors, budget)? {
+        return Ok(Ok(None));
+    }
+    let mut text = LdocText::default();
+    for member in run.members {
+        budget.step()?;
+        text.read_with_budget(member, run.code, budget)?;
+    }
+    if !text.text {
+        return Ok(Ok(None));
+    }
+    match lua_first_block_with_budget(first, run.code, ancestors, run.source, budget)? {
+        Ok(true) => return Ok(Ok(Some(OpenerReason::FirstFile))),
+        Err(reason) => return Ok(Err(reason)),
+        Ok(false) => {}
+    }
+    if text.tag {
+        return Ok(Ok(Some(OpenerReason::Tagged)));
+    }
+    if let Some(next) = run.below
+        && target_with_budget(&next, budget)?
+    {
+        return Ok(Ok(Some(OpenerReason::FollowingItem)));
+    }
+    Ok(Ok(None))
 }
 
 impl Checker for LuaCode {
+    const SOURCE_POSITIONAL_DOCS: bool = true;
+
+    fn is_source_doc_target<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        let _ = (code, ancestors);
+        infallible(target_with_budget(node, &NoBudget))
+    }
+
+    fn source_doc_run_opener<'a>(
+        run: &crate::documentation::streaming::positional::RunContext<'_, 'a>,
+        ancestors: Ancestors<'a, '_>,
+    ) -> Result<
+        Option<crate::documentation::streaming::positional::OpenerReason>,
+        crate::documentation::UnresolvedReason,
+    > {
+        infallible(source_opener_with_budget(run, ancestors, &NoBudget))
+    }
     // The `Comment` row of `roles/lua.rs` (#1699); no `DocComment`.
     impl_comment_from_rows!(lua);
 

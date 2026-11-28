@@ -4,6 +4,10 @@
 use super::*;
 
 impl Checker for BashCode {
+    // The source view reads shdoc runs by position; the rules are in
+    // `lang_helpers::shdoc`. No legacy answer below depends on it.
+    const SOURCE_POSITIONAL_DOCS: bool = true;
+
     // The one `Comment` row of `roles/bash.rs`; no `DocComment` row (#1699).
     impl_comment_from_rows!(bash);
 

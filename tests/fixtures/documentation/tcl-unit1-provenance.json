@@ -1,0 +1,64 @@
+{
+  "scope": "Static Ruff body documents of a top-level Tcl proc: the lead block and #ruff blocks, #ruffopt directive evidence, and the owner of the document; Unit 1 of #1678",
+  "base": "31279411b17341bf9004b19f922b00a2c8f4bab1",
+  "grammar": {"runtime": "0.26.13", "tcl": "bca-tree-sitter-tcl 2.6.1"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/tcl_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": ["utils/documentation-tcl-unit1-perturb.json", "utils/documentation-tcl-unit1-legacy-perturb.json"],
+  "reference": {
+    "tool": "Ruff!",
+    "version": "3.0.4, tag v3.0.4, commit 89fcb6cf4e85f81376459ea33858b8ed63394024, src/ruff.tcl SHA-256 221f3496e17442f79c3c5f504da6211f89e496af3e8be7beb851a2df784994a2",
+    "evidence": "A reading of src/ruff.tcl, and a run of its body reader alone on 2026-11-26: the text of ruff::private::distill_body (lines 2423-2517) and ruff::private::process_ruffopt (lines 2363-2421) evaluated in a Tcl 8.6.12 safe interpreter, with ProgramOptions(-format) set to html and an identity stub for textutil::tabify::untabify2. The body string of each test procedure was derived from the source bytes, not from info body. 260 body strings were given; of the 259 that hold no tab, 224 agree with the expected text or absence of text, and 35 show the differences listed below. 4 more bodies hold a NUL byte and were not run.",
+    "qualification": "Ruff was never run as a whole and no procedure was defined in an interpreter for it. Statements about tabs and about which procedures Ruff documents are readings of ruff.tcl and of the Tcl 8.6 manual."
+  },
+  "interpreter": {
+    "tool": "Tcl",
+    "version": "8.6.12, the tclsh of the host, started with env -i PATH=/usr/bin:/bin (the host's system encoding is iso8859-1; the byte order mark is treated as bytes, not a locale-independent claim about Tcl encodings)",
+    "evidence": "Each of the 327 sources of the oracles was read as source reads a script file (translation auto, end-of-file character 0x1a) and evaluated on 2026-11-26 in a safe interpreter in which set, puts, if, expr, return and every unknown command only record their words. The run lists the commands Tcl reads, the procedures it defines and their info body. For 277 sources the procedures this unit names as owners are the procedures Tcl defines; for 46 the unit names fewer; for 4 it names one that Tcl does not define: a qualified name whose namespace the run does not have, and sources in which a command before the procedure reads a variable that does not exist, so that Tcl stops there (the named limit never-reached). In that run a command that does not exist does nothing; a second run in a plain safe interpreter (tcl-run/run_strict.tcl) shows where Tcl stops when it runs each source. The reading of the file's bytes that decides the owner was compared with tclsh on the 63 sources of tcl_scan_lists_the_commands_of_a_file_as_tcl_reads_them, in an interpreter in which every command only records its words: the commands and their words are the same.",
+    "qualification": "Whether a namespace exists and whether a variable is set are run-time facts that the unit does not read. No file of Ruff was read in this run."
+  },
+  "legacy_measurement": {
+    "binary": "the root crate of 31279411b17341bf9004b19f922b00a2c8f4bab1, debug profile, through analyze() on the raw bytes",
+    "qualification": "Each source of the legacy oracle was measured before any production edit. The tuple is [sloc, ploc, lloc, cloc, blank, dloc]; dloc is 0 for every source, and the comment rows of every source are recorded with it."
+  },
+  "known_differences": [
+    "Ruff documents procedures of a running interpreter and reads info body (ruff.tcl:2571-2582, 3173). This unit reads source text, never runs Tcl, and names an owner only for a top-level proc with one plain name word that Tcl would run as written. Whether Tcl would run it is read from the bytes of the file by Tcl's rules for commands and words, not from the grammar's tokens.",
+    "Ruff reads rows of the body text, so a #ruff row nested in a command or in a braced string opens a block (ruff.tcl:2436-2474; observed). This unit reads the direct children of the body only.",
+    "Ruff trims each row at both ends (ruff.tcl:2438; observed). This unit keeps the white space after the one removed separator and at the end of a row.",
+    "Ruff replaces tabs by spaces up to tab stop 8 before it reads a row (ruff.tcl:2437). This unit keeps a tab, and removes one tab after #ruff as the separator.",
+    "Tcl joins the row after a comment that ends in a backslash to that comment, so Ruff reads one row (observed). The grammar reads a command or a second comment there (#1802), and this unit gives such a document no complete text.",
+    "A first word that starts with #ruff and is neither #ruff nor #ruffopt raises Unknown Ruff directive, and Ruff gives the procedure no documentation (ruff.tcl:2484-2486, 3190-3195; observed). This unit reads an ordinary comment row.",
+    "Ruff takes any white space after #ruff or #ruffopt as the end of the directive (ruff.tcl:2455). This unit takes the end of the row, a space or a tab; after a form feed or a vertical tab the row is an ordinary comment row.",
+    "Ruff applies #ruffopt includedformats and excludedformats to the rows that follow and rejects a malformed option list (ruff.tcl:2363-2421, 2476-2483). This unit keeps the row as directive evidence and filters nothing.",
+    "Ruff returns the empty lines of bare #ruff and # rows at either end of its list (ruff.tcl:2472, 2494-2498; observed). This unit drops empty lines at either end of a document.",
+    "In Ruff a bare # row before the first text row starts no block, so a blank row after it does not end the lead block (ruff.tcl:2494-2498; observed). In this unit the row starts the lead block.",
+    "Where a recovery node among the rows of a body starts a row with # or reaches a later row, or a NUL byte cuts a comment row, the parser may have hidden documentation rows, which Ruff still reads (observed). This unit publishes no document and no directive candidate for that procedure, and one pending assessment.",
+    "Tcl reads a lone carriage return of a script file as a line end (observed). For the owner this unit reads it as a line end wherever it stands. For the rows of a body it reads it as a line end between two nodes; inside a node the grammar's reading stands: a comment runs on to the line feed, and this unit keeps the carriage return as content of the row; a marker row that the grammar reads as a recovery node after a lone carriage return is not read.",
+    "Tcl ends a word that starts with a brace where the raw brace count returns to zero: a backslash hides the next byte, and a comment, a quoted word or a bracket inside the word is not special (observed with tclsh and with info complete on installed Tcl code). The grammar reads comments, quoted words and brackets inside the word first, so its node can end elsewhere, with no error node. Where the count ends the parameter list or the body of a top-level procedure elsewhere than its node ends, this unit names no owner and gives the rows no text: the body word carries them.",
+    "Where Tcl's reading of the file's bytes lists no command of the file's own level with the extent and the four words of a top-level procedure node, this unit names no owner: the node stands inside a word of an earlier command, in a comment that continues, behind a parse error or behind the byte 0x1a, or its command has other words. The rows keep the text the grammar's reading gives them.",
+    "The brace count is applied to the two braced words of a top-level procedure only. A nested procedure is pending, and its rows have the text of the grammar's reading also where Tcl ends its body elsewhere (observed).",
+    "Below a root that is a recovery node the collector's shared rule gives every owner an unresolved association that lists it as a candidate, also a procedure that Tcl runs (observed).",
+    "Where a restricted parse excludes bytes, the state of the reading is not known from the excluded byte to the next line end that the included bytes prove unescaped, and never again if a word or a bracket was open there. A top-level procedure that starts in that stretch, or whose command reaches an excluded byte, keeps its document without a resolved owner, also where the excluded bytes hold nothing that Tcl would read as part of the command.",
+    "The legacy LOC view counts the comment rows of every procedure as comment rows and none as documentation rows, whatever this unit decides about the owner or the text: dloc is 0 for every source of the oracles. The two views are independent."
+  ],
+  "named_limits": [
+    "Each entry is a form in which this unit and Tcl differ about a procedure node. Each is observed with tclsh, pinned by a characterization test that says it pins today's outcome (tcl_named_limits_keep_todays_outcome), and left to the design review under the point named here. Four limits of the review's second round ended when the owner test became a reading of the bytes: after-a-parse-error, hash-inside-a-command, array-index-over-lines and end-of-file-byte.",
+    "never-reached: Tcl stops at the first command that fails when it runs a file, such as a command that does not exist. A procedure after it is a command of the file and has an owner; whether Tcl reaches it is a run-time fact that this unit does not read (observed).",
+    "nested-body-ends-elsewhere: the rows of a nested procedure, which is pending, keep the text of the grammar's reading where Tcl ends its body elsewhere (observed).",
+    "in-a-bracket: Tcl runs a proc command of a bracket's script when it evaluates the word that holds the bracket. Where the grammar closes the bracket early and puts the procedure node at the root, this unit names no owner, because only a command of the file's own level is one; Tcl defines the procedure (observed).",
+    "glued-first-word: where the first word of a command only ends with proc, as in []proc f {} {...}, the command starts before the procedure node. This unit names no owner where the grammar gives a procedure node, and publishes nothing where it gives a plain command; Tcl defines the procedure, because the bracket gives an empty string (observed)."
+  ],
+  "pending": [
+    "Procedures in a namespace eval body, in another procedure, in a control body or in a bracket's script",
+    "Quoted, braced and multi-part procedure names",
+    "Other spellings of the proc command, which Tcl runs and for which the grammar gives no procedure node: ::proc, a quoted, braced or backslash-escaped proc word, {*}proc, the words of eval, a computed command name, a quoted parameter list, and a bracket glued before proc. No document and no assessment is published for them",
+    "A proc command that Tcl runs and that text before it hides from the grammar: after a word with a brace or a quote in its middle, after a braced word that holds one quote, after a word that ends in a dollar sign, and in a file whose line ends are carriage returns alone. No document and no assessment is published for them (observed)",
+    "A proc whose name holds a brace, or whose parameter list holds a quoted word: Tcl defines the procedure, the grammar gives a recovery node, and the procedure is pending and unread (observed)",
+    "Rows nested in commands, and rows inside a recovery node",
+    "TclOO methods, constructors and destructors",
+    "Namespace preambles and runtime hooks",
+    "Generic leading-comment inference",
+    "Benchmark workloads and further fuzz seeds for Tcl",
+    "Publication"
+  ]
+}

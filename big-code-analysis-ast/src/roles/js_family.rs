@@ -395,10 +395,23 @@ macro_rules! js_family_doc_gates {
         /// declarator binds a plain identifier — what JSDoc and tsc
         /// name; a destructuring declaration documents no binding.
         fn first_declarator_binds_a_name(node: &$crate::Node<'_>) -> bool {
-            node.children()
-                .find(|c| c.kind_id() == $lang::VariableDeclarator as u16)
-                .and_then(|d| d.child_by_field_name("name"))
-                .is_some_and(|name| name.kind_id() == $lang::Identifier as u16)
+            $crate::documentation::budget::infallible(first_declarator_with_budget(
+                node,
+                &$crate::documentation::budget::NoBudget,
+            ))
+        }
+
+        fn first_declarator_with_budget<B: $crate::documentation::budget::WorkBudget>(
+            node: &$crate::Node<'_>,
+            budget: &B,
+        ) -> Result<bool, B::Error> {
+            Ok($crate::documentation::budget::child(
+                node,
+                |c| c.kind_id() == $lang::VariableDeclarator as u16,
+                budget,
+            )?
+            .and_then(|d| d.child_by_field_name("name"))
+            .is_some_and(|name| name.kind_id() == $lang::Identifier as u16))
         }
     };
 }
@@ -410,23 +423,70 @@ macro_rules! js_family_doc_gates {
 macro_rules! js_doc_gates {
     ($lang:ident) => {
         fn export_declares(node: &$crate::Node<'_>) -> bool {
-            !node.is_child($lang::ExportClause as u16)
+            $crate::documentation::budget::infallible(export_with_budget(
+                node,
+                &$crate::documentation::budget::NoBudget,
+            ))
+        }
+
+        fn export_with_budget<B: $crate::documentation::budget::WorkBudget>(
+            node: &$crate::Node<'_>,
+            budget: &B,
+        ) -> Result<bool, B::Error> {
+            Ok($crate::documentation::budget::child(
+                node,
+                |child| child.kind_id() == $lang::ExportClause as u16,
+                budget,
+            )?
+            .is_none())
         }
 
         fn assigns_to_a_name_or_member(node: &$crate::Node<'_>) -> bool {
+            $crate::documentation::budget::infallible(assignment_with_budget(
+                node,
+                &$crate::documentation::budget::NoBudget,
+            ))
+        }
+
+        fn assignment_with_budget<B: $crate::documentation::budget::WorkBudget>(
+            node: &$crate::Node<'_>,
+            budget: &B,
+        ) -> Result<bool, B::Error> {
             use $lang::*;
             let mut expr = node.child(0);
             while let Some(e) = expr.filter(|e| e.kind_id() == ParenthesizedExpression) {
-                expr = e.children().find(|c| c.is_named() && !c.is_extra());
+                budget.step()?;
+                expr = $crate::documentation::budget::child(
+                    &e,
+                    |c| c.is_named() && !c.is_extra(),
+                    budget,
+                )?;
             }
-            expr.filter(|e| {
-                matches!(
-                    e.kind_id().into(),
-                    AssignmentExpression | AugmentedAssignmentExpression
-                )
-            })
-            .and_then(|e| e.child_by_field_name("left"))
-            .is_some_and(|left| !matches!(left.kind_id().into(), ObjectPattern | ArrayPattern))
+            Ok(expr
+                .filter(|e| {
+                    matches!(
+                        e.kind_id().into(),
+                        AssignmentExpression | AugmentedAssignmentExpression
+                    )
+                })
+                .and_then(|e| e.child_by_field_name("left"))
+                .is_some_and(|left| !matches!(left.kind_id().into(), ObjectPattern | ArrayPattern)))
+        }
+
+        pub(crate) fn doc_target_with_budget<'s, B: $crate::documentation::budget::WorkBudget>(
+            node: &$crate::Node<'s>,
+            code: &[u8],
+            ancestors: $crate::Ancestors<'s, '_>,
+            budget: &B,
+        ) -> Result<bool, B::Error> {
+            match node.kind_id().into() {
+                $lang::VariableDeclaration
+                | $lang::LexicalDeclaration
+                | $lang::UsingDeclaration => first_declarator_with_budget(node, budget),
+                $lang::ExportStatement => export_with_budget(node, budget),
+                $lang::ExpressionStatement => assignment_with_budget(node, budget),
+                _ => Ok(doc_target::owns(node, code, ancestors)),
+            }
         }
     };
 }
@@ -491,6 +551,10 @@ macro_rules! ts_doc_gates {
             node: &$crate::Node<'a>,
             ancestors: $crate::Ancestors<'a, '_>,
         ) -> bool {
+            $crate::documentation::budget::infallible(export_with_budget(node, ancestors, &$crate::documentation::budget::NoBudget))
+        }
+
+        fn export_with_budget<'a, B: $crate::documentation::budget::WorkBudget>(node: &$crate::Node<'a>, ancestors: $crate::Ancestors<'a, '_>, budget: &B) -> Result<bool, B::Error> {
             use $lang::*;
             // A plain gate has no bytes to hand the child; the pin sits
             // beside the forward it protects (#1874).
@@ -498,21 +562,17 @@ macro_rules! ts_doc_gates {
                 !$crate::roles::$roles::doc_target::TEXT_GATED,
                 "a TS `DocTarget` row reads bytes; `export_declares_to_tsc` cannot forward with `&[]`"
             );
-            node.child_by_field_name("declaration").map_or_else(
-                || {
-                    node.is_child(ExportClause as u16)
+            if let Some(inner) = node.child_by_field_name("declaration") {
+                Ok(doc_target_with_budget(&inner, &[], ancestors, budget)? || inner.kind_id() == InternalModule as u16)
+            } else {
+                Ok($crate::documentation::budget::child(node, |child| child.kind_id() == ExportClause as u16, budget)?.is_some()
                         || node.child_by_field_name("value").is_some_and(|value| {
                             matches!(
                                 value.kind_id().into(),
                                 FunctionExpression | GeneratorFunction | Class
                             )
-                        })
-                },
-                |inner| {
-                    $crate::roles::$roles::doc_target::owns(&inner, &[], ancestors)
-                        || inner.kind_id() == InternalModule as u16
-                },
-            )
+                        }))
+            }
         }
 
         /// The grammar parses `using x = f()` as an assignment its
@@ -521,23 +581,36 @@ macro_rules! ts_doc_gates {
         /// `internal_module` statement (`namespace N { }` after a
         /// modifier) is a declaration too.
         fn using_declares(node: &$crate::Node<'_>) -> bool {
+            $crate::documentation::budget::infallible(using_with_budget(node, &$crate::documentation::budget::NoBudget))
+        }
+
+        fn using_with_budget<B: $crate::documentation::budget::WorkBudget>(node: &$crate::Node<'_>, budget: &B) -> Result<bool, B::Error> {
             use $lang::*;
-            node.child(0).is_some_and(|e| {
+            if let Some(e) = node.child(0) {
                 if e.kind_id() == InternalModule {
-                    return true;
+                    return Ok(true);
                 }
                 let assignment = if e.kind_id() == AwaitExpression {
-                    e.children().find(|c| c.is_named() && !c.is_extra())
+                    $crate::documentation::budget::child(&e, |c| c.is_named() && !c.is_extra(), budget)?
                 } else {
                     Some(e)
                 };
-                assignment.is_some_and(|a| {
+                Ok(assignment.is_some_and(|a| {
                     a.kind_id() == AssignmentExpression
                         && a.child(0).is_some_and(|u| u.kind_id() == Using)
                         && a.child_by_field_name("left")
                             .is_some_and(|left| left.kind_id() == Identifier)
-                })
-            })
+                }))
+            } else { Ok(false) }
+        }
+
+        pub(crate) fn doc_target_with_budget<'s, B: $crate::documentation::budget::WorkBudget>(node: &$crate::Node<'s>, code: &[u8], ancestors: $crate::Ancestors<'s, '_>, budget: &B) -> Result<bool, B::Error> {
+            if matches!(node.kind_id().into(), $lang::VariableDeclaration | $lang::LexicalDeclaration) {
+                return first_declarator_with_budget(node, budget);
+            }
+            if node.kind_id() == $lang::ExportStatement { return export_with_budget(node, ancestors, budget); }
+            if node.kind_id() == $lang::ExpressionStatement { return using_with_budget(node, budget); }
+            Ok(doc_target::owns(node, code, ancestors))
         }
     };
 }

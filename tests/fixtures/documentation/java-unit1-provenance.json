@@ -1,0 +1,24 @@
+{
+  "scope": "Java field and constant declaration owners as field slots; pins of the Java declaration owners that already resolve; Unit 1 of #1666",
+  "base": "3924d45adf9716ec5d64381849b671b298b8b5fe",
+  "grammar": {"runtime": "0.26.13", "java": "0.23.5"},
+  "production_oracles": "big-code-analysis-ast/src/documentation/collector/java_tests.rs",
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifest": "utils/documentation-java-unit1-perturb.json",
+  "reference": {"tool": "Zulu OpenJDK", "version": "25.0.5.0.3", "configuration": "JavacTask.parse on in-memory sources named C.java (module-info.java for the module source), options -proc:none -Xlint:dangling-doc-comments --release 25; DocTrees.getDocComment and getDocCommentTree per class, method, variable and module tree; javac diagnostics retained", "evidence": "Executed on 2026-11-24 for every source of the production oracles; the attachment of each documentation comment and each dangling-comment warning were compared with the expected owners", "qualification": "Source attachment only. No javadoc run; publication is not claimed."},
+  "legacy_measurement": {"binary": "bca 2.6.1, git 3924d45adf9716ec5d64381849b671b298b8b5fe, debug profile", "command": "bca metrics --no-config --no-ignore --no-skip-generated --language java --format json --metrics loc <file>", "qualification": "Each measured file holds exactly the bytes of one legacy oracle source: no CR and one final LF, so file normalization changes nothing."},
+  "known_differences": [
+    "A field declaration with a missing semicolon has a syntax error in the pinned grammar and stays a pending owner; javac recovers and attaches both comments.",
+    "A declaration with an unnamed (_) declarator stays a pending owner as a whole; javac reports an error for the name and still attaches the comment to every declarator.",
+    "The local text of /** a */ is a; DocTrees.getDocComment returns the raw text with its trailing space.",
+    "A documentation comment that holds a raw \\u escape has no text and an unresolved association, which lists the field slots of a resolvable declaration as candidates; javac translates the escape and attaches the comment.",
+    "For /****/ before class C, BCA preserves the lone interior star as text '*'; JDK 25.0.5 DocTrees returns empty text (gap analysis j45). Publication for non-package targets stays Unknown."
+  ],
+  "pending": [
+    "Module role and publication",
+    "Other Java text edges such as /** x **/ remain outside the units",
+    "Parameter and record-component documentation",
+    "Kotlin and Groovy owners",
+    "Benchmark workloads and fuzz seeds for field slots"
+  ]
+}

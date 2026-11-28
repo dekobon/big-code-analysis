@@ -1,0 +1,618 @@
+{
+  "rust": {
+    "path": "primary.rs",
+    "selected_owner_kind": "function_item",
+    "profile": "RustCompiler",
+    "fragments": [
+      [
+        0,
+        8
+      ]
+    ],
+    "owner": [
+      9,
+      18
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        9,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_item"
+    ]
+  },
+  "python": {
+    "path": "primary.py",
+    "selected_owner_kind": "function_definition",
+    "profile": "Pep257Pep258Sphinx",
+    "fragments": [
+      [
+        13,
+        20
+      ]
+    ],
+    "owner": [
+      0,
+      29
+    ],
+    "text": "audit",
+    "legacy_comments": [],
+    "owner_kinds": [
+      "module",
+      "function_definition"
+    ]
+  },
+  "java": {
+    "path": "primary.java",
+    "selected_owner_kind": "class_declaration",
+    "profile": "Jdk25Source",
+    "fragments": [
+      [
+        0,
+        8
+      ]
+    ],
+    "owner": [
+      9,
+      19
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        8,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "class_declaration"
+    ]
+  },
+  "kotlin": {
+    "path": "primary.kt",
+    "selected_owner_kind": "function_declaration",
+    "profile": "KDoc",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      21
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "groovy": {
+    "path": "primary.groovy",
+    "selected_owner_kind": "class_declaration",
+    "profile": "Groovydoc",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      21
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "class_declaration"
+    ]
+  },
+  "csharp": {
+    "path": "primary.cs",
+    "selected_owner_kind": "class_declaration",
+    "profile": "CsharpXml",
+    "fragments": [
+      [
+        0,
+        27
+      ]
+    ],
+    "owner": [
+      28,
+      38
+    ],
+    "text": "<summary>audit</summary>",
+    "legacy_comments": [
+      [
+        0,
+        27,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "class_declaration"
+    ]
+  },
+  "php": {
+    "path": "primary.php",
+    "selected_owner_kind": "function_definition",
+    "profile": "BcaPhpSource",
+    "fragments": [
+      [
+        6,
+        18
+      ]
+    ],
+    "owner": [
+      19,
+      34
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        6,
+        18,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "javascript": {
+    "path": "primary.js",
+    "selected_owner_kind": "function_declaration",
+    "profile": "JsDoc",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      26
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "mozjs": {
+    "path": "primary.js",
+    "selected_owner_kind": "function_declaration",
+    "profile": "JsDoc",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      26
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "typescript": {
+    "path": "primary.ts",
+    "selected_owner_kind": "function_declaration",
+    "profile": "BcaTypescriptSource",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      32
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "tsx": {
+    "path": "primary.tsx",
+    "selected_owner_kind": "function_declaration",
+    "profile": "BcaTypescriptSource",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      42
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "c": {
+    "path": "primary.c",
+    "selected_owner_kind": "function_definition",
+    "profile": "Doxygen",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      26
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "cpp": {
+    "path": "primary.cpp",
+    "selected_owner_kind": "function_definition",
+    "profile": "Doxygen",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      22
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "mozcpp": {
+    "path": "primary.cpp",
+    "selected_owner_kind": "function_definition",
+    "profile": "Doxygen",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      22
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "objc": {
+    "path": "primary.m",
+    "selected_owner_kind": "function_definition",
+    "profile": "Doxygen",
+    "fragments": [
+      [
+        0,
+        10
+      ]
+    ],
+    "owner": [
+      11,
+      26
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        10,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "go": {
+    "path": "primary.go",
+    "selected_owner_kind": "function_declaration",
+    "profile": "GoDoc",
+    "fragments": [
+      [
+        10,
+        18
+      ]
+    ],
+    "owner": [
+      19,
+      30
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        10,
+        18,
+        false
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "ruby": {
+    "path": "primary.rb",
+    "selected_owner_kind": "method",
+    "profile": "Yard",
+    "fragments": [
+      [
+        0,
+        7
+      ]
+    ],
+    "owner": [
+      8,
+      17
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        7,
+        false
+      ]
+    ],
+    "owner_kinds": [
+      "method"
+    ]
+  },
+  "lua": {
+    "path": "primary.lua",
+    "selected_owner_kind": "function_declaration",
+    "profile": "LDoc",
+    "fragments": [
+      [
+        12,
+        20
+      ]
+    ],
+    "owner": [
+      21,
+      37
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        12,
+        20,
+        false
+      ]
+    ],
+    "owner_kinds": [
+      "function_declaration"
+    ]
+  },
+  "perl": {
+    "path": "primary.pl",
+    "selected_owner_kind": "function_definition",
+    "profile": "PodUniqueHeading",
+    "fragments": [
+      [
+        0,
+        21
+      ]
+    ],
+    "owner": [
+      23,
+      31
+    ],
+    "text": "=head2 f\n\nAudit",
+    "legacy_comments": [
+      [
+        0,
+        21,
+        true
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "elixir": {
+    "path": "primary.ex",
+    "selected_owner_kind": "call",
+    "profile": "ElixirCompiler",
+    "fragments": [
+      [
+        17,
+        29
+      ]
+    ],
+    "owner": [
+      32,
+      48
+    ],
+    "text": "audit",
+    "legacy_comments": [],
+    "owner_kinds": [
+      "call"
+    ]
+  },
+  "bash": {
+    "path": "primary.bash",
+    "selected_owner_kind": "function_definition",
+    "profile": "Shdoc",
+    "fragments": [
+      [
+        0,
+        20
+      ]
+    ],
+    "owner": [
+      21,
+      31
+    ],
+    "text": "@description audit",
+    "legacy_comments": [
+      [
+        0,
+        20,
+        false
+      ]
+    ],
+    "owner_kinds": [
+      "function_definition"
+    ]
+  },
+  "tcl": {
+    "path": "primary.tcl",
+    "selected_owner_kind": "procedure",
+    "profile": "StaticRuff304",
+    "fragments": [
+      [
+        12,
+        19
+      ]
+    ],
+    "owner": [
+      0,
+      28
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        12,
+        19,
+        false
+      ]
+    ],
+    "recovered": true,
+    "owner_kinds": [
+      "source_file",
+      "procedure"
+    ]
+  },
+  "irules": {
+    "path": "primary.irule",
+    "selected_owner_kind": "when_event",
+    "profile": "BcaIrules",
+    "fragments": [
+      [
+        0,
+        7
+      ]
+    ],
+    "owner": [
+      8,
+      29
+    ],
+    "text": "audit",
+    "legacy_comments": [
+      [
+        0,
+        7,
+        false
+      ]
+    ],
+    "recovered": true,
+    "owner_kinds": [
+      "when_event"
+    ]
+  },
+  "ccomment": {
+    "path": "helper-comment.c",
+    "selected_owner_kind": null,
+    "profile": "NoDeclarationModel",
+    "fragments": [],
+    "owner": null,
+    "text": null,
+    "legacy_comments": [
+      [
+        0,
+        10,
+        false
+      ]
+    ],
+    "owner_kinds": []
+  },
+  "preproc": {
+    "path": "helper-preproc.h",
+    "selected_owner_kind": null,
+    "profile": "NoDeclarationModel",
+    "fragments": [],
+    "owner": null,
+    "text": null,
+    "legacy_comments": [],
+    "owner_kinds": []
+  }
+}

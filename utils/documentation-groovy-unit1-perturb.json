@@ -1,0 +1,210 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": ["cargo", "test", "-p", "big-code-analysis-ast", "--all-features", "--lib", "documentation::"],
+  "cases": [
+    {
+      "name": "groovy-class-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            ClassDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "groovy-trait-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            TraitDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-interface-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            InterfaceDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-enum-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            EnumDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-record-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            RecordDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-annotation-type-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            AnnotationTypeDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-method-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            MethodDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines"]
+    },
+    {
+      "name": "groovy-constructor-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            ConstructorDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-enum-constant-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            EnumConstant,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them"]
+    },
+    {
+      "name": "groovy-field-is-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "            FieldDeclaration,\n",
+      "new": "",
+      "expect": ["documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"]
+    },
+    {
+      "name": "groovy-every-comment-is-groovydoc",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "DocComment { owns [GroovydocComment(text_gated_by opens_with_groovydoc_marker no_chain)] }",
+      "new": "DocComment { owns [GroovydocComment(text_gated_by opens_with_groovydoc_marker no_chain), BlockComment, LineComment] }",
+      "expect": ["documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches", "documentation::collector::groovy_tests::groovy_plain_comments_are_no_documentation"]
+    },
+    {
+      "name": "groovydoc-marker-needs-white-space",
+      "file": "big-code-analysis-ast/src/roles/groovy.rs",
+      "old": "crate::roles::byte_gate!(opens_with_groovydoc_marker, java_doc);",
+      "new": "fn opens_with_groovydoc_marker(node: &crate::Node<'_>, code: &[u8]) -> bool {\n    let bytes = node_bytes(node, code);\n    java_doc(bytes) && bytes.get(3).is_some_and(u8::is_ascii_whitespace)\n}",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"]
+    },
+    {
+      "name": "groovy-package-is-not-skipped",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "skips: |node, _| node.kind_id() == Groovy::PackageDeclaration,",
+      "new": "skips: |node, _| node.kind_id() == Groovy::ImportDeclaration,",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration"]
+    },
+    {
+      "name": "groovy-own-row-block-is-hidden",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "next.start_row() == comment.end_row()",
+      "new": "next.start_row() != comment.end_row()",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings", "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"]
+    },
+    {
+      "name": "groovy-blank-row-hides-the-block",
+      "file": "big-code-analysis-ast/src/checker/groovy.rs",
+      "old": "next.start_row() == comment.end_row()",
+      "new": "next.start_row() != comment.end_row() + 1",
+      "expect": ["documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach"]
+    },
+    {
+      "name": "groovy-nearest-reads-past-a-plain-comment",
+      "file": "big-code-analysis-ast/src/lang_helpers/doc_comment.rs",
+      "old": "            return Ok(forward(member)?.then_some(*member));",
+      "new": "            if forward(member)? {\n                return Ok(Some(*member));\n            }",
+      "expect": ["documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches"]
+    },
+    {
+      "name": "groovy-field-is-not-pending",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "Profile::Groovydoc => matches!(node.kind(), \"field_declaration\"),",
+      "new": "Profile::Groovydoc => matches!(node.kind(), \"constant_declaration\"),",
+      "expect": ["documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot", "documentation::collector::form_tests::groovy_field_form_has_a_slot_in_default_queries"]
+    },
+    {
+      "name": "groovy-same-row-assessment-on-other-rows",
+      "file": "big-code-analysis-ast/src/documentation/forms.rs",
+      "old": "        && next.start_row() == node.end_row()\n",
+      "new": "        && next.start_row() != node.end_row()\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings", "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"]
+    },
+    {
+      "name": "target-less-block-is-selected",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "                MarkerSelection::Unattached\n            };\n",
+      "new": "                MarkerSelection::Selected\n            };\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches"]
+    },
+    {
+      "name": "detached-block-is-superseded",
+      "file": "big-code-analysis-ast/src/documentation/streaming/markers.rs",
+      "old": "&& !self.kept.is_empty()\n",
+      "new": "&& self.kept.is_empty()\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_plain_comment_between_block_and_declaration_detaches"]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "space-after-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "bytes[line.content.start] == b' ' {\n                        line.content.start += 1;",
+      "new": "bytes[line.content.start] == b' ' {\n                        line.content.start += 0;",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "block-indentation-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                let star = line.content.start + indent;\n",
+      "new": "                let star = line.content.start + indent.min(0);\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "empty-first-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while first < end && block.lines[first].content.is_empty() {",
+      "new": "            while first > end && block.lines[first].content.is_empty() {",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "empty-last-line-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            while end > first && block.lines[end - 1].content.is_empty() {",
+      "new": "            while end < first && block.lines[end - 1].content.is_empty() {",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "crlf-inside-block-is-copied",
+      "file": "big-code-analysis-ast/src/documentation/text/source_cursor.rs",
+      "old": "        if range.len() == 2 {",
+      "new": "        if range.len() == 3 {",
+      "expect": ["documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "last-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            last.content.end -= 1;\n",
+      "new": "            last.content.end -= 0;\n",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings"]
+    },
+    {
+      "name": "block-opener-is-two-bytes-wide",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "        let prefix = if profile == Profile::GoDoc { 2 } else { 3 };",
+      "new": "        let prefix = if profile == Profile::GoDoc { 2 } else { 2 };",
+      "expect": ["documentation::collector::groovy_tests::groovy_type_declarations_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_method_constructor_and_enum_constant_own_the_block_above_them", "documentation::collector::groovy_tests::groovy_annotation_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_blank_row_between_block_and_declaration_does_not_detach", "documentation::collector::groovy_tests::groovy_block_above_package_documents_the_first_declaration", "documentation::collector::groovy_tests::groovy_script_level_method_owns_the_block_above_it", "documentation::collector::groovy_tests::groovy_block_text_over_several_lines", "documentation::collector::groovy_tests::groovy_block_with_crlf_line_endings", "documentation::collector::groovy_tests::groovy_field_document_owns_its_name_slot"]
+    }
+  ]
+}

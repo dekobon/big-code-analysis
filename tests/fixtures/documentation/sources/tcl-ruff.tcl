@@ -1,0 +1,4 @@
+proc f {} {
+# audit
+return
+}

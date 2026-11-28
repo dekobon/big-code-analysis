@@ -2,6 +2,8 @@
 //! file on stdout, from the library's verbatim path. The body lives in
 //! `big_code_analysis_bench::verbatim` so it is covered by tests; this
 //! file only maps its result onto the exit status.
+//! `--metrics-view [options] -- <language-slug> <file>...` selects the
+//! metrics-only record with explicit options (see `verbatim::USAGE`).
 
 use std::io::Write;
 use std::process::ExitCode;

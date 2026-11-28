@@ -173,6 +173,69 @@ class DriftCompareTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("no view on both sides", text)
 
+    def test_shared_views_filter_cli_and_metrics_but_check_shared_argv(self) -> None:
+        base = _capture(self.root / "base", verbatim=False)
+        head = _capture(self.root / "head", verbatim=False)
+        self._edit(base, views=["ops", "dump"], metrics_options={})
+        self._edit(head, views=["ops", "metrics"], cli_cmds={"ops": ["ops"]})
+        rc, _, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 0)
+        self.assertEqual(summary["views_compared"], ["ops"])
+        self.assertEqual(summary["views_uncompared"], ["dump", "metrics"])
+        self.assertEqual(summary["outputs_compared"], 2)
+        self.assertEqual(summary["key_problems"], 0)
+        self._edit(head, cli_cmds={"ops": ["ops", "-O", "json"]})
+        rc, _, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 1)
+        self.assertEqual(summary["differing"], 0)
+        self.assertEqual(summary["key_problems"], 1)
+
+    def test_empty_key_sets_are_refused_even_without_a_filter(self) -> None:
+        base = _capture(self.root / "base", verbatim=True, keys=[])
+        head = _capture(self.root / "head", verbatim=True, keys=[])
+        rc, text, summary = self._run(base, head)
+        self.assertEqual(rc, 2)
+        self.assertIn("no keys on one side", text)
+        self.assertEqual(summary, {})
+
+    def test_mi_view_and_option_differences_cannot_report_zero_drift(self) -> None:
+        base = _capture(self.root / "base", verbatim=True)
+        head = _capture(self.root / "head", verbatim=True)
+        view = "verbatim_metrics_only_mi_mi_charges_docs_true"
+        views = [*CLI, *METRICS, "verbatim", view]
+        matrix = {**METRICS, view: ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=true", "--"]}
+        self._edit(head, views=views, metrics_options=matrix)
+        rc, text, summary = self._run(base, head)
+        self.assertEqual(rc, 2)
+        self.assertIn(f"VIEW only in head: {view}", text)
+        self.assertEqual(summary, {})
+        rc, _, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 0)
+        self.assertEqual(summary["outputs_compared"], 8)
+        self.assertEqual(summary["views_uncompared"], [view])
+
+        self._edit(base, views=views, metrics_options=matrix)
+        for capture in (base, head):
+            for key in KEYS:
+                (capture / f"{key}.{view}.txt").write_bytes(b'{"metrics": {}}\n')
+        rc, _, summary = self._run(base, head)
+        self.assertEqual(rc, 0)
+        self.assertEqual(summary["outputs_compared"], 10)
+        (head / f"{KEYS[0]}.{view}.txt").write_bytes(b'{"metrics": {"mi": 1}}\n')
+        rc, _, summary = self._run(base, head)
+        self.assertEqual(rc, 1)
+        self.assertEqual(summary["differing"], 1)
+
+        self._edit(head, metrics_options={**matrix, view: ["--metrics-view", "--metrics", "mi", "--mi-charges-docs=false", "--"]})
+        rc, text, summary = self._run(base, head)
+        self.assertEqual(rc, 1)
+        self.assertIn("option matrix or command set differs", text)
+        self.assertEqual(summary["key_problems"], 1)
+        rc, text, summary = self._run(base, head, "--only-shared-views")
+        self.assertEqual(rc, 1)
+        self.assertIn("option matrix or command set differs", text)
+        self.assertEqual(summary["key_problems"], 1)
+
     def test_a_key_on_one_side_is_a_problem_not_a_skip(self) -> None:
         base = _capture(self.root / "base", verbatim=True)
         head = _capture(self.root / "head", verbatim=True, keys=KEYS[:1])

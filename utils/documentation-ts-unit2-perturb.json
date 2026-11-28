@@ -1,0 +1,255 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::collector::ts_tests"
+  ],
+  "cases": [
+    {
+      "name": "anonymous-value-not-owned",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "\"function_expression\" | \"generator_function\" | \"class\"",
+      "new": "\"function_declaration\" | \"generator_function_declaration\" | \"class_declaration\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "namespace-child-not-owned",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "\"internal_module\" => {",
+      "new": "\"module\" => {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "typescript-expression-not-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                | \"expression_statement\"\n                | \"await_expression\"",
+      "new": "                | \"await_expression\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "typescript-await-expression-not-wrapper",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                | \"await_expression\"\n        ),",
+      "new": "        ),",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "wrapper-skips-structural-comment-disabled",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "&& matches!(record.evidence.node().kind(), \"comment\" | \"html_comment\")",
+      "new": "&& matches!(record.evidence.node().kind(), \"never_a_comment\")",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_ambient_comment_control",
+        "documentation::collector::ts_tests::tsx_unit2_ambient_comment_control"
+      ]
+    },
+    {
+      "name": "wrapper-statement-selects-semicolon",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "\"internal_module\" | \"assignment_expression\" | \"await_expression\"",
+      "new": "\";\" | \"assignment_expression\" | \"await_expression\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "binding-first-child-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        let record = &canonical.nodes[child.0];\n        if record.evidence.node().kind() != \"variable_declarator\"",
+      "new": "        let _ = budget;\n        let record = &canonical.nodes[child.0];\n        if record.evidence.node().kind() != \"variable_declarator\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_budgeted_binding_scan",
+        "documentation::collector::ts_tests::tsx_unit2_budgeted_binding_scan"
+      ]
+    },
+    {
+      "name": "binding-name-child-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        budget.step()?;\n        return Ok(record",
+      "new": "        let _ = budget;\n        return Ok(record",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_budgeted_binding_scan",
+        "documentation::collector::ts_tests::tsx_unit2_budgeted_binding_scan"
+      ]
+    },
+    {
+      "name": "await-comment-becomes-structural",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "|child| child.is_named() && !matches!(child.kind(), \"comment\" | \"html_comment\"),",
+      "new": "|child| child.is_named(),",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "restricted-namespace-linebreak-unchecked",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                    }) && match (node.child(0), node.child_by_field_name(\"name\")) {\n                        (Some(keyword), Some(name)) => ts_line_continues(\n                            self.index.source.bytes(),\n                            keyword.end_byte(),\n                            name.start_byte(),\n                            budget,\n                        )?,\n                        _ => false,\n                    }",
+      "new": "                    }) && match (node.child(0), node.child_by_field_name(\"name\")) {\n                        (Some(_keyword), Some(_name)) => true,\n                        _ => false,\n                    }",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keywords",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keywords"
+      ]
+    },
+    {
+      "name": "restricted-using-linebreak-unchecked",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    ts_line_continues(code, using.end_byte(), left.start_byte(), budget)",
+      "new": "    Ok(true)",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keywords",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keywords"
+      ]
+    },
+    {
+      "name": "restricted-ambient-linebreak-unchecked",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                    Some(end) => super::ts_line_continues(\n                        self.index.source.bytes(),\n                        end,\n                        node.start_byte(),\n                        budget,\n                    ),",
+      "new": "                    Some(end) => { let _ = end; Ok(true) },",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keywords",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keywords"
+      ]
+    },
+    {
+      "name": "queries-lose-owner-membership",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "associations: &self.associations_by_owner[ordinal],",
+      "new": "associations: &[],",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_owner_forms",
+        "documentation::collector::ts_tests::tsx_unit2_owner_forms"
+      ]
+    },
+    {
+      "name": "controls-destructure-becomes-target",
+      "file": "big-code-analysis-ast/src/roles/js_family.rs",
+      "old": ".is_some_and(|name| name.kind_id() == $lang::Identifier as u16)",
+      "new": ".is_some()",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_controls",
+        "documentation::collector::ts_tests::tsx_unit2_controls"
+      ]
+    },
+    {
+      "name": "literal-unit2-owner-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "&& matches!(node.kind(), \"lexical_declaration\" | \"variable_declaration\")",
+      "new": "&& node.kind() == \"variable_declaration\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_literal_boundaries",
+        "documentation::collector::ts_tests::tsx_unit2_literal_boundaries"
+      ]
+    },
+    {
+      "name": "recovery-error-projects",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        if node.has_error()\n            || node.is_missing()",
+      "new": "        if false && node.has_error()\n            || node.is_missing()",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_forms_without_an_owner_keep_their_document_and_no_association",
+        "documentation::collector::ts_tests::tsx_forms_without_an_owner_keep_their_document_and_no_association"
+      ]
+    },
+    {
+      "name": "binding-owner-projection-uses-no-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "ts_binding_declarator(&self.index.canonical, id, budget)",
+      "new": "Ok::<_, CollectionError>(crate::documentation::budget::infallible(ts_binding_declarator(&self.index.canonical, id, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_binding_collection_cancels",
+        "documentation::collector::ts_tests::tsx_unit2_binding_collection_cancels"
+      ]
+    },
+    {
+      "name": "await-owner-forwarded-no-budget",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "ts_await_using(node, self.index.source.bytes(), ancestors, budget)",
+      "new": "Ok::<_, SourceError>(crate::documentation::budget::infallible(ts_await_using(node, self.index.source.bytes(), ancestors, &crate::documentation::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_budgeted_await_scan",
+        "documentation::collector::ts_tests::tsx_unit2_budgeted_await_scan"
+      ]
+    },
+    {
+      "name": "restricted-async-linebreak-unchecked",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    ts_line_continues(code, async_token.end_byte(), function.start_byte(), budget)",
+      "new": "    Ok(true)",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keywords",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keywords"
+      ]
+    },
+    {
+      "name": "async-child-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    let function = super::budget::child(value, |child| child.kind() == \"function\", budget)?;",
+      "new": "    let function = crate::documentation::budget::infallible(super::budget::child(value, |child| child.kind() == \"function\", &super::budget::NoBudget));",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keyword_costs",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keyword_costs"
+      ]
+    },
+    {
+      "name": "async-gap-byte-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "    ts_line_continues(code, async_token.end_byte(), function.start_byte(), budget)",
+      "new": "    Ok(crate::documentation::budget::infallible(ts_line_continues(code, async_token.end_byte(), function.start_byte(), &super::budget::NoBudget)))",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keyword_costs",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keyword_costs"
+      ]
+    },
+    {
+      "name": "ambient-child-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "            budget.step()?;\n            let node = self.index.canonical.nodes[child.0].evidence.node();\n            if node.kind() == \"declare\"",
+      "new": "            let _ = budget;\n            let node = self.index.canonical.nodes[child.0].evidence.node();\n            if node.kind() == \"declare\"",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keyword_costs",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keyword_costs"
+      ]
+    },
+    {
+      "name": "ambient-gap-byte-uncharged",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                    Some(end) => super::ts_line_continues(\n                        self.index.source.bytes(),\n                        end,\n                        node.start_byte(),\n                        budget,\n                    ),",
+      "new": "                    Some(end) => Ok(crate::documentation::budget::infallible(super::ts_line_continues(\n                        self.index.source.bytes(),\n                        end,\n                        node.start_byte(),\n                        &super::super::budget::NoBudget,\n                    ))),",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keyword_costs",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keyword_costs"
+      ]
+    },
+    {
+      "name": "restricted-await-linebreak-unchecked",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            if !ts_line_continues(\n                code,\n                await_token.end_byte(),\n                assignment.start_byte(),\n                budget,\n            )? {",
+      "new": "            if false && !ts_line_continues(\n                code,\n                await_token.end_byte(),\n                assignment.start_byte(),\n                budget,\n            )? {",
+      "expect": [
+        "documentation::collector::ts_tests::typescript_unit2_restricted_keywords",
+        "documentation::collector::ts_tests::tsx_unit2_restricted_keywords"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,387 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis-ast",
+    "--all-features",
+    "--lib",
+    "documentation::"
+  ],
+  "cases": [
+    {
+      "name": "doxygen-typedef-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/c_family.rs",
+      "old": "            TypeDefinition,\n            PreprocDef,",
+      "new": "            PreprocDef,",
+      "expect": [
+        "documentation::collector::c_family_tests::c_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::cpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::mozcpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::objc_leading_block_documents_the_declaration_after_it"
+      ]
+    },
+    {
+      "name": "cpp-namespace-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/c_family.rs",
+      "old": "            NamespaceDefinition,\n            UsingDeclaration,",
+      "new": "            UsingDeclaration,",
+      "expect": [
+        "documentation::collector::c_family_tests::cpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::mozcpp_class_member_function_namespace_and_alias_own_their_block"
+      ]
+    },
+    {
+      "name": "objc-method-declaration-not-a-target",
+      "file": "big-code-analysis-ast/src/roles/objc.rs",
+      "old": "            MethodDeclaration,\n            MethodDefinition,",
+      "new": "            MethodDefinition,",
+      "expect": [
+        "documentation::collector::c_family_tests::objc_interface_property_method_and_instance_variable_own_their_block"
+      ]
+    },
+    {
+      "name": "forward-block-has-no-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            target,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "new": "            target: None,\n            scope,\n            binding: run.target,\n            role: DocumentRole::Primary,\n            unresolved: run.target_uncertainty,",
+      "expect": [
+        "documentation::collector::c_family_tests::c_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::cpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::mozcpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::objc_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::mozcpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::objc_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::c_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::mozcpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::objc_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::mozcpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::objc_interface_property_method_and_instance_variable_own_their_block",
+        "documentation::collector::c_family_tests::c_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::cpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::mozcpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::objc_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "target-node-is-not-an-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                self.add_owner(id, Owner::Node(self.index.canonical.nodes[id.0].evidence));",
+      "new": "                self.index.canonical.nodes[id.0].projection = Projection::Pending;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::cpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::mozcpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::objc_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::c_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::mozcpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::objc_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::objc_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::mozcpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::objc_interface_property_method_and_instance_variable_own_their_block",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "slot-second-declarator-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                work.push(declared);",
+      "new": "                if work.is_empty() {\n                    work.push(declared);\n                }",
+      "expect": [
+        "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::mozcpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::objc_each_variable_declarator_owns_one_slot"
+      ]
+    },
+    {
+      "name": "slot-declaration-node-is-the-only-owner",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(slots);\n        Ok(())\n    }\n\n    fn java_field_slots(",
+      "new": "        self.index.canonical.nodes[id.0].projection = Projection::Ready(vec![enclosing]);\n        Ok(())\n    }\n\n    fn java_field_slots(",
+      "expect": [
+        "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::mozcpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::objc_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::c_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::mozcpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::objc_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "slot-ordinal-shifted",
+      "file": "big-code-analysis-ast/src/documentation/collector/projections.rs",
+      "old": "                    ordinal: slots.len(),\n                    source,",
+      "new": "                    ordinal: slots.len() + 1,\n                    source,",
+      "expect": [
+        "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::mozcpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::objc_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::c_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::mozcpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::objc_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "trailing-block-takes-the-following-target",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                        draft.target = trailing;\n                        draft.binding =\n                            trailing.map(|id| self.index.canonical.nodes[id.0].evidence);",
+      "new": "                        draft.target = target;\n                        draft.binding = run.target;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "trailing-marker-kept-in-text",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "    if profile == Profile::Doxygen && bytes.get(start) == Some(&b'<') {\n        start += 1;",
+      "new": "    if profile == Profile::Doxygen && bytes.get(start) == Some(&b'<') {\n        start += 0;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "file-command-is-not-the-file",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "                if command == b\"file\" {",
+      "new": "                if command == b\"mainpage\" {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::objc_file_command_documents_the_file"
+      ]
+    },
+    {
+      "name": "structural-block-binds-forward",
+      "file": "big-code-analysis-ast/src/lang_helpers/doxygen.rs",
+      "old": "    Ok(!doxygen_member_after(bytes)\n        && !doxygen_standalone_with_budget(bytes, budget)?\n        && ancestors",
+      "new": "    Ok(!doxygen_member_after(bytes)\n        && ancestors",
+      "expect": [
+        "documentation::streaming::markers::tests::c_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::cpp_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::mozcpp_gatherer_and_predecessors_once",
+        "documentation::streaming::markers::tests::objc_gatherer_and_predecessors_once"
+      ]
+    },
+    {
+      "name": "fn-signature-index-unused",
+      "file": "big-code-analysis-ast/src/documentation/names.rs",
+      "old": "        let signatures = tokens.len() > 1;",
+      "new": "        let signatures = false;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::cpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::mozcpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::objc_fn_command_resolves_by_signature"
+      ]
+    },
+    {
+      "name": "fn-command-not-resolved",
+      "file": "big-code-analysis-ast/src/documentation/collector/assembly.rs",
+      "old": "                if command != b\"fn\" {",
+      "new": "                if command == b\"fn\" {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::cpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::mozcpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::objc_fn_command_resolves_by_signature"
+      ]
+    },
+    {
+      "name": "inherited-conditional-qualification-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if conditional_kind(node.kind()) {\n            record.qualification.insert(UnresolvedReason::Conditional);",
+      "new": "        if false {\n            record.qualification.insert(UnresolvedReason::Conditional);",
+      "expect": [
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "conditional-target-uncertainty-dropped",
+      "file": "big-code-analysis-ast/src/checker/doxygen_doc_binding.rs",
+      "old": "                Some(UnresolvedReason::Conditional)",
+      "new": "                None",
+      "expect": [
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "conditional-is-not-a-doc-target",
+      "file": "big-code-analysis-ast/src/lang_helpers/doxygen.rs",
+      "old": "    if preproc_conditional::<T>(node) {\n        return conditional_declares_with_budget::<T, B>(node, ancestors, budget);\n    }",
+      "new": "    if preproc_conditional::<T>(node) {\n        return Ok(false);\n    }",
+      "expect": [
+        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::objc_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "conditional-pending-assessment-dropped",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            if matches!(\n                self.index.canonical.nodes[id].projection,\n                Projection::Pending\n            ) {",
+      "new": "            if matches!(\n                self.index.canonical.nodes[id].projection,\n                Projection::Pending\n            ) && !conditional_kind(self.index.canonical.nodes[id].evidence.node().kind())\n            {",
+      "expect": [
+        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::objc_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "block-star-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "                    line.content.start = star + 1;",
+      "new": "                    line.content.start = star;",
+      "expect": [
+        "documentation::collector::c_family_tests::c_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::cpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::mozcpp_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::objc_fn_command_resolves_by_signature",
+        "documentation::collector::c_family_tests::c_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::cpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::mozcpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::objc_comment_forms_are_cleaned_to_their_text"
+      ]
+    },
+    {
+      "name": "line-comment-prefix-two-bytes",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "(if profile == Profile::GoDoc { 2 } else { 3 }, 0, false)",
+      "new": "(if profile == Profile::GoDoc { 2 } else { 2 }, 0, false)",
+      "expect": [
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::cpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::mozcpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::objc_comment_forms_are_cleaned_to_their_text"
+      ]
+    },
+    {
+      "name": "local-block-targets-its-scope",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "            _ => draft.pending = true,",
+      "new": "            _ => draft.target = Some(draft.scope),",
+      "expect": [
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    },
+    {
+      "name": "first-line-space-kept",
+      "file": "big-code-analysis-ast/src/documentation/text/comments.rs",
+      "old": "            lines[0].content.start += 1;\n",
+      "new": "            lines[0].content.start += 0;\n",
+      "expect": [
+        "documentation::collector::c_family_tests::c_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::cpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::mozcpp_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::objc_leading_block_documents_the_declaration_after_it",
+        "documentation::collector::c_family_tests::c_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::cpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::mozcpp_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::objc_each_variable_declarator_owns_one_slot",
+        "documentation::collector::c_family_tests::c_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::cpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::mozcpp_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::objc_enumerator_and_field_own_their_leading_block",
+        "documentation::collector::c_family_tests::c_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::cpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::mozcpp_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::objc_trailing_block_documents_the_member_before_it",
+        "documentation::collector::c_family_tests::c_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::mozcpp_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::objc_file_command_documents_the_file",
+        "documentation::collector::c_family_tests::cpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::mozcpp_class_member_function_namespace_and_alias_own_their_block",
+        "documentation::collector::c_family_tests::objc_interface_property_method_and_instance_variable_own_their_block",
+        "documentation::collector::c_family_tests::c_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::cpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::mozcpp_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::objc_comment_forms_are_cleaned_to_their_text",
+        "documentation::collector::c_family_tests::c_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::cpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::mozcpp_positions_without_a_resolved_owner_keep_their_outcome",
+        "documentation::collector::c_family_tests::objc_positions_without_a_resolved_owner_keep_their_outcome"
+      ]
+    }
+  ]
+}

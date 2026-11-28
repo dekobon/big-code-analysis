@@ -32,29 +32,60 @@ crate::roles::byte_gate!(opens_with_docblock_marker, phpdoc);
 /// reads no `use` declarations: that spelling, and the reverse `use
 /// function define as make;`, read as written (#1646).
 fn is_define_call(node: &Node<'_>, code: &[u8]) -> bool {
-    let mut expression = node.children().find(|child| {
-        matches!(
-            child.kind_id().into(),
-            Php::FunctionCallExpression | Php::ParenthesizedExpression
-        )
-    });
-    while let Some(parenthesized) =
-        expression.filter(|e| e.kind_id() == Php::ParenthesizedExpression as u16)
-    {
-        expression = parenthesized.children().find(|child| {
-            matches!(
+    crate::documentation::budget::infallible(define_with_budget(
+        node,
+        code,
+        &crate::documentation::budget::NoBudget,
+    ))
+}
+
+fn define_with_budget<B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'_>,
+    code: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let mut current = *node;
+    let expression = loop {
+        budget.step()?;
+        let mut expression = None;
+        for child in current.children() {
+            budget.step()?;
+            if matches!(
                 child.kind_id().into(),
                 Php::FunctionCallExpression | Php::ParenthesizedExpression
-            )
-        });
-    }
-    expression
+            ) {
+                expression = Some(child);
+                break;
+            }
+        }
+        if let Some(parenthesized) =
+            expression.filter(|e| e.kind_id() == Php::ParenthesizedExpression as u16)
+        {
+            current = parenthesized;
+        } else {
+            break expression;
+        }
+    };
+    Ok(expression
         .and_then(|call| call.child_by_field_name("function"))
         .is_some_and(|callee| match callee.kind_id().into() {
             Php::Name => node_bytes(&callee, code) == b"define",
             Php::QualifiedName => node_bytes(&callee, code) == b"\\define",
             _ => false,
-        })
+        }))
+}
+
+pub(crate) fn target_with_budget<'a, B: crate::documentation::budget::WorkBudget>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+    budget: &B,
+) -> Result<bool, B::Error> {
+    if node.kind_id() == Php::ExpressionStatement {
+        define_with_budget(node, code, budget)
+    } else {
+        Ok(doc_target::owns(node, code, ancestors))
+    }
 }
 
 /// Whether an `if_statement` continues a two-word `else if`: its parent

@@ -1,0 +1,3 @@
+<?php
+/** audit */
+function f() {}

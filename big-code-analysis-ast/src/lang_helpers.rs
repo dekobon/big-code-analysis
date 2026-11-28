@@ -39,12 +39,18 @@ pub mod python;
 // Crate-private: YARD's scope and call-form rules, read by this crate's
 // `Checker` impl and the Ruby role rows only (#1699).
 pub(crate) mod ruby;
+// Crate-private: shdoc's run and target rules and the scan of a Bash source
+// by Bash's quoting rules, read by the documentation collector only.
+pub(crate) mod shdoc;
 pub mod tcl;
 // Crate-private for the same reason as `irules` above: the braced-word
 // slot rule is read by this crate's three classifiers and by nothing
 // outside it. The one exception is re-exported below rather than by
 // widening the module, which would publish the slot tables too.
 pub(crate) mod tcl_family;
+// Crate-private: one scan of a script's bytes by Tcl's rules for commands
+// and words, read by the documentation collector only.
+pub(crate) mod tcl_scan;
 
 /// Re-exported because both dialects' metrics need it and the module
 /// holding it is crate-private: iRules' nexits and ABC walkers resolve a

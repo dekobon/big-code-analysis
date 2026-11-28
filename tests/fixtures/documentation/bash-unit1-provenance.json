@@ -1,0 +1,82 @@
+{
+  "scope": "shdoc documentation of Bash functions through the shared positional path; Unit 1 of #1677, which switches the Bash adapter on",
+  "base": "6b72972d9743ba512042373b8599096bfae09696",
+  "grammar": {
+    "runtime": "0.26.13",
+    "bash": "0.25.1"
+  },
+  "production_oracles": [
+    "big-code-analysis-ast/src/documentation/collector/shdoc_tests.rs",
+    "big-code-analysis-ast/src/lang_helpers/doc_text.rs"
+  ],
+  "legacy_oracles": "src/metrics/loc/documentation_tests.rs",
+  "mutation_manifests": [
+    "utils/documentation-bash-unit1-perturb.json",
+    "utils/documentation-bash-unit1-legacy-perturb.json"
+  ],
+  "reference": {
+    "tool": "shdoc",
+    "version": "1.4, commit 52917b2f3471fe77c745ede115494d2d5c9168d1 of reconquest/shdoc (SHA-256 of the program 856bdc62db15e4970c59f011e9a779d6a23e86f4f123707e25f5390d14c9b191)",
+    "configuration": "env -i PATH=/usr/bin:/bin LC_ALL=C HOME=<empty directory> TMPDIR=<empty directory> gawk --sandbox -f shdoc < source > output, GNU Awk 5.1.0",
+    "evidence": "Executed on 2026-11-25 for every source of the production oracles that is parsed whole; the functions shdoc documents were compared with the functions that own a document. The tag patterns were copied from lines 665 to 879 of the program.",
+    "qualification": "shdoc reads lines with regular expressions and parses no shell. Which function owns a run is compared; the rendered Markdown is not."
+  },
+  "syntax_reference": {
+    "tool": "GNU bash 5.1.16",
+    "configuration": "env -i PATH=/nonexistent HOME=<empty directory> TMPDIR=<empty directory> LC_ALL=C /usr/bin/bash --norc --noprofile -n <file>",
+    "evidence": "Executed on 2026-11-25. No script was executed or sourced. (1) Inputs written so that one reading of a line continuation, an escaped blank, a comment row, the start or the end of a here-document is a syntax error and the other is not. (2) One input for every construct that makes Bash read the following rows as text, with a tag row and a function inside it; the rows were replaced by `&&&` to ask whether Bash reads commands there. (3) Generated inputs made of here-document openers, tails, delimiter rows, quotes and substitutions, and generated lines of quoting bytes, compared with the collector. (4) Installed shell scripts of the host, read only, with one tag row inserted above every function start in column 0: for every resolved owner, the bytes before it, its own bytes and the file up to its end are complete commands. (5) One source per rule of the scan that reads a source by Bash's quoting rules, with probe rows: for each probe row, whether Bash reads a comment that opens a command line there.",
+    "qualification": "A syntax check shows how Bash splits the input into commands, comments and here-document text. It does not show which function a comment documents. `bash -n` of this version reads neither the content of a command substitution nor an arithmetic expression, and it does not run `shopt`, so an extended pattern is an error for it. The rules of the scan are those of Bash 5.1.16 in its default mode; no other version and no other mode was run."
+  },
+  "directive_reference": {
+    "tool": "ShellCheck 0.8.0",
+    "evidence": "Thirteen probes run on 2026-11-24 for the gap analysis of #1677: ShellCheck reads a comment as a directive when `shellcheck` follows `#` and optional blanks, and reports a parse error for a row that goes on in another way.",
+    "qualification": "ShellCheck was not run again for this unit."
+  },
+  "legacy_measurement": {
+    "tool": "the root crate at the base commit, feature bash",
+    "command": "analyze(Source::new(LANG::Bash, <bytes>), MetricsOptions::default().with_only(&[Metric::Loc])) on the verbatim bytes of every source",
+    "qualification": "Measured before any production edit: the LOC tuple, the comment and code rows, and that no documentation row exists in the unit or in a nested space."
+  },
+  "known_differences": [
+    "shdoc reads a ShellCheck directive row inside a description as description text; here the row is directive evidence and not text.",
+    "shdoc documents a function below a run that holds a file tag (@name, @file, @brief), and below a run whose first row is plain; here such a run is a pending document without an owner.",
+    "shdoc documents nothing for a run that is only `# @example`, `# @section x` or a row such as `# @descriptionx`, although its patterns match the row; here the row is a tag line and the run documents the function.",
+    "shdoc documents a function in a subshell, a group, an `if`, a loop, a `case` arm, a command substitution, a pipeline or a list, and one behind a here-document redirect; here such a function is a pending owner.",
+    "shdoc documents a function from the text of a here-document, of a quoted string or of a substitution; here that text is never documentation. Behind a form that the scan reads only on one row (a substitution, an expansion, an arithmetic form, a subscript) and that goes over several, and behind a recovery node of the grammar, a run is withheld: no document, no candidate, one pending assessment on its first row.",
+    "shdoc reads a comment row that Bash joins to the row above, or reads as part of a word, as documentation; here such a row opens no run.",
+    "shdoc documents a function whose body holds a syntax error; here the document is kept and the association is unresolved.",
+    "shdoc hides a function with `# @internal`; here publication is unknown for every association.",
+    "The pinned grammar ends a here-document at a row that only starts with the delimiter or stands behind blanks, it starts `heredoc_body` after the blank rows of the text, it parses the rows after `<<EOF |` as code, it does not join a row of the text that ends in a backslash to the next row, it reads the texts of two operators across `|` in the reverse order, and it ends `$'\\\\''`, a back-quoted substitution with a quote in it and a subscript with a nested `[` earlier than Bash. Here the source is read by Bash's rules, and none of these is taken from the grammar.",
+    "The pinned grammar gives no function node for `f() for …`, `f() while …` and `f() case …`; a tagged run above such a row keeps an unresolved document, and what follows it is withheld.",
+    "The pinned grammar reports an error for valid Bash such as `<>` in a subshell, `cat <<EOF ;` and two here-documents on one row; what follows the first such place in a file is withheld.",
+    "A row that only mentions ShellCheck after other text is text; a row such as `# shellchecker x`, for which ShellCheck 0.8.0 reports a parse error, is directive evidence."
+  ],
+  "limits": [
+    {
+      "name": "crlf",
+      "form": "A source with CRLF line ends that is parsed from bytes of the caller",
+      "today": "`# @description d\\r\\nf() { :; }\\r\\n` gives a document with a `Resolved` owner. Bash reads the CR as a byte of the word before it: `bash -n` reports a syntax error, and no function is defined. `Ast::from_path` replaces CRLF and CR by LF before the parse, so a file read from disk does not reach this outcome.",
+      "test": "bash_crlf_rows_give_an_owner_that_bash_does_not_read",
+      "review_point": "crlf"
+    },
+    {
+      "name": "excluded-opener",
+      "form": "An excluded byte may be the quote of a multi-row string or the first byte of << before a here-document delimiter",
+      "today": "A restricted parse that hides a quote or the first byte of << can make a tag row appear to be a comment even when the whole source reads it as string or here-document text. Recovery does not inspect excluded bytes; it resumes only after an included proven unescaped feed without an opened construct.",
+      "test": "bash_excluded_ranges_are_barriers",
+      "review_point": "excluded-opener"
+    }
+  ],
+  "pending": [
+    "File documents: @name, @file, @brief, description-only headers and the file rule",
+    "A run opened by a plain row: the extent of its text",
+    "Functions in subshells, groups, conditionals, loops, case arms, command substitutions, pipelines and lists, and behind a here-document redirect",
+    "Function spellings for which the grammar gives no function node",
+    "Opt-in leading-comment inference",
+    "Continuation rows between a run and its function, and a comment row joined to a code row",
+    "@internal as a publication state, the marker of ## rows, and a lone CR",
+    "Forms that the scan reads only where they close on their row: a command or process substitution, an expansion, an arithmetic form, a subscript, an extended pattern and the word behind `=~`; `<<` and a comment start inside such a form; a delimiter word that needs a shell for its quote removal",
+    "Runs and functions after a recovery node of the grammar in valid Bash",
+    "Benchmark workloads and fuzz seeds beyond the dispatch seed"
+  ]
+}

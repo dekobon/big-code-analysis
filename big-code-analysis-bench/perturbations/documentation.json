@@ -1,0 +1,121 @@
+{
+  "cwd": ".",
+  "provenance": {
+    "checkpoint": "a4397339f872647d672e44e056a043502e13527f",
+    "issue_base": "9abf9720cd5d1506455cb94fed5b0009f4fc1a15",
+    "usage": "Run from the repository root: python3 -B utils/perturb.py big-code-analysis-bench/perturbations/documentation.json",
+    "preservation": "Combines the original 13-case performance and 2-case scan manifests. Command, substitutions and expected test targets are unchanged; cwd is relative for replay in another checkout.",
+    "results": "documentation-results-a4397339.json"
+  },
+  "command": [
+    "cargo", "test", "-p", "big-code-analysis-bench", "-p", "big-code-analysis-ast",
+    "--all-features", "--lib", "documentation", "--no-fail-fast"
+  ],
+  "cases": [
+    {
+      "name": "skip registered cell execution",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "operation.execute()?;",
+      "new": "std::hint::black_box(operation);",
+      "expect": ["documentation::runner::tests::source_schedule_executes_calibration_warmup_and_measured_work"]
+    },
+    {
+      "name": "ignore wrong cell membership",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "cell.id == probe.id && cell.size == size,",
+      "new": "true,",
+      "expect": ["documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode"]
+    },
+    {
+      "name": "ignore missing samples",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "raw.batches.len() == rounds,",
+      "new": "raw.batches.len() <= rounds,",
+      "expect": ["documentation::runner::tests::malformed_membership_and_samples_fail_in_every_mode"]
+    },
+    {
+      "name": "disable measured batch resolution",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "if mode != Mode::Smoke && median < MIN_SOURCE_SAMPLE {",
+      "new": "if false && mode != Mode::Smoke && median < MIN_SOURCE_SAMPLE {",
+      "expect": ["documentation::runner::tests::actual_batches_control_resolution_even_at_iteration_cap"]
+    },
+    {
+      "name": "floor fractional ns",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "let ns = median.as_secs_f64() * 1e9 / f64::from(raw.iterations);",
+      "new": "let ns = (median.as_secs_f64() * 1e9 / f64::from(raw.iterations)).max(1.0);",
+      "expect": ["documentation::runner::tests::ratios_keep_subnanosecond_values_and_report_performance_failure"]
+    },
+    {
+      "name": "legacy cheap iteration cap",
+      "file": "big-code-analysis-bench/src/documentation/runner.rs",
+      "old": "pub const SOURCE_MAX_ITERATIONS: u32 = 1 << 20;",
+      "new": "pub const SOURCE_MAX_ITERATIONS: u32 = 64;",
+      "expect": ["documentation::runner::tests::calibration_caps_zero_and_preserves_ceiling"]
+    },
+    {
+      "name": "omit source failures",
+      "file": "big-code-analysis-bench/src/documentation/combined.rs",
+      "old": "+ self.source.as_ref().map_or(0, |r| r.failures().len())",
+      "new": "+ self.source.as_ref().map_or(0, |_r| 0)",
+      "expect": ["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass"]
+    },
+    {
+      "name": "ignore gate exit failure",
+      "file": "big-code-analysis-bench/src/documentation/combined.rs",
+      "old": "u8::from(mode == Mode::Gate && optimized && self.failures() > 0)",
+      "new": "u8::from(mode == Mode::Gate && optimized && self.failures() > usize::MAX)",
+      "expect": ["documentation::combined::tests::combined_membership_and_source_failure_cannot_hide_behind_legacy_pass"]
+    },
+    {
+      "name": "skip association consumption",
+      "file": "big-code-analysis-bench/src/documentation/operation.rs",
+      "old": "for association in query.associations() {",
+      "new": "for association in query.associations().take(0) {",
+      "expect": ["documentation::tests::prepared_query_counters_charge_only_declared_output"]
+    },
+    {
+      "name": "skip qualification consumption",
+      "file": "big-code-analysis-bench/src/documentation/operation.rs",
+      "old": "for qualification in query.qualifications() {",
+      "new": "for qualification in query.qualifications().take(0) {",
+      "expect": ["documentation::tests::prepared_query_counters_charge_only_declared_output"]
+    },
+    {
+      "name": "drop included scalar intersections",
+      "file": "big-code-analysis-ast/src/documentation/render_probe.rs",
+      "old": "if validated != fragment.source {",
+      "new": "if validated != fragment.source || pieces.len() > 1 {",
+      "expect": ["documentation::render_probe::tests::valid_preparation_borrows_adjacent_range_intersections"]
+    },
+    {
+      "name": "skip tiny render entry cancellation",
+      "file": "big-code-analysis-ast/src/documentation/render_probe.rs",
+      "old": "budget.checkpoint().map_err(RenderError::Source)?;",
+      "new": "budget.step().map_err(RenderError::Source)?;",
+      "expect": ["documentation::render_probe::tests::tiny_and_empty_render_poll_cancellation_at_entry"]
+    },
+    {
+      "name": "skip render identity validation",
+      "file": "big-code-analysis-ast/src/documentation/render_probe.rs",
+      "old": "        index\n            .facts\n            .check_scope(document)\n            .map_err(RenderError::Fact)?;",
+      "new": "        let _ = document;",
+      "expect": ["documentation::render_probe::tests::preparation_rejects_foreign_and_pending_documents"]
+    },
+    {
+      "name": "scan all associations",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "        self.associations.iter().map(|&ordinal| {",
+      "new": "        for association in self.index.associations() { std::hint::black_box(association); }\n        self.associations.iter().map(|&ordinal| {",
+      "expect": ["documentation::tests::prepared_query_counters_charge_only_declared_output"]
+    },
+    {
+      "name": "scan all qualifications",
+      "file": "big-code-analysis-ast/src/documentation/index.rs",
+      "old": "        self.index.qualification_refs(self.qualifications)",
+      "new": "        for qualification in self.index.qualifications() { std::hint::black_box(qualification); }\n        self.index.qualification_refs(self.qualifications)",
+      "expect": ["documentation::tests::prepared_query_counters_charge_only_declared_output"]
+    }
+  ]
+}

@@ -13,6 +13,8 @@
 //! Tree-sitter wrappers: `Tree`, [`Node`], [`Ancestors`], and the cursors.
 
 mod ancestors;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use ancestors::{memo_probes, sibling_slot_probes};
 mod parser_cache;
 
 pub use ancestors::{AncestorIter, Ancestors, ChildAncestors, FoldCache, SiblingCache};
@@ -87,7 +89,10 @@ crate::observation::counter!(child_scan_cursors, cfg(any(test, feature = "test-s
 /// caller-built `tree_sitter::Tree` directly; this wrapper stays
 /// internal so the metric walker is the only thing that observes it.
 #[derive(Clone, Debug)]
-pub(crate) struct Tree(OtherTree);
+pub(crate) struct Tree {
+    tree: OtherTree,
+    completion: crate::parser::ParseCompletion,
+}
 
 impl Tree {
     /// # Panics
@@ -108,19 +113,27 @@ impl Tree {
         let language = T::lang().get_ts_language().expect(
             "invariant: the caller checked LANG::is_enabled, or reached this through AnyParser",
         );
-        Self(parse_on_scratch_parser(&language, code))
+        let (tree, completion) = parse_on_scratch_parser(&language, code);
+        Self { tree, completion }
     }
 
     pub(crate) fn from_ts_tree(tree: OtherTree) -> Self {
-        Self(tree)
+        Self {
+            tree,
+            completion: crate::parser::ParseCompletion::Adopted,
+        }
     }
 
     pub(crate) fn get_root(&self) -> Node<'_> {
-        Node(self.0.root_node())
+        Node(self.tree.root_node())
     }
 
     pub(crate) fn as_ts_tree(&self) -> &OtherTree {
-        &self.0
+        &self.tree
+    }
+
+    pub(crate) fn completion(&self) -> crate::parser::ParseCompletion {
+        self.completion
     }
 }
 
@@ -135,6 +148,9 @@ impl Tree {
 pub struct Node<'a>(OtherNode<'a>);
 
 impl<'a> Node<'a> {
+    pub(crate) fn from_tree_sitter(node: OtherNode<'a>) -> Self {
+        Self(node)
+    }
     /// Returns the underlying [`tree_sitter::Node`] for callers that
     /// want to drive their own traversal alongside the metric walker.
     ///
@@ -477,6 +493,7 @@ impl<'a> Node<'a> {
     /// [`children`]: Self::children
     #[inline]
     pub fn child_by_field_name(&self, name: &str) -> Option<Node<'a>> {
+        field_lookups::record();
         self.0.child_by_field_name(name).map(Node)
     }
 
@@ -492,6 +509,7 @@ impl<'a> Node<'a> {
     #[doc(hidden)]
     #[inline]
     pub fn child_by_field_id(&self, field: u16) -> Option<Node<'a>> {
+        field_lookups::record();
         self.0.child_by_field_id(field).map(Node)
     }
 
@@ -529,6 +547,7 @@ impl<'a> Node<'a> {
     #[inline]
     #[must_use]
     pub fn child(&self, pos: usize) -> Option<Node<'a>> {
+        child_lookups::record();
         self.0.child(pos as u32).map(Node)
     }
 
@@ -766,6 +785,9 @@ impl<'a> Node<'a> {
             .collect()
     }
 }
+
+crate::observation::counter!(field_lookups, cfg(any(test, feature = "test-support")));
+crate::observation::counter!(child_lookups, cfg(any(test, feature = "test-support")));
 
 /// Pre-order iterator over a node and its descendants, returned by
 /// [`Node::preorder`].

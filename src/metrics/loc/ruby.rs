@@ -28,8 +28,7 @@ impl Loc for RubyCode {
         match node.kind_id().into() {
             R::Program => {}
             R::Comment => {
-                add_comment_lines::<Self>(node, code, ancestors, stats);
-                add_leading_doc_run::<Self>(node, code, ancestors, stats);
+                add_positional_comment::<Self>(node, code, ancestors, stats);
             }
             // A Ruby string literal (`"…"` / `'…'` / `%q{…}`) or a heredoc
             // body can span several rows; credit every spanned row to PLOC to
