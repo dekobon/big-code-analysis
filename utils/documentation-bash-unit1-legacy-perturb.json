@@ -1,0 +1,63 @@
+{
+  "cwd": ".",
+  "runner": "cargo",
+  "cargo": [
+    "cargo",
+    "test",
+    "-p",
+    "big-code-analysis",
+    "--all-features",
+    "--lib",
+    "documentation_bash"
+  ],
+  "cases": [
+    {
+      "name": "comment-in-a-text-is-read",
+      "file": "big-code-analysis-ast/src/documentation/collector.rs",
+      "old": "        if self.shdoc.unread() {",
+      "new": "        if false {",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_bash_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "bash-comment-rows-are-not-counted",
+      "file": "src/metrics/loc/bash.rs",
+      "old": "            Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }",
+      "new": "            Comment => {}",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_bash_legacy_rows_hold_no_shdoc_documentation",
+        "metrics::loc::documentation_tests::documentation_bash_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "bash-comments-take-the-positional-stream",
+      "file": "src/metrics/loc/bash.rs",
+      "old": "            Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }",
+      "new": "            Comment => {\n                super::shared::add_positional_comment::<Self>(node, code, ancestors, stats);\n            }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_bash_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "bash-tag-rows-are-documentation-rows",
+      "file": "src/metrics/loc/bash.rs",
+      "old": "            Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }",
+      "new": "            Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n                if code[node.start_byte()..].starts_with(b\"# @\") {\n                    stats.dloc.lines.insert_range(node.start_row(), node.end_row());\n                }\n            }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_bash_legacy_rows_hold_no_shdoc_documentation",
+        "metrics::loc::documentation_tests::documentation_bash_source_and_legacy_views_are_independent"
+      ]
+    },
+    {
+      "name": "bash-comment-above-an-empty-row-is-billed-one-row-lower",
+      "file": "src/metrics/loc/bash.rs",
+      "old": "            Comment => {\n                add_comment_lines::<Self>(node, code, ancestors, stats);\n            }",
+      "new": "            Comment => {\n                let below = node.end_row() + 1;\n                let empty = |row: &[u8]| row.is_empty();\n                if code.split(|byte| *byte == b'\\n').nth(below).is_some_and(empty) {\n                    super::shared::add_comment_rows(stats, below, below, false);\n                } else {\n                    add_comment_lines::<Self>(node, code, ancestors, stats);\n                }\n            }",
+      "expect": [
+        "metrics::loc::documentation_tests::documentation_bash_legacy_rows_hold_no_shdoc_documentation",
+        "metrics::loc::documentation_tests::documentation_bash_source_and_legacy_views_are_independent"
+      ]
+    }
+  ]
+}

@@ -233,7 +233,7 @@ fn registry_executes_every_dispatch_and_edge_assertion() {
             _ => assert_eq!(result, Ok(Outcome::Checked)),
         }
     }
-    assert_eq!(counts, [20, 2, 2, 1]);
+    assert_eq!(counts, [21, 1, 2, 1]);
     assert_eq!(dispatch, (0..25).collect());
     let actual: BTreeSet<_> = std::fs::read_dir(root.join("corpus/documentation"))
         .unwrap()

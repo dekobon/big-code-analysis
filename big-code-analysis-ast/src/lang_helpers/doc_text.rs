@@ -569,6 +569,101 @@ fn ldoc_end_marker<B: WorkBudget>(s: &[u8], budget: &B) -> Result<bool, B::Error
     Ok(dashes >= 2 && trimmed > dashes)
 }
 
+/// How shdoc 1.4 reads one comment row, by the pattern rules of its
+/// program: a tag line, a tag line whose text shdoc gives to the file
+/// (`@name`, `@file`, `@brief`), or text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShdocRow {
+    Text,
+    Tag,
+    FileTag,
+}
+
+// shdoc matches these as `# @name`: exactly one space, and any bytes
+// after the name, so `# @seealso` is its `@see`.
+const SHDOC_FILE_TAGS: [&[u8]; 3] = [b"name", b"file", b"brief"];
+const SHDOC_LINE_TAGS: [&[u8]; 8] = [
+    b"internal",
+    b"description",
+    b"section",
+    b"example",
+    b"set",
+    b"exitcode",
+    b"see",
+    b"deprecated",
+];
+// shdoc matches these after one or more blanks, and wants blanks and
+// then text after the name.
+const SHDOC_VALUE_TAGS: [&[u8]; 5] = [b"option", b"arg", b"stdin", b"stdout", b"stderr"];
+
+/// The class of the comment row `s`, which starts at its `#`.
+pub(crate) fn shdoc_row_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<ShdocRow, B::Error> {
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(ShdocRow::Text);
+    };
+    if let Some(row) = rest.strip_prefix(b" @").and_then(shdoc_fixed_tag) {
+        return Ok(row);
+    }
+    let blanks = shdoc_blanks(rest, budget)?;
+    Ok(match rest[blanks..].strip_prefix(b"@") {
+        Some(name) if blanks > 0 && shdoc_value_tag(name, budget)? => ShdocRow::Tag,
+        _ => ShdocRow::Text,
+    })
+}
+
+/// A tag that shdoc matches as `# @name`, by the name that `name` opens with.
+fn shdoc_fixed_tag(name: &[u8]) -> Option<ShdocRow> {
+    if SHDOC_FILE_TAGS.iter().any(|tag| name.starts_with(tag)) {
+        Some(ShdocRow::FileTag)
+    } else if SHDOC_LINE_TAGS.iter().any(|tag| name.starts_with(tag)) {
+        Some(ShdocRow::Tag)
+    } else {
+        None
+    }
+}
+
+/// A tag that shdoc matches after one or more blanks: `noargs` with
+/// nothing but blanks after it, or one of the five names that want blanks
+/// and then text.
+fn shdoc_value_tag<B: WorkBudget>(name: &[u8], budget: &B) -> Result<bool, B::Error> {
+    if let Some(after) = name.strip_prefix(b"noargs")
+        && shdoc_blanks(after, budget)? == after.len()
+    {
+        return Ok(true);
+    }
+    for tag in SHDOC_VALUE_TAGS {
+        if let Some(after) = name.strip_prefix(tag) {
+            let blanks = shdoc_blanks(after, budget)?;
+            if blanks > 0 && blanks < after.len() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// The length of the run of spaces and tabs that `s` opens with.
+fn shdoc_blanks<B: WorkBudget>(s: &[u8], budget: &B) -> Result<usize, B::Error> {
+    Ok(scan::position(s, |b| !matches!(b, b' ' | b'\t'), budget)?.unwrap_or(s.len()))
+}
+
+/// A row that ShellCheck 0.8.0 reads as a directive: `#`, optional
+/// blanks, then `shellcheck`. It reports a parse error for a row that goes
+/// on in another way (`# shellchecker x`), so such a row is no prose
+/// either.
+pub(crate) fn shellcheck_directive_with_budget<B: WorkBudget>(
+    s: &[u8],
+    budget: &B,
+) -> Result<bool, B::Error> {
+    let Some(rest) = s.strip_prefix(b"#") else {
+        return Ok(false);
+    };
+    Ok(rest[shdoc_blanks(rest, budget)?..].starts_with(b"shellcheck"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -807,6 +902,151 @@ mod tests {
             b"#",
         ] {
             assert!(!ruby_magic_comment(doc), "{}", String::from_utf8_lossy(doc));
+        }
+    }
+
+    /// Sums the bytes a classifier is charged for, and can fail at one charge.
+    #[derive(Default)]
+    struct Charged {
+        bytes: std::cell::Cell<usize>,
+        charges: std::cell::Cell<usize>,
+        fail_at: Option<usize>,
+    }
+
+    impl WorkBudget for Charged {
+        type Error = crate::documentation::SourceError;
+
+        fn checkpoint(&self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn step(&self) -> Result<(), Self::Error> {
+            panic!("the row classifiers charge bytes only")
+        }
+
+        fn bytes(&self, count: usize) -> Result<(), Self::Error> {
+            self.bytes.set(self.bytes.get() + count);
+            self.charges.set(self.charges.get() + 1);
+            if self.fail_at == Some(self.charges.get()) {
+                Err(crate::documentation::SourceError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// The answer of `rule` and the bytes it is charged, after showing that a budget
+    /// which fails at any one of its charges stops it there.
+    fn charged<T>(
+        rule: impl Fn(&Charged) -> Result<T, crate::documentation::SourceError>,
+    ) -> (T, usize) {
+        let budget = Charged::default();
+        let Ok(answer) = rule(&budget) else {
+            panic!("a counting budget does not fail")
+        };
+        for fail_at in 1..=budget.charges.get() {
+            let failing = Charged {
+                fail_at: Some(fail_at),
+                ..Charged::default()
+            };
+            assert!(rule(&failing).is_err(), "charge {fail_at}");
+            assert_eq!(failing.charges.get(), fail_at);
+        }
+        (answer, budget.bytes.get())
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn shdoc_row_classifier_follows_the_tag_patterns_and_charges_the_blanks_it_reads() {
+        use ShdocRow::{FileTag, Tag, Text};
+        // Each count is the bytes the classifier reads: a run of blanks and the byte
+        // that ends it, once after `#` and once after an `@option`-like name. A row
+        // that matches a `# @name` pattern is told by fixed prefixes and reads none.
+        let rows: [(&[u8], ShdocRow, usize); 46] = [
+            (b"# @internal", Tag, 0),
+            (b"# @description x", Tag, 0),
+            (b"# @description", Tag, 0),
+            (b"# @descriptionx", Tag, 0),
+            (b"# @section s", Tag, 0),
+            (b"# @example", Tag, 0),
+            (b"# @set V string x", Tag, 0),
+            (b"# @exitcode 0 ok", Tag, 0),
+            (b"# @see other", Tag, 0),
+            (b"# @seealso x", Tag, 0),
+            (b"# @deprecated", Tag, 0),
+            (b"# @name x", FileTag, 0),
+            (b"# @file x", FileTag, 0),
+            (b"# @files x", FileTag, 0),
+            (b"# @brief x", FileTag, 0),
+            (b"# @option -h Help", Tag, 4),
+            (b"#  @option -h Help", Tag, 5),
+            (b"#\t@option -h x", Tag, 4),
+            (b"# @arg $1 string Name", Tag, 4),
+            (b"#  @arg $1 x", Tag, 5),
+            (b"# @noargs", Tag, 2),
+            (b"#  @noargs  ", Tag, 5),
+            (b"# @stdin Data", Tag, 4),
+            (b"# @stdout Data", Tag, 4),
+            (b"# @stderr Data", Tag, 4),
+            (b"#@description audit", Text, 1),
+            (b"## @description audit", Text, 1),
+            (b"#  @description x", Text, 3),
+            (b"#\t@description x", Text, 2),
+            (b"# @Description x", Text, 2),
+            (b"# @ description x", Text, 2),
+            (b"#\t@name x", Text, 2),
+            (b"# @arg", Text, 2),
+            (b"# @arg  ", Text, 4),
+            (b"# @argument x", Text, 3),
+            (b"# @option", Text, 2),
+            (b"# @optionx y", Text, 3),
+            (b"# @noargs x", Text, 4),
+            (b"# @stdout", Text, 2),
+            (b"# @stdoutx y", Text, 3),
+            (b"# @todo x", Text, 2),
+            (b"# plain", Text, 2),
+            (b"# mail dev@example.com", Text, 2),
+            (b"#", Text, 0),
+            (b"#!/bin/bash", Text, 1),
+            (b"x", Text, 0),
+        ];
+        for (comment, class, bytes) in rows {
+            assert_eq!(
+                charged(|budget| shdoc_row_with_budget(comment, budget)),
+                (class, bytes),
+                "{}",
+                comment.escape_ascii()
+            );
+        }
+    }
+
+    #[test]
+    fn shellcheck_directive_rows_are_the_rows_shellcheck_reads_as_directives() {
+        // The thirteen probes of the ShellCheck 0.8.0 run: a row is a directive where
+        // ShellCheck suppressed the warning or reported a parse error for the row.
+        // Each count is the blanks after `#` and the byte that ends them.
+        let rows: [(&[u8], bool, usize); 13] = [
+            (b"# shellcheck disable=SC2086", true, 2),
+            (b"#shellcheck disable=SC2086", true, 1),
+            (b"## shellcheck disable=SC2086", false, 1),
+            (b"#  shellcheck disable=SC2086", true, 3),
+            (b"#\tshellcheck disable=SC2086", true, 2),
+            (b"# ShellCheck disable=SC2086", false, 2),
+            (b"# shellcheck disable=SC2086 # because", true, 2),
+            (b"# shellcheck: disable=SC2086", true, 2),
+            (b"# note shellcheck disable=SC2086", false, 2),
+            (b"# shellcheck is noisy here", true, 2),
+            (b"# shellcheck disable =SC2086", true, 2),
+            (b"# plain comment", false, 2),
+            (b"# shellchecker disable=SC2086", true, 2),
+        ];
+        for (comment, directive, bytes) in rows {
+            assert_eq!(
+                charged(|budget| shellcheck_directive_with_budget(comment, budget)),
+                (directive, bytes),
+                "{}",
+                comment.escape_ascii()
+            );
         }
     }
 }

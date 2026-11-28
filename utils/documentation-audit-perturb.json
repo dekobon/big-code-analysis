@@ -25,10 +25,10 @@
       "expect": ["documentation::collector::form_tests::java_unnamed_field_form_is_pending_in_default_queries", "documentation::collector::js_tests::javascript_declarations_awaiting_an_owner_keep_their_pending_outcome"]
     },
     {
-      "name": "deferred-bash-is-empty-success",
+      "name": "deferred-irules-is-empty-success",
       "file": "big-code-analysis-ast/src/documentation/options.rs",
-      "old": "Self::Shdoc | Self::Irules",
-      "new": "Self::Irules",
+      "old": "matches!(profile, Self::Irules)",
+      "new": "matches!(profile, Self::Shdoc)",
       "expect": ["documentation::collector::tests::named_profiles_distinguish_deferred_incompatible_and_available"]
     },
     {

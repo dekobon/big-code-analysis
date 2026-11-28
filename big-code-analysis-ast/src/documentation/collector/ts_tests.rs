@@ -2258,6 +2258,7 @@ fn unit2_restricted_keyword_costs(language: LANG) {
             pod_doubt: super::pod_doubt::Doubt::default(),
             pod_hidden: super::pod::Hidden::default(),
             tcl_scan: crate::lang_helpers::tcl_scan::CommandScan::default(),
+            shdoc: crate::lang_helpers::shdoc::Reading::default(),
         };
         let result = builder.ts_ambient_continues(id, &budget).unwrap();
         assert_eq!(result, !source.windows(3).any(|w| w == b"/*\n"));

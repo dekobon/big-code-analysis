@@ -384,15 +384,23 @@ mod tests {
             panic!("raw projection")
         };
         assert_eq!(text, "@description a\\\n");
-        assert!(matches!(
-            parser.documentation(
+        // The collected document keeps the backslash as text: it ends the first row
+        // and joins nothing, so the line feed between the rows is the synthetic one.
+        let index = parser
+            .documentation(
                 &crate::documentation::DocumentationContext::default(),
-                &crate::documentation::DocumentationOptions::default()
-            ),
-            Err(crate::documentation::CollectionError::AdapterUnavailable {
-                language: LANG::Bash,
-                ..
-            })
+                &crate::documentation::DocumentationOptions::default(),
+            )
+            .unwrap();
+        let documents: Vec<_> = index.documents().collect();
+        let [document] = documents[..] else {
+            panic!("one document, found {}", documents.len())
+        };
+        let collected = index.complete_text(document).unwrap().unwrap();
+        assert_eq!(collected.text(), "@description a\\\nb");
+        assert!(matches!(
+            collected.mappings()[1].origin,
+            crate::documentation::Origin::Synthetic
         ));
     }
 

@@ -118,7 +118,7 @@ content states rather than inferring that every form is supported. See
 
 | `LANG` variant | Default `Profile::name()` | Adapter |
 | --- | --- | --- |
-| `Bash` | `shdoc` | Unavailable |
+| `Bash` | `shdoc` | Partial |
 | `C` | `Doxygen` | Partial |
 | `Cpp` (C++) | `Doxygen` | Partial |
 | `Csharp` | `CsharpXml` | Partial |

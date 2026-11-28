@@ -110,6 +110,7 @@ impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
                     node, code, ancestors, true, budget,
                 ),
                 crate::LANG::Lua => crate::checker::lua::target_with_budget(node, budget),
+                crate::LANG::Bash => Ok(crate::lang_helpers::shdoc::target(node)),
                 crate::LANG::Php => {
                     crate::roles::php::target_with_budget(node, code, ancestors, budget)
                 }
@@ -241,6 +242,9 @@ impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
             crate::LANG::Lua => {
                 crate::checker::lua::source_opener_with_budget(run, ancestors, budget)
             }
+            crate::LANG::Bash => Ok(Ok(crate::lang_helpers::shdoc::opener_with_budget(
+                run, budget,
+            )?)),
             _ => PublicRules::<T>::opener(run, ancestors, budget),
         }
     }
@@ -256,6 +260,9 @@ impl<T: Checker + crate::traits::LanguageInfo> SourceRules for NativeRules<T> {
             }
             crate::LANG::Ruby => {
                 crate::lang_helpers::doc_text::ruby_magic_comment_with_budget(bytes, budget)
+            }
+            crate::LANG::Bash => {
+                crate::lang_helpers::shdoc::directive_with_budget(node, bytes, budget)
             }
             _ => PublicRules::<T>::directive(node, code, budget),
         }

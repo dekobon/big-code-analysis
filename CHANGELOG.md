@@ -72,6 +72,20 @@ for historical reference.
   declaration. Destructuring properties and constructor/function parameters
   remain pending; legacy documentation rows are unchanged. (#1666)
 
+- The unstable AST documentation collector now reads shdoc comments of Bash.
+  A run of `#` rows directly above a function, in either spelling, whose first
+  row is an shdoc tag line is one document of that function, at file level and
+  in the braces of another function's body. A `#!` row at the start of the file
+  and ShellCheck directive rows are directive evidence, not text. A run with a
+  file tag (`@name`, `@file`, `@brief`), a run opened by a plain row, and a
+  function in another position keep a pending document or owner. The collector
+  reads the source once by Bash's quoting rules: the text of a here-document,
+  of a quoted string or of a substitution is never documentation. Behind a
+  form that this reading does not follow over several rows, and behind a
+  syntax error of the grammar, a run is withheld and reported as a pending
+  assessment, and a function is a pending owner. Legacy documentation rows are
+  unchanged. (#1677)
+
 - The unstable Java source-documentation collector now marks package documentation
   eligible only with the explicit logical filename `package-info.java`, ineligible
   with a different filename, and unknown without one. Attachment and cleaned text
